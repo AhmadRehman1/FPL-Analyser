@@ -186,6 +186,22 @@ def build_sources(con: duckdb.DuckDBPyConnection, wb: openpyxl.Workbook, params_
             if val and isinstance(val, str):
                 source_names.add(val.strip())
 
+    # M1b: "14_Community Evidence's free-text reliability field is stored as source_notes
+    # on the corresponding sources table entry -- informs a human's manual tier_weight
+    # assignment, never auto-parsed into a numeric score." Last-seen note wins if a source
+    # appears with several different free-text notes across rows.
+    source_notes: dict[str, str] = {}
+    ws = wb["14_Community Evidence"]
+    header = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    if "Creator/Source" in header and "Source Reliability" in header:
+        creator_idx = header.index("Creator/Source")
+        note_idx = header.index("Source Reliability")
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            creator = row[creator_idx] if creator_idx < len(row) else None
+            note = row[note_idx] if note_idx < len(row) else None
+            if creator and note:
+                source_notes[str(creator).strip()] = str(note).strip()
+
     system_derived = {"system-derived"}
     n = 0
     for name in sorted(source_names | system_derived):
@@ -196,7 +212,6 @@ def build_sources(con: duckdb.DuckDBPyConnection, wb: openpyxl.Workbook, params_
         else:
             source_type = classify_source_type(name)
             citation_count = citation_counts.get(name, 1)
-            _val_num, tier_weight_text = None, None
             row = con.execute(
                 "SELECT value_numeric FROM param_versions WHERE param_family = 'source_tier_weights' "
                 "AND param_version = ? AND param_key = 'tier_weight' AND dimensions = ?",
@@ -209,7 +224,7 @@ def build_sources(con: duckdb.DuckDBPyConnection, wb: openpyxl.Workbook, params_
             "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score, "
             "citation_count, source_notes, last_reviewed_date) VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT (source_name) DO NOTHING",
-            [source_id, name, source_type, base_score, citation_count, None, None],
+            [source_id, name, source_type, base_score, citation_count, source_notes.get(name), None],
         )
         n += 1
     return n
@@ -381,6 +396,10 @@ def ingest_predicted_xi(con, wb, ingested_date) -> dict:
             claim_value={
                 "label": label, "predicted_starter": predicted_starter, "rotation_risk": rotation_risk,
                 "expected_minutes": exp_minutes, "reasoning": reasoning,
+                # M1b: "Club Cross-Check Status" is audit metadata only -- never used to
+                # re-validate against 1_Player Database, which is outside the M0 allowlist
+                # entirely. Carried here for traceability, not consumed by any scoring logic.
+                "audit_cross_check_status": cross_check,
             },
             claim_value_numeric=numeric,
             information_type="OPINION",  # tab has no FACT/OPINION column; a predicted lineup is inherently analytical judgment

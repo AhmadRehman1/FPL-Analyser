@@ -5,17 +5,24 @@ Usage (from repo root):
 """
 
 import json
+import math
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, ingest_csv, ingest_workbook, params, reconcile  # noqa: E402
+from fpl_quant import db, ingest_csv, ingest_workbook, minutes_model, params, reconcile, team_strength  # noqa: E402
 
 DATA_ROOT = REPO_ROOT / "data" / "external" / "FPL-Core-Insights-main" / "data"
 XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_202627_Master_Evidence_Database.xlsx"
+# "Now", not a hardcoded date: a model run's data_asof has to be today for evidence ingested
+# today to actually be visible (a fixed past date would look-ahead-safely -- but wrongly --
+# exclude same-day evidence every time this script re-runs).
+CALIBRATION_ASOF_DATE = date.today()
+TARGET_SEASON = "2026-2027"
 
 SOURCE_TIER_WEIGHTS_V1 = [
     ("official", 1.0),
@@ -40,7 +47,41 @@ def main() -> None:
             con, "source_tier_weights", 1, "2026-08-10", "tier_weight",
             value_numeric=weight, dimensions={"source_type": source_type},
         )
-    print("[params] source_tier_weights v1 seeded")
+    # M1b: invented v1 default (spec names the mechanism but not a value) -- a modest 20%
+    # boost for FACT-tagged claims from official/journalist-tier sources. Flagged for M7
+    # recalibration alongside every other invented constant in this project.
+    params.write_param(con, "fact_type_multiplier_params", 1, "2026-08-10", "multiplier", value_numeric=1.2)
+    # M1: Dixon & Coles (1997) pinned defaults.
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    # M2 v1 defaults, adapted to the real injury-status vocabulary this workbook actually
+    # uses (Out/Doubt/Doubt (improving)/Doubt (minutes)), not the spec's illustrative
+    # Out/Doubtful/Minor-knock/Fit strings -- see README for the mapping rationale.
+    injury_magnitudes = {
+        "Out": -4.0, "Doubt": -1.5, "Doubt (improving)": -1.0, "Doubt (minutes)": -1.0,
+        "Minor/knock": -0.5, "Fit": 0.0,
+    }
+    for category, magnitude in injury_magnitudes.items():
+        params.write_param(
+            con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude", value_numeric=magnitude,
+            dimensions={"claim_type": "injury_status", "category": category},
+        )
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                        value_numeric=0.8, dimensions={"claim_type": "predicted_xi"})
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                        value_numeric=1.0, dimensions={"claim_type": "manager_tendency"})
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                        value_numeric=-2.0, dimensions={"claim_type": "transfer_likelihood"})
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap",
+                        value_numeric=6.0, dimensions={"scope": "global"})
+    # M2's own decay table, kept separate from M1's model_decay_params (rotation patterns
+    # track manager tenure/squad changes more than pure calendar time). Invented v1 default
+    # (a shorter ~200-day half-life than M1's ~385 days), flagged for M7 recalibration.
+    params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=math.log(2) / 200)
+    params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10",
+                        "competitive_matches_threshold", value_numeric=10)
+    print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
+          "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
@@ -49,6 +90,28 @@ def main() -> None:
     t0 = time.time()
     workbook_results = ingest_workbook.ingest_all(con, str(XLSX_PATH), source_tier_params_version=1)
     print(f"[evidence_claims] {time.time() - t0:.1f}s -> {json.dumps(workbook_results)}")
+
+    t0 = time.time()
+    ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=1, rho_params_version=1)
+    n_teams = con.execute(
+        "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [ts_model_version]
+    ).fetchone()[0]
+    print(f"[team_strength] {time.time() - t0:.1f}s -> model_version={ts_model_version}, {n_teams} teams")
+
+    t0 = time.time()
+    n_preseason_claims = minutes_model.log_preseason_involvement_claims(con, TARGET_SEASON)
+    mm_model_version = minutes_model.run(
+        con, CALIBRATION_ASOF_DATE, TARGET_SEASON,
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+    )
+    n_players = con.execute(
+        "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]
+    ).fetchone()[0]
+    print(
+        f"[minutes_model] {time.time() - t0:.1f}s -> {n_preseason_claims} preseason_involvement "
+        f"claims logged, model_version={mm_model_version}, {n_players} players"
+    )
 
     con.close()
 

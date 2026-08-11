@@ -27,6 +27,22 @@ def _tables_matching(con: duckdb.DuckDBPyConnection, season: str, like_pattern: 
     ).fetchall()
 
 
+def _season_root_table(con: duckdb.DuckDBPyConnection, season: str, filename: str):
+    """Finds a season-level master file (teams.csv, players.csv, playerstats.csv).
+
+    2025-2026 and 2026-2027 keep these at the season root (relpath == filename).
+    2024-2025 nests them one level down under a same-named directory instead
+    (relpath == 'teams/teams.csv', 'players/players.csv', ...) -- a real layout
+    difference in the source repo, not a typo. An exact-match-only lookup silently
+    returns nothing for 2024-2025 and drops that entire season; try both.
+    """
+    for relpath in (filename, f"{filename[:-4]}/{filename}"):
+        rows = _tables_matching(con, season, relpath)
+        if rows:
+            return rows[0]
+    return None
+
+
 def _ensure_id_macro(con: duckdb.DuckDBPyConnection) -> None:
     # Raw numeric-ish ID columns sometimes arrive float-formatted ('3.0') from the CSV
     # pipeline; normalize before joining so a format quirk never silently drops a join.
@@ -52,10 +68,10 @@ def build_dim_team(con: duckdb.DuckDBPyConnection) -> None:
     )
 
     for season in SEASONS:
-        rows = _tables_matching(con, season, "teams.csv")
-        if not rows:
+        found = _season_root_table(con, season, "teams.csv")
+        if not found:
             continue
-        _relpath, table = rows[0]
+        _relpath, table = found
         data = con.execute(f'SELECT code, id, name, short_name FROM "{table}"').fetchall()
         for code, local_id, name, short_name in data:
             uid = er.team_uid_for(name)
@@ -113,10 +129,10 @@ def build_dim_player(con: duckdb.DuckDBPyConnection) -> None:
         "CREATE OR REPLACE TABLE _player_id_map (season VARCHAR, player_id_local VARCHAR, player_uid VARCHAR)"
     )
     for season in SEASONS:
-        rows = _tables_matching(con, season, "players.csv")
-        if not rows:
+        found = _season_root_table(con, season, "players.csv")
+        if not found:
             continue
-        _relpath, table = rows[0]
+        _relpath, table = found
         data = con.execute(
             f'SELECT player_code, player_id, first_name, second_name, web_name, team_code, position FROM "{table}"'
         ).fetchall()
@@ -283,16 +299,49 @@ def build_fact_player_match_stats(con: duckdb.DuckDBPyConnection) -> int:
 
 # ------------------------------------------------------- player-season stats ----
 
+_SEASON_STATS_NUMERIC_COLS = {
+    "now_cost": "DOUBLE", "selected_by_percent": "DOUBLE", "ep_next": "DOUBLE",
+    "chance_of_playing_next_round": "DOUBLE", "minutes": "INTEGER", "goals_scored": "INTEGER",
+    "assists": "INTEGER", "bps": "INTEGER", "expected_goals": "DOUBLE", "expected_assists": "DOUBLE",
+    "expected_goals_per_90": "DOUBLE", "expected_assists_per_90": "DOUBLE",
+    "defensive_contribution": "DOUBLE", "defensive_contribution_per_90": "DOUBLE",
+    "saves_per_90": "DOUBLE", "total_points": "INTEGER", "event_points": "INTEGER",
+}
+
+
+def _existing_columns(con: duckdb.DuckDBPyConnection, table: str) -> set[str]:
+    return {
+        r[0] for r in con.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?", [table]
+        ).fetchall()
+    }
+
+
 def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
     _ensure_id_macro(con)
     now = datetime.now(timezone.utc)
     now_sql = now.strftime("%Y-%m-%d %H:%M:%S.%f")
     for season in SEASONS:
-        rows = _tables_matching(con, season, "playerstats.csv")
-        if not rows:
+        found = _season_root_table(con, season, "playerstats.csv")
+        if not found:
             continue
-        _relpath, table = rows[0]
+        _relpath, table = found
         season_sql = season.replace("'", "''")
+
+        # 2024-2025's playerstats.csv genuinely predates several columns 2025-2026+ has
+        # (minutes, goals_scored, defensive_contribution, ... -- the source repo added
+        # CBIT/DefCon tracking starting 2025-26). A column missing here isn't a NULLIF-able
+        # empty string, the column doesn't exist in the table at all -- select NULL for it
+        # rather than hardcoding one column list across seasons with genuinely different schemas.
+        available = _existing_columns(con, table)
+        select_exprs = []
+        for col, sql_type in _SEASON_STATS_NUMERIC_COLS.items():
+            if col in available:
+                select_exprs.append(f"TRY_CAST(NULLIF(r.{col}, '') AS {sql_type})")
+            else:
+                select_exprs.append(f"CAST(NULL AS {sql_type})")
+        status_expr = "r.status" if "status" in available else "CAST(NULL AS VARCHAR)"
+
         con.execute(
             f"""
             INSERT INTO fact_player_season_stats
@@ -306,24 +355,12 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                 -- unlike the standard FPL API convention (tenths, e.g. 155 => 15.5m),
                 -- this dataset's now_cost is already decimal pounds-millions (verified:
                 -- Haaland's raw now_cost is the literal string '15.5') -- no /10 here.
-                TRY_CAST(NULLIF(r.now_cost, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.selected_by_percent, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.ep_next, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.chance_of_playing_next_round, '') AS DOUBLE),
-                r.status,
-                TRY_CAST(NULLIF(r.minutes, '') AS INTEGER),
-                TRY_CAST(NULLIF(r.goals_scored, '') AS INTEGER),
-                TRY_CAST(NULLIF(r.assists, '') AS INTEGER),
-                TRY_CAST(NULLIF(r.bps, '') AS INTEGER),
-                TRY_CAST(NULLIF(r.expected_goals, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.expected_assists, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.expected_goals_per_90, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.expected_assists_per_90, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.defensive_contribution, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.defensive_contribution_per_90, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.saves_per_90, '') AS DOUBLE),
-                TRY_CAST(NULLIF(r.total_points, '') AS INTEGER),
-                TRY_CAST(NULLIF(r.event_points, '') AS INTEGER),
+                {select_exprs[0]}, {select_exprs[1]}, {select_exprs[2]}, {select_exprs[3]},
+                {status_expr},
+                {select_exprs[4]}, {select_exprs[5]}, {select_exprs[6]}, {select_exprs[7]},
+                {select_exprs[8]}, {select_exprs[9]}, {select_exprs[10]}, {select_exprs[11]},
+                {select_exprs[12]}, {select_exprs[13]}, {select_exprs[14]},
+                {select_exprs[15]}, {select_exprs[16]},
                 TIMESTAMP '{now_sql}'
             FROM "{table}" r
             JOIN _player_id_map pm ON pm.season = '{season_sql}' AND pm.player_id_local = norm_id(r.id)
