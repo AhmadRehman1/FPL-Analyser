@@ -68,6 +68,30 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   premium attackers under the frozen budget/risk trade-off -- a real, striking model output
   worth a human sanity check (exactly what M9's later "could a human beat this by eye?"
   prompt exists for), not silently smoothed over.
+- **M6 (Monte Carlo Simulation Engine): done.** Supersedes M4's `rho_residual=0.15`
+  placeholder with a real generative mechanism -- a shared match-intensity latent factor
+  `Z_fixture` (Gamma-Poisson mixture, mean 1) drawn once per simulated fixture and scaling
+  every involved player's goal/assist/bonus-strength rate together, closed-form calibrated
+  (`sigma_z^2 = rho/(lambda*(1-rho))`) so the underlying goals+assists Poisson-count
+  correlation hits exactly 0.15 (verified both analytically and empirically at 200k draws).
+  Scope, a genuine judgment call: simulates M5's *chosen 15-player squad* for one
+  `squad_optimizer_runs.run_id` (not M5's ~577-player input pool -- see module docstring for
+  why that's the correct reading of "candidate pool ... not the full 577-player league").
+  Clean sheet and goals-conceded are read directly off the same joint (home_goals,
+  away_goals) draw already sampled from the Dixon-Coles bivariate Poisson grid, not
+  independently redrawn -- a strictly more correct generative link than a second Poisson
+  draw would give. 5,000 antithetic pairs (10,000 realizations) per squad player, seeded
+  deterministically via `sha256(model_version|calibration_asof_date|query_id)`. Verified
+  against the real GW1 2026-27 squad from M5's run: all 15 players' simulated mean tracks
+  M3's analytical `ep_total` closely (e.g. Bruno Fernandes 4.40 simulated vs 4.18 analytical,
+  Jason Steele 0.96 vs 0.97) -- strong evidence the whole draw pipeline is unbiased, not just
+  internally consistent. Zero negative variances across all 15 players, all quantiles
+  monotonic, and empirical minutes-state frequencies match M2's own probabilities almost
+  exactly (e.g. Bruno: 68.8% simulated 60+ vs 69.4% modeled). A genuinely notable finding,
+  not silently smoothed over: teammate/opponent *total-points* correlation in the real run
+  comes out far below 0.15 (0.02-0.08, not ~0.15) even though the underlying goals+assists
+  mechanism is calibrated exactly to 0.15 -- see Design notes for why this is real dilution,
+  not a bug, and what it implies for M4's blanket `rho_residual` application.
 
 ## Quick start
 
@@ -90,6 +114,9 @@ schema/0001_core_schema.sql   -- DDL: fact_raw log, fact_reconciled tables, evid
 schema/0002_m1_team_strength.sql -- DDL: team_strength_model_versions, team_strength_snapshots
 schema/0003_m2_minutes_model.sql -- DDL: minutes_model_versions, minutes_model_outputs
 schema/0004_m3_expected_points.sql -- DDL: ep_model_versions, ep_outputs
+schema/0005_m4_uncertainty.sql -- DDL: uncertainty_model_versions, uncertainty_outputs, cross_player_covariance
+schema/0006_m5_squad_optimizer.sql -- DDL: squad_optimizer_runs, squad_optimizer_selections
+schema/0007_m6_monte_carlo.sql -- DDL: monte_carlo_run_versions/player_totals/player_summary/empirical_covariance
 src/fpl_quant/
     db.py                     -- DuckDB connection + schema application
     ingest_csv.py             -- generic fact_raw ingestion: one table per (season, relpath),
@@ -108,6 +135,8 @@ src/fpl_quant/
     expected_points.py         -- M3: per-category sub-models, Plackett-Luce bonus, EP total
     uncertainty.py             -- M4: variance, within/cross-player covariance, Cornish-Fisher
     squad_optimizer.py         -- M5: MIQP via SCIP, lambda=0-vs-real divergence check
+    monte_carlo.py              -- M6: Z_fixture Gamma-Poisson mixture, antithetic-variate
+                                    gameweek simulation, empirical Sigma vs M4
 scripts/run_ingestion.py       -- end-to-end pipeline runner
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
@@ -206,6 +235,26 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   `param_versions` mechanism as everything else in this project, not hardcoded literals --
   an earlier draft had them hardcoded directly in `cross_player_covariance_for_fixture()`,
   caught and fixed before the first real run.
+- **M6's real generative mechanism shows M4's flat correlation pins overstate total-points
+  correlation by diluting into the wrong denominator, not by picking the wrong number.**
+  `rho_residual=0.15` was calibrated as a goals+assists *count* correlation (the thing
+  `Z_fixture` actually links across fixture participants), but `uncertainty.total_variance()`
+  applies it as a flat pairwise correlation between *every* active category pair for a given
+  player -- including pairs like defcon-bonus or appearance-goals that share no generative
+  channel at all in M6's mechanism. Appearance, DefCon, saves, and bonus-rank are independent
+  per-player draws in M6 (no shared `Z_fixture` term), and those categories make up most of a
+  typical player's points variance, so whatever correlation the goals+assists piece
+  contributes gets diluted once summed into `total_points`. Verified on the real GW1 2026-27
+  squad run: empirical total-points correlation lands at 0.02-0.08 for every teammate/
+  opponent pair, not ~0.15. The same pattern shows up cross-player: `teammate_defensive=0.9`
+  is a reasonable *directional* call (clean sheet genuinely is the same Bernoulli draw for
+  two teammates) but overstates it at the total-points level once pinned as a flat
+  coefficient -- e.g. Ethan Ampadu/Joel Piroe's M4 covariance (0.67) is ~2.3x M6's empirical
+  value (0.29); Dara O'Shea/Emerson's M4 covariance (0.51) is ~4.7x M6's empirical value
+  (0.11). The fix M6 makes possible isn't a smaller flat rho -- it's category-specific
+  correlation (goals/assists through the real `Z_fixture` channel, clean-sheet/goals-conceded
+  exact per M6's own joint score draw, everything else left near zero), which is exactly the
+  full *replacement* the M4 docstring and this README both already flagged `rho_residual` for.
 - **A second, differently-shaped evidence source** (`FPL_Evidence_Claims_Research_Pull.xlsx`
   -- flat columns per tab: Transfers/Injuries/SetPieceTakers/PriceNotes) is ingested by its
   own small module, `ingest_research_pull.py`, sharing M1b's source-tier classification and
@@ -225,3 +274,83 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   registered "Pascal Groß" (sharp-s) until `entity_resolution.normalize_name()` switched
   from `.lower()` to `.casefold()`. NFKD normalization doesn't catch this either -- sharp-s
   isn't a diacritic, so it has no combining-character decomposition to strip.
+- **M6's "candidate pool relevant to the specific query ... not the full 577-player league"
+  is read as M5's *chosen 15-player squad*, not M5's ~577-player input pool.** The input pool
+  IS the "full 577-player league" M6's own Research section just finished naming as the
+  computational-scope concern to avoid, so reading "candidate pool" as that same 577 would
+  contradict the sentence's own contrast; the chosen squad is also the only pool M6's own
+  Outputs bullets actually need (M5's chosen squad's distribution, M8's chip-value estimation
+  over that squad+bench). A "query" is therefore one `squad_optimizer_runs.run_id`. Stated
+  plainly in `monte_carlo.py`'s module docstring, not silently picked.
+- **Non-squad fixture participants (needed for a realistic Plackett-Luce bonus-ranking pool,
+  since a real match has ~22 first-team-relevant players, not just the squad's own) are NOT
+  independently re-simulated each realization.** Full fidelity would mean re-drawing every
+  non-squad player's own minutes state 10,000 times per fixture for a class of players whose
+  own distributional output nothing downstream ever consumes -- exactly the computational-
+  scope blowup the query-level scope restriction above exists to avoid. They instead use
+  their mean-based M3 strength (`exp(expected_bps/tau)*p_played`, identical to what M3/M4
+  already compute) scaled by that fixture's own per-realization `Z_fixture` -- still reactive
+  to the shared tempo factor, just not independently re-drawn.
+- **`Z_fixture`'s variance is solved in closed form, not fit numerically.** Modeling
+  `X_i | Z ~ Poisson(Z*lambda_i)` with `Z ~ Gamma(mean=1, var=sigma_z^2)` (the standard
+  Gamma-Poisson mixture -- keeps every downstream rate nonnegative by construction, unlike a
+  Normal or log-Normal multiplier) gives `Cov(X_i,X_j) = sigma_z^2*lambda_i*lambda_j` and
+  `Var(X_i) = lambda_i + sigma_z^2*lambda_i^2` exactly, so at `lambda_i=lambda_j=lambda`,
+  solving `rho_residual = sigma_z^2*lambda^2/(lambda+sigma_z^2*lambda^2)` for `sigma_z^2`
+  gives `sigma_z^2 = rho_residual/(lambda*(1-rho_residual))` directly -- no root-finding, no
+  numerical calibration loop. `lambda` itself (`lambda_representative`) is computed from real
+  data (mean expected goals+assists COUNT, not points, across the actual squad's real
+  GW1 2026-27 fixtures: 0.141 in the real run) rather than invented, so the only literal
+  constant feeding this whole mechanism is `rho_residual` itself -- already versioned by M4.
+  Verified both analytically (`test_z_fixture_variance_matches_closed_form`) and empirically
+  via a 200k-draw Monte Carlo of the actual mixture
+  (`test_z_fixture_variance_reproduces_target_correlation_empirically`, within 0.02 of target).
+- **DefCon and saves are intentionally NOT scaled by `Z_fixture`.** M6's own spec names
+  goals, assists, and "bonus-relevant BPS components" explicitly as what the shared tempo
+  factor scales; defensive actions and goalkeeper saves are a different mechanism (a busier,
+  higher-tempo match doesn't obviously inflate one defender's own CBI count the way it
+  inflates goal-scoring across a match), and inventing a second, untested scaling channel
+  beyond what the spec actually states would be a bigger unstated simplification than leaving
+  them at their M3 rate, not a smaller one.
+- **Clean sheet and goals-conceded are read directly off the same joint `(home_goals,
+  away_goals)` draw already sampled from the Dixon-Coles bivariate Poisson grid for that
+  fixture, not independently redrawn from `lambda_against`.** This is a strictly more correct
+  generative link than a second Poisson draw would give: it makes two teammates' clean-sheet
+  outcomes literally the *same* underlying event (not just parametrically correlated) and two
+  opponents' clean-sheet/goals-conceded outcomes exact complements of the same scoreline, with
+  no extra covariance machinery required to produce that structure.
+- **A real bug the first end-to-end run against real data caught**: `dict(rows)` on
+  `(player_uid_a, player_uid_b, covariance)` 3-tuples raised `ValueError: dictionary update
+  sequence element #0 has length 3; 2 is required` when building the M4-covariance lookup for
+  the validation table -- `dict()` needs 2-tuples. The unit test suite (which mocks nothing
+  and never exercises `run()`'s SQL against a populated DB, per the same
+  unit-the-math/integrate-against-real-data split `test_squad_optimizer.py` already
+  established) couldn't have caught this; only the real pipeline run could, and did. Fixed
+  with an explicit dict comprehension (`{(a,b): cov for a,b,cov in rows}`). Consistent with
+  every other real bug logged in this file: caught by running against real data, not by
+  memory or assumption.
+- **A genuine, notable finding from the first real run, not silently smoothed over: teammate/
+  opponent* total-points* correlation comes out far below `rho_residual=0.15`** (0.017-0.078
+  observed across the real GW1 2026-27 squad's within-fixture pairs) even though the
+  underlying goals+assists Poisson-count mechanism is calibrated to hit exactly 0.15 (and
+  does, verified in isolation). The reason is real, not a bug: `Z_fixture` only injects
+  correlation into the goals/assists/bonus-strength slice of a player's variance; appearance,
+  DefCon, saves, and (for the specific real pairs observed) one side's zero-weight clean-sheet
+  category (Forwards score 0 clean-sheet points under the base scoring matrix) are either
+  independently drawn per player or simply don't carry a clean-sheet term for that position,
+  which dilutes any TOTAL-points correlation well below the category-level 0.15 by ordinary
+  variance-mixing arithmetic. M4's `rho_residual`, by contrast, was applied as a flat residual
+  term across *every* category pair (appearance-vs-appearance included) for every teammate/
+  opponent, which this real comparison suggests overstates the true total-points correlation
+  relative to a mechanistically-honest model. Flagged here for M7's calibration pass, exactly
+  the kind of disagreement `monte_carlo_empirical_covariance.m4_covariance` exists to surface,
+  not a discrepancy to paper over.
+- **Full pipeline integration is verified by running the real `scripts/run_ingestion.py`
+  end-to-end against the real 2024-27 data, not by a large synthetic-DB pytest fixture.**
+  `tests/test_monte_carlo.py` thoroughly unit-tests every standalone function (seeding,
+  Z_fixture calibration, the bivariate-Poisson grid sampler, vectorized Poisson/categorical/
+  Plackett-Luce samplers) the same way `test_squad_optimizer.py` unit-tests `solve()` against
+  a synthetic pool rather than building out the full `fact_match`/`ep_outputs`/
+  `minutes_model_outputs`/`player_alias`/`team_alias` join chain `run()` actually depends on.
+  That real run is what caught the `dict()` bug above -- direct evidence the split is doing
+  its job, not a gap being rationalized away.

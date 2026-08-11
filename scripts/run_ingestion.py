@@ -15,8 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import (  # noqa: E402
-    db, expected_points, ingest_csv, ingest_research_pull, ingest_workbook,
-    minutes_model, params, reconcile, squad_optimizer, team_strength, uncertainty,
+    db, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
+    monte_carlo, params, reconcile, squad_optimizer, team_strength, uncertainty,
 )
 
 DATA_ROOT = REPO_ROOT / "data" / "external" / "FPL-Core-Insights-main" / "data"
@@ -174,6 +174,24 @@ def main() -> None:
     except squad_optimizer.DivergenceCheckFailedError as e:
         print(f"[squad_optimizer] {time.time() - t0:.1f}s -> DIVERGENCE CHECK FAILED, no squad stored: {e}")
         raise
+
+    t0 = time.time()
+    mc_model_version = monte_carlo.run(
+        con, CALIBRATION_ASOF_DATE, squad_optimizer_run_id=so_run_id,
+        ep_model_version=ep_model_version, mm_model_version=mm_model_version,
+        ts_model_version=ts_model_version, uncertainty_model_version=un_model_version,
+        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=1,
+    )
+    n_mc_players = con.execute(
+        "SELECT count(DISTINCT player_uid) FROM monte_carlo_player_summary WHERE model_version = ?", [mc_model_version]
+    ).fetchone()[0]
+    n_mc_rows = con.execute(
+        "SELECT count(*) FROM monte_carlo_player_totals WHERE model_version = ?", [mc_model_version]
+    ).fetchone()[0]
+    print(
+        f"[monte_carlo] {time.time() - t0:.1f}s -> model_version={mc_model_version}, "
+        f"{n_mc_players} squad players simulated, {n_mc_rows} realization rows"
+    )
 
     con.close()
 
