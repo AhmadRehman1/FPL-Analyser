@@ -28,6 +28,20 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   invariant (`P(0)+P(1-59)+P(60+)=1`) holds exactly across all 577 real 2026-27 players;
   spot-checked against real evidence (Saliba's "Out" injury claim cuts his start
   probability from 83.5% to 43.8%).
+- **M3 (Expected Points Engine): done.** Implementation-time verification gate cleared
+  first (base scoring matrix + BPS formula confirmed against current 2026/27 sources, not
+  assumed -- see below). Every category its own sub-model conditioned on M2's minutes
+  distribution: appearance, goals/assists (per-90 rates shrunk toward the position average
+  by sample size), clean sheet (exact binary 60+ gate), goals conceded (exact
+  `E[floor(X/2)]` under Poisson, not a linear approximation), DefCon (thresholded count
+  distribution), and bonus via genuine sequential Plackett-Luce marginalization. Verified:
+  Plackett-Luce `E[bonus]` sums to exactly 6.0 per fixture (3+2+1) across every real GW1
+  2026-27 match; only Haaland exceeds 1.5 expected goals league-wide. Required
+  non-double-counting audit is a structured, tested artifact (`non_double_counting_audit()`),
+  not an unwritten claim. Saves/penalty-saves/cards/own-goals are explicitly left at 0
+  rather than guessed -- no penalty-taker or cards/OG per-90 rate was ever reconciled into
+  `fact_reconciled`, and BPS's passing/crossing/key-pass components are omitted for the
+  same reason (see `expected_points.py`'s module docstring for the full scope statement).
 
 ## Quick start
 
@@ -49,6 +63,7 @@ schema/0001_core_schema.sql   -- DDL: fact_raw log, fact_reconciled tables, evid
                                   sources, generic param_versions mechanism, model_runs
 schema/0002_m1_team_strength.sql -- DDL: team_strength_model_versions, team_strength_snapshots
 schema/0003_m2_minutes_model.sql -- DDL: minutes_model_versions, minutes_model_outputs
+schema/0004_m3_expected_points.sql -- DDL: ep_model_versions, ep_outputs
 src/fpl_quant/
     db.py                     -- DuckDB connection + schema application
     ingest_csv.py             -- generic fact_raw ingestion: one table per (season, relpath),
@@ -63,6 +78,7 @@ src/fpl_quant/
     evidence_blend.py          -- M1b: effective-weight formula + conflict-resolution blending
     team_strength.py           -- M1: Dixon-Coles MLE fit, Elo-regression prior, shrinkage
     minutes_model.py           -- M2: historical fit, evidence adjustment, three-state output
+    expected_points.py         -- M3: per-category sub-models, Plackett-Luce bonus, EP total
 scripts/run_ingestion.py       -- end-to-end pipeline runner
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo +
@@ -128,3 +144,21 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   ingested earlier the same calendar day as a run's `calibration_asof_date` is legitimately
   knowable "as of" that date; converting the date to midnight excluded it. `minutes_model.run()`
   combines with `datetime.max.time()`, not `datetime.min.time()`.
+- **M3's implementation-time verification gate (kickoff notes' hard precondition) was
+  cleared via live web search**, not memory: base scoring matrix and BPS formula confirmed
+  against the Premier League's own site, Fantasy Football Scout, and Draft Fantasy, cross-
+  checked against the workbook's own `13_Rule Changes Database`. One genuine ambiguity
+  survived the cross-check and is documented (not silently resolved) in
+  `expected_points.seed_v1_params()`: whether outside-box GK saves are removed from BPS
+  entirely (the workbook's claim) or retain a base +2 with only the box bonus removed
+  (what current web sources suggest) -- went with the workbook's more specific claim.
+- **A per-90 rate from a handful of minutes is noise, not signal, and must be shrunk.**
+  Real bug this project hit: a player with a single 2-minute cameo and one small xG
+  contribution extrapolated to `expected_goals_per_90 = 3.6`, which briefly outranked
+  Haaland's expected goals for a gameweek before `expected_points.player_rates_shrunk()`
+  added minutes-sample-size shrinkage toward the position average (same discipline M1/M2
+  already apply to their own historical rates, just missing here on the first pass).
+- **`ep_outputs`' saves/penalty-saves/cards/own-goals sit at 0, not a guessed rate.** No
+  penalty-taker identity or cards/OG per-90 rate was ever reconciled into
+  `fact_reconciled`, and BPS's passing/crossing/key-pass components are omitted for the
+  same reason -- explicit absence of a signal, not an invented one.
