@@ -52,6 +52,22 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   back-line shows the strongest positive teammate covariance in the league (~3.5-4.0) --
   exactly the concentration signal M5's guardrails exist to see -- and opposing
   goalkeepers show the most negative cross-fixture covariance, both as expected.
+- **M5 (Squad Optimizer): done.** The module the original v1 rebuild exists because of --
+  the documented lambda=0 back-five failure happened here. Real MIQP via SCIP (not a
+  MIP-only solver that would silently drop the quadratic term): the risk term is moved into
+  a constraint via the standard epigraph reformulation (`t >= w'Sigma*w`, convex since
+  Sigma is PSD; objective becomes `linear_EP - lambda*t`) since SCIP requires a linear
+  objective. The lambda=0-vs-lambda=0.15 divergence check runs first, before anything else
+  from this module is trusted -- `squad_optimizer.run()` raises `DivergenceCheckFailedError`
+  and refuses to store a squad selection if the two solves land on the same squad (the run
+  itself is still logged, so the failure is auditable). Solves the real 577-player, 20-club
+  candidate pool in ~19 seconds. The real GW1 2026-27 optimal XI is maximally
+  club-diversified (11 different clubs, one player each, well under the guardrail's cap of
+  3) -- direct evidence the covariance signal from M4 is doing real work, not just the hard
+  cap. Notably favors several high-DefCon defenders (including the captain) over some
+  premium attackers under the frozen budget/risk trade-off -- a real, striking model output
+  worth a human sanity check (exactly what M9's later "could a human beat this by eye?"
+  prompt exists for), not silently smoothed over.
 
 ## Quick start
 
@@ -85,15 +101,18 @@ src/fpl_quant/
     decay.py                  -- pinned exponential evidence-decay formula
     snapshot.py                -- data_asof query helpers (look-ahead prevention)
     ingest_workbook.py         -- evidence workbook -> evidence_claims, deprecation allowlist
+    ingest_research_pull.py    -- second (flat-columns) evidence source -> evidence_claims
     evidence_blend.py          -- M1b: effective-weight formula + conflict-resolution blending
     team_strength.py           -- M1: Dixon-Coles MLE fit, Elo-regression prior, shrinkage
     minutes_model.py           -- M2: historical fit, evidence adjustment, three-state output
     expected_points.py         -- M3: per-category sub-models, Plackett-Luce bonus, EP total
     uncertainty.py             -- M4: variance, within/cross-player covariance, Cornish-Fisher
+    squad_optimizer.py         -- M5: MIQP via SCIP, lambda=0-vs-real divergence check
 scripts/run_ingestion.py       -- end-to-end pipeline runner
 tests/                         -- pytest, one file per module concern
-data/external/                 -- gitignored; extracted FPL-Core-Insights repo +
-                                   FPL_202627_Master_Evidence_Database.xlsx go here
+data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
+                                   FPL_202627_Master_Evidence_Database.xlsx, and
+                                   FPL_Evidence_Claims_Research_Pull.xlsx go here
 db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.py
 ```
 
@@ -187,3 +206,22 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   `param_versions` mechanism as everything else in this project, not hardcoded literals --
   an earlier draft had them hardcoded directly in `cross_player_covariance_for_fixture()`,
   caught and fixed before the first real run.
+- **A second, differently-shaped evidence source** (`FPL_Evidence_Claims_Research_Pull.xlsx`
+  -- flat columns per tab: Transfers/Injuries/SetPieceTakers/PriceNotes) is ingested by its
+  own small module, `ingest_research_pull.py`, sharing M1b's source-tier classification and
+  M0's `evidence_claims` schema rather than a parallel implementation. `PriceNotes` is
+  ingested for audit/provenance visibility only (`claim_type='fpl_price_note'`) -- never
+  promoted into `fact_reconciled`'s authoritative `now_cost`, per M0's own architectural
+  boundary between a stat and an opinion about a stat.
+- **`player_alias` has multiple rows per (player, season)`** (full name and web name each
+  get their own row -- see `reconcile.build_dim_player`). Joining straight from
+  `ep_outputs`/`squad_optimizer` candidates against `player_alias` without deduping first
+  fans out to ~2x the true row count -- a real bug this project hit building M5's candidate
+  pool (1151 "players" instead of 577). Fixed by deduping to one `(player_uid, team_code)`
+  pair per season before joining; verified no player actually has two *different* team_codes
+  in the same season before trusting that dedupe.
+- **`str.lower()` doesn't fold the German sharp-s to "ss"; `str.casefold()` does.** Real bug:
+  a research-pull source's "Pascal Gross" (plain double-s) failed to resolve against the
+  registered "Pascal Groß" (sharp-s) until `entity_resolution.normalize_name()` switched
+  from `.lower()` to `.casefold()`. NFKD normalization doesn't catch this either -- sharp-s
+  isn't a diacritic, so it has no combining-character decomposition to strip.

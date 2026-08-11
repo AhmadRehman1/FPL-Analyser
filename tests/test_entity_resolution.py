@@ -17,6 +17,13 @@ def test_normalize_none_is_empty_string():
     assert er.normalize_name(None) == ""
 
 
+def test_normalize_german_sharp_s_matches_double_s():
+    # real bug this project hit: a research-pull source spelled "Pascal Gross" with a plain
+    # double-s while the registered name uses the German sharp-s character -- NFKD doesn't
+    # decompose it (not a diacritic), so this needs casefold(), not lower().
+    assert er.normalize_name("Pascal Groß") == er.normalize_name("Pascal Gross")
+
+
 def test_team_uid_deterministic():
     assert er.team_uid_for("Arsenal") == er.team_uid_for("Arsenal")
 

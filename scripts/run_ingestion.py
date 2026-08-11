@@ -14,10 +14,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, expected_points, ingest_csv, ingest_workbook, minutes_model, params, reconcile, team_strength, uncertainty  # noqa: E402
+from fpl_quant import (  # noqa: E402
+    db, expected_points, ingest_csv, ingest_research_pull, ingest_workbook,
+    minutes_model, params, reconcile, squad_optimizer, team_strength, uncertainty,
+)
 
 DATA_ROOT = REPO_ROOT / "data" / "external" / "FPL-Core-Insights-main" / "data"
 XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_202627_Master_Evidence_Database.xlsx"
+RESEARCH_PULL_XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_Evidence_Claims_Research_Pull.xlsx"
 # "Now", not a hardcoded date: a model run's data_asof has to be today for evidence ingested
 # today to actually be visible (a fixed past date would look-ahead-safely -- but wrongly --
 # exclude same-day evidence every time this script re-runs).
@@ -59,8 +63,8 @@ def main() -> None:
     # uses (Out/Doubt/Doubt (improving)/Doubt (minutes)), not the spec's illustrative
     # Out/Doubtful/Minor-knock/Fit strings -- see README for the mapping rationale.
     injury_magnitudes = {
-        "Out": -4.0, "Doubt": -1.5, "Doubt (improving)": -1.0, "Doubt (minutes)": -1.0,
-        "Minor/knock": -0.5, "Fit": 0.0,
+        "Out": -4.0, "Doubt": -1.5, "Doubtful": -1.5, "Doubt (improving)": -1.0,
+        "Doubt (minutes)": -1.0, "Minor/knock": -0.5, "Fit": 0.0,
     }
     for category, magnitude in injury_magnitudes.items():
         params.write_param(
@@ -83,10 +87,12 @@ def main() -> None:
                         "competitive_matches_threshold", value_numeric=10)
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
+    squad_optimizer.seed_v1_params(con)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "
-          "cross_player_correlation_params v1 seeded")
+          "cross_player_correlation_params, risk_aversion_params, "
+          "squad_optimizer_guardrail_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
@@ -95,6 +101,11 @@ def main() -> None:
     t0 = time.time()
     workbook_results = ingest_workbook.ingest_all(con, str(XLSX_PATH), source_tier_params_version=1)
     print(f"[evidence_claims] {time.time() - t0:.1f}s -> {json.dumps(workbook_results)}")
+
+    if RESEARCH_PULL_XLSX_PATH.exists():
+        t0 = time.time()
+        research_pull_results = ingest_research_pull.ingest_all(con, str(RESEARCH_PULL_XLSX_PATH), source_tier_params_version=1)
+        print(f"[research_pull] {time.time() - t0:.1f}s -> {json.dumps(research_pull_results)}")
 
     t0 = time.time()
     ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=1, rho_params_version=1)
@@ -145,6 +156,24 @@ def main() -> None:
         f"[uncertainty] {time.time() - t0:.1f}s -> model_version={un_model_version}, "
         f"{n_un_rows} player-fixture rows, {n_cov_pairs} nonzero covariance pairs"
     )
+
+    t0 = time.time()
+    try:
+        so_run_id = squad_optimizer.run(
+            con, CALIBRATION_ASOF_DATE, TARGET_SEASON, TARGET_GAMEWEEK,
+            ep_model_version=ep_model_version, uncertainty_model_version=un_model_version,
+            lambda_params_version=1, guardrail_params_version=1,
+        )
+        n_squad = con.execute(
+            "SELECT count(*) FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [so_run_id]
+        ).fetchone()[0]
+        print(
+            f"[squad_optimizer] {time.time() - t0:.1f}s -> run_id={so_run_id}, "
+            f"divergence check passed, {n_squad} players selected"
+        )
+    except squad_optimizer.DivergenceCheckFailedError as e:
+        print(f"[squad_optimizer] {time.time() - t0:.1f}s -> DIVERGENCE CHECK FAILED, no squad stored: {e}")
+        raise
 
     con.close()
 

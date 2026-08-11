@@ -11,7 +11,13 @@ def normalize_name(name: str | None) -> str:
         return ""
     n = unicodedata.normalize("NFKD", name)
     n = "".join(c for c in n if not unicodedata.combining(c))
-    n = n.lower().strip()
+    # .casefold(), not .lower(): the German sharp-s character has no NFKD decomposition
+    # (it isn't a diacritic), so .lower() leaves it as-is while other sources spell the
+    # same name with a plain double "s" -- real example this project hit, a research pull's
+    # "Pascal Gross" failed to resolve against the registered name (which uses the sharp-s
+    # spelling) until this fix. casefold() is the locale-aware fold that maps sharp-s to
+    # "ss", which lower() doesn't.
+    n = n.casefold().strip()
     n = re.sub(r"[^a-z0-9]+", " ", n)
     n = re.sub(r"\s+", " ", n).strip()
     return n
