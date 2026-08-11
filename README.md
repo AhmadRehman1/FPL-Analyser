@@ -42,6 +42,16 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   rather than guessed -- no penalty-taker or cards/OG per-90 rate was ever reconciled into
   `fact_reconciled`, and BPS's passing/crossing/key-pass components are omitted for the
   same reason (see `expected_points.py`'s module docstring for the full scope statement).
+- **M4 (Uncertainty & Correlation Layer): done.** Per-category variance from each
+  category's own M3 distributional form (Poisson, Bernoulli/threshold, full categorical
+  for bonus). Within-player covariance via the law of total covariance on M2's three-state
+  minutes gate, plus a residual term on the pinned `rho_residual=0.15` placeholder.
+  Cross-player Sigma built block-wise by fixture. Cornish-Fisher quantiles for reporting
+  only (confirmed not wired into M5's objective). Verified against real GW1 2026-27 data:
+  zero negative/NaN variances across 577 players, all quantiles monotonic, Arsenal's
+  back-line shows the strongest positive teammate covariance in the league (~3.5-4.0) --
+  exactly the concentration signal M5's guardrails exist to see -- and opposing
+  goalkeepers show the most negative cross-fixture covariance, both as expected.
 
 ## Quick start
 
@@ -79,6 +89,7 @@ src/fpl_quant/
     team_strength.py           -- M1: Dixon-Coles MLE fit, Elo-regression prior, shrinkage
     minutes_model.py           -- M2: historical fit, evidence adjustment, three-state output
     expected_points.py         -- M3: per-category sub-models, Plackett-Luce bonus, EP total
+    uncertainty.py             -- M4: variance, within/cross-player covariance, Cornish-Fisher
 scripts/run_ingestion.py       -- end-to-end pipeline runner
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo +
@@ -162,3 +173,17 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   penalty-taker identity or cards/OG per-90 rate was ever reconciled into
   `fact_reconciled`, and BPS's passing/crossing/key-pass components are omitted for the
   same reason -- explicit absence of a signal, not an invented one.
+- **M4's residual within-category covariance term needs Var(category | playing)**, which
+  would require each category's within-state second moment, not just its conditional mean.
+  `uncertainty.py` proxies it with the category's unconditional variance instead --
+  reasonable given `rho_residual` is itself already an invented placeholder explicitly
+  flagged for full *replacement* (not mere recalibration) once M6's Monte Carlo engine
+  exists to capture this structure directly. Named in code and here, not a hidden shortcut.
+- **The cross-player block-structure correlation coefficients (teammate/opponent x
+  attacking/defensive) are invented v1 defaults**, same status as `rho_residual` -- no
+  literature, ordinal reasoning only (a shared clean-sheet Bernoulli draw within one match
+  is near-deterministic for two teammates, so pinned high at 0.9; shared attacking tempo is
+  real but far looser, so pinned low at 0.25). Versioned through the same generic
+  `param_versions` mechanism as everything else in this project, not hardcoded literals --
+  an earlier draft had them hardcoded directly in `cross_player_covariance_for_fixture()`,
+  caught and fixed before the first real run.

@@ -14,7 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, expected_points, ingest_csv, ingest_workbook, minutes_model, params, reconcile, team_strength  # noqa: E402
+from fpl_quant import db, expected_points, ingest_csv, ingest_workbook, minutes_model, params, reconcile, team_strength, uncertainty  # noqa: E402
 
 DATA_ROOT = REPO_ROOT / "data" / "external" / "FPL-Core-Insights-main" / "data"
 XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_202627_Master_Evidence_Database.xlsx"
@@ -82,9 +82,11 @@ def main() -> None:
     params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10",
                         "competitive_matches_threshold", value_numeric=10)
     expected_points.seed_v1_params(con)
+    uncertainty.seed_v1_params(con)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
-          "base_scoring_matrix, bps_formula_params v1 seeded")
+          "base_scoring_matrix, bps_formula_params, correlation_params, "
+          "cross_player_correlation_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
@@ -126,6 +128,23 @@ def main() -> None:
         "SELECT count(*) FROM ep_outputs WHERE model_version = ?", [ep_model_version]
     ).fetchone()[0]
     print(f"[expected_points] {time.time() - t0:.1f}s -> model_version={ep_model_version}, {n_ep_rows} player-fixture rows")
+
+    t0 = time.time()
+    un_model_version = uncertainty.run(
+        con, CALIBRATION_ASOF_DATE, ep_model_version=ep_model_version, mm_model_version=mm_model_version,
+        ts_model_version=ts_model_version, scoring_params_version=1, bps_params_version=1,
+        tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+    )
+    n_un_rows = con.execute(
+        "SELECT count(*) FROM uncertainty_outputs WHERE model_version = ?", [un_model_version]
+    ).fetchone()[0]
+    n_cov_pairs = con.execute(
+        "SELECT count(*) FROM cross_player_covariance WHERE model_version = ?", [un_model_version]
+    ).fetchone()[0]
+    print(
+        f"[uncertainty] {time.time() - t0:.1f}s -> model_version={un_model_version}, "
+        f"{n_un_rows} player-fixture rows, {n_cov_pairs} nonzero covariance pairs"
+    )
 
     con.close()
 

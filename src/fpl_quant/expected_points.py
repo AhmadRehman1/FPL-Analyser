@@ -286,13 +286,15 @@ def _expected_floor_half(lam: float, max_k: int = 15) -> float:
 # Plackett-Luce bonus sub-model
 # ============================================================
 
-def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
-    """E[bonus_i] = 3*P(rank1=i) + 2*P(rank2=i) + 1*P(rank3=i), via sequential
-    marginalization (M3 spec's formula, applied literally)."""
+def plackett_luce_rank_distribution(strengths: dict[str, float]) -> dict[str, tuple[float, float, float]]:
+    """P(rank1=i), P(rank2=i), P(rank3=i) via sequential marginalization (M3 spec's
+    formula, applied literally). Exposed separately from plackett_luce_bonus() so M4 can
+    reconstruct bonus's full categorical distribution over {0,1,2,3} points, not just its
+    mean -- Var[bonus] needs the whole distribution, not E[bonus] alone."""
     players = list(strengths.keys())
     total = sum(strengths.values())
     if total <= 0 or len(players) == 0:
-        return {p: 0.0 for p in players}
+        return {p: (0.0, 0.0, 0.0) for p in players}
 
     p_rank1 = {p: strengths[p] / total for p in players}
 
@@ -324,7 +326,13 @@ def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
                     p_i_given_kj = strengths[i] / remaining_after_kj
                     p_rank3[i] += p_k * p_j_given_k * p_i_given_kj
 
-    return {p: 3 * p_rank1[p] + 2 * p_rank2.get(p, 0.0) + 1 * p_rank3.get(p, 0.0) for p in players}
+    return {p: (p_rank1[p], p_rank2.get(p, 0.0), p_rank3.get(p, 0.0)) for p in players}
+
+
+def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
+    """E[bonus_i] = 3*P(rank1=i) + 2*P(rank2=i) + 1*P(rank3=i)."""
+    dist = plackett_luce_rank_distribution(strengths)
+    return {p: 3 * p1 + 2 * p2 + 1 * p3 for p, (p1, p2, p3) in dist.items()}
 
 
 # ============================================================
