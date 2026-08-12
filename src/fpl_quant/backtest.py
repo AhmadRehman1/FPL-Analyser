@@ -1061,3 +1061,50 @@ def recalibrate(
             ))
 
     return proposal_ids
+
+
+# ============================================================
+# M9 adapter -- backtest performance summary
+# ============================================================
+
+def explain_backtest_summary(con: duckdb.DuckDBPyConnection, backtest_run_id: int) -> dict:
+    """M9's backtest-summary section: "M7's tiered (cold/warm/mature) metrics, both log score
+    and Brier score, so a human sees the system's actual track record, not just this week's
+    output in isolation." No canonical "latest" backtest_run_id exists anywhere in this
+    project (matching params.py's explicit-version-only discipline) -- the caller always
+    states which backtest run to report from. Note this module's own documented scope: there
+    is no Brier score for goals/assists, only log score (score_gameweek()'s own choice) -- the
+    per-metric rows below simply won't include a brier_goals_mean/brier_assists_mean key,
+    not a gap in this adapter.
+    """
+    run_row = con.execute(
+        "SELECT started_at, warm_up_gameweeks, notes FROM backtest_runs WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchone()
+    if not run_row:
+        raise ValueError(f"no backtest_runs row for backtest_run_id={backtest_run_id}")
+    started_at, warm_up_gameweeks, notes = run_row
+
+    step_counts = con.execute(
+        "SELECT tier, count(*), sum(CASE WHEN divergence_check_passed THEN 1 ELSE 0 END), "
+        "sum(CASE WHEN divergence_check_passed IS FALSE THEN 1 ELSE 0 END) "
+        "FROM backtest_gameweek_steps WHERE backtest_run_id = ? GROUP BY tier", [backtest_run_id],
+    ).fetchall()
+    steps_by_tier = {tier: {"n_steps": n, "divergence_passed": passed, "divergence_failed": failed} for tier, n, passed, failed in step_counts}
+
+    metric_rows = con.execute(
+        "SELECT tier, metric_name, count(*), avg(metric_value) FROM backtest_metrics "
+        "WHERE backtest_run_id = ? AND metric_name NOT LIKE 'realized%' GROUP BY tier, metric_name", [backtest_run_id],
+    ).fetchall()
+    metrics_by_tier: dict = {}
+    for tier, name, n, avg_value in metric_rows:
+        metrics_by_tier.setdefault(tier, {})[name] = {"n": n, "mean": avg_value}
+
+    n_pending_proposals = con.execute(
+        "SELECT count(*) FROM recalibration_proposals WHERE backtest_run_id = ? AND status = 'pending'", [backtest_run_id]
+    ).fetchone()[0]
+
+    return {
+        "backtest_run_id": backtest_run_id, "started_at": started_at, "warm_up_gameweeks": warm_up_gameweeks,
+        "notes": notes, "steps_by_tier": steps_by_tier, "metrics_by_tier": metrics_by_tier,
+        "n_pending_recalibration_proposals": n_pending_proposals,
+    }

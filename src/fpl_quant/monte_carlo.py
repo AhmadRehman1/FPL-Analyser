@@ -540,3 +540,28 @@ def run(
                 )
 
     return model_version
+
+
+# ============================================================
+# M9 adapter -- empirical risk display, alongside M4's analytic quantiles
+# ============================================================
+
+def explain_player_risk_empirical(con: duckdb.DuckDBPyConnection, mc_model_version: int, player_uid: str) -> dict | None:
+    """M9's risk-display section (empirical leg): monte_carlo_player_summary is already
+    schema-commented as "the M9-facing summary" (schema/0007) -- this is that summary read in
+    a display-ready shape, offered alongside M4's Cornish-Fisher quantiles (a real simulated
+    distribution vs. an analytic approximation), not instead of. Returns None if this player
+    wasn't part of the simulated squad at this model_version."""
+    row = con.execute(
+        "SELECT mean_total, var_total, quantile_05, quantile_25, quantile_75, quantile_95, "
+        "min_total, max_total FROM monte_carlo_player_summary WHERE model_version = ? AND player_uid = ?",
+        [mc_model_version, player_uid],
+    ).fetchone()
+    if row is None:
+        return None
+    mean_total, var_total, q05, q25, q75, q95, min_total, max_total = row
+    return {
+        "player_uid": player_uid, "mean": mean_total, "var_total": var_total,
+        "floor": q05, "q25": q25, "q75": q75, "ceiling": q95,
+        "min": min_total, "max": max_total,
+    }

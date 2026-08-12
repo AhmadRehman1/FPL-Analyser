@@ -255,3 +255,85 @@ def run(
         )
 
     return run_id
+
+
+# ============================================================
+# M9 adapter -- guardrail/audit trail, captain-position sanity check
+# ============================================================
+
+def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
+    """M9's guardrail/audit-trail section: "which M5 guardrails bound for this specific run...
+    and the pass/fail result of the lambda=0-vs-lambda=0.15 divergence check." The divergence
+    result is already stored; which club(s) actually sit at the concentration cap is not
+    computed anywhere else in this project -- this is the first real audit of a *specific*
+    stored solution against the two caps (squad-level, hardcoded literal 3 at solve()'s own
+    MIQP constraint; XI-level, the resolved xi_club_concentration_cap param), not just
+    confirming the constraints existed at solve time.
+    """
+    run_row = con.execute(
+        "SELECT target_season, divergence_check_passed, divergence_check_note, "
+        "guardrail_params_version, lambda_value, is_manager_snapshot "
+        "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
+    ).fetchone()
+    if not run_row:
+        raise ValueError(f"no squad_optimizer_runs row for run_id={run_id}")
+    target_season, divergence_passed, divergence_note, guardrail_params_version, lambda_value, is_snapshot = run_row
+
+    xi_cap = None
+    if guardrail_params_version:
+        xi_cap, _ = params_mod.resolve_param(
+            con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", guardrail_params_version
+        )
+
+    # Captain-position detection is deliberately its own direct join, not folded into the
+    # club-count query below -- a real bug this caught building the test for it: coupling the
+    # two meant the captained-GK check (cheap, and arguably the more important of the two)
+    # silently no-opped whenever the club-resolution join found nothing, instead of only the
+    # club audit degrading gracefully.
+    captain_row = con.execute(
+        "SELECT s.player_uid, dp.position FROM squad_optimizer_selections s "
+        "JOIN dim_player dp ON dp.player_uid = s.player_uid WHERE s.run_id = ? AND s.is_captain",
+        [run_id],
+    ).fetchone()
+    captain_uid, captain_position = captain_row if captain_row else (None, None)
+
+    from . import reconcile as reconcile_mod
+    found = reconcile_mod._season_root_table(con, target_season, "teams.csv")
+    club_counts_squad, club_counts_xi = {}, {}
+    if found:
+        rows = con.execute(
+            """
+            WITH team_of AS (
+                SELECT DISTINCT pa.player_uid, ta.team_uid
+                FROM player_alias pa
+                JOIN "{}" t ON t.code = pa.team_code
+                JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = pa.season
+                WHERE pa.season = ?
+            )
+            SELECT s.player_uid, s.in_squad, s.in_xi, dt.canonical_name
+            FROM squad_optimizer_selections s
+            JOIN team_of tm ON tm.player_uid = s.player_uid
+            JOIN dim_team dt ON dt.team_uid = tm.team_uid
+            WHERE s.run_id = ?
+            """.format(found[1]),
+            [target_season, run_id],
+        ).fetchall()
+        for player_uid, in_squad, in_xi, club_name in rows:
+            if in_squad:
+                club_counts_squad[club_name] = club_counts_squad.get(club_name, 0) + 1
+            if in_xi:
+                club_counts_xi[club_name] = club_counts_xi.get(club_name, 0) + 1
+
+    squad_cap = 3  # solve()'s own hardcoded squad-level literal, not a versioned param
+    clubs_at_squad_cap = sorted(c for c, n in club_counts_squad.items() if n >= squad_cap)
+    clubs_at_xi_cap = sorted(c for c, n in club_counts_xi.items() if xi_cap is not None and n >= xi_cap)
+
+    return {
+        "run_id": run_id, "is_manager_snapshot": bool(is_snapshot), "lambda_value": lambda_value,
+        "divergence_check_passed": divergence_passed, "divergence_check_note": divergence_note,
+        "club_counts_squad": club_counts_squad, "club_counts_xi": club_counts_xi,
+        "squad_cap": squad_cap, "xi_cap": xi_cap,
+        "clubs_at_squad_cap": clubs_at_squad_cap, "clubs_at_xi_cap": clubs_at_xi_cap,
+        "captain_uid": captain_uid, "captain_position": captain_position,
+        "captain_is_goalkeeper": captain_position == "Goalkeeper",
+    }

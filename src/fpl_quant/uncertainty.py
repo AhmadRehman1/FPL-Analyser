@@ -495,3 +495,40 @@ def run(
             )
 
     return model_version
+
+
+# ============================================================
+# M9 adapter -- Cornish-Fisher risk display
+# ============================================================
+
+# The M9 spec's own words for the caveat this section must carry to the display layer,
+# verbatim -- not this module's own claim (uncertainty.py's own docstring only says the
+# Cornish-Fisher quantiles are "reporting/explainability output only... confirmed NOT wired
+# into M5's optimization objective"; the "unvalidated" framing is M9's, quoted at its source
+# rather than paraphrased into a second, possibly-drifting version of the same warning).
+CORNISH_FISHER_DISPLAY_CAVEAT = (
+    "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending "
+    "per-gameweek panel reconciliation' caveat attached at the display layer, not buried only "
+    "in internal docs."
+)
+
+
+def explain_player_risk(con: duckdb.DuckDBPyConnection, uncertainty_model_version: int, player_uid: str) -> dict | None:
+    """M9's risk-display section (analytic leg): M4's Cornish-Fisher quantiles, per-fixture,
+    not aggregated across a horizon -- one row per (model_version, player_uid) is expected
+    since M3/M4 are both single-gameweek per call. Returns None for a legitimate blank
+    gameweek (no fixture_match_id row for this player at this model_version)."""
+    row = con.execute(
+        "SELECT fixture_match_id, var_total, skew, excess_kurtosis, quantile_05, quantile_25, "
+        "quantile_75, quantile_95 FROM uncertainty_outputs WHERE model_version = ? AND player_uid = ?",
+        [uncertainty_model_version, player_uid],
+    ).fetchone()
+    if row is None:
+        return None
+    fixture_match_id, var_total, skew, excess_kurtosis, q05, q25, q75, q95 = row
+    return {
+        "player_uid": player_uid, "fixture_match_id": fixture_match_id,
+        "floor": q05, "q25": q25, "q75": q75, "ceiling": q95,
+        "var_total": var_total, "skew": skew, "excess_kurtosis": excess_kurtosis,
+        "caveat": CORNISH_FISHER_DISPLAY_CAVEAT,
+    }

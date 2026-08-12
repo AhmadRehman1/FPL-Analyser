@@ -183,3 +183,108 @@ def test_log_preseason_involvement_claims_are_low_weight_and_not_double_logged(c
     assert subject_entity_id == "p1"
     assert confidence < 0.5  # deliberately low-weight, per spec
     assert json.loads(claim_value)["total_preseason_minutes"] == 60
+
+
+# ============================================================
+# M9 adapter -- explain_player_adjustment() must agree with compute_logit_adjustment()
+# ============================================================
+
+def _seed_evidence_and_params_for_adjustment(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'Forward')")
+    con.execute("INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+                 "VALUES ('s_official', 'Official', 'official', 1.0)")
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, information_type, source_id, source_reliability_score, confidence, observed_date, ingested_date, raw_text) "
+        "VALUES ('c1', 'player', 'p1', 'injury_status', ?, 'FACT', 's_official', 1.0, 0.9, '2026-08-01', ?, 'ruled out')",
+        [json.dumps({"category": "Out"}), datetime(2026, 8, 1)],
+    )
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, confidence, "
+        "observed_date, ingested_date) "
+        "VALUES ('c2', 'player', 'p1', 'predicted_xi', ?, 0.9, 'OPINION', 's_official', 1.0, 0.8, '2026-08-01', ?)",
+        [json.dumps({"reasoning": "Named in the provisional XI by the beat reporter"}), datetime(2026, 8, 1)],
+    )
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                        value_numeric=-4.0, dimensions={"claim_type": "injury_status", "category": "Out"})
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                        value_numeric=0.8, dimensions={"claim_type": "predicted_xi"})
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap",
+                        value_numeric=6.0, dimensions={"scope": "global"})
+
+
+def test_explain_player_adjustment_contributions_sum_to_compute_logit_adjustment(con):
+    _seed_evidence_and_params_for_adjustment(con)
+    asof = datetime(2026, 8, 10, 23, 59, 59, tzinfo=timezone.utc)
+    p_start_historical_final = 0.7
+
+    expected_total = mm.compute_logit_adjustment(
+        con, "p1", p_start_historical_final, asof,
+        adjustment_params_version=1, decay_params_version=1, fact_multiplier_params_version=1,
+    )
+
+    # explain_player_adjustment() reads its inputs from a real minutes_model_outputs row, not
+    # bare arguments -- seed the minimal versions/output row it depends on.
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    model_version = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_final, "
+        "p_start_historical_position_avg, weight_own, logit_adjustment_total, p_start_final, "
+        "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+        "VALUES (?, 'p1', 'Forward', ?, ?, 0.0, ?, 0.5, 0.0, 0.5, 0.2, 0.3, 0)",
+        [model_version, p_start_historical_final, p_start_historical_final, expected_total],
+    )
+
+    detail = mm.explain_player_adjustment(con, model_version, "p1")
+    assert len(detail) == 2  # both claims considered
+    included = [d for d in detail if d["included"]]
+    assert len(included) == 2  # both actually contributed (real magnitude params, real numeric value)
+
+    reconstructed_total = sum(d["contribution"] for d in included)
+    reconstructed_capped = max(-6.0, min(6.0, reconstructed_total))
+    assert reconstructed_capped == pytest.approx(expected_total)
+
+    # provenance detail is real, not placeholder
+    injury = next(d for d in detail if d["claim_type"] == "injury_status")
+    assert injury["source_name"] == "Official"
+    assert injury["source_type"] == "official"
+    predicted_xi = next(d for d in detail if d["claim_type"] == "predicted_xi")
+    assert predicted_xi["reasoning"] == "Named in the provisional XI by the beat reporter"
+
+
+def test_explain_player_adjustment_flags_excluded_claims_with_a_reason(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'Forward')")
+    con.execute("INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+                 "VALUES ('s_official', 'Official', 'official', 1.0)")
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, information_type, source_id, source_reliability_score, confidence, observed_date, ingested_date) "
+        "VALUES ('c1', 'player', 'p1', 'transfer_likelihood', ?, 'FACT', 's_official', 1.0, 0.9, '2026-08-01', ?)",
+        [json.dumps({"status": "Complete"}), datetime(2026, 8, 1)],
+    )
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                        value_numeric=-2.0, dimensions={"claim_type": "transfer_likelihood"})
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    model_version = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_final, "
+        "p_start_historical_position_avg, weight_own, logit_adjustment_total, p_start_final, "
+        "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+        "VALUES (?, 'p1', 'Forward', 0.7, 0.7, 0.0, 0.0, 0.5, 0.0, 0.5, 0.2, 0.3, 0)",
+        [model_version],
+    )
+
+    detail = mm.explain_player_adjustment(con, model_version, "p1")
+    assert len(detail) == 1
+    assert detail[0]["included"] is False
+    assert detail[0]["exclusion_reason"] == "transfer already completed"

@@ -143,6 +143,27 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   clearing the versioned threshold); Bench Boost recommends GW4. Triple Captain is a genuine
   near-tie, not a confident pick, and says something real about the model, not a bug -- see
   Design notes.
+- **M9 (Reporting/Explainability Layer): done.** The last module in the frozen sequence.
+  Grepped the whole `src/fpl_quant/` tree first for any existing `explain()`-style adapter:
+  zero matches -- this isn't one new module, it's one small, additive adapter function in each
+  of six existing modules (`expected_points.explain_player_ep`, `uncertainty.
+  explain_player_risk`, `monte_carlo.explain_player_risk_empirical`, `squad_optimizer.
+  explain_run`, `minutes_model.explain_player_adjustment`, `backtest.
+  explain_backtest_summary`, `transfer_planner.explain_plan`, `params.transparency_panel`),
+  plus one new assembling module (`reporting.py`) -- exactly the loose-coupling integration
+  pattern the spec itself locks in, not a design choice made here. Minimal headline by default,
+  every other section its own dict key; automated pattern-detection flags kept genuinely
+  separate from a fixed human prompt ("does this squad look defensible to you?"), never a
+  self-certification, per the spec's own stated reason (the original `lambda=0` bug passed
+  whatever automated checks existed at the time). Verified against the real GW1 2026-27 squad:
+  15 players, captain James Tarkowski correctly *not* flagged as a goalkeeper, zero clubs at
+  either concentration cap, real M7 backtest metrics and real M8 transfer/chip rationale both
+  render correctly in the same report, and the parameter-transparency panel counts **65 of 71**
+  active parameters as still purely invented, not yet touched by M7's recalibration -- an
+  honest, real number, not an estimate. Two real bugs the test suite caught before the real
+  run could: an exact repeat of M6's own documented `dict()`-on-3-tuples mistake (see below),
+  and a captain-position check that silently no-opped whenever club-resolution data was
+  missing because it was wrongly coupled to that unrelated join -- see Design notes for both.
 
 ## Quick start
 
@@ -195,10 +216,13 @@ src/fpl_quant/
                                      tiered scoring, per-family recalibration + proposal gate
     transfer_planner.py           -- M8: horizon EP, transfer search, Wildcard/Free Hit/Triple
                                      Captain/Bench Boost evaluation, manager-state evolution
+    reporting.py                   -- M9: automated sanity-check flags + report assembly/
+                                     rendering, calling every other module's explain() adapter
 scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live gameweek)
 scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
 scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
+scripts/run_report.py              -- M9: build + print a real squad report from the project database
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
                                    FPL_202627_Master_Evidence_Database.xlsx, and
@@ -573,3 +597,45 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   `db/fpl_quant_v2.duckdb` itself, producing results consistent with the dry run's (same top
   transfer recommendation, same near-tie Triple Captain pattern) -- reproducibility across two
   independent runs against the same real GW1 squad, not a one-off.
+- **M9's evidence-provenance adapter needed "which claims actually moved a given minutes
+  adjustment," but `minutes_model.compute_logit_adjustment()` only ever returned the summed,
+  capped float -- no per-claim log existed anywhere.** Changing that function's return type
+  would break every existing caller and test (a real, tested, frozen function, not a free
+  rewrite). Fixed with a new, separate function, `explain_player_adjustment()`, kept
+  deliberately side by side with the original so the two claim-filtering code paths (same
+  skip-completed-transfer check, same missing-param skip, same manager_tendency sign flip)
+  stay easy to keep in lockstep rather than duplicated somewhere distant. Regression-tested
+  directly against the property that actually matters: summing `explain_player_adjustment()`'s
+  per-claim `contribution` values and applying the same cap reproduces
+  `compute_logit_adjustment()`'s real output exactly, for the same synthetic claims -- the two
+  are required to agree, not just both "look reasonable" independently.
+- **The exact same `dict()`-on-3-tuples mistake this README already documents from M6's first
+  real run happened again, verbatim, building M9's evidence-provenance adapter** --
+  `dict(con.execute("SELECT source_id, source_name, source_type FROM sources").fetchall())` on
+  3-column rows, same `ValueError: dictionary update sequence element #0 has length 3; 2 is
+  required`. Caught this time by the unit test suite before any real run, not by a live crash
+  -- direct evidence that regression-testing an adapter against a real synthetic fixture (not
+  a mock) catches the same class of bug a live run would have, not a weaker substitute for one.
+  Fixed the same way as M6's: an explicit dict comprehension, not the `dict()` constructor, on
+  anything wider than 2 columns.
+- **A second real bug the test suite caught: `squad_optimizer.explain_run()`'s captained-
+  goalkeeper check silently no-opped whenever club-resolution data wasn't found, because it
+  was wrongly folded into the same query as the club-count audit.** Both the captain check and
+  the club audit originally lived inside one query gated on `reconcile._season_root_table()`
+  finding a raw teams table for that season -- reasonable for the club audit (which genuinely
+  needs that join), but the captained-GK check only ever needs `squad_optimizer_selections.
+  is_captain` joined straight to `dim_player.position`, no club data involved at all. Coupling
+  them meant a missing/delayed season-root table would silently disable the *cheaper and
+  arguably more important* of the two checks along with the one that actually depended on it.
+  Split into two independent lookups: captain-position detection is now unconditional; the
+  club audit remains best-effort and degrades gracefully on its own. A test seeding a
+  goalkeeper captain without season-root data caught this before it shipped.
+- **The parameter-transparency panel's real count from the live GW1 2026-27 report: 65 of 71
+  active parameters are still purely invented, never touched by M7's recalibration** (`SELECT
+  DISTINCT param_family FROM recalibration_proposals`) -- a real, load-bearing number now that
+  it's computed rather than estimated, and a concrete measure of how much of this project's
+  own stated goal (replacing invented defaults with backtested values) remains. All four of
+  M8's own families (`planning_horizon_params`, `transfer_cost_params`,
+  `tc_risk_aversion_params`, `wildcard_gain_threshold_params`) are in that 65 -- M7 predates
+  M8, so `kappa_tc`'s own spec-stated flag ("flagged for M7 recalibration") is not yet acted
+  on. Named here, not left implicit, as the natural next piece of follow-up work.

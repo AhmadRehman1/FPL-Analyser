@@ -553,3 +553,34 @@ _NOT_MODELED_FOR_LACK_OF_RECONCILED_DATA = [
 
 def non_double_counting_audit() -> list[dict]:
     return NON_DOUBLE_COUNTING_AUDIT
+
+
+# ============================================================
+# M9 adapter -- category-level EP breakdown, display-ready shape
+# ============================================================
+
+def explain_player_ep(con: duckdb.DuckDBPyConnection, ep_model_version: int, player_uid: str) -> dict | None:
+    """M9's category-level EP breakdown section: "not a single blended number, so a human can
+    see e.g. this defender's value is mostly DefCon-driven." Pure read against ep_outputs,
+    labeled by category rather than raw column name -- no new computation. Returns None if the
+    player has no fixture at this model_version (a legitimate blank gameweek, not an error)."""
+    row = con.execute(
+        "SELECT fixture_match_id, ep_appearance, ep_goals, ep_assists, ep_clean_sheet, "
+        "ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, "
+        "ep_own_goal, ep_total, expected_bps FROM ep_outputs WHERE model_version = ? AND player_uid = ?",
+        [ep_model_version, player_uid],
+    ).fetchone()
+    if row is None:
+        return None
+    (fixture_match_id, appearance, goals, assists, clean_sheet, goals_conceded, defcon,
+     bonus, saves, penalty_save, cards, own_goal, total, expected_bps) = row
+    return {
+        "player_uid": player_uid, "fixture_match_id": fixture_match_id,
+        "categories": {
+            "appearance": appearance, "goals": goals, "assists": assists,
+            "clean_sheet": clean_sheet, "goals_conceded": goals_conceded, "defcon": defcon,
+            "bonus": bonus, "saves": saves, "penalty_save": penalty_save, "cards": cards,
+            "own_goal": own_goal,
+        },
+        "total": total, "expected_bps": expected_bps,
+    }

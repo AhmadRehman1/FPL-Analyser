@@ -210,6 +210,115 @@ def compute_logit_adjustment(
     return max(-cap, min(cap, total))
 
 
+# ============================================================
+# M9 adapter -- evidence provenance
+# ============================================================
+
+def explain_player_adjustment(con: duckdb.DuckDBPyConnection, model_version: int, player_uid: str) -> list[dict]:
+    """M9's evidence-provenance section: "for any player, the underlying evidence_claims
+    behind their minutes/injury adjustment -- source, confidence, reliability tier,
+    information_type, ... clearly labeled as not affecting the model's numbers" (for
+    community/analyst evidence, which M1b never auto-consumes).
+
+    compute_logit_adjustment() only ever returns the summed, capped float -- no per-claim
+    contribution log exists anywhere else in this project. Rather than change that function's
+    return type (would break every existing caller and test), this is a new, separate function
+    with the *exact same* claim-filtering shape (same skip-completed-transfer check, same
+    missing-param skip, same manager_tendency sign flip) -- kept side by side with the
+    original specifically so the two are easy to keep in lockstep, not duplicated somewhere
+    distant. Joins `sources` itself (get_claims_asof() doesn't) for source_name/source_type.
+    Returns one row per claim *considered*, `included` distinguishing whether it actually
+    contributed to the stored adjustment from whether it was merely logged and evaluated.
+    """
+    run_row = con.execute(
+        "SELECT player_uid, p_start_historical_final, calibration_asof_date, adjustment_params_version, "
+        "decay_params_version, fact_multiplier_params_version FROM minutes_model_outputs mo "
+        "JOIN minutes_model_versions mv ON mv.model_version = mo.model_version "
+        "WHERE mo.model_version = ? AND mo.player_uid = ?",
+        [model_version, player_uid],
+    ).fetchone()
+    if not run_row:
+        return []
+    (_uid, p_start_historical_final, calibration_asof_date, adjustment_params_version,
+     decay_params_version, fact_multiplier_params_version) = run_row
+    asof = datetime.combine(calibration_asof_date, datetime.max.time(), tzinfo=timezone.utc)
+
+    sources_by_id = {r[0]: (r[1], r[2]) for r in con.execute("SELECT source_id, source_name, source_type FROM sources").fetchall()}
+
+    def _source_info(source_id):
+        row = sources_by_id.get(source_id)
+        return {"source_name": row[0], "source_type": row[1]} if row else {"source_name": None, "source_type": None}
+
+    rows: list[dict] = []
+
+    for claim_type in _SHIFT_CLAIM_TYPES:
+        claims = snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type=claim_type
+        ).to_dict("records")
+        for c in claims:
+            payload = json.loads(c["claim_value"]) if c["claim_value"] else {}
+            base = {
+                "claim_id": c["claim_id"], "claim_type": claim_type, **_source_info(c["source_id"]),
+                "information_type": c["information_type"], "confidence": c["confidence"],
+                "reliability_score": c["source_reliability_score"], "observed_date": c["observed_date"],
+                "raw_text": c["raw_text"], "reasoning": payload.get("reasoning"),
+            }
+            if claim_type == "transfer_likelihood" and payload.get("status") == "Complete":
+                rows.append({**base, "included": False, "exclusion_reason": "transfer already completed"})
+                continue
+            dims = {"claim_type": claim_type}
+            category = payload.get("category")
+            if category is not None:
+                dims["category"] = category
+            try:
+                magnitude, _ = params_mod.resolve_param(
+                    con, "minutes_adjustment_params", "magnitude", adjustment_params_version, dimensions=dims
+                )
+            except params_mod.ParamNotFoundError:
+                rows.append({**base, "included": False, "exclusion_reason": "no resolvable magnitude param"})
+                continue
+            if claim_type == "manager_tendency":
+                sign = {"positive": 1, "negative": -1}.get(payload.get("valence"), 0)
+                magnitude = magnitude * sign
+            w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
+            rows.append({
+                **base, "included": True, "exclusion_reason": None,
+                "magnitude": magnitude, "weight": w, "contribution": magnitude * w,
+            })
+
+    claims = snapshot_mod.get_claims_asof(
+        con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="predicted_xi"
+    ).to_dict("records")
+    if claims:
+        try:
+            pull_strength, _ = params_mod.resolve_param(
+                con, "minutes_adjustment_params", "magnitude", adjustment_params_version,
+                dimensions={"claim_type": "predicted_xi"},
+            )
+        except params_mod.ParamNotFoundError:
+            pull_strength = None
+        base_logit = logit(p_start_historical_final) if pull_strength is not None else None
+        for c in claims:
+            payload = json.loads(c["claim_value"]) if c["claim_value"] else {}
+            base = {
+                "claim_id": c["claim_id"], "claim_type": "predicted_xi", **_source_info(c["source_id"]),
+                "information_type": c["information_type"], "confidence": c["confidence"],
+                "reliability_score": c["source_reliability_score"], "observed_date": c["observed_date"],
+                "raw_text": c["raw_text"], "reasoning": payload.get("reasoning"),
+            }
+            if pull_strength is None:
+                rows.append({**base, "included": False, "exclusion_reason": "no resolvable magnitude param"})
+                continue
+            if c["claim_value_numeric"] is None or pd.isna(c["claim_value_numeric"]):
+                rows.append({**base, "included": False, "exclusion_reason": "no numeric claim_value"})
+                continue
+            w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
+            contribution = pull_strength * w * (logit(c["claim_value_numeric"]) - base_logit)
+            rows.append({**base, "included": True, "exclusion_reason": None, "weight": w, "contribution": contribution})
+
+    return rows
+
+
 # ------------------------------------------------------------- GW0 visibility ----
 
 def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_season: str) -> int:

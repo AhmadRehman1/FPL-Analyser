@@ -79,3 +79,41 @@ def resolve_param(
             f"dimensions={dims} key={param_key!r} -- refusing to fall back to a default"
         )
     return row
+
+
+# ============================================================
+# M9 adapter -- parameter transparency panel
+# ============================================================
+
+def transparency_panel(con: duckdb.DuckDBPyConnection, active_versions: dict[str, int]) -> list[dict]:
+    """M9's assumptions/parameter-transparency section: "every versioned parameter active in
+    this run, flagged as either backtested/recalibrated via M7 or still literature/invented
+    default." active_versions is the caller's explicit statement of which params_version is
+    "active" for each family -- there is no "latest" concept anywhere in this project
+    (resolve_param() is explicit-version-only by design), so this panel is only ever a report
+    on versions the caller actually names, never a guess.
+
+    A family counts as "backtested_via_m7" iff it has at least one row in
+    recalibration_proposals, regardless of that proposal's status (pending/confirmed/rejected)
+    -- M7 having *attempted* to validate/tune it is the signal this flag reports, not whether
+    a human has since accepted the result.
+    """
+    touched_families = {
+        r[0] for r in con.execute("SELECT DISTINCT param_family FROM recalibration_proposals").fetchall()
+    }
+
+    panel = []
+    for family, version in active_versions.items():
+        rows = con.execute(
+            "SELECT param_key, dimensions, value_numeric, value_text, effective_date "
+            "FROM param_versions WHERE param_family = ? AND param_version = ?",
+            [family, version],
+        ).fetchall()
+        for param_key, dimensions, value_numeric, value_text, effective_date in rows:
+            panel.append({
+                "param_family": family, "param_version": version, "param_key": param_key,
+                "dimensions": json.loads(dimensions) if dimensions and dimensions != "{}" else None,
+                "value": value_numeric if value_numeric is not None else value_text,
+                "effective_date": effective_date, "backtested_via_m7": family in touched_families,
+            })
+    return panel

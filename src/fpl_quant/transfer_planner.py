@@ -618,3 +618,51 @@ def apply_recommendation(
             [new_state_version, h["player_uid"], h["in_xi"], h["is_captain"], h["is_vice"]],
         )
     return new_state_version
+
+
+# ============================================================
+# M9 adapter -- transfer/chip rationale
+# ============================================================
+
+def explain_plan(con: duckdb.DuckDBPyConnection, run_id: int, top_n: int = 5) -> dict:
+    """M9's transfer/chip-rationale section, including GW19 urgency flagging. Pure assembly --
+    transfer_recommendations and chip_evaluations.detail already carry everything a rationale
+    needs (see this module's own run(), which writes fully-populated detail JSON per chip), no
+    new computation."""
+    run_row = con.execute(
+        "SELECT target_season, target_gameweek FROM transfer_plan_runs WHERE run_id = ?", [run_id]
+    ).fetchone()
+    if not run_row:
+        raise ValueError(f"no transfer_plan_runs row for run_id={run_id}")
+    target_season, target_gameweek = run_row
+
+    recs = con.execute(
+        "SELECT rank, player_out, player_in, horizon_value_gain, transfer_cost, net_value "
+        "FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT ?", [run_id, top_n],
+    ).fetchall()
+    top_transfers = [
+        {"rank": r, "player_out": out_uid, "player_in": in_uid, "horizon_value_gain": gain,
+         "transfer_cost": cost, "net_value": net}
+        for r, out_uid, in_uid, gain, cost, net in recs
+    ]
+
+    chip_rows = con.execute(
+        "SELECT chip_type, recommended, score_or_gain, gw19_urgent_flag, detail FROM chip_evaluations WHERE run_id = ?",
+        [run_id],
+    ).fetchall()
+    chips = {
+        chip_type: {"recommended": bool(recommended), "score_or_gain": score, "gw19_urgent": bool(urgent), "detail": json.loads(detail)}
+        for chip_type, recommended, score, urgent, detail in chip_rows
+    }
+
+    state_row = con.execute(
+        "SELECT chips_used_set1 FROM manager_state_versions WHERE state_version = "
+        "(SELECT input_state_version FROM transfer_plan_runs WHERE run_id = ?)", [run_id],
+    ).fetchone()
+    chips_used_set1 = json.loads(state_row[0]) if state_row else []
+    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
+
+    return {
+        "run_id": run_id, "target_season": target_season, "target_gameweek": target_gameweek,
+        "top_transfers": top_transfers, "chips": chips, "gw19_deadline": gw19,
+    }
