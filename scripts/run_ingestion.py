@@ -110,7 +110,7 @@ def main() -> None:
         print(f"[research_pull] {time.time() - t0:.1f}s -> {json.dumps(research_pull_results)}")
 
     t0 = time.time()
-    ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=1, rho_params_version=1)
+    ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=2, rho_params_version=1)
     n_teams = con.execute(
         "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [ts_model_version]
     ).fetchone()[0]
@@ -146,7 +146,7 @@ def main() -> None:
     un_model_version = uncertainty.run(
         con, CALIBRATION_ASOF_DATE, ep_model_version=ep_model_version, mm_model_version=mm_model_version,
         ts_model_version=ts_model_version, scoring_params_version=1, bps_params_version=1,
-        tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        tau_params_version=1, rho_residual_params_version=2, corr_params_version=1,
     )
     n_un_rows = con.execute(
         "SELECT count(*) FROM uncertainty_outputs WHERE model_version = ?", [un_model_version]
@@ -182,7 +182,7 @@ def main() -> None:
         con, CALIBRATION_ASOF_DATE, squad_optimizer_run_id=so_run_id,
         ep_model_version=ep_model_version, mm_model_version=mm_model_version,
         ts_model_version=ts_model_version, uncertainty_model_version=un_model_version,
-        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=1,
+        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=2,
     )
     n_mc_players = con.execute(
         "SELECT count(DISTINCT player_uid) FROM monte_carlo_player_summary WHERE model_version = ?", [mc_model_version]
