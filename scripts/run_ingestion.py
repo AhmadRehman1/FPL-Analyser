@@ -121,7 +121,7 @@ def main() -> None:
     mm_model_version = minutes_model.run(
         con, CALIBRATION_ASOF_DATE, TARGET_SEASON,
         decay_params_version=1, adjustment_params_version=1,
-        shrinkage_params_version=1, fact_multiplier_params_version=1,
+        shrinkage_params_version=10, fact_multiplier_params_version=8,
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]
