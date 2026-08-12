@@ -98,6 +98,8 @@ def main() -> None:
         current_lambda_version=1,
         guardrail_cap=3,
         minutes_param_grids=MINUTES_PARAM_GRIDS,
+        current_kappa_tc_version=1,
+        refit_kappa_tc_flag=True,
     )
     print(f"[recalibrate] {time.time() - t0:.1f}s -> {len(proposal_ids)} pending proposals: {proposal_ids}")
 

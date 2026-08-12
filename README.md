@@ -164,6 +164,23 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   run could: an exact repeat of M6's own documented `dict()`-on-3-tuples mistake (see below),
   and a captain-position check that silently no-opped whenever club-resolution data was
   missing because it was wrongly coupled to that unrelated join -- see Design notes for both.
+- **M7 extension: `kappa_tc` recalibration (follow-up, not a new milestone).** M8's own spec
+  flags `kappa_tc` for M7 recalibration explicitly, but M7 predates M8 so had no technique for
+  it. Added `backtest.refit_kappa_tc()`, wired into `recalibrate()` as a new opt-in
+  `refit_kappa_tc_flag`/`current_kappa_tc_version` pair (default off, so existing M7-only
+  callers are unaffected). Unlike `refit_lambda`, this needed zero re-solving: `kappa_tc` never
+  changes which XI gets picked, only which XI player would be captained, and every real
+  backtest gameweek step already has a real Monte Carlo simulation of its own XI stored from
+  the original 71-gameweek run -- captain choice under a candidate `kappa_tc` is a pure argmax
+  read against `monte_carlo_player_summary`, the same TC-score formula `transfer_planner.
+  evaluate_triple_captain()` already uses live. Run for real against the actual
+  `backtest_run_id=1` data (62 of the 70 Monte-Carlo-bearing steps had usable warm/mature-tier
+  data): `kappa_tc` 0.15->0.5, `realized_sharpe` 1.092->1.196 -- proposal #6, `pending`, human
+  review required same as the other five. `wildcard_gain_threshold_params` is deliberately
+  *not* covered by this extension -- see Design notes for why. Re-running the M9 report after
+  writing this proposal now shows **64 of 71** (`tc_risk_aversion_params` moved out of the
+  never-backtested set) -- see Design notes for the important caveat before treating proposal
+  #6 as a clean recommendation.
 
 ## Quick start
 
@@ -636,6 +653,28 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   it's computed rather than estimated, and a concrete measure of how much of this project's
   own stated goal (replacing invented defaults with backtested values) remains. All four of
   M8's own families (`planning_horizon_params`, `transfer_cost_params`,
-  `tc_risk_aversion_params`, `wildcard_gain_threshold_params`) are in that 65 -- M7 predates
-  M8, so `kappa_tc`'s own spec-stated flag ("flagged for M7 recalibration") is not yet acted
-  on. Named here, not left implicit, as the natural next piece of follow-up work.
+  `tc_risk_aversion_params`, `wildcard_gain_threshold_params`) were in that 65 at M9's own
+  completion -- M7 predates M8, so `kappa_tc`'s own spec-stated flag ("flagged for M7
+  recalibration") had not yet been acted on. Named here, not left implicit, as the natural next
+  piece of follow-up work -- see the two notes below for what was actually done about it.
+- **`refit_kappa_tc()`'s realized_sharpe objective does not have a clean interior optimum --
+  disclosed, not hidden behind a conveniently narrow default grid.** Diagnostic grid search
+  beyond the default candidates (0.75, 1.0, 1.5, 2.0) against the real `backtest_run_id=1` data
+  shows `realized_sharpe` keeps climbing as `kappa_tc` grows (1.196 at 0.5, 1.500 at 2.0, no
+  turnaround found) -- extreme risk aversion in captaincy trivially minimizes the *realized
+  variance* term in the denominator by always captaining the flattest, lowest-ceiling player in
+  the XI, and Sharpe rewards that even as mean captained points keep falling (9.16 at the
+  current 0.15 down to 7.45 at 2.0). This is a real weakness of using the same realized_sharpe
+  metric `refit_lambda()` uses for squad-level risk aversion, applied here to a single-player
+  argmax choice with no portfolio effect to offset it -- worth a human's explicit skepticism
+  before accepting proposal #6 (0.15->0.5), not a reason to silently widen the grid until it
+  produces whatever answer looks most defensible. The default `kappa_tc_grid` in `recalibrate()`
+  deliberately stays bounded at 0.50, matching `lambda_grid`, rather than being hand-tuned
+  around this finding.
+- **`wildcard_gain_threshold_params.min_horizon_gain` is deliberately not covered by the
+  `kappa_tc` extension, or by any M7 technique.** Backtesting it would mean re-running M8's own
+  manager-state bootstrap and evolution across the full 71-gameweek backtest history -- M7's
+  walk-forward squad is M5's from-scratch pick every single step, not an evolving manager
+  holding, so no equivalent "what would the manager have owned at gameweek N" state exists in
+  M7's infrastructure to compare a wildcard's gain against. A materially larger, separately-
+  scoped piece of work, not a small addition to `recalibrate()` -- named as a real, open gap.

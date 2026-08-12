@@ -598,3 +598,143 @@ def test_run_step_selection_excludes_double_gameweeks(con):
         if not bt.has_double_gameweek(con, s, gw)
     ]
     assert steps == []
+
+
+# ============================================================
+# refit_kappa_tc -- out-of-sample TC captain-choice grid search
+# ============================================================
+
+def _seed_kappa_tc_step(con, backtest_run_id, season, gameweek, tier, players):
+    """players: [(player_uid, mean_total, var_total, realized_points), ...], all in the XI.
+    Builds a real squad_optimizer_runs + monte_carlo_run_versions + monte_carlo_player_summary
+    chain (mirrors test_transfer_planner.py's _seed_minimal_squad_optimizer_run /
+    _seed_mc_run_and_summary pattern -- no cross-test-file import precedent in this suite) and
+    links it into backtest_gameweek_steps the way a real run_gameweek_step() call would, plus
+    seeds fact_player_season_stats so _realized_xi_points() has real outcomes to read."""
+    for uid, *_ in players:
+        con.execute(
+            "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder') ON CONFLICT DO NOTHING",
+            [uid, uid],
+        )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [season, ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    so_run_id = con.execute(
+        "INSERT INTO squad_optimizer_runs (run_id, calibration_asof_date, target_season, target_gameweek, "
+        "ep_model_version, uncertainty_model_version, lambda_params_version, lambda_value, "
+        "guardrail_params_version, divergence_check_passed, solver_status, objective_value) "
+        "VALUES (nextval('seq_squad_optimizer_run'), '2026-08-10', ?, ?, ?, ?, 1, 0.15, 1, TRUE, 'optimal', 10.0) "
+        "RETURNING run_id",
+        [season, gameweek, ep_mv, un_mv],
+    ).fetchone()[0]
+    mc_mv = con.execute("SELECT nextval('seq_monte_carlo_model_version')").fetchone()[0]
+    con.execute(
+        "INSERT INTO monte_carlo_run_versions (model_version, calibration_asof_date, squad_optimizer_run_id, "
+        "ep_model_version, minutes_model_version, team_strength_model_version, uncertainty_model_version, "
+        "rho_residual_params_version, z_fixture_lambda_representative, z_fixture_variance, n_antithetic_pairs, "
+        "query_id, seed) VALUES (?, '2026-08-10', ?, ?, ?, ?, ?, 1, 0.1, 0.1, 100, 'test', 1)",
+        [mc_mv, so_run_id, ep_mv, mm_mv, ts_mv, un_mv],
+    )
+    for uid, mean_total, var_total, realized_points in players:
+        con.execute(
+            "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+            "VALUES (?, ?, TRUE, TRUE, FALSE, FALSE)", [so_run_id, uid],
+        )
+        con.execute(
+            "INSERT INTO monte_carlo_player_summary (model_version, player_uid, mean_total, var_total, "
+            "quantile_05, quantile_25, quantile_75, quantile_95, min_total, max_total) "
+            "VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0)", [mc_mv, uid, mean_total, var_total],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, _ingested_at) "
+            "VALUES (?, ?, ?, ?, current_timestamp)", [uid, season, gameweek, realized_points],
+        )
+    con.execute(
+        "INSERT INTO backtest_gameweek_steps (backtest_run_id, season, gameweek, tier, data_asof, so_run_id, "
+        "mc_model_version, divergence_check_passed) VALUES (?, ?, ?, ?, current_timestamp, ?, ?, TRUE)",
+        [backtest_run_id, season, gameweek, tier, so_run_id, mc_mv],
+    )
+
+
+def test_refit_kappa_tc_prefers_the_kappa_with_better_realized_outcomes(con):
+    backtest_run_id = _seed_backtest_run(con)
+    # high_var has the higher mean but a much wider spread; low_var has a lower mean but is
+    # tight. At kappa=0 the argmax always captains high_var; high_var's *realized* points are
+    # deliberately mediocre every step, while low_var's are consistently strong -- kappa=0.5
+    # flips the argmax to low_var and should score a much higher realized_sharpe.
+    for season, gw, hv_realized, lv_realized in [
+        ("2025-2026", 10, 2, 6),
+        ("2025-2026", 11, 3, 9),
+        ("2025-2026", 12, 1, 7),
+    ]:
+        _seed_kappa_tc_step(con, backtest_run_id, season, gw, "warm", [
+            ("high_var", 10.0, 100.0, hv_realized),   # sd=10 -> kappa=0.5 score = 10-5=5
+            ("low_var", 8.0, 4.0, lv_realized),        # sd=2  -> kappa=0.5 score = 8-1=7
+        ])
+    eval_steps = [("2025-2026", 10), ("2025-2026", 11), ("2025-2026", 12)]
+    mc_by_step = bt._model_version_map(con, backtest_run_id, "mc_model_version")
+    xi_by_step = bt._xi_uids_by_step(con, backtest_run_id)
+
+    result = bt.refit_kappa_tc(con, eval_steps, mc_by_step, xi_by_step, kappa_tc_grid=(0.0, 0.5))
+
+    assert result["grid"][0.0]["n_gameweeks"] == 3
+    assert result["grid"][0.5]["n_gameweeks"] == 3
+    # kappa=0 always captains high_var (2*2, 2*3, 2*1 = 4, 6, 2)
+    assert result["grid"][0.0]["mean_points"] == pytest.approx((4 + 6 + 2) / 3)
+    # kappa=0.5 always captains low_var (2*6, 2*9, 2*7 = 12, 18, 14)
+    assert result["grid"][0.5]["mean_points"] == pytest.approx((12 + 18 + 14) / 3)
+    assert result["grid"][0.5]["realized_sharpe"] > result["grid"][0.0]["realized_sharpe"]
+    assert result["best_kappa_tc"] == 0.5
+
+
+def test_refit_kappa_tc_skips_steps_missing_mc_or_xi_data(con):
+    backtest_run_id = _seed_backtest_run(con)
+    _seed_kappa_tc_step(con, backtest_run_id, "2025-2026", 10, "warm", [
+        ("p1", 10.0, 1.0, 5), ("p2", 8.0, 1.0, 5),
+    ])
+    eval_steps = [("2025-2026", 10), ("2025-2026", 99)]  # gw99 was never seeded
+    mc_by_step = bt._model_version_map(con, backtest_run_id, "mc_model_version")
+    xi_by_step = bt._xi_uids_by_step(con, backtest_run_id)
+
+    result = bt.refit_kappa_tc(con, eval_steps, mc_by_step, xi_by_step, kappa_tc_grid=(0.0,))
+    assert result["grid"][0.0]["n_gameweeks"] == 1  # only the real, seeded step counted
+
+
+def test_xi_uids_by_step_excludes_bench_players(con):
+    backtest_run_id = _seed_backtest_run(con)
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('bench1', 'B1', 'Defender')"
+    )
+    _seed_kappa_tc_step(con, backtest_run_id, "2025-2026", 10, "warm", [
+        ("p1", 10.0, 1.0, 5), ("p2", 8.0, 1.0, 5),
+    ])
+    so_run_id = con.execute(
+        "SELECT so_run_id FROM backtest_gameweek_steps WHERE backtest_run_id = ? AND gameweek = 10", [backtest_run_id]
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+        "VALUES (?, 'bench1', TRUE, FALSE, FALSE, FALSE)", [so_run_id],
+    )
+
+    xi_by_step = bt._xi_uids_by_step(con, backtest_run_id)
+    assert xi_by_step[("2025-2026", 10)] == {"p1", "p2"}

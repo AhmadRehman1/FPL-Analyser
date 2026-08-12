@@ -900,6 +900,80 @@ def refit_lambda(
     return {"best_lambda": best_lambda, "grid": grid_results}
 
 
+def _xi_uids_by_step(con: duckdb.DuckDBPyConnection, backtest_run_id: int) -> dict[tuple[str, int], set[str]]:
+    rows = con.execute(
+        "SELECT season, gameweek, so_run_id FROM backtest_gameweek_steps WHERE backtest_run_id = ? AND so_run_id IS NOT NULL",
+        [backtest_run_id],
+    ).fetchall()
+    out = {}
+    for season, gw, so_run_id in rows:
+        xi = {
+            r[0] for r in con.execute(
+                "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_xi", [so_run_id]
+            ).fetchall()
+        }
+        out[(season, gw)] = xi
+    return out
+
+
+def refit_kappa_tc(
+    con: duckdb.DuckDBPyConnection,
+    eval_steps: list[tuple[str, int]],
+    mc_model_version_by_step: dict[tuple[str, int], int],
+    xi_uids_by_step: dict[tuple[str, int], set[str]],
+    kappa_tc_grid: tuple[float, ...] = (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50),
+) -> dict:
+    """M8's own spec flags kappa_tc for M7 recalibration explicitly ("same status as lambda...
+    flagged for M7 recalibration"). Out-of-sample grid search on realized_sharpe =
+    mean(realized captain points)/std(same) across eval_steps -- the same technique
+    refit_lambda() already established for this class of risk-preference parameter.
+
+    Unlike lambda, kappa_tc never changes which squad/XI gets picked -- only which XI player
+    would be captained -- so this needs zero re-solving. Every backtest gameweek step already
+    has a real Monte Carlo simulation of its own XI (monte_carlo_player_summary, linked via
+    backtest_gameweek_steps.mc_model_version), and captain choice is a pure argmax read
+    against that existing data, the exact same TC_score formula
+    transfer_planner.evaluate_triple_captain() uses live. `_realized_xi_points()` with a
+    single-player set doubles that one player's realized points -- exactly what captaining
+    them would have scored, isolated from the rest of the team's outcome.
+
+    wildcard_gain_threshold_params (M8's other invented risk-adjacent default) is deliberately
+    NOT covered here -- backtesting it would mean re-running M8's manager-state bootstrap and
+    evolution across the whole backtest history (a materially larger, separately-scoped
+    undertaking: M7's own walk-forward squad is M5's from-scratch pick every step, not an
+    evolving manager holding), not a small extension of this function. Named as a real,
+    disclosed gap, not silently skipped.
+    """
+    grid_results = {}
+    for kappa in kappa_tc_grid:
+        gameweek_points = []
+        for season, gw in eval_steps:
+            mc_mv = mc_model_version_by_step.get((season, gw))
+            xi_uids = xi_uids_by_step.get((season, gw))
+            if not mc_mv or not xi_uids:
+                continue
+            rows = con.execute(
+                "SELECT player_uid, mean_total, var_total FROM monte_carlo_player_summary WHERE model_version = ?",
+                [mc_mv],
+            ).fetchall()
+            scored = [(uid, mean_total - kappa * (var_total ** 0.5)) for uid, mean_total, var_total in rows if uid in xi_uids]
+            if not scored:
+                continue
+            captain_uid = max(scored, key=lambda c: c[1])[0]
+            gameweek_points.append(_realized_xi_points(con, season, gw, frozenset({captain_uid}), captain_uid))
+
+        if len(gameweek_points) >= 2:
+            arr = np.array(gameweek_points)
+            std = float(arr.std(ddof=0))
+            sharpe = float(arr.mean() / std) if std > 0 else float("-inf")
+            grid_results[kappa] = {"realized_sharpe": sharpe, "mean_points": float(arr.mean()), "n_gameweeks": len(gameweek_points)}
+        else:
+            grid_results[kappa] = {"realized_sharpe": float("-inf"), "mean_points": None, "n_gameweeks": len(gameweek_points)}
+
+    best_kappa = max(grid_results, key=lambda k: grid_results[k]["realized_sharpe"])
+    return {"best_kappa_tc": best_kappa, "grid": grid_results}
+
+
 def report_concentration_sensitivity(
     con: duckdb.DuckDBPyConnection,
     eval_steps: list[tuple[str, int]],
@@ -986,6 +1060,9 @@ def recalibrate(
     refit_rho_residual_flag: bool = True,
     refit_minutes_flag: bool = True,
     refit_lambda_flag: bool = True,
+    current_kappa_tc_version: int | None = None,
+    kappa_tc_grid: tuple[float, ...] = (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50),
+    refit_kappa_tc_flag: bool = False,
 ) -> list[int]:
     """Runs whichever refit techniques are enabled against this backtest_run_id's results and
     writes one propose_recalibration() row per changed parameter -- never activates anything
@@ -998,6 +1075,14 @@ def recalibrate(
 
     xi_club_concentration_cap is never recalibrated here by design -- see
     report_concentration_sensitivity() and the README's Design notes for why.
+
+    refit_kappa_tc_flag defaults False (unlike the M7-native techniques above, which default
+    True): it is the one M8 extension in this function, opt-in via current_kappa_tc_version so
+    that existing M7-only callers are unaffected. It is by far the cheapest technique here --
+    a pure argmax read against monte_carlo_player_summary rows this backtest run already wrote
+    per step, no re-solving of anything -- see refit_kappa_tc()'s own docstring.
+    wildcard_gain_threshold_params is NOT covered by any technique here; see refit_kappa_tc()'s
+    docstring for why that is a disclosed scope decision, not an oversight.
     """
     proposal_ids = []
     eval_steps = _eval_steps_for(con, backtest_run_id)
@@ -1058,6 +1143,21 @@ def recalibrate(
                 con, backtest_run_id, "risk_aversion_params", "lambda_value", result["best_lambda"],
                 "realized_sharpe", result["grid"][current_lambda]["realized_sharpe"], result["grid"][result["best_lambda"]]["realized_sharpe"],
                 old_params_version=current_lambda_version, effective_date=effective_date,
+            ))
+
+    if refit_kappa_tc_flag:
+        if current_kappa_tc_version is None:
+            raise ValueError("refit_kappa_tc_flag=True requires current_kappa_tc_version")
+        current_kappa_tc, _ = params_mod.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", current_kappa_tc_version)
+        mc_by_step = _model_version_map(con, backtest_run_id, "mc_model_version")
+        xi_uids_by_step = _xi_uids_by_step(con, backtest_run_id)
+        grid = tuple(set(kappa_tc_grid) | {current_kappa_tc})
+        result = refit_kappa_tc(con, eval_steps, mc_by_step, xi_uids_by_step, kappa_tc_grid=grid)
+        if result["best_kappa_tc"] != current_kappa_tc:
+            proposal_ids.append(propose_recalibration(
+                con, backtest_run_id, "tc_risk_aversion_params", "kappa_tc", result["best_kappa_tc"],
+                "realized_sharpe", result["grid"][current_kappa_tc]["realized_sharpe"], result["grid"][result["best_kappa_tc"]]["realized_sharpe"],
+                old_params_version=current_kappa_tc_version, effective_date=effective_date,
             ))
 
     return proposal_ids
