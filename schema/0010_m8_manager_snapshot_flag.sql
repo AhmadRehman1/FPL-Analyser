@@ -1,0 +1,16 @@
+-- M8 -- Triple Captain evaluation needs a real Monte Carlo simulation of the manager's actual
+-- current holdings, which were never a real M5 solve. monte_carlo_run_versions.
+-- squad_optimizer_run_id is a NOT NULL FK into squad_optimizer_runs, and DuckDB validates FK
+-- constraints against the real catalog table regardless of any TEMP TABLE shadowing a query
+-- might otherwise resolve through (confirmed by direct testing, building M8: a TEMP TABLE
+-- shadow of squad_optimizer_runs satisfies monte_carlo.run()'s own SELECT queries fine, but
+-- its later INSERT into monte_carlo_run_versions still fails FK validation against main.*).
+-- Making the column nullable was tried first and is also blocked -- DuckDB refuses to ALTER a
+-- table that other tables have foreign keys into (monte_carlo_player_totals/summary/
+-- empirical_covariance all FK into monte_carlo_run_versions). The only working fix confirmed:
+-- a real, permanent row in squad_optimizer_runs itself, clearly flagged as not a real solve.
+--
+-- ADD COLUMN with a DEFAULT (no inline NOT NULL -- DuckDB doesn't support adding a column with
+-- an inline constraint) is safe and idempotent even on a table with FK dependents, unlike
+-- ALTER COLUMN or DROP CONSTRAINT (neither of which DuckDB permits here).
+ALTER TABLE squad_optimizer_runs ADD COLUMN IF NOT EXISTS is_manager_snapshot BOOLEAN DEFAULT FALSE;

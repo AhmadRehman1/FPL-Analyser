@@ -120,6 +120,29 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   specifically *not* a recommendation to remove M5's risk mechanism (see Design notes: a
   dedicated sensitivity report empirically vindicates keeping `xi_club_concentration_cap` out
   of this recalibration, exactly the redundancy the guardrail was designed for).
+- **M8 (Transfer & Chip Strategy Planner): done.** Implementation-time verification gate
+  cleared first (same discipline as M3's scoring matrix): the -4-points-per-extra-transfer
+  hit, 5-transfer banking cap, and 2-sets-of-4-chips/GW19-no-carryover structure all confirmed
+  unchanged for 2026-27 via live web search against the Premier League's own site and Fantasy
+  Football Scout, not assumed from convention. Operates on an *existing* squad -- a genuinely
+  new concept nothing in M0-M7 tracked (`manager_state_versions`/`manager_squad_holdings`,
+  bootstrapped once from a real `squad_optimizer_runs` selection and evolved forward only by
+  M8's own accepted recommendations, never silently re-derived from a fresh M5 call). Two
+  real findings that turned out to make the hardest-looking parts of this module cheap, not
+  expensive: no multi-gameweek EP horizon existed anywhere (`ep.run()` takes one gameweek per
+  call), but `team_strength`/`minutes_model` are gameweek-agnostic snapshots, so a 5-gameweek
+  horizon costs only 5 extra `ep.run()`/`uncertainty.run()` calls, not 5x the full M1-M4
+  chain; and Triple Captain needs *zero* new simulation, since captaincy has no effect on
+  `monte_carlo.py`'s mechanics (grepped, confirmed) -- `monte_carlo_player_summary.mean_total`/
+  `sqrt(var_total)` already *are* `E[marginal_value]`/`StdDev[marginal_value]` for every
+  candidate. Verified against the real GW1 2026-27 squad, planning for GW2: top transfer
+  recommendation is Jason Steele (backup GK) -> Martin Dúbravka, +8.97 points over the
+  5-gameweek horizon at zero cost (within the free allocation); Wildcard and Free Hit both
+  correctly *not* recommended this early (a fresh full rebuild actually scores *worse* than
+  the current squad plus one good transfer -- gains of -4.98 and +1.59 respectively, neither
+  clearing the versioned threshold); Bench Boost recommends GW4. Triple Captain is a genuine
+  near-tie, not a confident pick, and says something real about the model, not a bug -- see
+  Design notes.
 
 ## Quick start
 
@@ -146,6 +169,8 @@ schema/0005_m4_uncertainty.sql -- DDL: uncertainty_model_versions, uncertainty_o
 schema/0006_m5_squad_optimizer.sql -- DDL: squad_optimizer_runs, squad_optimizer_selections
 schema/0007_m6_monte_carlo.sql -- DDL: monte_carlo_run_versions/player_totals/player_summary/empirical_covariance
 schema/0008_m7_backtest.sql -- DDL: backtest_runs/gameweek_steps/metrics, recalibration_proposals
+schema/0009_m8_transfer_planner.sql -- DDL: manager_state_versions/squad_holdings, transfer_plan_runs/recommendations, chip_evaluations
+schema/0010_m8_manager_snapshot_flag.sql -- squad_optimizer_runs.is_manager_snapshot (additive; see Design notes)
 src/fpl_quant/
     db.py                     -- DuckDB connection + schema application
     ingest_csv.py             -- generic fact_raw ingestion: one table per (season, relpath),
@@ -168,9 +193,12 @@ src/fpl_quant/
                                     gameweek simulation, empirical Sigma vs M4
     backtest.py                  -- M7: asof_scope() TEMP TABLE shadowing, walk-forward loop +
                                      tiered scoring, per-family recalibration + proposal gate
+    transfer_planner.py           -- M8: horizon EP, transfer search, Wildcard/Free Hit/Triple
+                                     Captain/Bench Boost evaluation, manager-state evolution
 scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live gameweek)
 scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
 scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
+scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
                                    FPL_202627_Master_Evidence_Database.xlsx, and
@@ -475,3 +503,73 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   needing to redo the expensive `run()` pass -- direct evidence the "each proposal is its own
   immutable row, nothing is activated automatically" design (see `propose_recalibration()`) is
   also what makes this kind of interruption cheap to recover from, not just auditable.
+- **DuckDB refuses to `ALTER` a table that other tables have foreign keys into, and validates
+  FK constraints against the real catalog table even when a query would otherwise resolve a
+  bare table name through a `TEMP TABLE` shadow -- both confirmed the hard way building M8,
+  not assumed from documentation.** Triple Captain needs a real `monte_carlo.run()` simulation
+  of the manager's *actual* current holdings, but `monte_carlo_run_versions.
+  squad_optimizer_run_id` is a `NOT NULL` FK into `squad_optimizer_runs`, and the manager's
+  holdings were never a real M5 solve. Two approaches were tried and failed before the one
+  that works: (1) making the FK column nullable -- blocked, DuckDB won't `ALTER` a table
+  (`monte_carlo_run_versions`) that other tables (`monte_carlo_player_totals`/`summary`/
+  `empirical_covariance`) FK into, confirmed by direct testing against the real schema, not a
+  design choice; (2) reusing M7's connection-scoped `TEMP TABLE` shadow of
+  `squad_optimizer_runs` (the same trick `backtest.asof_scope()` uses for `fact_match`) --
+  satisfies `monte_carlo.run()`'s own `SELECT` queries fine (confirmed it got that far in a
+  real run before crashing), but the subsequent `INSERT INTO monte_carlo_run_versions` still
+  fails FK validation, because DuckDB checks the constraint against `main.squad_optimizer_runs`
+  regardless of what a `TEMP TABLE` of the same name would resolve a plain query through. Also
+  confirmed no escape hatch exists: no `SET foreign_keys=...` pragma, and `ALTER TABLE ... DROP
+  CONSTRAINT` raises `NotImplementedException` outright in this DuckDB version. The fix that
+  actually works: `squad_optimizer_runs.is_manager_snapshot` (schema/0010, a plain `ADD COLUMN
+  ... DEFAULT FALSE` with no inline `NOT NULL` -- the one `ALTER` variant DuckDB *does* permit
+  on a table with dependents), and `transfer_planner._write_manager_snapshot_as_optimizer_run()`
+  inserts a real, permanent, clearly-flagged row there instead of a temporary shadow.
+  `monte_carlo.run()` itself needed zero changes. The row can never be deleted afterward either
+  (the same "can't modify a table with FK dependents" limitation, once
+  `monte_carlo_run_versions` references it) -- a disclosed, one-way trade-off, not a hidden one.
+- **The same "can't modify a row with FK-referencing children" limitation showed up a second
+  time**, independent of the above: `apply_recommendation()` originally tried to `UPDATE
+  transfer_plan_runs SET output_state_version = ...` after accepting a recommendation, and
+  DuckDB rejected it because `transfer_recommendations`/`chip_evaluations` both FK into
+  `transfer_plan_runs` -- even though `output_state_version` isn't the referenced key column at
+  all. Fixed by flipping the link's direction: `manager_state_versions.produced_by_run_id` is
+  set once, at `INSERT` time, rather than back-filled onto the parent row afterward -- avoids
+  ever needing to `UPDATE` a row with dependents, not just for this case but as the general
+  pattern worth knowing before adding the next module here.
+- **`evaluate_transfers()`'s exhaustive single-transfer search enforces three constraints a
+  transfer must satisfy to be real, not optional embellishments**: same position, incoming
+  price no greater than outgoing (no banked-budget tracking exists yet -- out of the locked
+  spec's stated scope, conservatively assumes zero bank rather than silently ignoring budget
+  entirely), and the post-swap per-club count staying within the same `<=3` guardrail M5
+  itself enforces. All three are cheap, pure in-memory checks once the horizon EP is
+  pre-fetched once per candidate pool (not per candidate pair) -- roughly 8,000 evaluations
+  per planning call, negligible next to the real cost centers (the SCIP solves and Monte
+  Carlo simulation).
+- **The spec's "M4's variance naturally widening for further-out gameweeks" is not actually
+  true of the current implementation, confirmed by reading the code before building anything
+  to compensate for it.** `team_strength.calibrate()` produces one horizon-agnostic snapshot
+  reused unchanged for every target gameweek; `uncertainty.run()` has no calendar-distance-to-
+  target term at all. No new uncertainty-inflation formula is invented here -- the locked spec
+  presents this as a description of an assumed mechanism, not a numbered requirement, so
+  `compute_horizon_ep()` inherits whatever variance M4 actually produces per horizon gameweek,
+  undecorated. Named here so a future module doesn't assume it's already handled.
+- **A genuine, real finding from the verified GW1->GW2 2026-27 run, not silently smoothed
+  over: Triple Captain comes out a near-exact tie between a defender and a premium
+  attacker, not a confident pick.** Bruno Fernandes has the highest raw simulated mean
+  (4.34 points) of any XI candidate, but also the highest variance (`sqrt(var)` ~4.29);
+  Marcos Senesi Barón's mean is lower (4.23) but his variance is under half of Bruno's
+  (`sqrt(var)` ~2.93). At the invented `kappa_tc=0.15` (pinned to match `lambda_value` for
+  lack of any other anchor, same status as every other risk-preference default in this
+  project), the risk-adjusted scores land at 3.79 vs 3.71 -- Senesi barely ahead, well within
+  what 5,000-antithetic-pair simulation noise could plausibly move. Directly continues the
+  pattern M5's own README entry already documented for its real GW1 captain pick ("notably
+  favors several high-DefCon defenders... over some premium attackers") -- independent
+  evidence of the same real signal from a completely different evaluation path, not a
+  coincidence and not a bug.
+- **Verified against the real project database following the same two-stage discipline as
+  M7**: a scratch dry run against a full copy of the real DB first (confirmed the whole
+  pipeline runs clean end to end, ~22 minutes), then the real bootstrap-and-plan run against
+  `db/fpl_quant_v2.duckdb` itself, producing results consistent with the dry run's (same top
+  transfer recommendation, same near-tie Triple Captain pattern) -- reproducibility across two
+  independent runs against the same real GW1 squad, not a one-off.
