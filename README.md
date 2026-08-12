@@ -92,6 +92,34 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   comes out far below 0.15 (0.02-0.08, not ~0.15) even though the underlying goals+assists
   mechanism is calibrated exactly to 0.15 -- see Design notes for why this is real dilution,
   not a bug, and what it implies for M4's blanket `rho_residual` application.
+- **M7 (Walk-Forward Backtesting Framework): done.** Full M1-M6 pipeline re-run against every
+  historical 2024-25/2025-26 gameweek under a real `data_asof` cutoff -- the first genuine
+  exercise of the snapshot-discipline guarantee every module has carried since M0 (confirmed
+  by code review before building this: every module except `minutes_model.py`'s evidence-claim
+  path only *stored* `calibration_asof_date` for audit, never filtered a fact-table query with
+  it -- invisible until now because a live run's historical facts trivially predate
+  `data_asof`). Enforcement is connection-scoped `TEMP TABLE` shadowing (`backtest.asof_scope()`)
+  so M1-M5's existing, already-tested SQL runs completely unmodified against an asof-truncated
+  view -- verified both by a dedicated leak-prevention regression test and, for real, by the
+  actual run. 76 gameweeks total (both seasons confirmed fully complete, per this spec's own
+  research correction); 71 actually walked -- 1 skipped for the cold-start guard (2024-25 GW1
+  has zero prior matches to MLE-fit against), 4 for real historical Double Gameweeks the
+  pipeline can't yet handle (confirmed in the real data at 2024-25 GW25 and 2025-26
+  GW26/33/36 -- a genuine gap in M3's existing DGW-out-of-scope boundary, extended here rather
+  than patched with new aggregation logic mid-M7). Tiered cold/warm/mature scoring (log score +
+  Brier for M2/M3, Poisson calibration for M1) on the real 71-gameweek run: mature tier's
+  Poisson-calibration residual is essentially unbiased (-0.030), every other metric improves
+  cold->warm->mature exactly as this spec's own known-limitation note predicted, and the
+  cold-tier MLE-divergence guard fired exactly once across the whole run (3 degenerate
+  fixture-sides, isolated entirely to cold tier) -- real evidence the instability really is a
+  cold-start-specific phenomenon, not a broader fragility. `recalibrate()` produced 5 real,
+  human-reviewable proposals (all `pending`, none auto-activated -- see Design notes): `xi`
+  0.0018->0.005 (fit NLL nearly halves, 1302->677), `rho_residual` 0.15->0.0 (independent
+  confirmation of M6's dilution finding above), `fact_type_multiplier` 1.2->1.0,
+  `competitive_matches_threshold` 10->20, and `lambda_value` 0.15->0.0 -- the last one
+  specifically *not* a recommendation to remove M5's risk mechanism (see Design notes: a
+  dedicated sensitivity report empirically vindicates keeping `xi_club_concentration_cap` out
+  of this recalibration, exactly the redundancy the guardrail was designed for).
 
 ## Quick start
 
@@ -117,6 +145,7 @@ schema/0004_m3_expected_points.sql -- DDL: ep_model_versions, ep_outputs
 schema/0005_m4_uncertainty.sql -- DDL: uncertainty_model_versions, uncertainty_outputs, cross_player_covariance
 schema/0006_m5_squad_optimizer.sql -- DDL: squad_optimizer_runs, squad_optimizer_selections
 schema/0007_m6_monte_carlo.sql -- DDL: monte_carlo_run_versions/player_totals/player_summary/empirical_covariance
+schema/0008_m7_backtest.sql -- DDL: backtest_runs/gameweek_steps/metrics, recalibration_proposals
 src/fpl_quant/
     db.py                     -- DuckDB connection + schema application
     ingest_csv.py             -- generic fact_raw ingestion: one table per (season, relpath),
@@ -137,7 +166,11 @@ src/fpl_quant/
     squad_optimizer.py         -- M5: MIQP via SCIP, lambda=0-vs-real divergence check
     monte_carlo.py              -- M6: Z_fixture Gamma-Poisson mixture, antithetic-variate
                                     gameweek simulation, empirical Sigma vs M4
-scripts/run_ingestion.py       -- end-to-end pipeline runner
+    backtest.py                  -- M7: asof_scope() TEMP TABLE shadowing, walk-forward loop +
+                                     tiered scoring, per-family recalibration + proposal gate
+scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live gameweek)
+scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
+scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
                                    FPL_202627_Master_Evidence_Database.xlsx, and
@@ -354,3 +387,91 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   `minutes_model_outputs`/`player_alias`/`team_alias` join chain `run()` actually depends on.
   That real run is what caught the `dict()` bug above -- direct evidence the split is doing
   its job, not a gap being rationalized away.
+- **A real bug the M7 dry run caught: a strict `kickoff_time < deadline` asof cutoff hides the
+  very fixtures being predicted, not just future ones.** The gameweek being backtested has its
+  own `kickoff_time` exactly at (not before) the pinned deadline, so a naive `asof_scope()`
+  shadow made `expected_points.run()`/`monte_carlo.run()` unable to see which players faced
+  which fixture that week -- the whole point of the prediction, not a leak. Fixed with one
+  deliberate exception in the `fact_match` shadow: the target gameweek's own fixture *schedule*
+  (match_id/teams/kickoff_time) stays visible with `home_score`/`away_score`/`finished` nulled
+  out, so the result stays genuinely unknowable while the schedule -- announced well before any
+  real deadline -- doesn't. Every other future gameweek stays fully invisible, schedule
+  included.
+- **A second real bug the dry run caught: real historical Double Gameweeks crash
+  `squad_optimizer_selections`' primary key.** 2024-25 GW25 and 2025-26 GW26/33/36 each have a
+  team playing twice under the same gameweek label (rearranged fixtures) -- confirmed in the
+  actual ingested data, not a hypothetical. `expected_points.run()` emits one `ep_outputs` row
+  per player per fixture by its own explicit v1 design ("DGW/multi-fixture handling is out of
+  scope for v1, per M8's own research finding that 2026-27 currently has no scheduled
+  doubles/blanks" -- `expected_points.py`'s own module docstring), so a DGW player's duplicate
+  rows crash the squad-selection insert with no aggregation semantics defined for what a DGW
+  player's combined squad value should even mean. That finding was scoped to the live target
+  gameweek specifically, not a guarantee about the historical seasons M7 walks through --
+  `backtest.has_double_gameweek()` extends the same existing v1 scope boundary into the
+  walk-forward loop (skip those 4 gameweeks, recorded plainly in `warm_up_gameweeks`) rather
+  than inventing new DGW-aggregation modeling mid-M7.
+- **`source_tier_weights` turned out not to be recalibratable the way this module's own design
+  first assumed.** They are not resolved live per model-run at all: `ingest_workbook.
+  build_sources()` bakes `tier_weight * log-scaled(citation_count)` into
+  `evidence_claims.source_reliability_score` once, at ingestion time, and
+  `evidence_blend.effective_weight()` never re-joins it (deliberately -- "snapshotted at
+  ingestion, so later re-scoring of a source never silently reweights old claims" per M0's own
+  architecture). Re-testing a candidate tier weight would mean re-running the whole evidence
+  workbook ingestion per candidate, not re-running `minutes_model.run()`. Caught before it
+  shipped with the wrong wiring, not after -- `refit_minutes_and_evidence_params()`'s
+  coordinate descent covers `fact_type_multiplier_params` (which *is* live-resolved every run)
+  in tier weights' place.
+- **`evidence_claims.ingested_date <= asof` is a wall-clock-per-ingestion-batch stamp, not a
+  per-claim-knowable-date one** (`ingest_workbook.py`: one `datetime.now()` shared by every
+  claim in a batch) -- meaning every historical claim in this DB carries an ~Aug-2026
+  timestamp regardless of which season it describes. Live runs never notice
+  (`CALIBRATION_ASOF_DATE = date.today()` in `run_ingestion.py`, so the check is a harmless
+  no-op), but a backtest `asof` pinned into 2024-25/2025-26 is always *before* that timestamp,
+  so the existing check would have silently excluded all evidence for every single backtest
+  gameweek -- confirmed the bug is backtest-only before trusting anything already built on
+  M0-M6's live output. Fixed with `snapshot.get_claims_asof(..., enforce_ingested_date=False)`,
+  a new opt-in parameter (default `True` leaves the live path untouched) that drops the
+  `ingested_date` condition and relies on `observed_date` + the existing asof-relative
+  `superseded_by` logic alone -- there is no real per-claim ingestion-timing data to fall back
+  on historically, so `observed_date` is the honest ceiling on precision, not a workaround.
+- **`xi_club_concentration_cap` is deliberately excluded from `recalibrate()`, and the real
+  backtest data now empirically justifies that exclusion, not just the original argument for
+  it.** M5's own spec frames the cap as a redundant backstop against `lambda`'s mean-variance
+  mechanism silently failing (stub Sigma, solver falling back to linear-only -- the project's
+  own documented history), "written as its own independent constraint so the protection holds
+  even if the squad-level cap were ever loosened." Grid-searching it against the same
+  `realized_sharpe` signal `lambda` is tuned against would erode exactly the redundancy it
+  exists for. `backtest.report_concentration_sensitivity()` (read-only, writes nothing) tested
+  this directly on the real 63-gameweek warm+mature backtest: at the current `lambda=0.15`,
+  `realized_sharpe` is *identical* across cap in {2,3,4,5} -- the risk-aversion term alone
+  already keeps concentration below even the tightest cap tried, so the guardrail is fully
+  inert there. At the recalibration's proposed `lambda=0.0`, the cap suddenly matters: cap=2
+  scores measurably worse (3.764) than cap in {3,4,5} (3.809, identical to each other) -- the
+  guardrail becomes genuinely load-bearing exactly when the primary mechanism is switched off,
+  and the *current* cap value (3) already captures the full benefit a looser one would give.
+  Real, data-backed confirmation of the redundancy relationship the design intended, not just
+  an argument for it.
+- **The `lambda_value` recalibration proposal (0.15 -> 0.0) needs careful framing, not literal
+  application.** `refit_lambda()`'s out-of-sample grid search found `lambda=0.0` scored a
+  higher `realized_sharpe` (3.809 vs 3.709) than the current pin across the real 63-gameweek
+  warm+mature window -- but this is not evidence the risk mechanism should be removed. The
+  concentration-sensitivity finding directly above shows *why*: `xi_club_concentration_cap`
+  was held fixed at 3 throughout this search (deliberately, per its own exclusion above) and
+  was doing real, independent diversification work at `lambda=0` that a bare Sharpe ratio on
+  realized points doesn't itself capture -- the original `lambda=0` back-five failure this
+  whole module exists because of was a *concentration* failure, and the guardrail that would
+  have caught it was never disabled during this test. Recorded as a `pending`
+  `recalibration_proposals` row, exactly the kind of output the spec's own qualitative "could a
+  human beat this by eye" review step exists to weigh, not to auto-apply.
+- **Everything M7 touches was verified against the real project database, not a scratch
+  fixture, following the same discipline as every prior milestone** -- but only after two
+  scratch dry runs against a full copy of the real DB first caught the schedule-visibility and
+  Double-Gameweek bugs above, cheaply and safely, before either could corrupt the real run.
+  The real production run (`scripts/run_backtest.py`) completed all 71 gameweeks and 2 of 5
+  recalibration techniques before an external process interruption (not a code bug -- confirmed
+  by the partial results already being fully valid, immutable `param_versions`/
+  `recalibration_proposals` rows); resumed cleanly by calling `backtest.recalibrate()` again
+  against the same `backtest_run_id` with the completed techniques' flags turned off, without
+  needing to redo the expensive `run()` pass -- direct evidence the "each proposal is its own
+  immutable row, nothing is activated automatically" design (see `propose_recalibration()`) is
+  also what makes this kind of interruption cheap to recover from, not just auditable.
