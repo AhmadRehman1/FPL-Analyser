@@ -450,9 +450,13 @@ def seed_column_semantics(con: duckdb.DuckDBPyConnection) -> None:
 
 # ------------------------------------------------------------- orchestrator ----
 
-def reconcile_all(con: duckdb.DuckDBPyConnection, xlsx_path: str) -> dict:
+def reconcile_all(con: duckdb.DuckDBPyConnection, xlsx_path: str | None) -> dict:
+    """xlsx_path is the curated Master Evidence Database workbook -- optional (None skips
+    26_Club Name Map aliasing) because the CSV-sourced canonical names already resolve most
+    teams; the alias tab only covers name variants specific to that workbook's own tabs,
+    which are irrelevant if the workbook itself isn't being ingested this run."""
     build_dim_team(con)
-    club_aliases = apply_club_name_map(con, xlsx_path)
+    club_aliases = apply_club_name_map(con, xlsx_path) if xlsx_path else 0
     build_dim_player(con)
     n_matches = build_fact_match(con)
     n_pms = build_fact_player_match_stats(con)

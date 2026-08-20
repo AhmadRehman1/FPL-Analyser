@@ -97,12 +97,21 @@ def main() -> None:
           "tc_risk_aversion_params, wildcard_gain_threshold_params v1 seeded")
 
     t0 = time.time()
-    reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
+    reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH) if XLSX_PATH.exists() else None)
     print(f"[fact_reconciled] {time.time() - t0:.1f}s -> {json.dumps(reconcile_results)}")
 
-    t0 = time.time()
-    workbook_results = ingest_workbook.ingest_all(con, str(XLSX_PATH), source_tier_params_version=1)
-    print(f"[evidence_claims] {time.time() - t0:.1f}s -> {json.dumps(workbook_results)}")
+    if XLSX_PATH.exists():
+        t0 = time.time()
+        workbook_results = ingest_workbook.ingest_all(con, str(XLSX_PATH), source_tier_params_version=1)
+        print(f"[evidence_claims] {time.time() - t0:.1f}s -> {json.dumps(workbook_results)}")
+    else:
+        print(
+            "[evidence_claims] FPL_202627_Master_Evidence_Database.xlsx not found -- skipping main "
+            "workbook ingestion. predicted_xi / manager_tendency / community_sentiment / "
+            "analyst_debate / youtube_evidence claim types will be empty this run; "
+            "injury_status / transfer_likelihood / set_piece_order_override / fpl_price_note "
+            "still come through from the research-pull workbook below if present."
+        )
 
     if RESEARCH_PULL_XLSX_PATH.exists():
         t0 = time.time()
