@@ -466,6 +466,64 @@ def test_evaluate_transfers_applies_points_hit_when_no_free_transfer(con):
     assert top["net_value"] == pytest.approx(4.0 - 4.0)
 
 
+# ============================================================
+# price_momentum_by_player / evaluate_transfers momentum keys -- a real, secondary signal,
+# never folded into net_value or the ranking sort (research thread item #2).
+# ============================================================
+
+def test_price_momentum_by_player_computes_delta_over_the_lookback_window(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Midfielder')")
+    for gw, price, ownership in ((1, 7.0, 10.0), (2, 7.5, 12.0), (3, 8.0, 15.0)):
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+            "VALUES ('p1', '2026-2027', ?, ?, ?, current_timestamp)", [gw, price, ownership],
+        )
+    momentum = tp.price_momentum_by_player(con, "2026-2027", as_of_gameweek=3, lookback_gameweeks=3)
+    assert momentum["p1"]["price_delta"] == pytest.approx(8.0 - 7.0)
+    assert momentum["p1"]["ownership_delta"] == pytest.approx(15.0 - 10.0)
+
+
+def test_price_momentum_by_player_none_when_no_history_that_far_back(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Midfielder')")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+        "VALUES ('p1', '2026-2027', 1, 7.0, 10.0, current_timestamp)"
+    )
+    momentum = tp.price_momentum_by_player(con, "2026-2027", as_of_gameweek=1, lookback_gameweeks=3)
+    assert momentum["p1"]["price_delta"] is None
+    assert momentum["p1"]["ownership_delta"] is None
+
+
+def test_evaluate_transfers_attaches_momentum_without_changing_the_ranking(con):
+    """target_gameweek opts the momentum keys in; the ranking (net_value, sort order) must be
+    byte-for-byte identical to the target_gameweek=None case -- momentum is informational
+    only, never a ranking input."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]
+    # a real, distinct earlier price/ownership snapshot for p_in_same_pos_cheaper, so its
+    # momentum delta is genuinely non-trivial, not coincidentally zero.
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+        "VALUES ('p_in_same_pos_cheaper', '2026-2027', 2, 4.5, 20.0, current_timestamp)"
+    )
+
+    without = tp.evaluate_transfers(con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4)
+    with_momentum = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4, target_gameweek=2,
+    )
+
+    assert [r["net_value"] for r in without] == [r["net_value"] for r in with_momentum]
+    assert [r["player_in"] for r in without] == [r["player_in"] for r in with_momentum]
+    assert "price_momentum_in" not in without[0]
+
+    top = with_momentum[0]
+    assert top["player_in"] == "p_in_same_pos_cheaper"
+    assert top["price_momentum_in"] == pytest.approx(4.5 - 4.0)  # gw2 price (4.5) minus gw1's seeded price (4.0)
+    # the base fixture never seeded selected_by_percent at gw1 for this player -- missing
+    # history means None, not a fabricated 0.0 baseline.
+    assert top["ownership_momentum_in"] is None
+
+
 def test_evaluate_transfers_sufficient_bank_legalizes_an_otherwise_too_expensive_transfer(con):
     """Regression test for the transfer planner's real bug: with bank=0.0 (the old, only
     behavior), p_in_too_expensive (price 9.0 vs p_out's 8.0) is illegal -- no single outgoing

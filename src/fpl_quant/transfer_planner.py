@@ -252,6 +252,47 @@ def _horizon_ep_by_player(con: duckdb.DuckDBPyConnection, target_season: str, ho
     return by_player
 
 
+def price_momentum_by_player(
+    con: duckdb.DuckDBPyConnection, target_season: str, as_of_gameweek: int, lookback_gameweeks: int = 3,
+) -> dict[str, dict]:
+    """{player_uid: {"price_delta": float | None, "ownership_delta": float | None}} --
+    now_cost/selected_by_percent change over the last lookback_gameweeks gameweeks, both real,
+    already-reconciled per-gameweek "live" columns in fact_player_season_stats (see
+    reconcile.py's own column-semantics tagging; both refresh correctly on re-ingestion since
+    the reconcile dedup fix). A real, secondary signal on its own terms -- a player rising in
+    price/ownership is trending toward a rise the transfer window will close, one falling is
+    trending toward a fall that frees future budget -- but deliberately NOT folded into
+    horizon_value_gain/net_value or the ranking sort anywhere in this module: price movement is
+    about budget timing, not about a player's own expected points, and conflating the two would
+    corrupt the EP-driven ranking for no good reason. None means no price/ownership row exists
+    that far back (a genuinely new player, or early enough in a season that lookback_gameweeks
+    of history doesn't exist yet) -- not silently treated as zero movement.
+    """
+    rows = con.execute(
+        "SELECT player_uid, gw, now_cost, selected_by_percent FROM fact_player_season_stats "
+        "WHERE season = ? AND gw <= ? AND gw >= ?",
+        [target_season, as_of_gameweek, max(1, as_of_gameweek - lookback_gameweeks)],
+    ).fetchall()
+    by_player: dict[str, dict[int, tuple]] = {}
+    for player_uid, gw, now_cost, selected_by_percent in rows:
+        by_player.setdefault(player_uid, {})[gw] = (now_cost, selected_by_percent)
+
+    out = {}
+    for player_uid, by_gw in by_player.items():
+        gws = sorted(by_gw)
+        latest_gw, earliest_gw = gws[-1], gws[0]
+        latest_price, latest_ownership = by_gw[latest_gw]
+        earliest_price, earliest_ownership = by_gw[earliest_gw]
+        out[player_uid] = {
+            "price_delta": (latest_price - earliest_price) if (latest_price is not None and earliest_price is not None and latest_gw != earliest_gw) else None,
+            "ownership_delta": (
+                latest_ownership - earliest_ownership
+                if (latest_ownership is not None and earliest_ownership is not None and latest_gw != earliest_gw) else None
+            ),
+        }
+    return out
+
+
 # ============================================================
 # transfer evaluation
 # ============================================================
@@ -265,6 +306,8 @@ def evaluate_transfers(
     points_per_hit: float,
     max_club_count: int = 3,
     bank: float = 0.0,
+    target_gameweek: int | None = None,
+    momentum_lookback_gameweeks: int = 3,
 ) -> list[dict]:
     """Exhaustive single-transfer search: every current squad player x every other real
     candidate, ranked by net value over the horizon. Single-best-transfer-per-gameweek scope
@@ -279,8 +322,14 @@ def evaluate_transfers(
     bookkeeping; bank defaults to 0.0 for a caller that hasn't tracked it), and the post-swap
     club count staying <= max_club_count (M5's own guardrail, must hold for the resulting squad
     too).
+
+    target_gameweek (optional, default None -- prior behavior, no momentum keys on results):
+    when given, each result also carries price_momentum_in/out and ownership_momentum_in/out
+    (see price_momentum_by_player()) -- purely informational, never part of net_value or the
+    ranking sort, which stays exactly the same EP/risk-driven order regardless of this flag.
     """
     horizon_ep = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
+    momentum = price_momentum_by_player(con, target_season, target_gameweek, momentum_lookback_gameweeks) if target_gameweek is not None else {}
     current_uids = {h["player_uid"] for h in current_holdings}
     club_counts: dict[str, int] = {}
     for h in current_holdings:
@@ -305,12 +354,20 @@ def evaluate_transfers(
                 continue
             horizon_value_gain = in_info["total_ep"] - out_info["total_ep"]
             transfer_cost = 0.0 if free_transfers_available >= 1 else points_per_hit
-            results.append({
+            result = {
                 "player_out": out_uid, "player_in": in_uid,
                 "price_out": out_info["price"], "price_in": in_info["price"],
                 "horizon_value_gain": horizon_value_gain, "transfer_cost": transfer_cost,
                 "net_value": horizon_value_gain - transfer_cost,
-            })
+            }
+            if target_gameweek is not None:
+                in_momentum = momentum.get(in_uid, {"price_delta": None, "ownership_delta": None})
+                out_momentum = momentum.get(out_uid, {"price_delta": None, "ownership_delta": None})
+                result["price_momentum_in"] = in_momentum["price_delta"]
+                result["price_momentum_out"] = out_momentum["price_delta"]
+                result["ownership_momentum_in"] = in_momentum["ownership_delta"]
+                result["ownership_momentum_out"] = out_momentum["ownership_delta"]
+            results.append(result)
 
     results.sort(key=lambda r: r["net_value"], reverse=True)
     for rank, r in enumerate(results, start=1):
@@ -541,7 +598,7 @@ def run(
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
     transfer_results = evaluate_transfers(
         con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
-        bank=bank or 0.0,
+        bank=bank or 0.0, target_gameweek=target_gameweek,
     )
 
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
