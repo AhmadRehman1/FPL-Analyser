@@ -1,8 +1,10 @@
+import json
 from datetime import date, datetime
 
 import pytest
 
 from fpl_quant import params
+from fpl_quant import squad_optimizer as so
 from fpl_quant import transfer_planner as tp
 
 
@@ -146,6 +148,224 @@ def test_write_manager_snapshot_creates_a_real_flagged_run(con):
     # the real solve is untouched and still flagged as such
     real_is_snapshot = con.execute("SELECT is_manager_snapshot FROM squad_optimizer_runs WHERE run_id = ?", [run_id]).fetchone()[0]
     assert real_is_snapshot is False
+
+
+# ============================================================
+# evaluate_wildcard / evaluate_free_hit -- both call a real squad_optimizer.run() internally,
+# so both need a real, DB-seeded 15+-player candidate pool (an in-memory pool like
+# test_squad_optimizer.py's own _synthetic_pool() isn't enough here -- fetch_candidate_pool()
+# reads real tables). Neither function had any test coverage before this -- closing that gap
+# while fixing the free_hit_gain_threshold_params bug, not just patching the symptom.
+# ============================================================
+
+def _seed_real_squad_optimizer_candidate_pool(con, target_season="2026-2027", target_gameweek=2):
+    """Same 2 GK/6 DEF/6 MID/4 FWD/6-club shape as test_squad_optimizer.py's _synthetic_pool()
+    (budget-feasible, club-cap-feasible), but written into real tables so squad_optimizer.run()
+    -- called for real inside evaluate_wildcard()/evaluate_free_hit() -- can solve against it."""
+    clubs = ["clubA", "clubB", "clubC", "clubD", "clubE", "clubF"]
+    for i, club in enumerate(clubs):
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [club, club])
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', ?, ?, 'clubA', 'clubB', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)", [target_season, target_gameweek],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'clubA')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [target_season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [target_season, ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+
+    players = []
+    for i in range(2):
+        players.append((f"gk{i}", "Goalkeeper", 3.0 + i * 0.5, 4.5 + i, clubs[i % 6]))
+    for i in range(6):
+        players.append((f"def{i}", "Defender", 2.5 + i * 0.3, 4.0 + i * 0.5, clubs[i % 6]))
+    for i in range(6):
+        players.append((f"mid{i}", "Midfielder", 3.0 + i * 0.4, 5.0 + i * 0.5, clubs[i % 6]))
+    for i in range(4):
+        players.append((f"fwd{i}", "Forward", 3.5 + i * 0.5, 6.0 + i * 0.5, clubs[i % 6]))
+
+    for uid, position, mu, price, club in players:
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, position])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, ?, ?, ?)", [uid, uid.lower(), club, target_season, uid],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, ?, 1, ?, current_timestamp)", [uid, target_season, price],
+        )
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, uid, mu],
+        )
+        # differentiated variance (proportional to mu, like M4's real output) -- a flat,
+        # identical variance for every player is exactly the degenerate case
+        # squad_optimizer.run()'s own divergence check is designed to reject (see
+        # test_squad_optimizer.py's test_divergence_check_fails_when_variance_is_a_stub_zero).
+        var = 1.0 + mu * 3.0
+        con.execute(
+            "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+            "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+            "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+            "VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0, ?, 0,0,0,0,0,0)", [un_mv, uid, var],
+        )
+
+    # real positive covariance among the highest-mu players (like M4's real teammate/opponent
+    # structure) -- needed alongside the differentiated variance above so lambda actually has
+    # a genuine diversification incentive, matching test_squad_optimizer.py's own recipe for a
+    # real (non-degenerate) divergence-check pass.
+    high_mu_uids = [uid for uid, _pos, mu, _price, _club in players if mu >= 4.0]
+    for i in range(len(high_mu_uids)):
+        for j in range(i + 1, len(high_mu_uids)):
+            con.execute(
+                "INSERT INTO cross_player_covariance (model_version, player_uid_a, player_uid_b, "
+                "fixture_match_id, relationship, covariance) VALUES (?, ?, ?, 'm1', 'teammate', 6.0)",
+                [un_mv, *sorted([high_mu_uids[i], high_mu_uids[j]])],
+            )
+
+    holdings = [{"player_uid": uid, "in_xi": True, "is_captain": False, "is_vice": False} for uid, *_ in players[:11]]
+    return {target_gameweek: (ep_mv, un_mv)}, holdings
+
+
+def test_evaluate_free_hit_uses_its_own_threshold_family_not_wildcards(con):
+    """Regression test for the real bug: evaluate_free_hit() used to resolve its threshold
+    against wildcard_gain_threshold_params. Seeding ONLY free_hit_gain_threshold_params (not
+    wildcard's) and confirming evaluate_free_hit() still resolves cleanly proves it now reads
+    its own family -- it would raise ParamNotFoundError against the old, wrong family."""
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
+
+    result = tp.evaluate_free_hit(
+        con, date(2026, 8, 24), "2026-2027", 2, holdings, horizon_ep_versions,
+        lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    assert "gain" in result
+    assert isinstance(result["recommended"], bool)
+
+
+def test_evaluate_free_hit_raises_if_only_wildcards_family_is_seeded(con):
+    """Confirms the fix is real, not just non-crashing by coincidence: with ONLY the old
+    wildcard_gain_threshold_params seeded (matching pre-fix behavior) and free_hit's own family
+    absent, evaluate_free_hit() must fail to resolve -- proving it no longer falls back to
+    wildcard's family under the hood."""
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+
+    with pytest.raises(tp.params_mod.ParamNotFoundError):
+        tp.evaluate_free_hit(
+            con, date(2026, 8, 24), "2026-2027", 2, holdings, horizon_ep_versions,
+            lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+        )
+
+
+def test_evaluate_wildcard_still_uses_its_own_family(con):
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+
+    result = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", 2, current_squad_horizon_value=10.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    assert "gain" in result
+    assert isinstance(result["recommended"], bool)
+
+
+def _seed_real_wildcard_chip_evaluation(con, old_state_version, target_gameweek=2):
+    """Real evaluate_wildcard() call (a genuine squad_optimizer.run() solve) plus the same
+    transfer_plan_runs/chip_evaluations rows run() itself would write -- the exact shape
+    apply_recommendation()'s Wildcard-accept path reads via _read_fresh_chip_squad()."""
+    horizon_ep_versions, _holdings = _seed_real_squad_optimizer_candidate_pool(con, target_gameweek=target_gameweek)
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+    wildcard_result = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", target_gameweek, current_squad_horizon_value=0.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    con.execute(
+        "INSERT INTO transfer_plan_runs (calibration_asof_date, target_season, target_gameweek, "
+        "input_state_version, horizon_params_version, transfer_cost_params_version, ep_model_versions, "
+        "uncertainty_model_versions) VALUES ('2026-08-17', '2026-2027', ?, ?, 1, 1, '{}', '{}') RETURNING run_id",
+        [target_gameweek, old_state_version],
+    )
+    run_id = con.execute("SELECT max(run_id) FROM transfer_plan_runs").fetchone()[0]
+    con.execute(
+        "INSERT INTO chip_evaluations (run_id, chip_type, recommended, score_or_gain, detail, gw19_urgent_flag) "
+        "VALUES (?, 'wildcard', TRUE, ?, ?, FALSE)",
+        [run_id, wildcard_result["gain"], json.dumps(wildcard_result, default=str)],
+    )
+    fresh_squad_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [wildcard_result["fresh_run_id"]]
+        ).fetchall()
+    }
+    return run_id, fresh_squad_uids
+
+
+def test_apply_recommendation_wildcard_rebuilds_holdings_from_the_fresh_squad(con):
+    """Regression test for the real bug: accepting a Wildcard used to be a complete no-op on
+    the squad (only the chip got marked used). The new holdings must be exactly the fresh M5
+    squad Wildcard evaluated, not the old pre-Wildcard squad."""
+    run_id2, _, _ = _seed_minimal_squad_optimizer_run(con)  # old squad: p1, p2, p3
+    old_state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id2)
+    run_id, fresh_squad_uids = _seed_real_wildcard_chip_evaluation(con, old_state_version)
+
+    new_state_version = tp.apply_recommendation(con, run_id, accept_transfer_rank=None, accept_chip="wildcard")
+    new_holdings_uids = {h["player_uid"] for h in tp._read_holdings(con, new_state_version)}
+
+    assert new_holdings_uids == fresh_squad_uids
+    assert new_holdings_uids != {"p1", "p2", "p3"}  # not the stale pre-Wildcard squad
+    assert len(new_holdings_uids) == 15
+
+
+def test_apply_recommendation_wildcard_recomputes_bank_from_the_fresh_squad(con):
+    run_id2, _, _ = _seed_minimal_squad_optimizer_run(con)
+    old_state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id2)
+    con.execute("UPDATE manager_state_versions SET bank = 25.0 WHERE state_version = ?", [old_state_version])
+    run_id, fresh_squad_uids = _seed_real_wildcard_chip_evaluation(con, old_state_version)
+
+    new_state_version = tp.apply_recommendation(con, run_id, accept_transfer_rank=None, accept_chip="wildcard")
+    new_bank = con.execute("SELECT bank FROM manager_state_versions WHERE state_version = ?", [new_state_version]).fetchone()[0]
+
+    prices = dict(con.execute(
+        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = '2026-2027' AND now_cost IS NOT NULL"
+    ).fetchall())
+    expected_bank = so.BUDGET - sum(prices[uid] for uid in fresh_squad_uids)
+    assert new_bank == pytest.approx(expected_bank)
+    assert new_bank != pytest.approx(25.0)  # the stale pre-Wildcard bank must not carry over
+
+
+def test_apply_recommendation_rejects_wildcard_combined_with_a_transfer(con):
+    run_id2, _, _ = _seed_minimal_squad_optimizer_run(con)
+    old_state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id2)
+    run_id, _fresh_squad_uids = _seed_real_wildcard_chip_evaluation(con, old_state_version)
+
+    with pytest.raises(ValueError):
+        tp.apply_recommendation(con, run_id, accept_transfer_rank=1, accept_chip="wildcard")
 
 
 # ============================================================
@@ -407,6 +627,20 @@ def test_check_gw19_deadline_forfeited_once_gw19_arrives_with_unused_chips():
     assert result["forfeited_now"] is True
 
 
+def test_check_gw19_deadline_urgent_and_forfeited_never_overlap():
+    """Regression test for a real bug: urgent's inclusive `0 <=` lower bound meant GW19 itself
+    (gameweeks_remaining == 0) was flagged both urgent ("hurry, use it now") and forfeited_now
+    ("already gone") simultaneously -- a self-contradictory pair written into
+    chip_evaluations.gw19_urgent_flag. Checks every gameweek in the warning window plus the
+    deadline itself."""
+    for gw in range(15, 21):
+        result = tp.check_gw19_deadline(target_gameweek=gw, chips_used_set1=[])
+        assert not (result["urgent"] and result["forfeited_now"]), f"gw={gw}: both flags true"
+    at_deadline = tp.check_gw19_deadline(target_gameweek=19, chips_used_set1=[])
+    assert at_deadline["urgent"] is False
+    assert at_deadline["forfeited_now"] is True
+
+
 # ============================================================
 # apply_recommendation
 # ============================================================
@@ -514,12 +748,15 @@ def test_apply_recommendation_declining_transfer_leaves_bank_unchanged(con):
 
 
 def test_apply_recommendation_accepting_a_chip_records_it_in_the_right_set(con):
+    # bench_boost, not wildcard: this test is about generic chips_used_set bookkeeping, not
+    # Wildcard's own real squad-rebuild behavior (see the dedicated wildcard tests below,
+    # which need a real chip_evaluations + fresh squad_optimizer_selections fixture).
     run_id2, _, _ = _seed_minimal_squad_optimizer_run(con)
     state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id2)
     run_id = _seed_transfer_plan_run_for_apply(con, state_version, target_gameweek=10)
 
-    new_state_version = tp.apply_recommendation(con, run_id, accept_transfer_rank=None, accept_chip="wildcard")
+    new_state_version = tp.apply_recommendation(con, run_id, accept_transfer_rank=None, accept_chip="bench_boost")
     chips_used_set1 = con.execute(
         "SELECT chips_used_set1 FROM manager_state_versions WHERE state_version = ?", [new_state_version]
     ).fetchone()[0]
-    assert "wildcard" in chips_used_set1
+    assert "bench_boost" in chips_used_set1

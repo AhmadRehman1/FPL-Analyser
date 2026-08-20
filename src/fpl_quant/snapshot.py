@@ -64,21 +64,3 @@ def get_claims_asof(
         sql += " AND c.claim_type = ?"
         params.append(claim_type)
     return con.execute(sql, params).fetchdf()
-
-
-def get_matches_asof(con: duckdb.DuckDBPyConnection, asof: datetime):
-    return con.execute(
-        "SELECT * FROM fact_match WHERE _ingested_at <= ?", [asof]
-    ).fetchdf()
-
-
-def get_player_match_stats_asof(con: duckdb.DuckDBPyConnection, asof: datetime):
-    return con.execute(
-        "SELECT * FROM fact_player_match_stats WHERE _ingested_at <= ?", [asof]
-    ).fetchdf()
-
-
-def get_player_season_stats_asof(con: duckdb.DuckDBPyConnection, asof: datetime):
-    return con.execute(
-        "SELECT * FROM fact_player_season_stats WHERE _ingested_at <= ?", [asof]
-    ).fetchdf()

@@ -772,6 +772,7 @@ def refit_minutes_and_evidence_params(
     base_versions: dict,
     param_grids: list[dict],
     n_rounds: int = 1,
+    holdout_steps: list[tuple[str, int]] | None = None,
 ) -> dict:
     """Block coordinate descent over M1b's tier weights/fact_type_multiplier and M2's
     threshold/adjustment magnitudes, all against one shared objective: mean minutes log score
@@ -788,12 +789,28 @@ def refit_minutes_and_evidence_params(
     already-run walk-forward steps to evaluate against -- deliberately not defaulted to "all 76"
     here, since the real cost (n_rounds x n_blocks x n_candidates x len(eval_steps) minutes_model
     runs) is the caller's to size, not this function's to assume.
+
+    Real overfitting risk, disclosed and addressed rather than left implicit (analogous to
+    refit_lambda()'s own out-of-sample framing, but a materially bigger version of the same
+    risk here): this is a multi-round, multi-family block coordinate descent, not a single
+    7-point grid search -- selecting the best candidate per block against eval_steps and then
+    reporting that same eval_steps score as evidence is optimistic by construction (the classic
+    "graded on the set you were selected on" bias), and the risk compounds with every extra
+    round/family/candidate this function is given. `holdout_steps`, when provided, must be
+    disjoint from eval_steps (the caller's responsibility -- typically an entire later season
+    never touched by the descent, matching this project's forward-chronological walk-forward
+    discipline) -- the descent itself still only ever searches against eval_steps (a coordinate
+    descent needs a stable objective to hill-climb; splitting the search itself would just add
+    noise, not rigor), but the final chosen versions are ALSO scored against holdout_steps and
+    both scores are returned, so a human reviewing the proposal sees whether the improvement
+    actually generalizes to gameweeks the descent never saw, not just the in-sample number it
+    was picked to maximize. ep_model_version_by_step must cover holdout_steps too when supplied.
     """
     current = dict(base_versions)
 
-    def _mean_score(versions: dict) -> float:
+    def _mean_score(versions: dict, steps: list[tuple[str, int]] = eval_steps) -> float:
         scores = []
-        for season, gw in eval_steps:
+        for season, gw in steps:
             s = _minutes_log_score_for_step(
                 con, season, gw, ep_model_version_by_step[(season, gw)],
                 versions["decay_params_version"], versions["adjustment_params_version"],
@@ -827,7 +844,12 @@ def refit_minutes_and_evidence_params(
                 best_score = best_candidate_score
         history.append({"round": round_num, "log_score": best_score, "versions": dict(current)})
 
-    return {"versions": current, "log_score": best_score, "history": history}
+    result = {"versions": current, "log_score": best_score, "history": history}
+    if holdout_steps:
+        result["holdout_log_score_before"] = _mean_score(base_versions, steps=holdout_steps)
+        result["holdout_log_score_after"] = _mean_score(current, steps=holdout_steps)
+        result["n_holdout_steps"] = len(holdout_steps)
+    return result
 
 
 def _realized_xi_points(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None) -> float:
@@ -1063,6 +1085,8 @@ def recalibrate(
     current_kappa_tc_version: int | None = None,
     kappa_tc_grid: tuple[float, ...] = (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50),
     refit_kappa_tc_flag: bool = False,
+    minutes_select_seasons: tuple[str, ...] = ("2024-2025",),
+    minutes_holdout_flag: bool = True,
 ) -> list[int]:
     """Runs whichever refit techniques are enabled against this backtest_run_id's results and
     writes one propose_recalibration() row per changed parameter -- never activates anything
@@ -1083,6 +1107,15 @@ def recalibrate(
     per step, no re-solving of anything -- see refit_kappa_tc()'s own docstring.
     wildcard_gain_threshold_params is NOT covered by any technique here; see refit_kappa_tc()'s
     docstring for why that is a disclosed scope decision, not an oversight.
+
+    minutes_holdout_flag (default True): refit_minutes_and_evidence_params()'s coordinate
+    descent is a genuinely larger overfitting risk than the single-dimension grid searches
+    above (see that function's own docstring) -- when this is on, its eval_steps are split by
+    season into a select set (minutes_select_seasons, default 2024-2025's warm gameweeks --
+    chronologically earlier) and a holdout set (every other warm/mature step, i.e. all of
+    2025-2026 -- chronologically later, never touched by the descent), and the proposal's
+    logged before/after metric is the holdout score, not the in-sample one the descent
+    actually climbed. Off reverts to the prior in-sample-only behavior.
     """
     proposal_ids = []
     eval_steps = _eval_steps_for(con, backtest_run_id)
@@ -1120,8 +1153,20 @@ def recalibrate(
         ))
 
     if refit_minutes_flag:
-        result = refit_minutes_and_evidence_params(con, eval_steps, ep_by_step, current_minutes_versions, minutes_param_grids)
-        score_before, score_after = result["history"][0]["log_score"], result["log_score"]
+        minutes_select_steps = [s for s in eval_steps if s[0] in minutes_select_seasons]
+        minutes_holdout_steps = (
+            [s for s in eval_steps if s[0] not in minutes_select_seasons] if minutes_holdout_flag else None
+        )
+        result = refit_minutes_and_evidence_params(
+            con, minutes_select_steps, ep_by_step, current_minutes_versions, minutes_param_grids,
+            holdout_steps=minutes_holdout_steps,
+        )
+        if minutes_holdout_steps:
+            metric_name = "log_score_minutes_mean_holdout"
+            score_before, score_after = result["holdout_log_score_before"], result["holdout_log_score_after"]
+        else:
+            metric_name = "log_score_minutes_mean"
+            score_before, score_after = result["history"][0]["log_score"], result["log_score"]
         for block in minutes_param_grids:
             new_version = result["versions"][block["version_field"]]
             old_version = current_minutes_versions[block["version_field"]]
@@ -1130,7 +1175,7 @@ def recalibrate(
             new_value, _ = params_mod.resolve_param(con, block["param_family"], block["param_key"], new_version, dimensions=block.get("dimensions"))
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, block["param_family"], block["param_key"], new_value,
-                "log_score_minutes_mean", score_before, score_after,
+                metric_name, score_before, score_after,
                 dimensions=block.get("dimensions"), old_params_version=old_version, effective_date=effective_date,
             ))
 

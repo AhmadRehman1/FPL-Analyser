@@ -64,6 +64,7 @@ def main() -> None:
         lambda_params_version=1,
         guardrail_params_version=1,
         wildcard_threshold_params_version=1,
+        free_hit_threshold_params_version=1,
         kappa_tc_params_version=1,
     )
     print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")

@@ -106,11 +106,42 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # pin a number. A small positive floor -- big enough to filter out noise-level "gains",
     # small enough not to suppress a genuine, real rebuild opportunity.
     params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+    # Real bug fixed here: evaluate_free_hit() used to reuse wildcard_gain_threshold_params
+    # directly, but Wildcard's gain is summed over the WHOLE squad (~15 players) across the
+    # WHOLE horizon (H=5 gameweeks), while Free Hit's gain (see evaluate_free_hit()) is only
+    # the starting XI (~11 players) for ONE gameweek -- categorically smaller in typical
+    # magnitude, so the shared 8.0 bar almost certainly made Free Hit implausibly hard to ever
+    # trigger. Own family, own invented default: scaled down from Wildcard's 8.0 by the same
+    # (players x gameweeks) ratio the two gains are actually computed over --
+    # 8.0 * (11 players x 1 gameweek) / (15 players x 5 gameweeks) = 8.0 * 11/75 ~= 1.17,
+    # rounded to a clean 1.5 -- same invented-default status as every other unpinned threshold
+    # in this project (not derived from data), flagged for its own future M7 recalibration,
+    # independent of Wildcard's.
+    params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
 
 
 # ============================================================
 # manager state: bootstrap + read helpers
 # ============================================================
+
+def _compute_bank_for_squad(con: duckdb.DuckDBPyConnection, target_season: str, player_uids: list[str]) -> float:
+    """Leftover budget against M5's BUDGET for a given set of held players -- known exactly
+    only when every held player has a resolvable current price (the same price source
+    squad_optimizer.fetch_candidate_pool() itself uses); otherwise conservatively 0.0 rather
+    than guessing, since overstating bank would let evaluate_transfers() legalize a transfer
+    the manager can't actually afford. Shared by bootstrap_from_squad_optimizer_run() (the
+    initial squad) and apply_recommendation()'s Wildcard-accept path (a fresh squad replacing
+    the whole existing one) -- both are "what's left over from a real M5 BUDGET-constrained
+    squad" questions, not two different calculations."""
+    prices = dict(con.execute(
+        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = ? AND now_cost IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [target_season],
+    ).fetchall())
+    if all(uid in prices for uid in player_uids):
+        return max(0.0, squad_optimizer.BUDGET - sum(prices[uid] for uid in player_uids))
+    return 0.0
+
 
 def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_optimizer_run_id: int) -> int:
     """One-time seed: reads a real squad_optimizer_selections row and writes the first
@@ -135,16 +166,8 @@ def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_opt
     if not holdings:
         raise ValueError(f"squad_optimizer_run_id={squad_optimizer_run_id} has no in_squad players -- cannot bootstrap")
 
-    prices = dict(con.execute(
-        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = ? AND now_cost IS NOT NULL "
-        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
-        [target_season],
-    ).fetchall())
     held_uids = [uid for uid, *_ in holdings]
-    if all(uid in prices for uid in held_uids):
-        bank = max(0.0, squad_optimizer.BUDGET - sum(prices[uid] for uid in held_uids))
-    else:
-        bank = 0.0
+    bank = _compute_bank_for_squad(con, target_season, held_uids)
 
     state_version = con.execute(
         "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
@@ -408,9 +431,10 @@ def evaluate_free_hit(
     absence of scheduled doubles/blanks in 2026-27 (M8's own spec finding), FH's real use case
     here is a single gameweek with an unusually poor fixture swing for the current squad, not
     DGW exploitation -- re-evaluated against live fixture data every call, never assumed fixed.
-    Reuses wildcard_gain_threshold_params as its own bar (both are "is a full rebuild worth it
-    right now" gates; not worth inventing a second, separately-versioned threshold family for
-    the same question)."""
+    Uses its own free_hit_gain_threshold_params family, not Wildcard's -- a real bug this used
+    to have: reusing wildcard_gain_threshold_params (calibrated for a ~15-player x 5-gameweek
+    sum) as the bar for a ~11-player x 1-gameweek gain structurally miscalibrated one of the
+    two chips. threshold_params_version here resolves against free_hit_gain_threshold_params."""
     if target_gameweek not in horizon_ep_versions:
         return {"recommended": False, "reason": "no fixtures this gameweek -- cannot rebuild"}
     ep_mv, un_mv = horizon_ep_versions[target_gameweek]
@@ -429,7 +453,7 @@ def evaluate_free_hit(
     current_gw_value = sum(mu_by_uid.get(uid, 0.0) for uid in current_xi_uids)
 
     gain = fresh_gw_value - current_gw_value
-    threshold, _ = params_mod.resolve_param(con, "wildcard_gain_threshold_params", "min_horizon_gain", threshold_params_version)
+    threshold, _ = params_mod.resolve_param(con, "free_hit_gain_threshold_params", "min_horizon_gain", threshold_params_version)
     return {
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_gw_value": fresh_gw_value, "current_gw_value": current_gw_value, "gain": gain,
@@ -447,10 +471,17 @@ GW19_DEADLINE_GAMEWEEK = 19
 def check_gw19_deadline(target_gameweek: int, chips_used_set1: list[str], warning_window: int = 3) -> dict:
     """Chip set 1 is forfeited entirely, not softly discounted, if unused by the GW19
     deadline -- modeled here as an explicit use-it-or-lose-it flag, not a preference that can
-    silently lapse (per the spec's own explicit requirement)."""
+    silently lapse (per the spec's own explicit requirement).
+
+    Real bug fixed here: `urgent`'s lower bound was `0 <= gameweeks_remaining`, so at
+    target_gameweek == GW19_DEADLINE_GAMEWEEK itself (gameweeks_remaining == 0) both `urgent`
+    and `forfeited_now` came out True simultaneously -- a self-contradictory "hurry, use it
+    now" plus "it's already gone" pair, written straight into chip_evaluations.gw19_urgent_flag
+    for M9 to display. `urgent` now requires at least 1 gameweek still remaining; GW19 itself is
+    exclusively `forfeited_now`."""
     unused = ALL_CHIP_TYPES - set(chips_used_set1)
     gameweeks_remaining = GW19_DEADLINE_GAMEWEEK - target_gameweek
-    urgent = 0 <= gameweeks_remaining <= warning_window and bool(unused)
+    urgent = 1 <= gameweeks_remaining <= warning_window and bool(unused)
     forfeited_now = target_gameweek >= GW19_DEADLINE_GAMEWEEK and bool(unused)
     return {
         "unused_set1_chips": sorted(unused), "gameweeks_until_gw19": gameweeks_remaining,
@@ -480,6 +511,7 @@ def run(
     lambda_params_version: int,
     guardrail_params_version: int,
     wildcard_threshold_params_version: int,
+    free_hit_threshold_params_version: int,
     kappa_tc_params_version: int,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
@@ -523,7 +555,7 @@ def run(
     )
     free_hit_result = evaluate_free_hit(
         con, calibration_asof_date, target_season, target_gameweek, current_holdings, horizon_ep_versions,
-        lambda_params_version, guardrail_params_version, wildcard_threshold_params_version,
+        lambda_params_version, guardrail_params_version, free_hit_threshold_params_version,
     )
 
     xi_uids = {h["player_uid"] for h in current_holdings if h["in_xi"]}
@@ -579,6 +611,30 @@ def run(
     return run_id
 
 
+def _read_fresh_chip_squad(con: duckdb.DuckDBPyConnection, run_id: int, chip_type: str) -> list[dict]:
+    """Reads the fresh M5 squad a Wildcard/Free Hit recommendation evaluated, via the
+    fresh_run_id captured in chip_evaluations.detail (see evaluate_wildcard()'s/
+    evaluate_free_hit()'s own return dicts, both of which include "fresh_run_id"). Shared by
+    apply_recommendation()'s Wildcard-accept squad rebuild and by a season simulation's
+    one-off Free Hit scoring (see backtest.run_season_simulation()) -- one real read against
+    the actual solved squad, not two places independently re-deriving the same thing."""
+    row = con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = ?", [run_id, chip_type]
+    ).fetchone()
+    if not row or not row[0]:
+        raise ValueError(f"no chip_evaluations row for run_id={run_id} chip_type={chip_type!r}")
+    fresh_run_id = json.loads(row[0]).get("fresh_run_id")
+    if fresh_run_id is None:
+        raise ValueError(f"chip_evaluations detail for run_id={run_id} chip_type={chip_type!r} has no fresh_run_id")
+    rows = con.execute(
+        "SELECT player_uid, in_xi, is_captain, is_vice FROM squad_optimizer_selections WHERE run_id = ? AND in_squad",
+        [fresh_run_id],
+    ).fetchall()
+    if not rows:
+        raise ValueError(f"fresh_run_id={fresh_run_id} (from run_id={run_id} chip_type={chip_type!r}) has no in_squad players")
+    return [{"player_uid": uid, "in_xi": in_xi, "is_captain": is_captain, "is_vice": is_vice} for uid, in_xi, is_captain, is_vice in rows]
+
+
 def apply_recommendation(
     con: duckdb.DuckDBPyConnection, run_id: int, *, accept_transfer_rank: int | None = None, accept_chip: str | None = None,
 ) -> int:
@@ -588,7 +644,22 @@ def apply_recommendation(
     testing; see schema/0009's comment on that column) -- mirrors M7's propose-then-confirm
     gate (run() proposes and logs; nothing is applied automatically). accept_transfer_rank=None
     means "make no transfer this gameweek" (free_transfers_available increments, capped at 5,
-    per the real banking rule)."""
+    per the real banking rule).
+
+    accept_chip="wildcard": real bug fixed here -- this used to only record the chip as used
+    and never actually touch holdings_by_uid, so accepting a Wildcard was a complete no-op on
+    the squad. Wildcard genuinely replaces the whole squad (unlike Free Hit, which reverts
+    after one gameweek and is deliberately NOT handled here at all -- leaving holdings
+    unchanged on accept_chip="free_hit" is correct, not an oversight: nothing should persist
+    forward from a one-week-only rebuild. Scoring that one gameweek off the fresh Free Hit
+    squad, then continuing next week from the pre-Free-Hit holdings, is the caller's job --
+    see backtest.run_season_simulation() and _read_fresh_chip_squad() above.) accept_chip
+    and accept_transfer_rank are mutually exclusive when the chip is "wildcard": a real M5
+    solve already replaces every holding, so layering a single-player transfer on top of it
+    isn't a coherent action, not a case to silently pick one of two winners for."""
+    if accept_chip == "wildcard" and accept_transfer_rank is not None:
+        raise ValueError("cannot accept both a transfer and Wildcard in the same call -- Wildcard already replaces the whole squad")
+
     run_row = con.execute(
         "SELECT input_state_version, target_season, target_gameweek FROM transfer_plan_runs WHERE run_id = ?", [run_id]
     ).fetchone()
@@ -606,7 +677,17 @@ def apply_recommendation(
     holdings_by_uid = {h["player_uid"]: h for h in _read_holdings(con, input_state_version)}
     new_bank = bank or 0.0
 
-    if accept_transfer_rank is not None:
+    if accept_chip == "wildcard":
+        # The actual fix: rebuild holdings from the fresh M5 squad Wildcard evaluated (used to
+        # be a complete no-op on the squad -- see this function's own docstring), and recompute
+        # bank the same way bootstrap_from_squad_optimizer_run() does for any real M5-solved
+        # squad (leftover against BUDGET), since the old bank figure belonged to a squad that
+        # no longer exists after a full rebuild.
+        fresh_holdings = _read_fresh_chip_squad(con, run_id, "wildcard")
+        holdings_by_uid = {h["player_uid"]: h for h in fresh_holdings}
+        new_bank = _compute_bank_for_squad(con, target_season, list(holdings_by_uid.keys()))
+        new_free_transfers = min(5, free_transfers_available + 1)  # Wildcard doesn't consume/grant transfers beyond the normal weekly allocation
+    elif accept_transfer_rank is not None:
         rec = con.execute(
             "SELECT player_out, player_in, price_out, price_in, transfer_cost FROM transfer_recommendations "
             "WHERE run_id = ? AND rank = ?",

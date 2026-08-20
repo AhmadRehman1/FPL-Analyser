@@ -380,7 +380,13 @@ def _assemble_points(con, position: str, draws: dict, scoring_params_version: in
         (position in ("Goalkeeper", "Defender")) & (state == "60plus"), -draws["goals_conceded_floor"].astype(float), 0.0
     )
     pts_defcon = np.where(draws["defcon_hit"], defcon_pts, 0.0)
-    pts_saves = draws["saves_count"] / saves_per_pt if saves_per_pt and position == "Goalkeeper" else np.zeros(state.shape)
+    # Real FPL rule: 1 point per every `saves_per_pt` saves, integer floor -- not a continuous
+    # rate. goals_conceded_floor two lines above already gets this right (own_goals_against //
+    # 2); this line used continuous division instead, so e.g. saves_count=2 (saves_per_pt=3.0)
+    # awarded 0.667 points instead of the true 0, and saves_count=4 awarded 1.333 instead of 1
+    # -- systematically overstating every goalkeeper's simulated mean/variance/quantiles here
+    # and in every downstream reader (explain_player_risk_empirical, evaluate_triple_captain).
+    pts_saves = draws["saves_count"] // saves_per_pt if saves_per_pt and position == "Goalkeeper" else np.zeros(state.shape)
     pts_bonus = np.select([draws["rank"] == 1, draws["rank"] == 2, draws["rank"] == 3], [3.0, 2.0, 1.0], default=0.0)
 
     total = pts_appearance + pts_goals + pts_assists + pts_clean_sheet + pts_goals_conceded + pts_defcon + pts_bonus + pts_saves

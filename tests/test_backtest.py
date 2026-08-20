@@ -404,54 +404,61 @@ def test_refit_rho_residual_raises_when_no_data_recorded(con):
 # refit_minutes_and_evidence_params -- block coordinate descent
 # ============================================================
 
-def _seed_minutes_recalibration_scenario(con):
-    """One target gameweek (2025-2026 GW5) with a prior gameweek's real history for p1 (a
-    nailed starter) so minutes_model.run() has something non-degenerate to fit, plus minimal
-    ep_outputs/team_strength/ep_model_versions rows to satisfy FKs -- the smallest scenario
-    that exercises the real asof_scope + minutes_model.run() + log-score path end to end."""
-    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
-    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
-    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'Midfielder')")
-    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Player Two', 'Midfielder')")
-    con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('A', '2025-2026', 'team_a', 't')")
+def _seed_minutes_recalibration_scenario_at(con, season, target_gw, prior_gw, id_prefix):
+    """One target gameweek with a prior gameweek's real history for p1 (a nailed starter) so
+    minutes_model.run() has something non-degenerate to fit, plus minimal ep_outputs/
+    team_strength/ep_model_versions rows to satisfy FKs -- the smallest scenario that exercises
+    the real asof_scope + minutes_model.run() + log-score path end to end. Parametrized by
+    (season, gameweek, id_prefix) so a single test can seed two disjoint steps (e.g. one per
+    season) to exercise refit_minutes_and_evidence_params()'s select/holdout split for real,
+    not just against a single step reused as both."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'Midfielder') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Player Two', 'Midfielder') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('A', ?, 'team_a', 't')", [season])
     con.execute(
         "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
-        "VALUES ('Player One', 'player one', '1', '2025-2026', 'p1')"
+        "VALUES ('Player One', 'player one', '1', ?, 'p1')", [season],
     )
     con.execute(
         "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
-        "VALUES ('Player Two', 'player two', '1', '2025-2026', 'p2')"
+        "VALUES ('Player Two', 'player two', '1', ?, 'p2')", [season],
     )
+    raw_table = f"raw_{season.replace('-', '_')}_teams"
     con.execute(
         "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
-        "VALUES ('raw_2025_2026_teams', '2025-2026', 'teams.csv', 'fakehash', 1)"
+        "VALUES (?, ?, 'teams.csv', 'fakehash', 1) ON CONFLICT DO NOTHING", [raw_table, season],
     )
-    con.execute('CREATE TABLE "raw_2025_2026_teams" (code VARCHAR, name VARCHAR)')
-    con.execute('INSERT INTO "raw_2025_2026_teams" VALUES (\'1\', \'A\')')
+    con.execute(f'CREATE TABLE IF NOT EXISTS "{raw_table}" (code VARCHAR, name VARCHAR)')
+    con.execute(f'INSERT INTO "{raw_table}" VALUES (\'1\', \'A\')')
 
     now = datetime.now()
+    prior_kickoff = datetime(2025, 10, 1) if season == "2025-2026" else datetime(2024, 10, 1)
+    target_kickoff = datetime(2025, 10, 8) if season == "2025-2026" else datetime(2024, 10, 8)
+    prior_id, target_id = f"{id_prefix}_prior", f"{id_prefix}_target"
     con.execute(
         "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
-        "finished, competition, _ingested_at) VALUES ('prior', '2025-2026', 4, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
-        [datetime(2025, 10, 1), now],
+        "finished, competition, _ingested_at) VALUES (?, ?, ?, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
+        [prior_id, season, prior_gw, prior_kickoff, now],
     )
     con.execute(
         "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, _ingested_at) "
-        "VALUES ('p1', 'prior', '2025-2026', 0, 90, 90, ?)", [now],
+        "VALUES ('p1', ?, ?, 0, 90, 90, ?)", [prior_id, season, now],
     )
     con.execute(
         "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
-        "finished, competition, _ingested_at) VALUES ('target', '2025-2026', 5, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
-        [datetime(2025, 10, 8), now],
+        "finished, competition, _ingested_at) VALUES (?, ?, ?, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
+        [target_id, season, target_gw, target_kickoff, now],
     )
     con.execute(
         "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, _ingested_at) "
-        "VALUES ('p1', 'target', '2025-2026', 0, 90, 90, ?)", [now],
+        "VALUES ('p1', ?, ?, 0, 90, 90, ?)", [target_id, season, now],
     )
 
     con.execute(
         "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
-        "rho_params_version, reference_team_uid) VALUES ('2025-10-08', 0.2, 1, 1, 'team_a')"
+        "rho_params_version, reference_team_uid) VALUES (?, 0.2, 1, 1, 'team_a')", [target_kickoff.date()],
     )
     ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
 
@@ -460,25 +467,29 @@ def _seed_minutes_recalibration_scenario(con):
     bt.params_mod.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
 
     mm_mv = minutes_model.run(
-        con, date(2025, 10, 8), "2025-2026",
+        con, target_kickoff.date(), season,
         decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1, fact_multiplier_params_version=1,
-        lookback_seasons=("2025-2026",),
+        lookback_seasons=(season,),
     )
 
     con.execute(
         "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
         "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
-        "VALUES ('2025-10-08', '2025-2026', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+        "VALUES (?, ?, ?, ?, 1, 1, 1)", [target_kickoff.date(), season, ts_mv, mm_mv],
     )
     ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
     for player_uid in ("p1", "p2"):
         con.execute(
             "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
             "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
-            "ep_total, expected_bps) VALUES (?, ?, 'target', 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 5.0)",
-            [ep_mv, player_uid],
+            "ep_total, expected_bps) VALUES (?, ?, ?, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 5.0)",
+            [ep_mv, player_uid, target_id],
         )
     return ep_mv
+
+
+def _seed_minutes_recalibration_scenario(con):
+    return _seed_minutes_recalibration_scenario_at(con, "2025-2026", 5, 4, "s1")
 
 
 def test_refit_minutes_and_evidence_params_never_makes_the_score_worse(con):
@@ -499,6 +510,46 @@ def test_refit_minutes_and_evidence_params_never_makes_the_score_worse(con):
     )
     assert math.isfinite(result["log_score"])
     assert result["log_score"] >= result["history"][0]["log_score"]  # coordinate descent only ever accepts improvements
+    assert "holdout_log_score_before" not in result  # holdout not requested -- old behavior, no new keys
+
+
+def test_refit_minutes_and_evidence_params_holdout_is_scored_on_disjoint_steps_not_the_select_set(con):
+    """Regression test for a real overfitting-risk fix: refit_minutes_and_evidence_params()'s
+    coordinate descent selects the best candidate against eval_steps, so reporting that same
+    eval_steps score as evidence of improvement is optimistic by construction. holdout_steps
+    must be scored independently -- this seeds two genuinely different (season, gameweek)
+    steps and confirms the holdout score is actually computed against the holdout step, not
+    silently recomputed against (or copied from) the select step's own in-sample score."""
+    ep_mv_select = _seed_minutes_recalibration_scenario_at(con, "2025-2026", 5, 4, "select")
+    ep_mv_holdout = _seed_minutes_recalibration_scenario_at(con, "2024-2025", 5, 4, "holdout")
+
+    select_steps = [("2025-2026", 5)]
+    holdout_steps = [("2024-2025", 5)]
+    ep_model_version_by_step = {("2025-2026", 5): ep_mv_select, ("2024-2025", 5): ep_mv_holdout}
+    base_versions = {
+        "decay_params_version": 1, "adjustment_params_version": 1,
+        "shrinkage_params_version": 1, "fact_multiplier_params_version": 1,
+    }
+    param_grids = [{
+        "param_family": "minutes_model_shrinkage_params", "param_key": "competitive_matches_threshold",
+        "dimensions": None, "candidates": [5, 10, 20], "version_field": "shrinkage_params_version",
+    }]
+
+    result = bt.refit_minutes_and_evidence_params(
+        con, select_steps, ep_model_version_by_step, base_versions, param_grids, n_rounds=1,
+        holdout_steps=holdout_steps,
+    )
+    assert result["n_holdout_steps"] == 1
+    assert math.isfinite(result["holdout_log_score_before"])
+    assert math.isfinite(result["holdout_log_score_after"])
+
+    # cross-check: computing the holdout score directly against the holdout step alone
+    # must match what refit_minutes_and_evidence_params() reported -- proves it's genuinely
+    # scored against holdout_steps, not the select set.
+    direct_holdout_score = bt._minutes_log_score_for_step(
+        con, "2024-2025", 5, ep_mv_holdout, 1, 1, 1, 1,
+    )
+    assert result["holdout_log_score_before"] == pytest.approx(direct_holdout_score)
 
 
 def test_write_family_version_with_override_copies_other_keys_unchanged(con):
