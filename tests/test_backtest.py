@@ -1,3 +1,4 @@
+import json
 import math
 from datetime import date, datetime
 
@@ -6,6 +7,7 @@ import pytest
 
 from fpl_quant import backtest as bt
 from fpl_quant import minutes_model
+from fpl_quant import transfer_planner as tp
 
 
 # ============================================================
@@ -179,6 +181,32 @@ def test_asof_scope_exposes_target_gameweeks_schedule_with_result_hidden(con):
         assert row[0] == "team_a" and row[1] == "team_b"
         assert row[2] is None and row[3] is None, "GW10's own result must be hidden"
         assert row[4] is False
+
+
+def test_asof_scope_schedule_horizon_widens_schedule_visibility_not_results(con):
+    """Regression test for the new schedule_horizon_gameweeks param (needed for M8's
+    compute_horizon_ep(), which plans several gameweeks ahead in one call): with the default
+    (1), GW20's schedule stays fully invisible from a GW10 asof_scope, exactly like before this
+    param existed. With schedule_horizon_gameweeks=11 (covers GW10..GW20 inclusive), GW20's
+    schedule becomes visible -- but its RESULT must still be hidden, and its player-level match
+    stats must stay fully invisible regardless (the widened window only ever touches fact_match's
+    schedule columns, never fact_player_match_stats -- a real look-ahead leak would be letting a
+    future gameweek's actual outcome or player stats through, not its announced fixture list)."""
+    _seed_two_gameweek_league(con)
+    with bt.asof_scope(con, "2025-2026", 10):  # default schedule_horizon_gameweeks=1
+        row = con.execute("SELECT match_id FROM fact_match WHERE match_id = 'gw20m'").fetchone()
+        assert row is None, "GW20's schedule must stay invisible at the default horizon"
+
+    with bt.asof_scope(con, "2025-2026", 10, schedule_horizon_gameweeks=11):
+        row = con.execute(
+            "SELECT home_team_uid, away_team_uid, home_score, away_score, finished FROM fact_match WHERE match_id = 'gw20m'"
+        ).fetchone()
+        assert row is not None, "GW20's schedule must become visible within the widened horizon"
+        assert row[0] == "team_a" and row[1] == "team_b"
+        assert row[2] is None and row[3] is None, "GW20's result must still be hidden"
+        assert row[4] is False
+        stats_visible = {r[0] for r in con.execute("SELECT match_id FROM fact_player_match_stats").fetchall()}
+        assert "gw20m" not in stats_visible, "player-level stats for a future gameweek must never leak, schedule or not"
 
 
 def test_asof_scope_hides_future_player_match_stats(con):
@@ -404,54 +432,61 @@ def test_refit_rho_residual_raises_when_no_data_recorded(con):
 # refit_minutes_and_evidence_params -- block coordinate descent
 # ============================================================
 
-def _seed_minutes_recalibration_scenario(con):
-    """One target gameweek (2025-2026 GW5) with a prior gameweek's real history for p1 (a
-    nailed starter) so minutes_model.run() has something non-degenerate to fit, plus minimal
-    ep_outputs/team_strength/ep_model_versions rows to satisfy FKs -- the smallest scenario
-    that exercises the real asof_scope + minutes_model.run() + log-score path end to end."""
-    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
-    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
-    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'Midfielder')")
-    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Player Two', 'Midfielder')")
-    con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('A', '2025-2026', 'team_a', 't')")
+def _seed_minutes_recalibration_scenario_at(con, season, target_gw, prior_gw, id_prefix):
+    """One target gameweek with a prior gameweek's real history for p1 (a nailed starter) so
+    minutes_model.run() has something non-degenerate to fit, plus minimal ep_outputs/
+    team_strength/ep_model_versions rows to satisfy FKs -- the smallest scenario that exercises
+    the real asof_scope + minutes_model.run() + log-score path end to end. Parametrized by
+    (season, gameweek, id_prefix) so a single test can seed two disjoint steps (e.g. one per
+    season) to exercise refit_minutes_and_evidence_params()'s select/holdout split for real,
+    not just against a single step reused as both."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'Midfielder') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Player Two', 'Midfielder') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('A', ?, 'team_a', 't')", [season])
     con.execute(
         "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
-        "VALUES ('Player One', 'player one', '1', '2025-2026', 'p1')"
+        "VALUES ('Player One', 'player one', '1', ?, 'p1')", [season],
     )
     con.execute(
         "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
-        "VALUES ('Player Two', 'player two', '1', '2025-2026', 'p2')"
+        "VALUES ('Player Two', 'player two', '1', ?, 'p2')", [season],
     )
+    raw_table = f"raw_{season.replace('-', '_')}_teams"
     con.execute(
         "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
-        "VALUES ('raw_2025_2026_teams', '2025-2026', 'teams.csv', 'fakehash', 1)"
+        "VALUES (?, ?, 'teams.csv', 'fakehash', 1) ON CONFLICT DO NOTHING", [raw_table, season],
     )
-    con.execute('CREATE TABLE "raw_2025_2026_teams" (code VARCHAR, name VARCHAR)')
-    con.execute('INSERT INTO "raw_2025_2026_teams" VALUES (\'1\', \'A\')')
+    con.execute(f'CREATE TABLE IF NOT EXISTS "{raw_table}" (code VARCHAR, name VARCHAR)')
+    con.execute(f'INSERT INTO "{raw_table}" VALUES (\'1\', \'A\')')
 
     now = datetime.now()
+    prior_kickoff = datetime(2025, 10, 1) if season == "2025-2026" else datetime(2024, 10, 1)
+    target_kickoff = datetime(2025, 10, 8) if season == "2025-2026" else datetime(2024, 10, 8)
+    prior_id, target_id = f"{id_prefix}_prior", f"{id_prefix}_target"
     con.execute(
         "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
-        "finished, competition, _ingested_at) VALUES ('prior', '2025-2026', 4, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
-        [datetime(2025, 10, 1), now],
+        "finished, competition, _ingested_at) VALUES (?, ?, ?, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
+        [prior_id, season, prior_gw, prior_kickoff, now],
     )
     con.execute(
         "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, _ingested_at) "
-        "VALUES ('p1', 'prior', '2025-2026', 0, 90, 90, ?)", [now],
+        "VALUES ('p1', ?, ?, 0, 90, 90, ?)", [prior_id, season, now],
     )
     con.execute(
         "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
-        "finished, competition, _ingested_at) VALUES ('target', '2025-2026', 5, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
-        [datetime(2025, 10, 8), now],
+        "finished, competition, _ingested_at) VALUES (?, ?, ?, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
+        [target_id, season, target_gw, target_kickoff, now],
     )
     con.execute(
         "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, _ingested_at) "
-        "VALUES ('p1', 'target', '2025-2026', 0, 90, 90, ?)", [now],
+        "VALUES ('p1', ?, ?, 0, 90, 90, ?)", [target_id, season, now],
     )
 
     con.execute(
         "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
-        "rho_params_version, reference_team_uid) VALUES ('2025-10-08', 0.2, 1, 1, 'team_a')"
+        "rho_params_version, reference_team_uid) VALUES (?, 0.2, 1, 1, 'team_a')", [target_kickoff.date()],
     )
     ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
 
@@ -460,25 +495,29 @@ def _seed_minutes_recalibration_scenario(con):
     bt.params_mod.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
 
     mm_mv = minutes_model.run(
-        con, date(2025, 10, 8), "2025-2026",
+        con, target_kickoff.date(), season,
         decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1, fact_multiplier_params_version=1,
-        lookback_seasons=("2025-2026",),
+        lookback_seasons=(season,),
     )
 
     con.execute(
         "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
         "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
-        "VALUES ('2025-10-08', '2025-2026', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+        "VALUES (?, ?, ?, ?, 1, 1, 1)", [target_kickoff.date(), season, ts_mv, mm_mv],
     )
     ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
     for player_uid in ("p1", "p2"):
         con.execute(
             "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
             "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
-            "ep_total, expected_bps) VALUES (?, ?, 'target', 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 5.0)",
-            [ep_mv, player_uid],
+            "ep_total, expected_bps) VALUES (?, ?, ?, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 5.0)",
+            [ep_mv, player_uid, target_id],
         )
     return ep_mv
+
+
+def _seed_minutes_recalibration_scenario(con):
+    return _seed_minutes_recalibration_scenario_at(con, "2025-2026", 5, 4, "s1")
 
 
 def test_refit_minutes_and_evidence_params_never_makes_the_score_worse(con):
@@ -499,6 +538,46 @@ def test_refit_minutes_and_evidence_params_never_makes_the_score_worse(con):
     )
     assert math.isfinite(result["log_score"])
     assert result["log_score"] >= result["history"][0]["log_score"]  # coordinate descent only ever accepts improvements
+    assert "holdout_log_score_before" not in result  # holdout not requested -- old behavior, no new keys
+
+
+def test_refit_minutes_and_evidence_params_holdout_is_scored_on_disjoint_steps_not_the_select_set(con):
+    """Regression test for a real overfitting-risk fix: refit_minutes_and_evidence_params()'s
+    coordinate descent selects the best candidate against eval_steps, so reporting that same
+    eval_steps score as evidence of improvement is optimistic by construction. holdout_steps
+    must be scored independently -- this seeds two genuinely different (season, gameweek)
+    steps and confirms the holdout score is actually computed against the holdout step, not
+    silently recomputed against (or copied from) the select step's own in-sample score."""
+    ep_mv_select = _seed_minutes_recalibration_scenario_at(con, "2025-2026", 5, 4, "select")
+    ep_mv_holdout = _seed_minutes_recalibration_scenario_at(con, "2024-2025", 5, 4, "holdout")
+
+    select_steps = [("2025-2026", 5)]
+    holdout_steps = [("2024-2025", 5)]
+    ep_model_version_by_step = {("2025-2026", 5): ep_mv_select, ("2024-2025", 5): ep_mv_holdout}
+    base_versions = {
+        "decay_params_version": 1, "adjustment_params_version": 1,
+        "shrinkage_params_version": 1, "fact_multiplier_params_version": 1,
+    }
+    param_grids = [{
+        "param_family": "minutes_model_shrinkage_params", "param_key": "competitive_matches_threshold",
+        "dimensions": None, "candidates": [5, 10, 20], "version_field": "shrinkage_params_version",
+    }]
+
+    result = bt.refit_minutes_and_evidence_params(
+        con, select_steps, ep_model_version_by_step, base_versions, param_grids, n_rounds=1,
+        holdout_steps=holdout_steps,
+    )
+    assert result["n_holdout_steps"] == 1
+    assert math.isfinite(result["holdout_log_score_before"])
+    assert math.isfinite(result["holdout_log_score_after"])
+
+    # cross-check: computing the holdout score directly against the holdout step alone
+    # must match what refit_minutes_and_evidence_params() reported -- proves it's genuinely
+    # scored against holdout_steps, not the select set.
+    direct_holdout_score = bt._minutes_log_score_for_step(
+        con, "2024-2025", 5, ep_mv_holdout, 1, 1, 1, 1,
+    )
+    assert result["holdout_log_score_before"] == pytest.approx(direct_holdout_score)
 
 
 def test_write_family_version_with_override_copies_other_keys_unchanged(con):
@@ -549,6 +628,616 @@ def test_realized_xi_points_treats_missing_row_as_zero(con):
     _seed_event_points(con, "2025-2026", 5, {"p1": 10})
     total = bt._realized_xi_points(con, "2025-2026", 5, frozenset({"p1", "p_unscored"}), captain_uid=None)
     assert total == pytest.approx(10.0)
+
+
+# ============================================================
+# season_cumulative_metrics -- season-long trajectory scoring, hand-computed values
+# ============================================================
+
+def test_season_cumulative_metrics_matches_hand_computed_sharpe_and_drawdown():
+    """weekly_points=[50,60,40,70,30]: mean=50, population std=sqrt(200)~=14.142,
+    sharpe=50/14.142~=3.5355. Cumulative surplus over the mean is [0,10,0,20,0]; the running
+    peak is [0,10,10,20,20], so the underwater series is [0,0,10,0,20] -- deepest fall of 20,
+    at gameweek 3 (a real -20 dip straight after the trajectory's own new high of +20)."""
+    result = bt.season_cumulative_metrics([50, 60, 40, 70, 30])
+    assert result["total_points"] == pytest.approx(250.0)
+    assert result["mean_points"] == pytest.approx(50.0)
+    assert result["n_gameweeks"] == 5
+    assert result["realized_sharpe"] == pytest.approx(50.0 / math.sqrt(200.0))
+    assert result["max_drawdown"] == pytest.approx(20.0)
+
+
+def test_season_cumulative_metrics_constant_trajectory_has_zero_drawdown_and_no_sharpe_signal():
+    """A perfectly flat trajectory has no variability to speak of: std=0 (no meaningful
+    risk-adjusted signal, matching refit_lambda()'s own std<=0 -> -inf convention) and
+    max_drawdown=0 (cumulative surplus is identically zero throughout, so it never falls
+    below its own running peak)."""
+    result = bt.season_cumulative_metrics([50.0] * 6)
+    assert result["max_drawdown"] == pytest.approx(0.0)
+    assert result["realized_sharpe"] == float("-inf")
+
+
+def test_season_cumulative_metrics_distinguishes_a_deep_cold_streak_from_a_smooth_season():
+    """The real point this metric exists to make: two trajectories with the identical total
+    and identical variance can still have very different drawdowns depending on WHERE in the
+    season the bad weeks land -- a real risk dimension Sharpe's single whole-season standard
+    deviation can't see, and season_cumulative_metrics() must actually distinguish them, not
+    just report the same number for both."""
+    lumpy = [80.0, 80.0, 80.0, 20.0, 20.0, 20.0]       # one long cold streak at the end
+    alternating = [80.0, 20.0, 80.0, 20.0, 80.0, 20.0]  # same total/mean/variance, spread out
+    lumpy_result = bt.season_cumulative_metrics(lumpy)
+    alternating_result = bt.season_cumulative_metrics(alternating)
+
+    assert lumpy_result["total_points"] == pytest.approx(alternating_result["total_points"])
+    assert lumpy_result["realized_sharpe"] == pytest.approx(alternating_result["realized_sharpe"])
+    assert lumpy_result["max_drawdown"] > alternating_result["max_drawdown"]
+
+
+def test_season_cumulative_metrics_empty_trajectory_returns_safe_defaults():
+    result = bt.season_cumulative_metrics([])
+    assert result == {
+        "total_points": 0.0, "mean_points": 0.0, "n_gameweeks": 0,
+        "realized_sharpe": float("-inf"), "max_drawdown": 0.0,
+    }
+
+
+# ============================================================
+# run_season_simulation -- a real, evolving M8 manager, not a fresh M5 solve every step.
+#
+# Full end-to-end (real team_strength.calibrate() -> minutes_model.run() -> ep.run() ->
+# uncertainty.run() -> squad_optimizer.run() -> transfer_planner.run()/apply_recommendation()
+# every gameweek), so this needs a real, non-degenerate 6-club/18-player synthetic league, not
+# a lightweight fixture -- the same category of investment M7/M8's own README documents needing
+# "two scratch dry runs against a full copy of the real DB" for, just at a scale a unit test can
+# carry. Every club fields a full round of fixtures every gameweek (so every player has one),
+# and players are split nailed-starter/fringe with real differentiated historical output (not
+# flat), which is what lets squad_optimizer.run()'s own divergence check pass for real rather
+# than degenerately. Confirmed stable across 5 different random seeds before being written down
+# here, not a single lucky run.
+# ============================================================
+
+def _seed_season_simulation_league(con, seasons=("2024-2025", "2025-2026"), n_gameweeks=5, seed=7):
+    """6 clubs, a full 3-match round every gameweek (every club has a fixture every week),
+    18 players (2 GK/6 DEF/6 MID/4 FWD) split into real nailed-starter vs fringe-player
+    historical output so squad_optimizer's own candidate pool and divergence check have real,
+    non-degenerate signal to work with -- not test_squad_optimizer.py's in-memory
+    _synthetic_pool() (that bypasses the real ep.run()/uncertainty.run() pipeline entirely;
+    run_season_simulation() exercises it for real, every gameweek)."""
+    import random as _random
+    rng = _random.Random(seed)
+    now = datetime.now()
+    clubs = ["A", "B", "C", "D", "E", "F"]
+    uids = {}
+    for name in clubs:
+        uid = f"team_{name.lower()}"
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [uid, name])
+        uids[name] = uid
+
+    # uncertainty.run()'s cross-player-covariance roster lookup is hardcoded to
+    # season_priority[0] (default "2026-2027") regardless of which season is actually being
+    # processed -- a pre-existing quirk, out of scope to fix here, worked around the same way
+    # the real ingested DB happens to satisfy it naturally (2026-2027 also carries
+    # player_alias/team_alias rows for the same real players as prior seasons).
+    for season in (*seasons, "2026-2027"):
+        table = f"raw_{season.replace('-', '_')}_teams"
+        con.execute(f'CREATE TABLE "{table}" (code VARCHAR, name VARCHAR, elo VARCHAR)')
+        for i, name in enumerate(clubs):
+            con.execute(f'INSERT INTO "{table}" VALUES (?, ?, ?)', [str(i + 1), name, str(1700 + i * 30)])
+            con.execute(
+                "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES (?, ?, ?, 't')",
+                [name, season, uids[name]],
+            )
+        con.execute(
+            "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+            "VALUES (?, ?, 'teams.csv', ?, ?)", [table, season, f"hash_{season}", len(clubs)],
+        )
+
+    rounds = [[("A", "B"), ("C", "D"), ("E", "F")], [("B", "C"), ("D", "E"), ("F", "A")], [("A", "D"), ("B", "E"), ("C", "F")]]
+    match_ids_by_season: dict[str, dict[int, list]] = {}
+    for si, season in enumerate(seasons):
+        gw_dates = {gw: date(2024 + si, 8, 1) + (gw - 1) * pd.Timedelta(days=7) for gw in range(1, n_gameweeks + 3)}
+        match_ids_by_season[season] = {}
+        for gw, kickoff in gw_dates.items():
+            fixtures = rounds[(gw - 1) % len(rounds)]
+            match_ids_by_season[season][gw] = []
+            for i, (h, a) in enumerate(fixtures):
+                hg, ag = rng.choice([(2, 1), (1, 0), (0, 0), (3, 1), (1, 1), (2, 0)])
+                mid = f"m_{season}_{gw}_{i}"
+                con.execute(
+                    "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, home_score, "
+                    "away_score, finished, competition, kickoff_time, _ingested_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, 'Premier League', ?, ?)",
+                    [mid, season, gw, uids[h], uids[a], hg, ag, kickoff, now],
+                )
+                match_ids_by_season[season][gw].append((mid, h, a))
+
+    players = []
+    pid = 0
+    for pos, n, n_nailed in (("Goalkeeper", 2, 1), ("Defender", 6, 4), ("Midfielder", 6, 4), ("Forward", 4, 3)):
+        for i in range(n):
+            pid += 1
+            players.append((f"p{pid}", pos, clubs[i % 6], i < n_nailed))
+
+    for uid, pos, club, nailed in players:
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, pos])
+        code = str(clubs.index(club) + 1)
+        for season in (*seasons, "2026-2027"):
+            con.execute(
+                "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+                "VALUES (?, ?, ?, ?, ?)", [uid, uid.lower(), code, season, uid],
+            )
+        price = 4.0 + (3.0 if nailed else 0.0) + (1.5 if pos == "Forward" else 0.0)
+        for season in seasons:
+            for gw, fixtures in match_ids_by_season[season].items():
+                con.execute(
+                    "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, minutes, "
+                    "goals_scored, assists, event_points, _ingested_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [uid, season, gw, price, 90 if nailed else 0,
+                     1 if (nailed and rng.random() < 0.3) else 0, 1 if (nailed and rng.random() < 0.2) else 0,
+                     rng.randint(4, 10) if nailed else rng.randint(0, 1), now],
+                )
+                this_match = next(((mid, h, a) for mid, h, a in fixtures if club in (h, a)), None)
+                if this_match:
+                    mid, _h, _a = this_match
+                    con.execute(
+                        "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+                        "minutes_played, goals, assists, team_goals_conceded, _ingested_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [uid, mid, season, 0 if nailed else 200, 90 if nailed else 0, 90 if nailed else 0,
+                         1 if (nailed and rng.random() < 0.3) else 0, 1 if (nailed and rng.random() < 0.2) else 0, 1, now],
+                    )
+
+    # full v1 param seed, mirroring scripts/run_ingestion.py's own real sequence
+    from fpl_quant import expected_points as ep_mod
+    from fpl_quant import squad_optimizer as so_mod
+    from fpl_quant import transfer_planner as tp_mod
+    from fpl_quant import uncertainty as un_mod
+
+    params_mod = bt.params_mod
+    params_mod.write_param(con, "fact_type_multiplier_params", 1, "2026-08-10", "multiplier", value_numeric=1.2)
+    params_mod.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params_mod.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    for claim_type, magnitude in {"predicted_xi": 0.8, "manager_tendency": 1.0, "transfer_likelihood": -2.0}.items():
+        params_mod.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                                value_numeric=magnitude, dimensions={"claim_type": claim_type})
+    for category, magnitude in {"Out": -4.0, "Doubt": -1.5, "Fit": 0.0}.items():
+        params_mod.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude", value_numeric=magnitude,
+                                dimensions={"claim_type": "injury_status", "category": category})
+    params_mod.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+    params_mod.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=math.log(2) / 200)
+    params_mod.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
+    ep_mod.seed_v1_params(con)
+    un_mod.seed_v1_params(con)
+    so_mod.seed_v1_params(con)
+    tp_mod.seed_v1_params(con)
+
+
+_SEASON_SIM_VERSIONS = dict(
+    xi_params_version=1, rho_params_version=1,
+    decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1, fact_multiplier_params_version=1,
+    scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+    rho_residual_params_version=1, corr_params_version=1,
+    lambda_params_version=1, guardrail_params_version=1,
+    horizon_params_version=1, transfer_cost_params_version=1,
+    wildcard_threshold_params_version=1, free_hit_threshold_params_version=1, kappa_tc_params_version=1,
+)
+
+
+def test_run_season_simulation_walks_forward_with_real_decisions(con):
+    _seed_season_simulation_league(con)
+    result = bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=4, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS,
+    )
+
+    assert result["gameweeks"] == [2, 3, 4]
+    assert len(result["weekly_points"]) == 3
+    assert all(p >= 0.0 for p in result["weekly_points"])
+    assert result["skipped_dgw_gameweeks"] == []
+
+    # the squad must have genuinely evolved through real M8 decisions, not sat frozen --
+    # confirms this is really calling transfer_planner.run()/apply_recommendation() each week,
+    # not silently reusing the bootstrap squad throughout.
+    assert len(result["actions"]) == 2  # one real transfer_planner.run()-informed decision per gameweek after bootstrap (GW3, GW4)
+
+    final_holdings = tp._read_holdings(con, result["final_state_version"])
+    assert len(final_holdings) == 15
+
+    metrics = bt.season_cumulative_metrics(result["weekly_points"])
+    assert math.isfinite(metrics["total_points"])
+    assert metrics["max_drawdown"] >= 0.0
+
+
+def test_run_season_simulation_raises_on_unfittable_start_gameweek(con):
+    """No prior finished match exists anywhere -- the real cold-start guard, same one
+    has_fittable_history() already protects run_gameweek_step() with."""
+    with pytest.raises(ValueError):
+        bt.run_season_simulation(con, "2025-2026", start_gameweek=1, end_gameweek=2, **_SEASON_SIM_VERSIONS)
+
+
+# ============================================================
+# bank-tracking look-ahead: _compute_bank_for_squad()'s `ORDER BY gw DESC` price lookup has no
+# ceiling of its own -- correct for a real live run (no future gameweeks exist to leak from),
+# a real leak inside run_season_simulation() unless the call composes with asof_scope()'s own
+# shadow. Tested directly against the underlying mechanism (bootstrap_from_squad_optimizer_run
+# inside vs. outside asof_scope), not the full season-sim fixture -- the existing
+# _seed_season_simulation_league() gives every player one FLAT price across all gameweeks by
+# construction, so it can't distinguish a leak from a non-leak; this needs a genuine multi-gw
+# price difference for one player, which is cheaper to build standalone.
+# ============================================================
+
+def _seed_bootstrap_squad_with_price_history(con, season, start_gameweek, later_gameweek, price_at_start, price_at_later):
+    """One real squad_optimizer_runs + squad_optimizer_selections row (one held player, p1)
+    plus TWO fact_player_season_stats price snapshots for that player: one at gw < start_gameweek
+    (asof-safe -- knowable at start_gameweek's own deadline) and one at later_gameweek (only
+    knowable after it) -- deliberately a HIGHER price later, the real shape of the leak: bank
+    would be UNDERSTATED (a real transfer that should be legal looking illegal) if the earlier,
+    lower price were used, but OVERSTATED (an illegal transfer looking affordable) if the later,
+    higher price leaked through -- the actually dangerous direction, per _compute_bank_for_squad()'s
+    own docstring on why it conservatively returns 0.0 rather than guess."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'P1', 'Midfielder')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', ?, ?, 'team_a', 'team_b', FALSE, "
+        "'Premier League', ?, current_timestamp)",
+        [season, start_gameweek, date(2026, 8, 1) + (start_gameweek - 1) * pd.Timedelta(days=7)],
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+        "VALUES ('p1', ?, ?, ?, current_timestamp)", [season, start_gameweek - 1, price_at_start],
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+        "VALUES ('p1', ?, ?, ?, current_timestamp)", [season, later_gameweek, price_at_later],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [season, ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    so_run_id = con.execute(
+        "INSERT INTO squad_optimizer_runs (run_id, calibration_asof_date, target_season, target_gameweek, "
+        "ep_model_version, uncertainty_model_version, lambda_params_version, lambda_value, "
+        "guardrail_params_version, divergence_check_passed, solver_status, objective_value) "
+        "VALUES (nextval('seq_squad_optimizer_run'), '2026-08-10', ?, ?, ?, ?, 1, 0.15, 1, TRUE, 'optimal', 10.0) "
+        "RETURNING run_id",
+        [season, start_gameweek, ep_mv, un_mv],
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+        "VALUES (?, 'p1', TRUE, TRUE, TRUE, FALSE)", [so_run_id],
+    )
+    return so_run_id
+
+
+def test_bootstrap_bank_composes_with_asof_scope_never_leaking_a_later_price(con):
+    so_run_id = _seed_bootstrap_squad_with_price_history(
+        con, "2025-2026", start_gameweek=5, later_gameweek=10, price_at_start=5.0, price_at_later=9.0,
+    )
+    with bt.asof_scope(con, "2025-2026", 5):
+        shadowed_state_version = tp.bootstrap_from_squad_optimizer_run(con, so_run_id)
+    shadowed_bank = con.execute(
+        "SELECT bank FROM manager_state_versions WHERE state_version = ?", [shadowed_state_version]
+    ).fetchone()[0]
+    # priced off gw4 (< start_gameweek=5), never gw10's 9.0 -- the fix this test guards.
+    assert shadowed_bank == pytest.approx(tp.squad_optimizer.BUDGET - 5.0)
+
+    # Contrast, in the same test: called with NO asof_scope at all (the pre-fix call site in
+    # run_season_simulation()), _compute_bank_for_squad()'s own `ORDER BY gw DESC` genuinely
+    # does pick up the later, real price -- proving the asof_scope wrapping above is actually
+    # what makes the difference, not a coincidence of this fixture's data.
+    unshadowed_state_version = tp.bootstrap_from_squad_optimizer_run(con, so_run_id)
+    unshadowed_bank = con.execute(
+        "SELECT bank FROM manager_state_versions WHERE state_version = ?", [unshadowed_state_version]
+    ).fetchone()[0]
+    assert unshadowed_bank == pytest.approx(tp.squad_optimizer.BUDGET - 9.0)
+
+
+def test_run_season_simulation_calls_compute_bank_only_while_the_asof_shadow_is_active(con, monkeypatch):
+    """Ties the fix directly to run_season_simulation()'s own call sites, not just the
+    underlying asof_scope()/bootstrap_from_squad_optimizer_run() mechanism in isolation (see
+    the price-value test above, which wraps the call in its own `with` block and so can't by
+    itself catch a regression if run_season_simulation() moved the real call back outside its
+    with-block). Spies on _compute_bank_for_squad() and records, at every real call during a
+    real run, whether fact_player_season_stats currently resolves to asof_scope()'s shadowed
+    TEMP TABLE rather than main.* directly. The bootstrap call always fires at least once;
+    apply_recommendation()'s Wildcard-accept call is opportunistic (only fires if the sim's own
+    decision rule accepts one that week) and is covered whenever it happens to fire."""
+    _seed_season_simulation_league(con)
+    seen_shadowed = []
+    real_fn = tp._compute_bank_for_squad
+
+    def _spy(con_arg, *args, **kwargs):
+        is_shadowed = con_arg.execute(
+            "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'fact_player_season_stats' AND temporary"
+        ).fetchone()[0] > 0
+        seen_shadowed.append(is_shadowed)
+        return real_fn(con_arg, *args, **kwargs)
+
+    monkeypatch.setattr(tp, "_compute_bank_for_squad", _spy)
+    bt.run_season_simulation(con, "2025-2026", start_gameweek=2, end_gameweek=4, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS)
+
+    assert seen_shadowed  # at least the bootstrap call fired
+    assert all(seen_shadowed)  # every real call happened while the shadow was active -- none leaked
+
+
+def test_report_season_simulation_sensitivity_writes_versions_without_touching_the_live_pin(con):
+    """Regression test for the read-only contract: running a lambda/cap sensitivity sweep must
+    never mutate what version=1 (the live pin) itself resolves to -- each grid candidate gets
+    its own freshly written param_versions row, same discipline as
+    report_concentration_sensitivity()."""
+    _seed_season_simulation_league(con)
+    live_lambda_before, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", 1)
+    live_cap_before, _ = bt.params_mod.resolve_param(con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", 1)
+
+    # lambda=0.0 (and, empirically on this small synthetic pool, 0.05) is excluded from the
+    # grid: run_season_simulation() always goes through the real, divergence-checked
+    # squad_optimizer.run() (not solve() directly, unlike refit_lambda()), and that check always
+    # compares its trial lambda against a lambda=0 baseline -- trialing lambda=0.0 itself would
+    # compare that baseline against itself and always "fail" by construction, and a lambda close
+    # enough to 0 can genuinely fail to move this pool's optimal XI/captain at all, a real
+    # (if synthetic-data-specific) finding, not a test bug -- confirmed empirically (0.05 fails,
+    # 0.10-0.50 all pass reliably) before picking this grid, not guessed.
+    result = bt.report_season_simulation_sensitivity(
+        con, "2025-2026", 2, 3, _SEASON_SIM_VERSIONS,
+        lambda_grid=(0.10, 0.15), guardrail_cap_grid=(2,),
+    )
+
+    assert set(result["lambda"].keys()) == {0.10, 0.15}
+    assert set(result["guardrail_cap"].keys()) == {2}
+    for grid_result in {**result["lambda"], **result["guardrail_cap"]}.values():
+        assert math.isfinite(grid_result["total_points"])
+        assert grid_result["max_drawdown"] >= 0.0
+
+    live_lambda_after, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", 1)
+    live_cap_after, _ = bt.params_mod.resolve_param(con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", 1)
+    assert live_lambda_after == live_lambda_before
+    assert live_cap_after == live_cap_before
+
+
+# ============================================================
+# _decide_gameweek_action -- the harness's own decision rule, tested in isolation against a
+# lightweight chip_evaluations/transfer_recommendations fixture (no real M1-M6 solve needed --
+# this is pure decision logic over already-computed recommendations).
+# ============================================================
+
+def _seed_plan_run_with_recommendations(con, recommended_chips=(), top_transfer_net_value=None, target_gameweek=3, detail_by_chip=None):
+    detail_by_chip = detail_by_chip or {}
+    state_version = con.execute(
+        "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
+        "chips_used_set1, chips_used_set2, derived_from_state_version) "
+        "VALUES ('2026-2027', ?, 1, '[]', '[]', NULL) RETURNING state_version", [target_gameweek],
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO transfer_plan_runs (calibration_asof_date, target_season, target_gameweek, "
+        "input_state_version, horizon_params_version, transfer_cost_params_version, ep_model_versions, "
+        "uncertainty_model_versions) VALUES ('2026-08-17', '2026-2027', ?, ?, 1, 1, '{}', '{}') RETURNING run_id",
+        [target_gameweek, state_version],
+    )
+    run_id = con.execute("SELECT max(run_id) FROM transfer_plan_runs").fetchone()[0]
+    for chip_type in ("wildcard", "free_hit", "bench_boost", "triple_captain"):
+        con.execute(
+            "INSERT INTO chip_evaluations (run_id, chip_type, recommended, score_or_gain, detail, gw19_urgent_flag) "
+            "VALUES (?, ?, ?, 1.0, ?, FALSE)",
+            [run_id, chip_type, chip_type in recommended_chips, json.dumps(detail_by_chip.get(chip_type, {}))],
+        )
+    if top_transfer_net_value is not None:
+        con.execute(
+            "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('out1', 'Out', 'Midfielder'), "
+            "('in1', 'In', 'Midfielder') ON CONFLICT DO NOTHING"
+        )
+        con.execute(
+            "INSERT INTO transfer_recommendations (run_id, rank, player_out, player_in, price_out, price_in, "
+            "horizon_value_gain, transfer_cost, net_value) VALUES (?, 1, 'out1', 'in1', 5.0, 5.0, ?, 0.0, ?)",
+            [run_id, top_transfer_net_value, top_transfer_net_value],
+        )
+    return run_id
+
+
+def test_decide_gameweek_action_accepts_the_transfer_when_no_chip_is_recommended(con):
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=(), top_transfer_net_value=4.0)
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert rank == 1
+    assert chip is None
+
+
+def test_decide_gameweek_action_declines_a_transfer_below_threshold(con):
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=(), top_transfer_net_value=-1.0)
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert rank is None
+    assert chip is None
+
+
+def test_decide_gameweek_action_prefers_a_recommended_chip_over_a_good_transfer(con):
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("bench_boost",), top_transfer_net_value=10.0)
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert rank is None
+    assert chip == "bench_boost"
+
+
+def test_decide_gameweek_action_follows_chip_priority_order(con):
+    """wildcard > free_hit > bench_boost > triple_captain, per CHIP_PRIORITY."""
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("triple_captain", "bench_boost", "free_hit"))
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "free_hit"
+
+
+def test_decide_gameweek_action_skips_a_chip_already_used_this_set(con):
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("wildcard", "bench_boost"))
+    rank, chip = bt._decide_gameweek_action(
+        con, run_id, chips_used_set1={"wildcard"}, chips_used_set2=set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0,
+    )
+    assert chip == "bench_boost"
+
+
+def test_decide_gameweek_action_checks_the_correct_chip_set_for_the_gameweek(con):
+    """A chip used in set 1 (pre-GW19) must not block re-recommending it in set 2 (GW19+) --
+    the two sets are independent allocations, per the real FPL rule."""
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("wildcard",))
+    con.execute("UPDATE transfer_plan_runs SET target_gameweek = 25 WHERE run_id = ?", [run_id])
+    rank, chip = bt._decide_gameweek_action(
+        con, run_id, chips_used_set1={"wildcard"}, chips_used_set2=set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0,
+    )
+    assert chip == "wildcard"
+
+
+def test_decide_gameweek_action_no_recommendations_at_all_does_nothing(con):
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=())
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert rank is None and chip is None
+
+
+# ============================================================
+# chip timing: play-now-vs-hold, using only the model's own already-visible forward EP
+# ============================================================
+
+def test_is_best_gameweek_in_visible_horizon_true_when_target_is_the_min():
+    assert bt._is_best_gameweek_in_visible_horizon({3: 10.0, 4: 20.0, 5: 15.0}, target_gameweek=3, prefer="min")
+
+
+def test_is_best_gameweek_in_visible_horizon_false_when_a_later_week_is_lower():
+    # gameweek 4's projected value (5.0) is lower than gameweek 3's (10.0) -- a genuinely
+    # worse-looking future week is real evidence to hold a rebuild chip, not play it now.
+    assert not bt._is_best_gameweek_in_visible_horizon({3: 10.0, 4: 5.0, 5: 15.0}, target_gameweek=3, prefer="min")
+
+
+def test_is_best_gameweek_in_visible_horizon_true_when_target_is_the_max():
+    assert bt._is_best_gameweek_in_visible_horizon({3: 20.0, 4: 10.0, 5: 15.0}, target_gameweek=3, prefer="max")
+
+
+def test_is_best_gameweek_in_visible_horizon_false_when_a_later_week_is_higher():
+    assert not bt._is_best_gameweek_in_visible_horizon({3: 10.0, 4: 20.0, 5: 15.0}, target_gameweek=3, prefer="max")
+
+
+def test_is_best_gameweek_in_visible_horizon_defers_to_true_on_missing_data():
+    # Empty per_gw (a chip evaluator with no comparison data) or target_gameweek simply not
+    # present -- can't assess timing, defer to the existing threshold-only check rather than
+    # silently suppressing an otherwise-real recommendation.
+    assert bt._is_best_gameweek_in_visible_horizon({}, target_gameweek=3, prefer="min")
+    assert bt._is_best_gameweek_in_visible_horizon({4: 5.0, 5: 15.0}, target_gameweek=3, prefer="min")
+
+
+def test_is_best_gameweek_in_visible_horizon_handles_stringified_json_keys():
+    # chip_evaluations.detail round-trips through json.dumps/json.loads -- dict keys come back
+    # as strings ("3", not 3). The real bug this guards: comparing int target_gameweek against
+    # string dict keys would never match, silently defeating the whole comparison.
+    assert bt._is_best_gameweek_in_visible_horizon({"3": 10.0, "4": 20.0}, target_gameweek=3, prefer="min")
+    assert not bt._is_best_gameweek_in_visible_horizon({"3": 10.0, "4": 5.0}, target_gameweek=3, prefer="min")
+
+
+def test_decide_gameweek_action_holds_a_recommended_chip_when_a_later_week_looks_better(con):
+    # Wildcard clears its threshold (recommended=True) but the current squad's own visible
+    # trajectory says gameweek 5 is a genuinely worse week than gameweek 3 -- the real
+    # situation Wildcard exists to fix is worse LATER, not now, so this should hold, not play.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), target_gameweek=3,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {3: 20.0, 4: 15.0, 5: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # held, not played
+    assert rank is None  # no transfer seeded either in this fixture
+
+
+def test_decide_gameweek_action_plays_a_recommended_chip_when_now_is_the_best_visible_week(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), target_gameweek=3,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {3: 5.0, 4: 15.0, 5: 20.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "wildcard"
+
+
+def test_decide_gameweek_action_held_chip_falls_through_to_next_priority_chip(con):
+    # wildcard is recommended but timing says hold; free_hit is recommended AND timing says
+    # now is genuinely its best visible week -- the loop must keep trying, not stop at the
+    # first (held) candidate.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard", "free_hit"), target_gameweek=3,
+        detail_by_chip={
+            "wildcard": {"current_squad_value_per_gw": {3: 20.0, 4: 5.0}},
+            "free_hit": {"current_xi_value_per_gw": {3: 5.0, 4: 20.0}},
+        },
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "free_hit"
+
+
+def test_decide_gameweek_action_held_chip_falls_through_to_a_transfer(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), top_transfer_net_value=4.0, target_gameweek=3,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {3: 20.0, 4: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None
+    assert rank == 1
+
+
+def test_decide_gameweek_action_bench_boost_timing_uses_all_gameweeks_field(con):
+    # bench_boost's own evaluate_bench_boost() already carries a real per-gameweek breakdown
+    # (all_gameweeks) -- this is the pre-existing bug the reviewer flagged: recommended was
+    # always True whenever there's a bench, so bench_boost got taken on the very first
+    # eligible week regardless of whether a later week actually maximizes bench EP.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {"all_gameweeks": {3: 5.0, 4: 20.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw4 looks better than gw3 -- hold
+
+
+def test_decide_gameweek_action_triple_captain_timing_uses_captain_value_per_gw_field(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=3,
+        detail_by_chip={"triple_captain": {"captain_value_per_gw": {3: 12.0, 4: 4.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "triple_captain"  # gw3 is already the best visible week -- play now
+
+
+def test_decide_gameweek_action_timing_gate_is_skipped_for_set2_gameweeks(con):
+    # Chip timing is explicitly scoped to set-1 (GW1-18) per the task's own framing -- set-2
+    # gameweeks (GW19+) keep the original threshold-only check, even when a per_gw trajectory
+    # that would otherwise say "hold" is present in the detail payload.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), target_gameweek=25,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {25: 20.0, 26: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0)
+    assert chip == "wildcard"  # would be held under set-1 rules, but set-2 ignores timing
+
+
+# ============================================================
+# _realized_xi_points -- captain_multiplier extension (Triple Captain support)
+# ============================================================
+
+def test_realized_xi_points_captain_multiplier_defaults_to_double(con):
+    _seed_event_points(con, "2025-2026", 5, {"p1": 10})
+    total = bt._realized_xi_points(con, "2025-2026", 5, frozenset({"p1"}), captain_uid="p1")
+    assert total == pytest.approx(20.0)
+
+
+def test_realized_xi_points_captain_multiplier_supports_triple_captain(con):
+    _seed_event_points(con, "2025-2026", 5, {"p1": 10, "p2": 5})
+    total = bt._realized_xi_points(con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid="p1", captain_multiplier=3)
+    assert total == pytest.approx(10 * 3 + 5)
 
 
 # ============================================================

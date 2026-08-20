@@ -16,6 +16,7 @@ precondition) -- see seed_v1_params() for the full source list and the one genui
 unresolved ambiguity (outside-box GK saves in BPS).
 """
 
+import json
 import math
 from datetime import date, datetime, timezone
 
@@ -27,6 +28,7 @@ from scipy.stats import poisson
 from . import minutes_model as mm
 from . import params as params_mod
 from . import reconcile as reconcile_mod
+from . import snapshot as snapshot_mod
 
 PL = "Premier League"
 POSITIONS = ["Goalkeeper", "Defender", "Midfielder", "Forward"]
@@ -86,6 +88,13 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # tau (Plackett-Luce dispersion): invented v1 default, no literature to cite -- flagged
     # for M7 recalibration once real 2026-27 BPS outcomes exist to fit against (per spec).
     params_mod.write_param(con, "bps_dispersion_params", 1, "2026-08-10", "tau", value_numeric=10.0)
+
+    # Invented v1 default (no reconciled penalty-frequency/conversion data to derive it from,
+    # same honest gap as GK penalty saves being left at 0 above) for the optional confirmed-
+    # primary-penalty-taker goal-rate uplift -- see _set_piece_goal_uplift_multiplier(). A
+    # modest ~15% boost: enough to matter for a real early-season/new-signing case, deliberately
+    # not large enough to swamp the real historical xG signal it's applied on top of.
+    params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "penalty_taker_goal_rate_multiplier", value_numeric=1.15)
 
 
 def _sm(con, key, params_version, position=None):
@@ -339,11 +348,52 @@ def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
 # per-player, per-fixture sub-models (everything except bonus, which needs the whole fixture)
 # ============================================================
 
+# ============================================================
+# optional set-piece rate uplift -- ingested but previously unused. ingest_research_pull.py's
+# ingest_set_piece_takers() has written real claim_type="set_piece_order_override" claims
+# ({club, duty, order: primary/secondary}) into evidence_claims since the module existed, but
+# grepping the whole src/ tree turns up zero readers of that claim_type anywhere -- confirmed
+# ingested and dormant, not a hypothetical gap. Scoped narrowly to confirmed PRIMARY penalty
+# duty specifically (the single highest-signal, best-understood case: penalty conversion is
+# close to deterministic, and a summer transfer's new penalty duty won't yet show up in pure
+# historical expected_goals_per_90, especially on a small early-season sample) -- free-kick/
+# corner duty claims exist in the same tab but are deliberately left alone here, a smaller,
+# separately-scoped extension if ever wanted, not silently folded in.
+# ============================================================
+
+def _set_piece_goal_uplift_multiplier(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
+) -> float:
+    """1.0 (no-op) unless an asof-visible set_piece_order_override claim confirms this player
+    as the PRIMARY penalty taker, in which case a small, versioned multiplicative uplift is
+    applied to e_goals. No real penalty-frequency/conversion data is reconciled anywhere in
+    this project (same honest gap expected_points.py's own module docstring already names for
+    GK penalty saves: "left at 0 rather than guessed") -- the uplift magnitude is therefore an
+    invented v1 default, same status as every other unpinned constant here, not a derived
+    number, flagged for M7 recalibration once real per-penalty-taker outcome data exists to fit
+    it against."""
+    claims = snapshot_mod.get_claims_asof(
+        con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="set_piece_order_override",
+    ).to_dict("records")
+    for c in claims:
+        if not c["claim_value"]:
+            continue
+        payload = json.loads(c["claim_value"])
+        duty = (payload.get("duty") or "")
+        if payload.get("order") == "primary" and "penalt" in duty.lower():
+            multiplier, _ = params_mod.resolve_param(
+                con, "set_piece_evidence_params", "penalty_taker_goal_rate_multiplier", set_piece_params_version,
+            )
+            return multiplier
+    return 1.0
+
+
 def compute_player_fixture_components(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, team_uid: str, match_id: str,
     p_0: float, p_1_59: float, p_60plus: float,
     ts_model_version: int, scoring_params_version: int, bps_params_version: int,
     season_priority: list[str], mean_minutes: dict,
+    *, asof: datetime | None = None, set_piece_params_version: int | None = None,
 ) -> dict:
     rates = player_rates_shrunk(con, player_uid, position, season_priority)
     def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority)
@@ -361,6 +411,8 @@ def compute_player_fixture_components(
     # ---- goals / assists ----
     e_goals = rates["expected_goals_per_90"] * e_min_played / 90.0 * p_played
     e_assists = rates["expected_assists_per_90"] * e_min_played / 90.0 * p_played
+    if asof is not None and set_piece_params_version is not None:
+        e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
     ep_goals = e_goals * _sm(con, "goal_points", scoring_params_version, position)
     ep_assists = e_assists * _sm(con, "assist_points", scoring_params_version)
 
@@ -431,9 +483,14 @@ def run(
     bps_params_version: int,
     tau_params_version: int,
     lookback_seasons: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
+    set_piece_params_version: int | None = None,
 ) -> int:
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
     mean_minutes = _mean_minutes_by_bucket(con)
+    # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()
+    # already established -- a claim ingested at 09:34 on the asof date itself is legitimately
+    # knowable "as of" that date. Only used when set_piece_params_version opts the uplift in.
+    asof = datetime.combine(calibration_asof_date, datetime.max.time(), tzinfo=timezone.utc)
 
     fixtures = con.execute(
         "SELECT match_id, home_team_uid, away_team_uid FROM fact_match "
@@ -486,6 +543,7 @@ def run(
                     con, player_uid, position, team_uid, match_id, p_0, p_1_59, p_60plus,
                     ts_model_version, scoring_params_version, bps_params_version,
                     list(lookback_seasons), mean_minutes,
+                    asof=asof, set_piece_params_version=set_piece_params_version,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

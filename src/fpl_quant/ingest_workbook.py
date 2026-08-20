@@ -305,18 +305,52 @@ def _insert_claim(con, *, subject_entity_type, subject_entity_id, claim_type, cl
                    confidence, observed_date, ingested_date, tab_origin, row_origin, raw_text=None):
     if subject_entity_id is None or source_id is None:
         return False
+
+    # Real bug fixed here: this function previously always INSERTed a fresh claim_id with no
+    # existence check, and evidence_claims has no uniqueness constraint on anything content-
+    # identifying (its only PK is the freshly-generated UUID). The workbook is explicitly
+    # meant to be re-ingested repeatedly (its own "37_Weekly Update Workflow" tab), and every
+    # re-run duplicated every still-present injury/transfer/predicted-XI/etc. claim, with no
+    # error or warning. evidence_blend.py's weighted-average and categorical-distribution
+    # conflict resolution then over-weights whichever evidence happened to survive across the
+    # most re-ingestion runs -- not the most reliable or most recent evidence, just the most
+    # repeatedly-re-ingested -- silently skewing base_reliability_score-driven blends and
+    # minutes_model.py's logit-scale evidence shift. Fixed by treating (tab_origin, row_origin,
+    # claim_type, subject_entity_id, source_id) as the natural identity of "this workbook cell's
+    # claim": an identical re-ingestion of unchanged content is now a genuine no-op (not a
+    # duplicate row), and a re-ingestion where the content actually changed (e.g. a status flip
+    # on a later weekly update) properly supersedes the prior claim via the existing
+    # `superseded_by` mechanism rather than silently duplicating or silently overwriting it --
+    # consistent with how the rest of this project treats evidence as an append-only, asof-
+    # relative history (see snapshot.py's superseded-claims handling).
+    existing = con.execute(
+        "SELECT claim_id, claim_value, claim_value_numeric FROM evidence_claims "
+        "WHERE tab_origin = ? AND row_origin = ? AND claim_type = ? AND subject_entity_id = ? "
+        "AND source_id = ? AND superseded_by IS NULL",
+        [tab_origin, row_origin, claim_type, subject_entity_id, source_id],
+    ).fetchone()
+
+    new_value_json = json.dumps(claim_value) if claim_value is not None else None
+    if existing is not None:
+        existing_claim_id, existing_value, existing_value_numeric = existing
+        if existing_value == new_value_json and existing_value_numeric == claim_value_numeric:
+            return False  # unchanged content re-ingested -- genuine no-op, not a duplicate
+
+    new_claim_id = str(uuid.uuid4())
     con.execute(
         "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
         "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, "
         "confidence, observed_date, ingested_date, superseded_by, tab_origin, row_origin, raw_text) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
         [
-            str(uuid.uuid4()), subject_entity_type, subject_entity_id, claim_type,
-            json.dumps(claim_value) if claim_value is not None else None, claim_value_numeric,
+            new_claim_id, subject_entity_type, subject_entity_id, claim_type,
+            new_value_json, claim_value_numeric,
             information_type, source_id, source_reliability_score, confidence, observed_date,
             ingested_date, tab_origin, row_origin, raw_text,
         ],
     )
+    if existing is not None:
+        con.execute("UPDATE evidence_claims SET superseded_by = ? WHERE claim_id = ?", [new_claim_id, existing_claim_id])
     return True
 
 

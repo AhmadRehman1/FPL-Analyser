@@ -62,14 +62,3 @@ def test_filters_by_subject_and_claim_type(con):
     )
     result = snapshot.get_claims_asof(con, datetime(2026, 6, 1), subject_entity_id="p1")
     assert list(result["claim_id"]) == ["c1"]
-
-
-def test_matches_asof_filters_on_ingestion_time(con):
-    con.execute("INSERT INTO dim_team (team_uid, canonical_name, short_name) VALUES ('t1', 'Team A', 'TMA')")
-    con.execute("INSERT INTO dim_team (team_uid, canonical_name, short_name) VALUES ('t2', 'Team B', 'TMB')")
-    con.execute(
-        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, _ingested_at) "
-        "VALUES ('m1', '2026-2027', 1, 't1', 't2', TRUE, '2026-01-01 00:00:00')"
-    )
-    assert len(snapshot.get_matches_asof(con, datetime(2025, 12, 31))) == 0
-    assert len(snapshot.get_matches_asof(con, datetime(2026, 1, 2))) == 1

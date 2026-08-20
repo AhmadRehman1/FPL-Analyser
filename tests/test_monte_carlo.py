@@ -239,3 +239,47 @@ def test_compute_lambda_representative_empty_pool_returns_fallback(con):
     ep.seed_v1_params(con)
     lam = mc.compute_lambda_representative(con, [], ep_model_version=1, scoring_params_version=1)
     assert lam == pytest.approx(0.1)
+
+
+# ============================================================
+# _assemble_points -- saves must floor like every other FPL points-per-N rule
+# ============================================================
+
+def test_assemble_points_saves_floor_not_continuous_division(con):
+    """Regression test for a real bug: pts_saves used continuous division (saves_count /
+    saves_per_pt) instead of the real integer-floor rule FPL actually uses (1 point per 3
+    saves) -- goals_conceded_floor two lines above the fixed line already gets this right
+    (own_goals_against // 2), saves didn't. saves_per_point is seeded at 3.0 by
+    expected_points.seed_v1_params(); with that divisor, saves_count=2 must award 0 points
+    (not 0.667), and saves_count=4 must award 1 (not 1.333)."""
+    from fpl_quant import expected_points as ep
+
+    ep.seed_v1_params(con)
+    state = np.array(["60plus"] * 6)
+    draws = {
+        "state": state,
+        "goals": np.zeros(6, dtype=int), "assists": np.zeros(6, dtype=int),
+        "clean_sheet": np.zeros(6, dtype=bool), "goals_conceded_floor": np.zeros(6, dtype=int),
+        "defcon_hit": np.zeros(6, dtype=bool),
+        "saves_count": np.array([0, 2, 3, 4, 5, 6]),
+        "rank": np.zeros(6, dtype=int),
+    }
+    result = mc._assemble_points(con, "Goalkeeper", draws, scoring_params_version=1)
+    np.testing.assert_array_equal(result["pts_saves"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0])
+
+
+def test_assemble_points_saves_zero_for_non_goalkeeper(con):
+    from fpl_quant import expected_points as ep
+
+    ep.seed_v1_params(con)
+    state = np.array(["60plus"] * 3)
+    draws = {
+        "state": state,
+        "goals": np.zeros(3, dtype=int), "assists": np.zeros(3, dtype=int),
+        "clean_sheet": np.zeros(3, dtype=bool), "goals_conceded_floor": np.zeros(3, dtype=int),
+        "defcon_hit": np.zeros(3, dtype=bool),
+        "saves_count": np.array([1, 2, 3]),  # a Defender/Midfielder/Forward never has saves in real FPL
+        "rank": np.zeros(3, dtype=int),
+    }
+    result = mc._assemble_points(con, "Defender", draws, scoring_params_version=1)
+    np.testing.assert_array_equal(result["pts_saves"], [0.0, 0.0, 0.0])

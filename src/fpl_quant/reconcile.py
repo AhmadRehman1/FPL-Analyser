@@ -342,6 +342,23 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                 select_exprs.append(f"CAST(NULL AS {sql_type})")
         status_expr = "r.status" if "status" in available else "CAST(NULL AS VARCHAR)"
 
+        # Real bug fixed here: the source CSVs refresh twice daily and every refresh is
+        # appended as a brand-new batch into the same append-only raw table (see
+        # ingest_csv.py's own module docstring), so by the time this reconcile step runs a
+        # second time, the raw table for one season can hold MULTIPLE rows for the same
+        # (player, gw) -- one per ingestion batch -- several columns of which are explicitly
+        # tagged "live" (now_cost, status, chance_of_playing_next_round, selected_by_percent,
+        # ep_next; see _COLUMN_SEMANTICS below), meaning "current state," not history. The
+        # previous version of this query had no ORDER BY/dedup and used
+        # `ON CONFLICT (player_uid, season, gw) DO NOTHING`, so whichever batch DuckDB's table
+        # scan happened to return FIRST for a given key won permanently -- every later,
+        # more current re-ingestion for that same gw (e.g. a status flip to "Injured/Out", or
+        # a price change) was silently discarded, forever. `QUALIFY ROW_NUMBER() ... ORDER BY
+        # r._ingested_at DESC = 1` picks the latest batch per key, and
+        # `ON CONFLICT ... DO UPDATE` lets a later reconcile_all() call refresh an
+        # already-reconciled gw's live columns instead of freezing them at their first-ever
+        # value -- this query recomputes the correct latest snapshot from scratch every call,
+        # so it's safe to re-run repeatedly (idempotent), not just append-safe.
         con.execute(
             f"""
             INSERT INTO fact_player_season_stats
@@ -365,7 +382,29 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
             FROM "{table}" r
             JOIN _player_id_map pm ON pm.season = '{season_sql}' AND pm.player_id_local = norm_id(r.id)
             WHERE TRY_CAST(r.gw AS INTEGER) IS NOT NULL
-            ON CONFLICT (player_uid, season, gw) DO NOTHING
+            QUALIFY row_number() OVER (
+                PARTITION BY pm.player_uid, TRY_CAST(r.gw AS INTEGER) ORDER BY r._ingested_at DESC
+            ) = 1
+            ON CONFLICT (player_uid, season, gw) DO UPDATE SET
+                now_cost = excluded.now_cost,
+                selected_by_percent = excluded.selected_by_percent,
+                ep_next = excluded.ep_next,
+                chance_of_playing_next_round = excluded.chance_of_playing_next_round,
+                status = excluded.status,
+                minutes = excluded.minutes,
+                goals_scored = excluded.goals_scored,
+                assists = excluded.assists,
+                bps = excluded.bps,
+                expected_goals = excluded.expected_goals,
+                expected_assists = excluded.expected_assists,
+                expected_goals_per_90 = excluded.expected_goals_per_90,
+                expected_assists_per_90 = excluded.expected_assists_per_90,
+                defensive_contribution = excluded.defensive_contribution,
+                defensive_contribution_per_90 = excluded.defensive_contribution_per_90,
+                saves_per_90 = excluded.saves_per_90,
+                total_points = excluded.total_points,
+                event_points = excluded.event_points,
+                _ingested_at = excluded._ingested_at
             """
         )
     return con.execute("SELECT count(*) FROM fact_player_season_stats").fetchone()[0]

@@ -96,3 +96,120 @@ def test_non_double_counting_audit_covers_cbi_per_spec_example():
     assert len(cbi_entries) == 1
     assert "ep_defcon" in cbi_entries[0]["feeds"]
     assert any("bps" in f.lower() for f in cbi_entries[0]["feeds"])
+
+
+# ============================================================
+# _set_piece_goal_uplift_multiplier / e_goals uplift -- SetPieceTakers evidence, previously
+# ingested (ingest_research_pull.ingest_set_piece_takers()) but confirmed unused anywhere
+# (grepped the whole src/ tree before wiring this in).
+# ============================================================
+
+from datetime import date, datetime, timezone  # noqa: E402
+
+
+def _seed_source_and_claim(con, player_uid, duty, order, observed_date=date(2026, 8, 1)):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward') ON CONFLICT DO NOTHING", [player_uid, player_uid])
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES ('src1', 'Test Source', 'official', 0.9) ON CONFLICT DO NOTHING"
+    )
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, information_type, source_id, source_reliability_score, confidence, "
+        "observed_date, ingested_date, tab_origin, row_origin) "
+        "VALUES (?, 'player', ?, 'set_piece_order_override', ?, 'FACT', 'src1', 0.9, 0.9, ?, ?, "
+        "'research_pull:SetPieceTakers', 1)",
+        [f"claim_{player_uid}", player_uid, __import__("json").dumps({"club": "A", "duty": duty, "order": order}),
+         observed_date, datetime(2026, 8, 1, tzinfo=timezone.utc)],
+    )
+
+
+def test_set_piece_goal_uplift_applies_for_confirmed_primary_penalty_taker(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.15)
+
+
+def test_set_piece_goal_uplift_no_op_for_secondary_penalty_taker(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="secondary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.0)
+
+
+def test_set_piece_goal_uplift_no_op_for_non_penalty_duty(con):
+    """Free-kick/corner duty is deliberately out of scope for this v1 uplift -- only
+    confirmed primary PENALTY duty gets it."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Free-kicks", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.0)
+
+
+def test_set_piece_goal_uplift_no_op_with_no_claims_at_all(con):
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Forward')")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.0)
+
+
+def test_set_piece_goal_uplift_respects_asof_look_ahead_safety(con):
+    """A claim observed AFTER asof (e.g. a mid-season penalty-duty change not yet knowable at
+    the asof date being evaluated) must not apply -- same look-ahead-prevention discipline
+    every other evidence-claim consumer in this project already carries."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary", observed_date=date(2026, 9, 1))
+    asof_before = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    assert ep._set_piece_goal_uplift_multiplier(con, "p1", asof_before, set_piece_params_version=1) == pytest.approx(1.0)
+    asof_after = datetime(2026, 9, 5, tzinfo=timezone.utc)
+    assert ep._set_piece_goal_uplift_multiplier(con, "p1", asof_after, set_piece_params_version=1) == pytest.approx(1.15)
+
+
+def test_compute_player_fixture_components_applies_uplift_when_opted_in(con):
+    """Integration check: with set_piece_params_version supplied and a confirmed primary
+    penalty-taker claim, ep_goals (and the e_goals-fed expected_bps term) must come out higher
+    than the same call with the feature left off (set_piece_params_version=None, the default)
+    -- proving the wiring actually reaches compute_player_fixture_components(), not just the
+    helper in isolation."""
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', '2026-2027', 2, 'team_a', 'team_b', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)"
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    for team_uid, attack, defence in (("team_a", 0.3, 0.0), ("team_b", -0.1, 0.1)):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)",
+            [ts_mv, team_uid, attack, defence],
+        )
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, minutes, _ingested_at) "
+        "VALUES ('p1', '2026-2027', 1, 3.6, 450, current_timestamp)"
+    )
+
+    mean_minutes = {"mean_1_59": 30.0, "mean_60plus": 85.0}
+    asof = datetime(2026, 8, 24, tzinfo=timezone.utc)
+
+    without_uplift = ep.compute_player_fixture_components(
+        con, "p1", "Forward", "team_a", "m1", 0.05, 0.15, 0.80, ts_mv, 1, 1, ["2026-2027"], mean_minutes,
+        asof=asof, set_piece_params_version=None,
+    )
+    with_uplift = ep.compute_player_fixture_components(
+        con, "p1", "Forward", "team_a", "m1", 0.05, 0.15, 0.80, ts_mv, 1, 1, ["2026-2027"], mean_minutes,
+        asof=asof, set_piece_params_version=1,
+    )
+    assert with_uplift["ep_goals"] == pytest.approx(without_uplift["ep_goals"] * 1.15)
+    assert with_uplift["expected_bps"] > without_uplift["expected_bps"]

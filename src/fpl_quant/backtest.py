@@ -29,6 +29,7 @@ from . import monte_carlo
 from . import params as params_mod
 from . import squad_optimizer
 from . import team_strength
+from . import transfer_planner
 from . import uncertainty
 
 PL = "Premier League"
@@ -136,7 +137,7 @@ def has_fittable_history(con: duckdb.DuckDBPyConnection, season: str, gameweek: 
 
 
 @contextmanager
-def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
+def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, schedule_horizon_gameweeks: int = 1):
     """Connection-scoped TEMP TABLE shadowing of the three fact tables, truncated to what was
     knowable strictly before this gameweek's deadline. DuckDB resolves an unqualified table
     name against `temp` before `main`, so every existing M1-M5 query -- all of which read
@@ -157,8 +158,18 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
     the very fixtures being predicted (their kickoff_time is exactly the deadline), and
     expected_points.run()/monte_carlo.run() both need that gameweek's schedule to know which
     players face which fixture -- that's the whole point of the prediction, not a leak. Only the
-    *result* is unknowable in advance; the schedule is announced well before any deadline. Any
-    other future gameweek stays fully invisible, schedule included.
+    *result* is unknowable in advance; the schedule is announced well before any deadline.
+
+    schedule_horizon_gameweeks (default 1, M7's original single-gameweek behavior, exact and
+    unchanged): widens that same schedule-only exception to cover [gameweek, gameweek +
+    schedule_horizon_gameweeks), not just gameweek itself. Needed for M8's compute_horizon_ep(),
+    which plans several gameweeks ahead in one call -- a real manager planning at gameweek G's
+    deadline genuinely does know gameweeks G+1..G+4's fixture schedules (the whole season's
+    calendar is announced well before a ball is kicked), just not their results, so revealing
+    only the schedule that far ahead is not a look-ahead leak, the same reasoning the single-
+    gameweek case already rests on, just extended over a wider, still-schedule-only window.
+    Every gameweek beyond that window stays fully invisible, schedule included, exactly as
+    before.
 
     Yields the deadline timestamp used for the shadow, for callers that also need it (e.g. to
     stamp the calibration_asof_date passed into M1-M6).
@@ -166,6 +177,7 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
         raise ValueError(f"no {PL} fixtures found for {season} GW{gameweek} -- cannot pin a deadline")
+    schedule_horizon_end_gameweek = gameweek + schedule_horizon_gameweeks - 1
 
     con.execute(
         """
@@ -177,9 +189,9 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
                CASE WHEN kickoff_time < ? THEN finished ELSE FALSE END AS finished,
                competition, _ingested_at
         FROM main.fact_match
-        WHERE kickoff_time < ? OR (season = ? AND gameweek = ?)
+        WHERE kickoff_time < ? OR (season = ? AND gameweek BETWEEN ? AND ?)
         """,
-        [deadline, deadline, deadline, deadline, season, gameweek],
+        [deadline, deadline, deadline, deadline, season, gameweek, schedule_horizon_end_gameweek],
     )
     con.execute(
         """CREATE OR REPLACE TEMP TABLE fact_player_match_stats AS
@@ -576,6 +588,347 @@ def run(
 
 
 # ============================================================
+# season simulation: an evolving M8 manager, not a fresh M5 solve every step.
+#
+# Every walk-forward mechanism above this point (run(), refit_lambda(), report_
+# concentration_sensitivity()) re-solves squad_optimizer fresh at every single gameweek --
+# exactly the gap the README's own Design notes name explicitly: "M7's walk-forward squad is
+# M5's from-scratch pick every single step, not an evolving manager holding, so no equivalent
+# 'what would the manager have owned at gameweek N' state exists ... to compare a wildcard's
+# gain against." Season-long rank depends on cumulative points from ONE evolving squad making
+# real transfer/chip decisions week to week, which is what this section actually builds --
+# reusing asof_scope() (extended above with schedule_horizon_gameweeks, not replaced) and
+# M8's own transfer_planner.run()/apply_recommendation() unmodified, not a parallel mechanism.
+# ============================================================
+
+CHIP_PRIORITY = ("wildcard", "free_hit", "bench_boost", "triple_captain")
+
+# Which chip_evaluations.detail field carries each chip's own per-visible-gameweek value
+# trajectory (see evaluate_wildcard()/evaluate_free_hit()/evaluate_triple_captain()/
+# evaluate_bench_boost()'s own docstrings for how each is built -- all reuse already-computed
+# horizon EP, zero extra solves/simulations), and whether "now" being genuinely the best time
+# to play means the LOWEST point on that trajectory (wildcard/free_hit -- the current squad's
+# own value is at its worst, the real situation a rebuild exists to fix) or the HIGHEST
+# (bench_boost/triple_captain -- the bench's or the captain candidate's own value peaks now).
+CHIP_TIMING_FIELD = {
+    "wildcard": ("current_squad_value_per_gw", "min"),
+    "free_hit": ("current_xi_value_per_gw", "min"),
+    "bench_boost": ("all_gameweeks", "max"),
+    "triple_captain": ("captain_value_per_gw", "max"),
+}
+
+
+def _is_best_gameweek_in_visible_horizon(per_gw: dict, target_gameweek: int, prefer: str) -> bool:
+    """A real, if myopic, "is now better than waiting" signal built entirely from the model's
+    own already-computed forward EP for the gameweeks currently visible in the planning
+    horizon -- never a peek at a chip's actual realized future outcome (nothing here reads a
+    real result; per_gw is projected mu, computed the same asof-safe way as everything else
+    inside run_season_simulation()'s own asof_scope). "Visible" is the operative word: at
+    gameweek G the model only ever sees [G, G+horizon_gameweeks), so this can only ever compare
+    against the SAME window every other part of this planning call already can see -- it
+    genuinely cannot know whether gameweek G+10 will be better than G+2 when planning at G,
+    exactly as a real manager's own forward-looking judgement is bounded too.
+
+    Missing/empty per_gw (a chip evaluator call that had nothing to compare against, e.g. an
+    old-shape or ex-{} detail payload) or target_gameweek absent from it (a rare edge case --
+    the DB dict's own JSON keys are stringified ints, handled below) defers to True: "can't
+    assess timing here, fall back to the existing threshold-only check" rather than silently
+    suppressing an otherwise-real recommendation just because comparison data is missing.
+    """
+    per_gw = {int(k): v for k, v in per_gw.items()} if per_gw else {}
+    if not per_gw or target_gameweek not in per_gw:
+        return True
+    epsilon = 1e-9
+    if prefer == "min":
+        return per_gw[target_gameweek] <= min(per_gw.values()) + epsilon
+    return per_gw[target_gameweek] >= max(per_gw.values()) - epsilon
+
+
+def _decide_gameweek_action(
+    con: duckdb.DuckDBPyConnection, plan_run_id: int, chips_used_set1: set, chips_used_set2: set,
+    target_gameweek: int, accept_transfer_if_net_value_above: float,
+) -> tuple[int | None, str | None]:
+    """The harness's own explicit decision rule, deliberately simple and auditable rather than
+    a second optimization layer: accept the #1 ranked transfer iff its net_value clears
+    accept_transfer_if_net_value_above (default 0.0 -- any genuine expected gain), or accept
+    one recommended chip in a fixed priority order (CHIP_PRIORITY) skipping any chip already
+    spent from the set covering this gameweek. Never both a transfer and a chip in the same
+    week -- Wildcard/Free Hit already are the "transfer" for that week, and combining Bench
+    Boost/Triple Captain with an ordinary transfer in the same week is a real thing an expert
+    manager sometimes does, but deliberately out of scope for this v1 decision rule (named
+    here, not silently modeled as if it were handled).
+
+    Set-1 gameweeks (target_gameweek < GW19) also weigh a recommended chip's current-week
+    value against holding it (see _is_best_gameweek_in_visible_horizon() above): clearing
+    evaluate_*()'s own gain threshold answers "is this worth it at all," this answers "is now
+    actually better than waiting," a genuinely different question a fixed per-week threshold
+    alone can never answer. A chip that clears its threshold but isn't (per the model's own
+    currently-visible horizon) the best week to play it is held, not taken -- the loop tries
+    the next-priority chip instead, then falls through to a transfer, exactly as when nothing
+    was recommended at all. Set-2 gameweeks (GW19+) keep the original threshold-only check --
+    deliberately out of scope for this round, named here rather than silently extended."""
+    is_set1 = target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK
+    used_this_set = chips_used_set1 if is_set1 else chips_used_set2
+    rows = con.execute(
+        "SELECT chip_type, recommended, detail FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
+    ).fetchall()
+    recommended = {chip_type: json.loads(detail or "{}") for chip_type, is_rec, detail in rows if is_rec}
+
+    for candidate in CHIP_PRIORITY:
+        if candidate not in recommended or candidate in used_this_set:
+            continue
+        if is_set1:
+            field, prefer = CHIP_TIMING_FIELD[candidate]
+            per_gw = recommended[candidate].get(field, {})
+            if not _is_best_gameweek_in_visible_horizon(per_gw, target_gameweek, prefer):
+                continue  # a later week within the model's currently-visible horizon looks better -- hold
+        return None, candidate
+
+    top = con.execute(
+        "SELECT rank, net_value FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1", [plan_run_id]
+    ).fetchone()
+    if top and top[1] > accept_transfer_if_net_value_above:
+        return top[0], None
+    return None, None
+
+
+def run_season_simulation(
+    con: duckdb.DuckDBPyConnection,
+    season: str,
+    start_gameweek: int,
+    end_gameweek: int,
+    *,
+    xi_params_version: int,
+    rho_params_version: int,
+    decay_params_version: int,
+    adjustment_params_version: int,
+    shrinkage_params_version: int,
+    fact_multiplier_params_version: int,
+    scoring_params_version: int,
+    bps_params_version: int,
+    tau_params_version: int,
+    rho_residual_params_version: int,
+    corr_params_version: int,
+    lambda_params_version: int,
+    guardrail_params_version: int,
+    horizon_params_version: int,
+    transfer_cost_params_version: int,
+    wildcard_threshold_params_version: int,
+    free_hit_threshold_params_version: int,
+    kappa_tc_params_version: int,
+    accept_transfer_if_net_value_above: float = 0.0,
+    n_antithetic_pairs: int = 2000,
+) -> dict:
+    """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
+    one real M8 transfer_planner.run()-informed decision per gameweek (see
+    _decide_gameweek_action()), applying it via apply_recommendation() -- one continuously
+    evolving squad across the whole window, mirroring how a real manager actually plays,
+    instead of a fresh from-scratch squad every gameweek.
+
+    Every planning call for gameweek G+1 runs inside asof_scope(con, season, G+1,
+    schedule_horizon_gameweeks=horizon_gameweeks) -- pinned to G+1's OWN deadline, after G's
+    results are known, with G+1's own horizon of fixture schedules (not results) visible, the
+    same asof-safety guarantee every M7 walk-forward step already carries, extended (not
+    bypassed) to cover a multi-gameweek horizon. Real historical Double Gameweeks are skipped
+    for planning (same has_double_gameweek() v1 scope boundary M7's own walk-forward loop
+    already applies -- squad_optimizer_selections' primary key cannot represent a DGW player's
+    duplicate ep_outputs rows) but NOT for scoring: that gameweek's real, already-aggregated
+    event_points total is still read and counted, holdings just don't change that week.
+
+    Chip scoring effects that don't touch persisted holdings are applied for exactly the one
+    gameweek they're accepted: Free Hit scores off its own fresh one-off squad (never
+    persisted -- see apply_recommendation()'s own docstring for why leaving holdings unchanged
+    on accept_chip="free_hit" is correct, not a gap); Bench Boost scores the full 15-player
+    squad instead of just the XI; Triple Captain triples (not doubles) the captain's points.
+    Wildcard is the one chip that DOES persist -- apply_recommendation() already rebuilds
+    holdings for it, so the following gameweek's scoring reads it like any other transfer.
+
+    Returns {"weekly_points": [...], "gameweeks": [...], "final_state_version": int,
+    "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...]}
+    -- actions is the real per-gameweek decision log, for auditing what the simulated manager
+    actually did, not just the final score.
+    """
+    if not has_fittable_history(con, season, start_gameweek):
+        raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
+    horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
+    horizon_gameweeks = int(horizon_gameweeks)
+
+    with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+        calibration_asof_date = deadline.date()
+        ts_mv = team_strength.calibrate(
+            con, calibration_asof_date, xi_params_version, rho_params_version,
+            target_season=season, fit_seasons=fit_seasons_for(season),
+        )
+        mm_mv = minutes_model.run(
+            con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
+            shrinkage_params_version, fact_multiplier_params_version,
+        )
+        ep_mv = ep.run(
+            con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
+            scoring_params_version, bps_params_version, tau_params_version,
+        )
+        un_mv = uncertainty.run(
+            con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
+            tau_params_version, rho_residual_params_version, corr_params_version,
+        )
+        bootstrap_run_id = squad_optimizer.run(
+            con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,
+            lambda_params_version, guardrail_params_version,
+        )
+        # Real look-ahead leak, fixed here: bootstrap_from_squad_optimizer_run() -> its own
+        # _compute_bank_for_squad() prices each held player via `ORDER BY gw DESC` with no
+        # ceiling -- correct for a real live run (no future gameweeks exist yet to leak from),
+        # but this call used to sit AFTER the with-block exited, so inside a season simulation
+        # walking historical gameweeks it read main.fact_player_season_stats completely
+        # unshadowed -- the manager's very first bank figure could be computed from a LATER
+        # gameweek's price than start_gameweek's own deadline. Kept inside the shadow now, so
+        # its unqualified fact_player_season_stats read resolves to the same asof-safe TEMP
+        # TABLE (season = ? AND gw < start_gameweek) every other M1-M5 call in this block
+        # already gets -- no change needed in transfer_planner.py itself, this composes with
+        # the existing mechanism exactly as asof_scope()'s own docstring promises.
+        state_version = transfer_planner.bootstrap_from_squad_optimizer_run(con, bootstrap_run_id)
+
+    weekly_points: list[float] = []
+    gameweeks_scored: list[int] = []
+    actions: list[dict] = []
+    skipped_dgw: list[int] = []
+
+    for gw in range(start_gameweek, end_gameweek + 1):
+        accept_chip = None
+        free_hit_squad = None
+
+        if has_double_gameweek(con, season, gw):
+            skipped_dgw.append(gw)
+        elif gw > start_gameweek:
+            state_row = con.execute(
+                "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank FROM manager_state_versions WHERE state_version = ?",
+                [state_version],
+            ).fetchone()
+            _fts, chips_used_set1_json, chips_used_set2_json, _bank = state_row
+            chips_used_set1 = set(json.loads(chips_used_set1_json))
+            chips_used_set2 = set(json.loads(chips_used_set2_json))
+
+            with asof_scope(con, season, gw, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+                calibration_asof_date = deadline.date()
+                ts_mv = team_strength.calibrate(
+                    con, calibration_asof_date, xi_params_version, rho_params_version,
+                    target_season=season, fit_seasons=fit_seasons_for(season),
+                )
+                mm_mv = minutes_model.run(
+                    con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
+                    shrinkage_params_version, fact_multiplier_params_version,
+                )
+                plan_run_id = transfer_planner.run(
+                    con, calibration_asof_date, season, gw, state_version, ts_mv, mm_mv,
+                    horizon_params_version, scoring_params_version, bps_params_version, tau_params_version,
+                    rho_residual_params_version, corr_params_version, transfer_cost_params_version,
+                    lambda_params_version, guardrail_params_version, wildcard_threshold_params_version,
+                    free_hit_threshold_params_version, kappa_tc_params_version,
+                )
+                accept_transfer_rank, accept_chip = _decide_gameweek_action(
+                    con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
+                )
+
+                if accept_chip == "free_hit":
+                    free_hit_squad = transfer_planner._read_fresh_chip_squad(con, plan_run_id, "free_hit")
+
+                # Same look-ahead leak as the bootstrap call above, same fix: apply_recommendation()'s
+                # Wildcard-accept branch calls _compute_bank_for_squad() too, and this call used to
+                # sit after the with-block exited -- kept inside the shadow now so a Wildcard
+                # accepted while walking through gameweek gw prices the fresh squad off gw's own
+                # asof-safe price snapshot (gw' < gw), never a later gameweek's price. No effect on
+                # the non-Wildcard paths (they never call _compute_bank_for_squad() at all).
+                state_version = transfer_planner.apply_recommendation(
+                    con, plan_run_id, accept_transfer_rank=accept_transfer_rank, accept_chip=accept_chip,
+                )
+            actions.append({
+                "gameweek": gw, "accepted_transfer_rank": accept_transfer_rank, "accepted_chip": accept_chip,
+                "plan_run_id": plan_run_id,
+            })
+
+        holdings = transfer_planner._read_holdings(con, state_version)
+        if accept_chip == "free_hit" and free_hit_squad is not None:
+            xi_uids = frozenset(h["player_uid"] for h in free_hit_squad if h["in_xi"])
+            captain_uid = next((h["player_uid"] for h in free_hit_squad if h["is_captain"]), None)
+            captain_multiplier = 2
+        elif accept_chip == "bench_boost":
+            xi_uids = frozenset(h["player_uid"] for h in holdings)  # full 15, not just the XI
+            captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+            captain_multiplier = 2
+        else:
+            xi_uids = frozenset(h["player_uid"] for h in holdings if h["in_xi"])
+            captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+            captain_multiplier = 3 if accept_chip == "triple_captain" else 2
+
+        points = _realized_xi_points(con, season, gw, xi_uids, captain_uid, captain_multiplier=captain_multiplier)
+        weekly_points.append(points)
+        gameweeks_scored.append(gw)
+
+    return {
+        "weekly_points": weekly_points, "gameweeks": gameweeks_scored, "final_state_version": state_version,
+        "actions": actions, "skipped_dgw_gameweeks": skipped_dgw, "bootstrap_run_id": bootstrap_run_id,
+    }
+
+
+def report_season_simulation_sensitivity(
+    con: duckdb.DuckDBPyConnection,
+    season: str,
+    start_gameweek: int,
+    end_gameweek: int,
+    base_versions: dict,
+    *,
+    lambda_grid: tuple[float, ...] = (),
+    guardrail_cap_grid: tuple[float, ...] = (),
+    effective_date: str = "2026-08-11",
+) -> dict:
+    """Read-only reporting, deliberately separate from any writing/proposal mechanism --
+    mirrors report_concentration_sensitivity()'s own read-only pattern, extended to season-long
+    metrics. Runs run_season_simulation() once per lambda_grid candidate (guardrail_cap held
+    fixed at base_versions' own pinned value, for exactly the reason refit_lambda() already
+    holds it fixed: re-tuning a redundant backstop against the same signal the primary risk
+    dial is tuned against would erode the protection it exists for) and once per
+    guardrail_cap_grid candidate (lambda held fixed, same reasoning in reverse) -- never both
+    varied together, matching the existing precedent's own two-separate-questions split, not a
+    full cross-product grid (season_simulation is materially more expensive per point than a
+    single-gameweek solve: a real MIQP solve plus Monte Carlo simulation every gameweek in the
+    window, not once).
+
+    base_versions must carry exactly the keyword arguments run_season_simulation() itself
+    requires (including its own lambda_params_version/guardrail_params_version, held fixed on
+    whichever side of a given sweep isn't the one varying). Each grid candidate gets its own
+    freshly written param_versions row (via params_mod.write_param(), the normal immutable-
+    versioning mechanism -- writing a version never activates it) rather than mutating the live
+    pinned version, so nothing here can accidentally change what a real run resolves.
+
+    This does not, on its own, justify changing lambda_value or xi_club_concentration_cap --
+    that requires the same real-data discipline the README's own Design notes already insist on
+    for the existing cross-sectional lambda finding (a synthetic run is honest evidence the
+    MACHINERY works, not evidence about what the real pinned values should be).
+    """
+    results: dict[str, dict] = {"lambda": {}, "guardrail_cap": {}}
+    if lambda_grid:
+        for lam in lambda_grid:
+            trial_version = _next_param_version(con, "risk_aversion_params")
+            params_mod.write_param(con, "risk_aversion_params", trial_version, effective_date, "lambda_value", value_numeric=lam)
+            trial_versions = {**base_versions, "lambda_params_version": trial_version}
+            sim = run_season_simulation(con, season, start_gameweek, end_gameweek, **trial_versions)
+            results["lambda"][lam] = {**season_cumulative_metrics(sim["weekly_points"]), "actions": sim["actions"]}
+
+    if guardrail_cap_grid:
+        for cap in guardrail_cap_grid:
+            trial_version = _next_param_version(con, "squad_optimizer_guardrail_params")
+            params_mod.write_param(
+                con, "squad_optimizer_guardrail_params", trial_version, effective_date,
+                "xi_club_concentration_cap", value_numeric=cap,
+            )
+            trial_versions = {**base_versions, "guardrail_params_version": trial_version}
+            sim = run_season_simulation(con, season, start_gameweek, end_gameweek, **trial_versions)
+            results["guardrail_cap"][cap] = {**season_cumulative_metrics(sim["weekly_points"]), "actions": sim["actions"]}
+
+    return results
+
+
+# ============================================================
 # recalibration: proposal-writing gate + per-family refit techniques
 # ============================================================
 
@@ -772,6 +1125,7 @@ def refit_minutes_and_evidence_params(
     base_versions: dict,
     param_grids: list[dict],
     n_rounds: int = 1,
+    holdout_steps: list[tuple[str, int]] | None = None,
 ) -> dict:
     """Block coordinate descent over M1b's tier weights/fact_type_multiplier and M2's
     threshold/adjustment magnitudes, all against one shared objective: mean minutes log score
@@ -788,12 +1142,28 @@ def refit_minutes_and_evidence_params(
     already-run walk-forward steps to evaluate against -- deliberately not defaulted to "all 76"
     here, since the real cost (n_rounds x n_blocks x n_candidates x len(eval_steps) minutes_model
     runs) is the caller's to size, not this function's to assume.
+
+    Real overfitting risk, disclosed and addressed rather than left implicit (analogous to
+    refit_lambda()'s own out-of-sample framing, but a materially bigger version of the same
+    risk here): this is a multi-round, multi-family block coordinate descent, not a single
+    7-point grid search -- selecting the best candidate per block against eval_steps and then
+    reporting that same eval_steps score as evidence is optimistic by construction (the classic
+    "graded on the set you were selected on" bias), and the risk compounds with every extra
+    round/family/candidate this function is given. `holdout_steps`, when provided, must be
+    disjoint from eval_steps (the caller's responsibility -- typically an entire later season
+    never touched by the descent, matching this project's forward-chronological walk-forward
+    discipline) -- the descent itself still only ever searches against eval_steps (a coordinate
+    descent needs a stable objective to hill-climb; splitting the search itself would just add
+    noise, not rigor), but the final chosen versions are ALSO scored against holdout_steps and
+    both scores are returned, so a human reviewing the proposal sees whether the improvement
+    actually generalizes to gameweeks the descent never saw, not just the in-sample number it
+    was picked to maximize. ep_model_version_by_step must cover holdout_steps too when supplied.
     """
     current = dict(base_versions)
 
-    def _mean_score(versions: dict) -> float:
+    def _mean_score(versions: dict, steps: list[tuple[str, int]] = eval_steps) -> float:
         scores = []
-        for season, gw in eval_steps:
+        for season, gw in steps:
             s = _minutes_log_score_for_step(
                 con, season, gw, ep_model_version_by_step[(season, gw)],
                 versions["decay_params_version"], versions["adjustment_params_version"],
@@ -827,14 +1197,25 @@ def refit_minutes_and_evidence_params(
                 best_score = best_candidate_score
         history.append({"round": round_num, "log_score": best_score, "versions": dict(current)})
 
-    return {"versions": current, "log_score": best_score, "history": history}
+    result = {"versions": current, "log_score": best_score, "history": history}
+    if holdout_steps:
+        result["holdout_log_score_before"] = _mean_score(base_versions, steps=holdout_steps)
+        result["holdout_log_score_after"] = _mean_score(current, steps=holdout_steps)
+        result["n_holdout_steps"] = len(holdout_steps)
+    return result
 
 
-def _realized_xi_points(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None) -> float:
+def _realized_xi_points(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None,
+    captain_multiplier: int = 2,
+) -> float:
     """Real FPL scoring: only the starting XI's points count, and the captain's points double
     -- summing the full 15-player squad (bench included) would overstate what a squad actually
     scored. Uses fact_player_season_stats.event_points, the real ground truth, not a
-    reconstruction from raw stats."""
+    reconstruction from raw stats. captain_multiplier defaults to 2 (the real rule for every
+    normal gameweek); run_season_simulation() passes 3 for a gameweek Triple Captain was
+    accepted on -- the one real FPL rule change captaincy makes to this formula, not a second
+    scoring function."""
     total = 0.0
     for player_uid in xi_uids:
         row = con.execute(
@@ -842,8 +1223,52 @@ def _realized_xi_points(con: duckdb.DuckDBPyConnection, season: str, gameweek: i
             [player_uid, season, gameweek],
         ).fetchone()
         pts = row[0] if row and row[0] is not None else 0.0
-        total += pts * 2 if player_uid == captain_uid else pts
+        total += pts * captain_multiplier if player_uid == captain_uid else pts
     return total
+
+
+# ============================================================
+# season-long scoring -- one evolving manager's own weekly trajectory, not independent
+# from-scratch squads across many backtest steps (see run_season_simulation())
+# ============================================================
+
+def season_cumulative_metrics(weekly_points: list[float]) -> dict:
+    """Scores a season-long trajectory of realized XI points -- one manager's own week-by-week
+    sequence from a real evolving squad, not the cross-sectional population refit_lambda()'s
+    realized_sharpe was built to compare (independent from-scratch M5 squads, one per backtest
+    gameweek). realized_sharpe here reuses that exact same formula (mean/std) unchanged; what's
+    different is only the population it's computed over -- a genuine season-consistency read on
+    one continuous squad's own trajectory, the real quant-finance sense of a single track
+    record's Sharpe ratio, not a cross-sectional one.
+
+    Sharpe alone doesn't capture drawdown though. Real FPL weekly points are (virtually) always
+    non-negative, so cumulative points only ever accumulate -- a literal price-style drawdown
+    computed directly on cumulative points would always be ~0 and tell you nothing. Instead,
+    this applies the standard "underwater curve" technique to cumulative SURPLUS over the
+    season's own mean weekly score (weekly_points - mean_points, cumulatively summed): the
+    deepest fall from that surplus curve's own prior peak, in points. A genuinely distinct risk
+    signal from Sharpe -- a manager who banks most of their points in one purple patch then
+    grinds through a long, deep cold streak scores worse here than one with the same total and
+    even the same variance spread evenly across the season, which Sharpe's single whole-season
+    standard deviation can't always tell apart from the smoother trajectory.
+    """
+    if not weekly_points:
+        return {"total_points": 0.0, "mean_points": 0.0, "n_gameweeks": 0, "realized_sharpe": float("-inf"), "max_drawdown": 0.0}
+
+    arr = np.array(weekly_points, dtype=float)
+    total = float(arr.sum())
+    mean = float(arr.mean())
+    std = float(arr.std(ddof=0))
+    sharpe = mean / std if std > 0 else float("-inf")
+
+    cumulative_surplus = np.cumsum(arr - mean)
+    running_peak = np.maximum.accumulate(cumulative_surplus)
+    max_drawdown = float((running_peak - cumulative_surplus).max())
+
+    return {
+        "total_points": total, "mean_points": mean, "n_gameweeks": len(weekly_points),
+        "realized_sharpe": sharpe, "max_drawdown": max_drawdown,
+    }
 
 
 def refit_lambda(
@@ -1063,6 +1488,8 @@ def recalibrate(
     current_kappa_tc_version: int | None = None,
     kappa_tc_grid: tuple[float, ...] = (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50),
     refit_kappa_tc_flag: bool = False,
+    minutes_select_seasons: tuple[str, ...] = ("2024-2025",),
+    minutes_holdout_flag: bool = True,
 ) -> list[int]:
     """Runs whichever refit techniques are enabled against this backtest_run_id's results and
     writes one propose_recalibration() row per changed parameter -- never activates anything
@@ -1083,6 +1510,15 @@ def recalibrate(
     per step, no re-solving of anything -- see refit_kappa_tc()'s own docstring.
     wildcard_gain_threshold_params is NOT covered by any technique here; see refit_kappa_tc()'s
     docstring for why that is a disclosed scope decision, not an oversight.
+
+    minutes_holdout_flag (default True): refit_minutes_and_evidence_params()'s coordinate
+    descent is a genuinely larger overfitting risk than the single-dimension grid searches
+    above (see that function's own docstring) -- when this is on, its eval_steps are split by
+    season into a select set (minutes_select_seasons, default 2024-2025's warm gameweeks --
+    chronologically earlier) and a holdout set (every other warm/mature step, i.e. all of
+    2025-2026 -- chronologically later, never touched by the descent), and the proposal's
+    logged before/after metric is the holdout score, not the in-sample one the descent
+    actually climbed. Off reverts to the prior in-sample-only behavior.
     """
     proposal_ids = []
     eval_steps = _eval_steps_for(con, backtest_run_id)
@@ -1120,8 +1556,20 @@ def recalibrate(
         ))
 
     if refit_minutes_flag:
-        result = refit_minutes_and_evidence_params(con, eval_steps, ep_by_step, current_minutes_versions, minutes_param_grids)
-        score_before, score_after = result["history"][0]["log_score"], result["log_score"]
+        minutes_select_steps = [s for s in eval_steps if s[0] in minutes_select_seasons]
+        minutes_holdout_steps = (
+            [s for s in eval_steps if s[0] not in minutes_select_seasons] if minutes_holdout_flag else None
+        )
+        result = refit_minutes_and_evidence_params(
+            con, minutes_select_steps, ep_by_step, current_minutes_versions, minutes_param_grids,
+            holdout_steps=minutes_holdout_steps,
+        )
+        if minutes_holdout_steps:
+            metric_name = "log_score_minutes_mean_holdout"
+            score_before, score_after = result["holdout_log_score_before"], result["holdout_log_score_after"]
+        else:
+            metric_name = "log_score_minutes_mean"
+            score_before, score_after = result["history"][0]["log_score"], result["log_score"]
         for block in minutes_param_grids:
             new_version = result["versions"][block["version_field"]]
             old_version = current_minutes_versions[block["version_field"]]
@@ -1130,7 +1578,7 @@ def recalibrate(
             new_value, _ = params_mod.resolve_param(con, block["param_family"], block["param_key"], new_version, dimensions=block.get("dimensions"))
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, block["param_family"], block["param_key"], new_value,
-                "log_score_minutes_mean", score_before, score_after,
+                metric_name, score_before, score_after,
                 dimensions=block.get("dimensions"), old_params_version=old_version, effective_date=effective_date,
             ))
 

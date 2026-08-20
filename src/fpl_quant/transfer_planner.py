@@ -106,16 +106,52 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # pin a number. A small positive floor -- big enough to filter out noise-level "gains",
     # small enough not to suppress a genuine, real rebuild opportunity.
     params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+    # Real bug fixed here: evaluate_free_hit() used to reuse wildcard_gain_threshold_params
+    # directly, but Wildcard's gain is summed over the WHOLE squad (~15 players) across the
+    # WHOLE horizon (H=5 gameweeks), while Free Hit's gain (see evaluate_free_hit()) is only
+    # the starting XI (~11 players) for ONE gameweek -- categorically smaller in typical
+    # magnitude, so the shared 8.0 bar almost certainly made Free Hit implausibly hard to ever
+    # trigger. Own family, own invented default: scaled down from Wildcard's 8.0 by the same
+    # (players x gameweeks) ratio the two gains are actually computed over --
+    # 8.0 * (11 players x 1 gameweek) / (15 players x 5 gameweeks) = 8.0 * 11/75 ~= 1.17,
+    # rounded to a clean 1.5 -- same invented-default status as every other unpinned threshold
+    # in this project (not derived from data), flagged for its own future M7 recalibration,
+    # independent of Wildcard's.
+    params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
 
 
 # ============================================================
 # manager state: bootstrap + read helpers
 # ============================================================
 
+def _compute_bank_for_squad(con: duckdb.DuckDBPyConnection, target_season: str, player_uids: list[str]) -> float:
+    """Leftover budget against M5's BUDGET for a given set of held players -- known exactly
+    only when every held player has a resolvable current price (the same price source
+    squad_optimizer.fetch_candidate_pool() itself uses); otherwise conservatively 0.0 rather
+    than guessing, since overstating bank would let evaluate_transfers() legalize a transfer
+    the manager can't actually afford. Shared by bootstrap_from_squad_optimizer_run() (the
+    initial squad) and apply_recommendation()'s Wildcard-accept path (a fresh squad replacing
+    the whole existing one) -- both are "what's left over from a real M5 BUDGET-constrained
+    squad" questions, not two different calculations."""
+    prices = dict(con.execute(
+        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = ? AND now_cost IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [target_season],
+    ).fetchall())
+    if all(uid in prices for uid in player_uids):
+        return max(0.0, squad_optimizer.BUDGET - sum(prices[uid] for uid in player_uids))
+    return 0.0
+
+
 def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_optimizer_run_id: int) -> int:
     """One-time seed: reads a real squad_optimizer_selections row and writes the first
     manager_state_versions/manager_squad_holdings rows. free_transfers_available starts at 1
-    (a fresh account's real starting allocation); chip usage starts empty."""
+    (a fresh account's real starting allocation); chip usage starts empty. bank starts at
+    whatever the source squad left unspent against M5's BUDGET -- known exactly only when every
+    held player has a resolvable current price (the same price source squad_optimizer.
+    fetch_candidate_pool() itself uses); otherwise conservatively starts at 0.0 rather than
+    guessing, since overstating bank would let evaluate_transfers() legalize a transfer the
+    manager can't actually afford."""
     run_row = con.execute(
         "SELECT target_season, target_gameweek FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id]
     ).fetchone()
@@ -130,11 +166,14 @@ def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_opt
     if not holdings:
         raise ValueError(f"squad_optimizer_run_id={squad_optimizer_run_id} has no in_squad players -- cannot bootstrap")
 
+    held_uids = [uid for uid, *_ in holdings]
+    bank = _compute_bank_for_squad(con, target_season, held_uids)
+
     state_version = con.execute(
         "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
-        "chips_used_set1, chips_used_set2, derived_from_state_version) "
-        "VALUES (?, ?, 1, '[]', '[]', NULL) RETURNING state_version",
-        [target_season, target_gameweek],
+        "chips_used_set1, chips_used_set2, derived_from_state_version, bank) "
+        "VALUES (?, ?, 1, '[]', '[]', NULL, ?) RETURNING state_version",
+        [target_season, target_gameweek, bank],
     ).fetchone()[0]
 
     for player_uid, in_xi, is_captain, is_vice in holdings:
@@ -213,6 +252,62 @@ def _horizon_ep_by_player(con: duckdb.DuckDBPyConnection, target_season: str, ho
     return by_player
 
 
+def price_momentum_by_player(
+    con: duckdb.DuckDBPyConnection, target_season: str, as_of_gameweek: int, lookback_gameweeks: int = 3,
+) -> dict[str, dict]:
+    """{player_uid: {"price_delta": float | None, "ownership_delta": float | None}} --
+    now_cost/selected_by_percent change over the last lookback_gameweeks gameweeks, both real,
+    already-reconciled per-gameweek "live" columns in fact_player_season_stats (see
+    reconcile.py's own column-semantics tagging), with each distinct gw preserved as its own
+    row -- build_fact_player_season_stats()'s QUALIFY/dedup only ever collapses MULTIPLE
+    ingestion batches of the SAME (player, gw), never different gws into each other, confirmed
+    by reading that query directly (see reconcile.py's PARTITION BY player_uid, gw). That is a
+    structural guarantee, not a claim about the real values: whether now_cost/selected_by_percent
+    genuinely move week to week in the real ingested data (vs. the source CSVs happening to
+    repeat one current snapshot across every historical gw row) was never checked against real
+    data in this session -- data/external/ is gitignored and wasn't present in the environment
+    this was built in (see README). If it turns out flat, this degrades safely, not silently
+    wrongly: a flat series computes a real price_delta/ownership_delta of 0.0 (a true "no
+    movement observed", not a lie), and this signal is already, deliberately, informational-only
+    everywhere it's used (see evaluate_transfers() below) -- it never feeds net_value or the
+    ranking sort, so a flat/uninformative real signal would be inert, not actively misleading.
+    Worth confirming against the real DB before leaning on it operationally -- see README's
+    design notes for a one-line check to run.
+
+    A real, secondary signal on its own terms if the data supports it -- a player rising in
+    price/ownership is trending toward a rise the transfer window will close, one falling is
+    trending toward a fall that frees future budget -- but deliberately NOT folded into
+    horizon_value_gain/net_value or the ranking sort anywhere in this module: price movement is
+    about budget timing, not about a player's own expected points, and conflating the two would
+    corrupt the EP-driven ranking for no good reason. None means no price/ownership row exists
+    that far back (a genuinely new player, or early enough in a season that lookback_gameweeks
+    of history doesn't exist yet) -- not silently treated as zero movement.
+    """
+    rows = con.execute(
+        "SELECT player_uid, gw, now_cost, selected_by_percent FROM fact_player_season_stats "
+        "WHERE season = ? AND gw <= ? AND gw >= ?",
+        [target_season, as_of_gameweek, max(1, as_of_gameweek - lookback_gameweeks)],
+    ).fetchall()
+    by_player: dict[str, dict[int, tuple]] = {}
+    for player_uid, gw, now_cost, selected_by_percent in rows:
+        by_player.setdefault(player_uid, {})[gw] = (now_cost, selected_by_percent)
+
+    out = {}
+    for player_uid, by_gw in by_player.items():
+        gws = sorted(by_gw)
+        latest_gw, earliest_gw = gws[-1], gws[0]
+        latest_price, latest_ownership = by_gw[latest_gw]
+        earliest_price, earliest_ownership = by_gw[earliest_gw]
+        out[player_uid] = {
+            "price_delta": (latest_price - earliest_price) if (latest_price is not None and earliest_price is not None and latest_gw != earliest_gw) else None,
+            "ownership_delta": (
+                latest_ownership - earliest_ownership
+                if (latest_ownership is not None and earliest_ownership is not None and latest_gw != earliest_gw) else None
+            ),
+        }
+    return out
+
+
 # ============================================================
 # transfer evaluation
 # ============================================================
@@ -225,6 +320,9 @@ def evaluate_transfers(
     free_transfers_available: int,
     points_per_hit: float,
     max_club_count: int = 3,
+    bank: float = 0.0,
+    target_gameweek: int | None = None,
+    momentum_lookback_gameweeks: int = 3,
 ) -> list[dict]:
     """Exhaustive single-transfer search: every current squad player x every other real
     candidate, ranked by net value over the horizon. Single-best-transfer-per-gameweek scope
@@ -234,11 +332,19 @@ def evaluate_transfers(
 
     Enforces the three constraints a transfer must satisfy to be real, not optional
     embellishments: same position (can't swap a defender for a forward), price_in <=
-    price_out (no banked-budget tracking exists yet, so this conservatively assumes zero
-    bank -- a real extension, not silently ignored), and the post-swap club count staying
-    <= max_club_count (M5's own guardrail, must hold for the resulting squad too).
+    price_out + bank (a real upgrade can legitimately cost more than the player leaving, funded
+    by money already saved up from prior transfers -- see apply_recommendation()'s bank
+    bookkeeping; bank defaults to 0.0 for a caller that hasn't tracked it), and the post-swap
+    club count staying <= max_club_count (M5's own guardrail, must hold for the resulting squad
+    too).
+
+    target_gameweek (optional, default None -- prior behavior, no momentum keys on results):
+    when given, each result also carries price_momentum_in/out and ownership_momentum_in/out
+    (see price_momentum_by_player()) -- purely informational, never part of net_value or the
+    ranking sort, which stays exactly the same EP/risk-driven order regardless of this flag.
     """
     horizon_ep = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
+    momentum = price_momentum_by_player(con, target_season, target_gameweek, momentum_lookback_gameweeks) if target_gameweek is not None else {}
     current_uids = {h["player_uid"] for h in current_holdings}
     club_counts: dict[str, int] = {}
     for h in current_holdings:
@@ -256,18 +362,27 @@ def evaluate_transfers(
                 continue
             if in_info["position"] != out_info["position"]:
                 continue
-            if in_info["price"] > out_info["price"]:
+            if in_info["price"] > out_info["price"] + bank:
                 continue
             new_club_count = club_counts.get(in_info["club"], 0) + (1 if in_info["club"] != out_info["club"] else 0)
             if in_info["club"] != out_info["club"] and new_club_count > max_club_count:
                 continue
             horizon_value_gain = in_info["total_ep"] - out_info["total_ep"]
             transfer_cost = 0.0 if free_transfers_available >= 1 else points_per_hit
-            results.append({
+            result = {
                 "player_out": out_uid, "player_in": in_uid,
+                "price_out": out_info["price"], "price_in": in_info["price"],
                 "horizon_value_gain": horizon_value_gain, "transfer_cost": transfer_cost,
                 "net_value": horizon_value_gain - transfer_cost,
-            })
+            }
+            if target_gameweek is not None:
+                in_momentum = momentum.get(in_uid, {"price_delta": None, "ownership_delta": None})
+                out_momentum = momentum.get(out_uid, {"price_delta": None, "ownership_delta": None})
+                result["price_momentum_in"] = in_momentum["price_delta"]
+                result["price_momentum_out"] = out_momentum["price_delta"]
+                result["ownership_momentum_in"] = in_momentum["ownership_delta"]
+                result["ownership_momentum_out"] = out_momentum["ownership_delta"]
+            results.append(result)
 
     results.sort(key=lambda r: r["net_value"], reverse=True)
     for rank, r in enumerate(results, start=1):
@@ -301,12 +416,27 @@ def ensure_squad_simulation(
     )
 
 
-def evaluate_triple_captain(con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int) -> dict:
+def evaluate_triple_captain(
+    con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int,
+    horizon_ep_map: dict | None = None,
+) -> dict:
     """TC_score_i = E[marginal_value_i] - kappa_tc * StdDev[marginal_value_i], where
     marginal_value_i is exactly player i's own simulated total_points (captaincy has no other
     effect on simulation mechanics -- see module docstring / Finding 2). Direct read against
     M6's existing monte_carlo_player_summary, filtered to the current XI (captaincy is only
-    ever assigned to a starting player in real FPL)."""
+    ever assigned to a starting player in real FPL).
+
+    horizon_ep_map (optional -- already computed once by run() for the other chip evaluators,
+    reused here, not recomputed) buys the same kind of zero-extra-run "is now the best time"
+    signal evaluate_wildcard()/evaluate_free_hit() carry: the winning candidate's own mu
+    trajectory across the visible horizon (captain_value_per_gw). A cheap EP proxy, not a
+    real Monte Carlo re-simulation at every horizon gameweek -- re-running M6's simulation
+    (antithetic-variate, thousands of draws) at each of up to 5 horizon gameweeks, every
+    simulated gameweek of a season, was rejected as a real cost blow-up for a comparison
+    signal, not a squad-selection decision. mu is the dominant term in tc_score anyway (see
+    the formula above), so a per-gw mu trajectory for the SAME candidate is an honest, cheap
+    stand-in for "would this player's fixture swing look better later," disclosed as a proxy,
+    not asserted as MC-equivalent precision."""
     kappa_tc, _ = params_mod.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", kappa_tc_params_version)
     rows = con.execute(
         "SELECT player_uid, mean_total, var_total FROM monte_carlo_player_summary WHERE model_version = ?",
@@ -320,7 +450,11 @@ def evaluate_triple_captain(con: duckdb.DuckDBPyConnection, mc_model_version: in
         return {"recommended": False, "reason": "no simulated XI players found for this model_version"}
     scored.sort(key=lambda r: r["tc_score"], reverse=True)
     best = scored[0]
-    return {"recommended": True, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"], "all_candidates": scored}
+    captain_value_per_gw = (horizon_ep_map or {}).get(best["player_uid"], {}).get("per_gw", {})
+    return {
+        "recommended": True, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"],
+        "all_candidates": scored, "captain_value_per_gw": captain_value_per_gw,
+    }
 
 
 def evaluate_bench_boost(con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str]) -> dict:
@@ -347,13 +481,25 @@ def evaluate_wildcard(
     con: duckdb.DuckDBPyConnection, calibration_asof_date: date, target_season: str, target_gameweek: int,
     current_squad_horizon_value: float, best_transfer_net_value: float, horizon_ep_versions: dict[int, tuple[int, int]],
     lambda_params_version: int, guardrail_params_version: int, threshold_params_version: int,
+    current_holdings: list[dict] | None = None,
 ) -> dict:
     """Calls M5 fresh (a real, logged, divergence-checked squad_optimizer.run() -- not raw
     solve(), so a Wildcard recommendation carries the same audit trail as any other real M5
     solve) at target_gameweek, compares its projected horizon value against the *best
     available alternative* -- current squad plus whatever single transfer would otherwise be
     made -- not a do-nothing baseline, since that's the real choice a manager faces. Recommends
-    Wildcard when the gain clears wildcard_gain_threshold_params."""
+    Wildcard when the gain clears wildcard_gain_threshold_params.
+
+    current_holdings (optional -- only the run()/season-simulation caller needs it) also buys
+    a real, zero-extra-solve "is now actually the best time" signal: current_squad_value_per_gw,
+    the CURRENT squad's own already-computed per-gw mu trajectory across the same visible
+    horizon (no new solve, horizon_ep_map is already being built for fresh_squad_horizon_value
+    above). Whoever weighs "play now vs. hold" (see backtest._decide_gameweek_action()) can
+    read this to check whether target_gameweek is genuinely the worst point in the CURRENT
+    squad's own visible trajectory -- the real situation Wildcard exists to fix -- rather than
+    just clearing the threshold in isolation. Deliberately NOT folded into `recommended` here:
+    a live one-off planner run has no "later week" to hold out for in the same sense a season
+    simulation does, so this stays additive, informational detail, not a changed gate."""
     if target_gameweek not in horizon_ep_versions:
         return {"recommended": False, "reason": "no fixtures this gameweek -- cannot rebuild"}
     ep_mv, un_mv = horizon_ep_versions[target_gameweek]
@@ -372,9 +518,17 @@ def evaluate_wildcard(
     baseline_value = current_squad_horizon_value + best_transfer_net_value
     gain = fresh_squad_horizon_value - baseline_value
     threshold, _ = params_mod.resolve_param(con, "wildcard_gain_threshold_params", "min_horizon_gain", threshold_params_version)
+    current_squad_value_per_gw = {}
+    if current_holdings is not None:
+        current_squad_uids = {h["player_uid"] for h in current_holdings}
+        current_squad_value_per_gw = {
+            gw: sum(horizon_ep_map.get(uid, {}).get("per_gw", {}).get(gw, 0.0) for uid in current_squad_uids)
+            for gw in horizon_ep_versions
+        }
     return {
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_squad_horizon_value": fresh_squad_horizon_value, "baseline_value": baseline_value, "gain": gain,
+        "current_squad_value_per_gw": current_squad_value_per_gw,
     }
 
 
@@ -388,9 +542,10 @@ def evaluate_free_hit(
     absence of scheduled doubles/blanks in 2026-27 (M8's own spec finding), FH's real use case
     here is a single gameweek with an unusually poor fixture swing for the current squad, not
     DGW exploitation -- re-evaluated against live fixture data every call, never assumed fixed.
-    Reuses wildcard_gain_threshold_params as its own bar (both are "is a full rebuild worth it
-    right now" gates; not worth inventing a second, separately-versioned threshold family for
-    the same question)."""
+    Uses its own free_hit_gain_threshold_params family, not Wildcard's -- a real bug this used
+    to have: reusing wildcard_gain_threshold_params (calibrated for a ~15-player x 5-gameweek
+    sum) as the bar for a ~11-player x 1-gameweek gain structurally miscalibrated one of the
+    two chips. threshold_params_version here resolves against free_hit_gain_threshold_params."""
     if target_gameweek not in horizon_ep_versions:
         return {"recommended": False, "reason": "no fixtures this gameweek -- cannot rebuild"}
     ep_mv, un_mv = horizon_ep_versions[target_gameweek]
@@ -409,10 +564,22 @@ def evaluate_free_hit(
     current_gw_value = sum(mu_by_uid.get(uid, 0.0) for uid in current_xi_uids)
 
     gain = fresh_gw_value - current_gw_value
-    threshold, _ = params_mod.resolve_param(con, "wildcard_gain_threshold_params", "min_horizon_gain", threshold_params_version)
+    threshold, _ = params_mod.resolve_param(con, "free_hit_gain_threshold_params", "min_horizon_gain", threshold_params_version)
+    # Same zero-extra-solve "is now really the best time" signal evaluate_wildcard() computes
+    # (see its own docstring) -- the current XI's own mu trajectory across the visible horizon,
+    # reusing the same _horizon_ep_by_player() helper. Free Hit's economics are XI-only and
+    # single-gameweek (unlike Wildcard's whole-squad/whole-horizon gain), so the trajectory is
+    # XI-only too, matching current_gw_value/fresh_gw_value above -- one extra DB read (already
+    # paid by evaluate_bench_boost()'s own by-gameweek loop pattern), no new solves.
+    horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
+    current_xi_value_per_gw = {
+        gw: sum(horizon_ep_map.get(uid, {}).get("per_gw", {}).get(gw, 0.0) for uid in current_xi_uids)
+        for gw in horizon_ep_versions
+    }
     return {
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_gw_value": fresh_gw_value, "current_gw_value": current_gw_value, "gain": gain,
+        "current_xi_value_per_gw": current_xi_value_per_gw,
     }
 
 
@@ -427,10 +594,17 @@ GW19_DEADLINE_GAMEWEEK = 19
 def check_gw19_deadline(target_gameweek: int, chips_used_set1: list[str], warning_window: int = 3) -> dict:
     """Chip set 1 is forfeited entirely, not softly discounted, if unused by the GW19
     deadline -- modeled here as an explicit use-it-or-lose-it flag, not a preference that can
-    silently lapse (per the spec's own explicit requirement)."""
+    silently lapse (per the spec's own explicit requirement).
+
+    Real bug fixed here: `urgent`'s lower bound was `0 <= gameweeks_remaining`, so at
+    target_gameweek == GW19_DEADLINE_GAMEWEEK itself (gameweeks_remaining == 0) both `urgent`
+    and `forfeited_now` came out True simultaneously -- a self-contradictory "hurry, use it
+    now" plus "it's already gone" pair, written straight into chip_evaluations.gw19_urgent_flag
+    for M9 to display. `urgent` now requires at least 1 gameweek still remaining; GW19 itself is
+    exclusively `forfeited_now`."""
     unused = ALL_CHIP_TYPES - set(chips_used_set1)
     gameweeks_remaining = GW19_DEADLINE_GAMEWEEK - target_gameweek
-    urgent = 0 <= gameweeks_remaining <= warning_window and bool(unused)
+    urgent = 1 <= gameweeks_remaining <= warning_window and bool(unused)
     forfeited_now = target_gameweek >= GW19_DEADLINE_GAMEWEEK and bool(unused)
     return {
         "unused_set1_chips": sorted(unused), "gameweeks_until_gw19": gameweeks_remaining,
@@ -460,6 +634,7 @@ def run(
     lambda_params_version: int,
     guardrail_params_version: int,
     wildcard_threshold_params_version: int,
+    free_hit_threshold_params_version: int,
     kappa_tc_params_version: int,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
@@ -468,12 +643,12 @@ def run(
     only -- does not advance manager_state_versions (see apply_recommendation()), mirroring
     M7's propose-then-confirm gate."""
     state_row = con.execute(
-        "SELECT season, free_transfers_available, chips_used_set1 FROM manager_state_versions WHERE state_version = ?",
+        "SELECT season, free_transfers_available, chips_used_set1, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
     ).fetchone()
     if not state_row:
         raise ValueError(f"no manager_state_versions row for state_version={input_state_version}")
-    _season, free_transfers_available, chips_used_set1_json = state_row
+    _season, free_transfers_available, chips_used_set1_json, bank = state_row
     chips_used_set1 = json.loads(chips_used_set1_json)
     current_holdings = _read_holdings(con, input_state_version)
     if not current_holdings:
@@ -489,6 +664,7 @@ def run(
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
     transfer_results = evaluate_transfers(
         con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
+        bank=bank or 0.0, target_gameweek=target_gameweek,
     )
 
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
@@ -498,11 +674,11 @@ def run(
     wildcard_result = evaluate_wildcard(
         con, calibration_asof_date, target_season, target_gameweek, current_squad_horizon_value,
         best_transfer_net_value, horizon_ep_versions, lambda_params_version, guardrail_params_version,
-        wildcard_threshold_params_version,
+        wildcard_threshold_params_version, current_holdings=current_holdings,
     )
     free_hit_result = evaluate_free_hit(
         con, calibration_asof_date, target_season, target_gameweek, current_holdings, horizon_ep_versions,
-        lambda_params_version, guardrail_params_version, wildcard_threshold_params_version,
+        lambda_params_version, guardrail_params_version, free_hit_threshold_params_version,
     )
 
     xi_uids = {h["player_uid"] for h in current_holdings if h["in_xi"]}
@@ -514,7 +690,7 @@ def run(
             mm_model_version, ts_model_version, un_mv, scoring_params_version, tau_params_version,
             rho_residual_params_version,
         )
-        tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version)
+        tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map)
     else:
         tc_result = {"recommended": False, "reason": "no fixtures this gameweek"}
     bb_result = evaluate_bench_boost(con, horizon_ep_versions, squad_uids, xi_uids)
@@ -536,9 +712,11 @@ def run(
 
     for r in transfer_results[:10]:  # top 10 stored -- not all ~8k candidate pairs, this is a report, not an audit of the whole search
         con.execute(
-            "INSERT INTO transfer_recommendations (run_id, rank, player_out, player_in, horizon_value_gain, transfer_cost, net_value) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [run_id, r["rank"], r["player_out"], r["player_in"], r["horizon_value_gain"], r["transfer_cost"], r["net_value"]],
+            "INSERT INTO transfer_recommendations "
+            "(run_id, rank, player_out, player_in, price_out, price_in, horizon_value_gain, transfer_cost, net_value) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [run_id, r["rank"], r["player_out"], r["player_in"], r["price_out"], r["price_in"],
+             r["horizon_value_gain"], r["transfer_cost"], r["net_value"]],
         )
 
     for chip_type, result in (
@@ -556,6 +734,30 @@ def run(
     return run_id
 
 
+def _read_fresh_chip_squad(con: duckdb.DuckDBPyConnection, run_id: int, chip_type: str) -> list[dict]:
+    """Reads the fresh M5 squad a Wildcard/Free Hit recommendation evaluated, via the
+    fresh_run_id captured in chip_evaluations.detail (see evaluate_wildcard()'s/
+    evaluate_free_hit()'s own return dicts, both of which include "fresh_run_id"). Shared by
+    apply_recommendation()'s Wildcard-accept squad rebuild and by a season simulation's
+    one-off Free Hit scoring (see backtest.run_season_simulation()) -- one real read against
+    the actual solved squad, not two places independently re-deriving the same thing."""
+    row = con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = ?", [run_id, chip_type]
+    ).fetchone()
+    if not row or not row[0]:
+        raise ValueError(f"no chip_evaluations row for run_id={run_id} chip_type={chip_type!r}")
+    fresh_run_id = json.loads(row[0]).get("fresh_run_id")
+    if fresh_run_id is None:
+        raise ValueError(f"chip_evaluations detail for run_id={run_id} chip_type={chip_type!r} has no fresh_run_id")
+    rows = con.execute(
+        "SELECT player_uid, in_xi, is_captain, is_vice FROM squad_optimizer_selections WHERE run_id = ? AND in_squad",
+        [fresh_run_id],
+    ).fetchall()
+    if not rows:
+        raise ValueError(f"fresh_run_id={fresh_run_id} (from run_id={run_id} chip_type={chip_type!r}) has no in_squad players")
+    return [{"player_uid": uid, "in_xi": in_xi, "is_captain": is_captain, "is_vice": is_vice} for uid, in_xi, is_captain, is_vice in rows]
+
+
 def apply_recommendation(
     con: duckdb.DuckDBPyConnection, run_id: int, *, accept_transfer_rank: int | None = None, accept_chip: str | None = None,
 ) -> int:
@@ -565,7 +767,22 @@ def apply_recommendation(
     testing; see schema/0009's comment on that column) -- mirrors M7's propose-then-confirm
     gate (run() proposes and logs; nothing is applied automatically). accept_transfer_rank=None
     means "make no transfer this gameweek" (free_transfers_available increments, capped at 5,
-    per the real banking rule)."""
+    per the real banking rule).
+
+    accept_chip="wildcard": real bug fixed here -- this used to only record the chip as used
+    and never actually touch holdings_by_uid, so accepting a Wildcard was a complete no-op on
+    the squad. Wildcard genuinely replaces the whole squad (unlike Free Hit, which reverts
+    after one gameweek and is deliberately NOT handled here at all -- leaving holdings
+    unchanged on accept_chip="free_hit" is correct, not an oversight: nothing should persist
+    forward from a one-week-only rebuild. Scoring that one gameweek off the fresh Free Hit
+    squad, then continuing next week from the pre-Free-Hit holdings, is the caller's job --
+    see backtest.run_season_simulation() and _read_fresh_chip_squad() above.) accept_chip
+    and accept_transfer_rank are mutually exclusive when the chip is "wildcard": a real M5
+    solve already replaces every holding, so layering a single-player transfer on top of it
+    isn't a coherent action, not a case to silently pick one of two winners for."""
+    if accept_chip == "wildcard" and accept_transfer_rank is not None:
+        raise ValueError("cannot accept both a transfer and Wildcard in the same call -- Wildcard already replaces the whole squad")
+
     run_row = con.execute(
         "SELECT input_state_version, target_season, target_gameweek FROM transfer_plan_runs WHERE run_id = ?", [run_id]
     ).fetchone()
@@ -574,27 +791,52 @@ def apply_recommendation(
     input_state_version, target_season, target_gameweek = run_row
 
     state_row = con.execute(
-        "SELECT free_transfers_available, chips_used_set1, chips_used_set2 FROM manager_state_versions WHERE state_version = ?",
+        "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
     ).fetchone()
-    free_transfers_available, chips_used_set1_json, chips_used_set2_json = state_row
+    free_transfers_available, chips_used_set1_json, chips_used_set2_json, bank = state_row
     chips_used_set1 = set(json.loads(chips_used_set1_json))
     chips_used_set2 = set(json.loads(chips_used_set2_json))
     holdings_by_uid = {h["player_uid"]: h for h in _read_holdings(con, input_state_version)}
+    new_bank = bank or 0.0
 
-    if accept_transfer_rank is not None:
+    if accept_chip == "wildcard":
+        # The actual fix: rebuild holdings from the fresh M5 squad Wildcard evaluated (used to
+        # be a complete no-op on the squad -- see this function's own docstring), and recompute
+        # bank the same way bootstrap_from_squad_optimizer_run() does for any real M5-solved
+        # squad (leftover against BUDGET), since the old bank figure belonged to a squad that
+        # no longer exists after a full rebuild.
+        fresh_holdings = _read_fresh_chip_squad(con, run_id, "wildcard")
+        holdings_by_uid = {h["player_uid"]: h for h in fresh_holdings}
+        new_bank = _compute_bank_for_squad(con, target_season, list(holdings_by_uid.keys()))
+        new_free_transfers = min(5, free_transfers_available + 1)  # Wildcard doesn't consume/grant transfers beyond the normal weekly allocation
+    elif accept_transfer_rank is not None:
         rec = con.execute(
-            "SELECT player_out, player_in, transfer_cost FROM transfer_recommendations WHERE run_id = ? AND rank = ?",
+            "SELECT player_out, player_in, price_out, price_in, transfer_cost FROM transfer_recommendations "
+            "WHERE run_id = ? AND rank = ?",
             [run_id, accept_transfer_rank],
         ).fetchone()
         if not rec:
             raise ValueError(f"no transfer_recommendations row for run_id={run_id} rank={accept_transfer_rank}")
-        player_out, player_in, transfer_cost = rec
+        player_out, player_in, price_out, price_in, transfer_cost = rec
         outgoing = holdings_by_uid.pop(player_out)
         holdings_by_uid[player_in] = {
             "player_uid": player_in, "in_xi": outgoing["in_xi"], "is_captain": False, "is_vice": False,
         }
-        new_free_transfers = max(0, free_transfers_available - (1 if transfer_cost == 0.0 else 0))
+        # bank moves by exactly what the swap frees up or costs -- selling a pricier player
+        # than the one bought in grows bank, buying up spends it down. This is what actually
+        # closes the "can't afford Haaland" gap: evaluate_transfers() only allows price_in >
+        # price_out up to this same bank, so a transfer that draws it down here is exactly one
+        # evaluate_transfers() already verified the manager could afford.
+        new_bank = new_bank + (price_out or 0.0) - (price_in or 0.0)
+        # Real FPL rule: a new free transfer is granted every gameweek regardless of whether
+        # a transfer was made this week -- this must apply on the accepted-transfer path too,
+        # not just the "no transfer" path below. Previously this line only decremented (or
+        # held flat on a paid hit) with no +1, so free_transfers_available silently drained
+        # toward 0 every time a free transfer was actually used, and never grew back --
+        # a real bug: it made the planner progressively undercount how many free transfers
+        # it had available, biasing it toward pricing genuinely-free transfers as -4 hits.
+        new_free_transfers = min(5, max(0, free_transfers_available - (1 if transfer_cost == 0.0 else 0)) + 1)
     else:
         new_free_transfers = min(5, free_transfers_available + 1)  # banked, unused this gameweek
 
@@ -607,10 +849,10 @@ def apply_recommendation(
     new_state_version = con.execute(
         "INSERT INTO manager_state_versions "
         "(season, as_of_gameweek, free_transfers_available, chips_used_set1, chips_used_set2, "
-        "derived_from_state_version, produced_by_run_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING state_version",
+        "derived_from_state_version, produced_by_run_id, bank) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING state_version",
         [target_season, target_gameweek + 1, new_free_transfers, json.dumps(sorted(chips_used_set1)),
-         json.dumps(sorted(chips_used_set2)), input_state_version, run_id],
+         json.dumps(sorted(chips_used_set2)), input_state_version, run_id, new_bank],
     ).fetchone()[0]
     for h in holdings_by_uid.values():
         con.execute(
