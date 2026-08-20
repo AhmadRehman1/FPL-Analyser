@@ -67,6 +67,13 @@ def build_dim_team(con: duckdb.DuckDBPyConnection) -> None:
         "CREATE OR REPLACE TABLE _team_id_map (season VARCHAR, team_id_local VARCHAR, team_uid VARCHAR)"
     )
 
+    # code is FPL's own permanent per-club numeric identifier -- stable across seasons even
+    # when a club's own display name isn't (real case this hit: Ipswich Town was ingested as
+    # "Ipswich" in 2024-2025's teams.csv and "Ipswich Town" in 2026-2027's, code=40 both times).
+    # Deriving team_uid from the free-text name alone would silently split one real club into
+    # two dim_team rows with no shared history -- reusing the first uid minted for a given code
+    # keeps every season's data under one identity without needing a manual alias for it.
+    uid_by_code: dict[str, str] = {}
     for season in SEASONS:
         found = _season_root_table(con, season, "teams.csv")
         if not found:
@@ -74,7 +81,9 @@ def build_dim_team(con: duckdb.DuckDBPyConnection) -> None:
         _relpath, table = found
         data = con.execute(f'SELECT code, id, name, short_name FROM "{table}"').fetchall()
         for code, local_id, name, short_name in data:
-            uid = er.team_uid_for(name)
+            code_str = str(code)
+            uid = uid_by_code.get(code_str) or er.team_uid_for(name)
+            uid_by_code[code_str] = uid
             # ON CONFLICT targets team_uid (the actual PK), not canonical_name: two literally
             # different name spellings can normalize to the same uid (see dim_player below for
             # a real example of this happening), and that's the collision that must be caught.

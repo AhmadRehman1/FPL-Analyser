@@ -133,20 +133,37 @@ def compute_seasons_of_topflight_data(
     return result
 
 
-def fetch_current_elo(con: duckdb.DuckDBPyConnection, season: str) -> dict[str, float]:
-    found = reconcile_mod._season_root_table(con, season, "teams.csv")
-    if not found:
-        return {}
-    _relpath, table = found
-    out = {}
-    for name, elo in con.execute(f'SELECT name, elo FROM "{table}"').fetchall():
-        if elo in (None, ""):
+def fetch_current_elo(con: duckdb.DuckDBPyConnection, season: str, fallback_seasons: tuple[str, ...] = ()) -> dict[str, float]:
+    """Pre-season (before the target season's own matches have been played), FPL-Core-Insights
+    ships an entirely blank elo column for that season's teams.csv -- there's nothing to compute
+    it from yet. fallback_seasons (most-preferred first; target season always wins over all of
+    them) carries forward a team's own most recent season's end-of-season elo as the prior for
+    strength that hasn't nailed-on top-flight results of its own yet -- team_uid is stable
+    across seasons, so a fallback season's elo values key correctly against the target season's
+    own eligible_teams.
+
+    Merged per-team across every season candidate, not "first season with any data wins":
+    a team absent from a more-preferred season's own table (e.g. relegated after it, or not
+    yet promoted into the target season's fixture list) still needs its OWN most recent
+    available season, not a blanket fallback to whichever season happens to have SOME teams'
+    data -- iterating low-to-high priority and letting later assignments overwrite earlier
+    ones gets that right per-team. A team with no elo in the target season or any fallback
+    (e.g. a club promoted straight from a division this dataset doesn't track) simply stays
+    out of the result, same as before."""
+    out: dict[str, float] = {}
+    for candidate_season in reversed((season, *fallback_seasons)):
+        found = reconcile_mod._season_root_table(con, candidate_season, "teams.csv")
+        if not found:
             continue
-        row = con.execute(
-            "SELECT team_uid FROM team_alias WHERE alias_name = ? AND season = ?", [name, season]
-        ).fetchone()
-        if row:
-            out[row[0]] = float(elo)
+        _relpath, table = found
+        for name, elo in con.execute(f'SELECT name, elo FROM "{table}"').fetchall():
+            if elo in (None, ""):
+                continue
+            row = con.execute(
+                "SELECT team_uid FROM team_alias WHERE alias_name = ? AND season = ?", [name, candidate_season]
+            ).fetchone()
+            if row:
+                out[row[0]] = float(elo)
     return out
 
 
@@ -206,7 +223,7 @@ def calibrate(
     effective_threshold = min(seasons_threshold, len(fit_seasons))
     eligible_teams = [t for t, s in seasons_map.items() if s >= effective_threshold]
 
-    elo_by_team = fetch_current_elo(con, target_season)
+    elo_by_team = fetch_current_elo(con, target_season, fallback_seasons=tuple(reversed(fit_seasons)))
     a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, eligible_teams)
 
     model_version = con.execute(
@@ -222,14 +239,27 @@ def calibrate(
          reference_team_uid, a0, a1, b0, b1, n_reg, json.dumps(list(fit_seasons))],
     ).fetchone()[0]
 
+    # A team with genuinely zero signal (no MLE fit AND no Elo in the target season or any
+    # fallback -- a real recurring case: a club promoted straight from a division this dataset
+    # doesn't track, e.g. Coventry City/Hull City for 2026-2027) used to hard-fail calibrate()
+    # entirely, blocking every OTHER team's calibration too over one team's missing data.
+    # min_known_elo is a disclosed, conservative floor: assume such a team is exactly as weak
+    # as the weakest team we do have real signal for this run, run through the SAME fitted
+    # elo_regression (a0,a1,b0,b1) as every other team rather than a second, disconnected
+    # invented number -- elo_at_calibration on its snapshot row records the assumed value,
+    # same column any other team's real elo would show, so this is auditable, not silent.
+    min_known_elo = min(elo_by_team.values()) if elo_by_team else None
+
     for team_uid in target_teams:
         seasons = seasons_map.get(team_uid, 0)
         weight_own = min(1.0, seasons / seasons_threshold)
         elo = elo_by_team.get(team_uid)
-        attack_prior = a0 + a1 * elo if elo is not None else None
-        defence_prior = b0 + b1 * elo if elo is not None else None
         a_mle = attack_mle.get(team_uid)
         d_mle = defence_mle.get(team_uid)
+        if elo is None and a_mle is None and min_known_elo is not None:
+            elo = min_known_elo
+        attack_prior = a0 + a1 * elo if elo is not None else None
+        defence_prior = b0 + b1 * elo if elo is not None else None
 
         if a_mle is not None and attack_prior is not None:
             final_attack = weight_own * a_mle + (1 - weight_own) * attack_prior

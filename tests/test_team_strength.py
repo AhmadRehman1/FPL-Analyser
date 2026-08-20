@@ -102,6 +102,120 @@ def test_elo_regression_raises_with_insufficient_teams():
         ts.fit_elo_regression({"t1": 0.1}, {"t1": 0.1}, {"t1": 2000}, ["t1"])
 
 
+def _seed_raw_teams_table(con, season, rows):
+    """rows: list of (name, elo). Mirrors ingest_csv.py's own raw-table naming/logging
+    convention (fact_raw_ingestion_log.raw_table_name), the same mechanism
+    reconcile._season_root_table() looks up -- not a shortcut around it."""
+    table = f"raw_{season.replace('-', '_')}_teams"
+    con.execute(f'CREATE TABLE "{table}" (name VARCHAR, elo VARCHAR)')
+    for name, elo in rows:
+        con.execute(f'INSERT INTO "{table}" VALUES (?, ?)', [name, elo])
+    con.execute(
+        "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+        "VALUES (?, ?, 'teams.csv', 'x', ?)",
+        [table, season, len(rows)],
+    )
+
+
+def test_calibrate_gives_zero_signal_promoted_team_the_weakest_known_elo_instead_of_raising(con, tmp_path, monkeypatch):
+    """Real case: Coventry City/Hull City for 2026-2027 have no MLE fit (never in fit_seasons'
+    top flight) and no Elo anywhere in the loaded data (never PL-tracked). This used to raise
+    and block calibration for every OTHER team too -- must now get a real, disclosed, weakest-
+    known-elo-floor prior instead."""
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+
+    uids = _seed_teams(con, ["A", "B", "Promoted"])
+    now = datetime.now(timezone.utc)
+    results = [("A", "B", 2, 0), ("B", "A", 0, 1), ("A", "B", 3, 1), ("B", "A", 0, 2)]
+    for i, (h, a, hg, ag) in enumerate(results):
+        for season in ("2024-2025", "2025-2026"):
+            con.execute(
+                "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, home_score, "
+                "away_score, finished, competition, kickoff_time, _ingested_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, TRUE, 'Premier League', ?, ?)",
+                [f"m{season}_{i}", season, uids[h], uids[a], hg, ag,
+                 datetime(2025 if season == "2024-2025" else 2026, 1, 1 + i), now],
+            )
+    # 2026-2027: A, B, and a genuinely brand-new promoted team with zero prior history
+    for i, (h, a) in enumerate([("A", "B"), ("B", "Promoted")]):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, finished, "
+            "competition, _ingested_at) VALUES (?, '2026-2027', ?, ?, FALSE, 'Premier League', ?)",
+            [f"m2026_{i}", uids[h], uids[a], now],
+        )
+
+    monkeypatch.setattr(
+        ts, "fetch_current_elo",
+        lambda con, season, fallback_seasons=(): {uids["A"]: 2000, uids["B"]: 1700},
+    )
+
+    model_version = ts.calibrate(con, date(2026, 8, 10), xi_params_version=1, rho_params_version=1)
+    row = con.execute(
+        "SELECT elo_at_calibration, final_attack, final_defence FROM team_strength_snapshots "
+        "WHERE model_version = ? AND team_uid = ?", [model_version, uids["Promoted"]]
+    ).fetchone()
+    assert row is not None, "promoted team must get a real snapshot row, not a raised exception"
+    elo_used, final_attack, final_defence = row
+    assert elo_used == 1700.0  # the weaker of A/B's two real Elo values, not invented out of thin air
+    assert final_attack is not None and final_defence is not None
+
+
+def test_fetch_current_elo_falls_back_to_prior_season_when_target_season_blank(con):
+    uids = _seed_teams(con, ["A", "B"])
+    # Pre-season: 2026-2027's own teams.csv ships with elo entirely blank (real
+    # FPL-Core-Insights behavior before that season's own matches exist to derive it from).
+    _seed_raw_teams_table(con, "2026-2027", [("A", ""), ("B", "")])
+    _seed_raw_teams_table(con, "2025-2026", [("A", "2000"), ("B", "1800")])
+    for season in ("2026-2027", "2025-2026"):
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES ('A', ?, ?)", [season, uids["A"]])
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES ('B', ?, ?)", [season, uids["B"]])
+
+    out = ts.fetch_current_elo(con, "2026-2027", fallback_seasons=("2025-2026",))
+    assert out == {uids["A"]: 2000.0, uids["B"]: 1800.0}
+
+
+def test_fetch_current_elo_prefers_target_season_over_fallback_when_both_have_data(con):
+    uids = _seed_teams(con, ["A"])
+    _seed_raw_teams_table(con, "2026-2027", [("A", "2100")])
+    _seed_raw_teams_table(con, "2025-2026", [("A", "2000")])
+    for season in ("2026-2027", "2025-2026"):
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES ('A', ?, ?)", [season, uids["A"]])
+
+    out = ts.fetch_current_elo(con, "2026-2027", fallback_seasons=("2025-2026",))
+    assert out == {uids["A"]: 2100.0}
+
+
+def test_fetch_current_elo_falls_back_per_team_not_per_season(con):
+    """A team absent from the most-preferred fallback season (e.g. relegated after it) but
+    present in an older one still needs ITS OWN most recent data -- real case this caught:
+    Ipswich Town was in the 2024-2025 Premier League (elo=1589) but not 2025-2026 (relegated),
+    while most other clubs' most recent data IS 2025-2026. A "first season with any data wins"
+    fallback would use 2025-2026 for everyone and silently drop Ipswich entirely."""
+    uids = _seed_teams(con, ["Stayed", "Ipswich"])
+    _seed_raw_teams_table(con, "2026-2027", [("Stayed", ""), ("Ipswich", "")])
+    _seed_raw_teams_table(con, "2025-2026", [("Stayed", "2000")])  # Ipswich not in the PL this season
+    _seed_raw_teams_table(con, "2024-2025", [("Stayed", "1950"), ("Ipswich", "1589")])
+    for season in ("2026-2027", "2025-2026", "2024-2025"):
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES ('Stayed', ?, ?)", [season, uids["Stayed"]])
+    for season in ("2026-2027", "2024-2025"):
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES ('Ipswich', ?, ?)", [season, uids["Ipswich"]])
+
+    out = ts.fetch_current_elo(con, "2026-2027", fallback_seasons=("2025-2026", "2024-2025"))
+    assert out == {uids["Stayed"]: 2000.0, uids["Ipswich"]: 1589.0}
+
+
+def test_fetch_current_elo_returns_empty_when_no_season_has_data(con):
+    uids = _seed_teams(con, ["Promoted"])
+    _seed_raw_teams_table(con, "2026-2027", [("Promoted", "")])
+    con.execute(
+        "INSERT INTO team_alias (alias_name, season, team_uid) VALUES ('Promoted', '2026-2027', ?)",
+        [uids["Promoted"]],
+    )
+
+    assert ts.fetch_current_elo(con, "2026-2027", fallback_seasons=("2025-2026", "2024-2025")) == {}
+
+
 def test_calibrate_end_to_end_promoted_team_gets_pure_elo_prior(con, tmp_path, monkeypatch):
     params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
     params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
@@ -131,7 +245,7 @@ def test_calibrate_end_to_end_promoted_team_gets_pure_elo_prior(con, tmp_path, m
 
     monkeypatch.setattr(
         ts, "fetch_current_elo",
-        lambda con, season: {uids["A"]: 2000, uids["B"]: 1900, uids["C"]: 1850, uids["Promoted"]: 1500},
+        lambda con, season, fallback_seasons=(): {uids["A"]: 2000, uids["B"]: 1900, uids["C"]: 1850, uids["Promoted"]: 1500},
     )
 
     model_version = ts.calibrate(con, date(2026, 8, 10), xi_params_version=1, rho_params_version=1)

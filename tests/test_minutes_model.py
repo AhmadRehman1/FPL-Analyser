@@ -161,8 +161,10 @@ def test_log_preseason_involvement_claims_are_low_weight_and_not_double_logged(c
     con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
     con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
     con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'MID')")
-    con.execute("INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
-                 "VALUES ('src_system-derived', 'system-derived', 'system-derived', NULL)")
+    # deliberately NOT seeding sources.src_system-derived here -- log_preseason_involvement_claims()
+    # must register its own source row (real bug this caught: it never did, and nothing else in
+    # the pipeline does either, so this FK insert only ever worked because every existing test
+    # happened to seed it manually first, masking the gap).
     now = datetime.now(timezone.utc)
     con.execute(
         "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
@@ -183,6 +185,12 @@ def test_log_preseason_involvement_claims_are_low_weight_and_not_double_logged(c
     assert subject_entity_id == "p1"
     assert confidence < 0.5  # deliberately low-weight, per spec
     assert json.loads(claim_value)["total_preseason_minutes"] == 60
+    assert con.execute(
+        "SELECT source_type FROM sources WHERE source_id = 'src_system-derived'"
+    ).fetchone() == ("system-derived",)
+
+    # a second call (e.g. a re-run) must not fail re-registering the same source
+    mm.log_preseason_involvement_claims(con, "2026-2027")
 
 
 # ============================================================

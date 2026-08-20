@@ -323,7 +323,21 @@ def explain_player_adjustment(con: duckdb.DuckDBPyConnection, model_version: int
 
 def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_season: str) -> int:
     """GW0 friendly minutes never enter the quantitative fit (see module docstring) --
-    logged here as low-weight, qualitative-only evidence claims instead (M2 spec)."""
+    logged here as low-weight, qualitative-only evidence claims instead (M2 spec).
+
+    src_system-derived is this function's own source_id for these claims (they're derived
+    from fact_player_match_stats, not pulled from any external outlet) -- the sources table's
+    source_type CHECK constraint already anticipates 'system-derived' as a category, but
+    nothing ever actually registered this row (a real, pre-existing gap: every other ingest
+    module registers its own sources on the fly the same way, this one just never had one).
+    Registered here, idempotently, the first time this function actually runs against real
+    GW0 data rather than assuming it already exists."""
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score, "
+        "citation_count, source_notes, last_reviewed_date) VALUES "
+        "('src_system-derived', 'System-derived (fact_player_match_stats)', 'system-derived', 0.0, NULL, NULL, NULL) "
+        "ON CONFLICT (source_name) DO NOTHING"
+    )
     rows = con.execute(
         """
         SELECT pmst.player_uid, sum(pmst.minutes_played) AS total_minutes, count(*) AS appearances

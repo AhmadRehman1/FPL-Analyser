@@ -118,8 +118,29 @@ def main() -> None:
         research_pull_results = ingest_research_pull.ingest_all(con, str(RESEARCH_PULL_XLSX_PATH), source_tier_params_version=1)
         print(f"[research_pull] {time.time() - t0:.1f}s -> {json.dumps(research_pull_results)}")
 
+    def _confirmed_or_fallback(param_family: str, confirmed_version: int, fallback_version: int = 1) -> int:
+        """xi_params_version=2 etc. below are M7-backtest-confirmed values (see the "Activate
+        confirmed recalibration proposals" commits) -- real, but only present in a DB that has
+        actually run scripts/run_backtest.py's recalibration since it was last wiped/rebuilt.
+        A fresh DB (this run) doesn't carry them forward automatically; falling back to the v1
+        invented-default silently would contradict this project's own no-silent-fallback
+        discipline, so this prints exactly which happened instead of hiding it."""
+        exists = con.execute(
+            "SELECT count(*) FROM param_versions WHERE param_family = ? AND param_version = ?",
+            [param_family, confirmed_version],
+        ).fetchone()[0]
+        if exists:
+            return confirmed_version
+        print(
+            f"[params] {param_family} v{confirmed_version} (M7-confirmed) not present in this DB -- "
+            f"using v{fallback_version} (pre-recalibration default) instead. Re-run scripts/run_backtest.py "
+            f"+ scripts/review_recalibration.py to regenerate the confirmed version."
+        )
+        return fallback_version
+
     t0 = time.time()
-    ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=2, rho_params_version=1)
+    xi_params_version = _confirmed_or_fallback("model_decay_params", 2)
+    ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=xi_params_version, rho_params_version=1)
     n_teams = con.execute(
         "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [ts_model_version]
     ).fetchone()[0]
@@ -127,10 +148,12 @@ def main() -> None:
 
     t0 = time.time()
     n_preseason_claims = minutes_model.log_preseason_involvement_claims(con, TARGET_SEASON)
+    shrinkage_params_version = _confirmed_or_fallback("minutes_model_shrinkage_params", 10)
+    fact_multiplier_params_version = _confirmed_or_fallback("fact_type_multiplier_params", 8)
     mm_model_version = minutes_model.run(
         con, CALIBRATION_ASOF_DATE, TARGET_SEASON,
         decay_params_version=1, adjustment_params_version=1,
-        shrinkage_params_version=10, fact_multiplier_params_version=8,
+        shrinkage_params_version=shrinkage_params_version, fact_multiplier_params_version=fact_multiplier_params_version,
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]
@@ -152,10 +175,11 @@ def main() -> None:
     print(f"[expected_points] {time.time() - t0:.1f}s -> model_version={ep_model_version}, {n_ep_rows} player-fixture rows")
 
     t0 = time.time()
+    rho_residual_params_version = _confirmed_or_fallback("correlation_params", 2)
     un_model_version = uncertainty.run(
         con, CALIBRATION_ASOF_DATE, ep_model_version=ep_model_version, mm_model_version=mm_model_version,
         ts_model_version=ts_model_version, scoring_params_version=1, bps_params_version=1,
-        tau_params_version=1, rho_residual_params_version=2, corr_params_version=1,
+        tau_params_version=1, rho_residual_params_version=rho_residual_params_version, corr_params_version=1,
     )
     n_un_rows = con.execute(
         "SELECT count(*) FROM uncertainty_outputs WHERE model_version = ?", [un_model_version]
@@ -191,7 +215,7 @@ def main() -> None:
         con, CALIBRATION_ASOF_DATE, squad_optimizer_run_id=so_run_id,
         ep_model_version=ep_model_version, mm_model_version=mm_model_version,
         ts_model_version=ts_model_version, uncertainty_model_version=un_model_version,
-        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=2,
+        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=rho_residual_params_version,
     )
     n_mc_players = con.execute(
         "SELECT count(DISTINCT player_uid) FROM monte_carlo_player_summary WHERE model_version = ?", [mc_model_version]
