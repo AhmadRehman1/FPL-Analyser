@@ -258,8 +258,23 @@ def price_momentum_by_player(
     """{player_uid: {"price_delta": float | None, "ownership_delta": float | None}} --
     now_cost/selected_by_percent change over the last lookback_gameweeks gameweeks, both real,
     already-reconciled per-gameweek "live" columns in fact_player_season_stats (see
-    reconcile.py's own column-semantics tagging; both refresh correctly on re-ingestion since
-    the reconcile dedup fix). A real, secondary signal on its own terms -- a player rising in
+    reconcile.py's own column-semantics tagging), with each distinct gw preserved as its own
+    row -- build_fact_player_season_stats()'s QUALIFY/dedup only ever collapses MULTIPLE
+    ingestion batches of the SAME (player, gw), never different gws into each other, confirmed
+    by reading that query directly (see reconcile.py's PARTITION BY player_uid, gw). That is a
+    structural guarantee, not a claim about the real values: whether now_cost/selected_by_percent
+    genuinely move week to week in the real ingested data (vs. the source CSVs happening to
+    repeat one current snapshot across every historical gw row) was never checked against real
+    data in this session -- data/external/ is gitignored and wasn't present in the environment
+    this was built in (see README). If it turns out flat, this degrades safely, not silently
+    wrongly: a flat series computes a real price_delta/ownership_delta of 0.0 (a true "no
+    movement observed", not a lie), and this signal is already, deliberately, informational-only
+    everywhere it's used (see evaluate_transfers() below) -- it never feeds net_value or the
+    ranking sort, so a flat/uninformative real signal would be inert, not actively misleading.
+    Worth confirming against the real DB before leaning on it operationally -- see README's
+    design notes for a one-line check to run.
+
+    A real, secondary signal on its own terms if the data supports it -- a player rising in
     price/ownership is trending toward a rise the transfer window will close, one falling is
     trending toward a fall that frees future budget -- but deliberately NOT folded into
     horizon_value_gain/net_value or the ranking sort anywhere in this module: price movement is
@@ -401,12 +416,27 @@ def ensure_squad_simulation(
     )
 
 
-def evaluate_triple_captain(con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int) -> dict:
+def evaluate_triple_captain(
+    con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int,
+    horizon_ep_map: dict | None = None,
+) -> dict:
     """TC_score_i = E[marginal_value_i] - kappa_tc * StdDev[marginal_value_i], where
     marginal_value_i is exactly player i's own simulated total_points (captaincy has no other
     effect on simulation mechanics -- see module docstring / Finding 2). Direct read against
     M6's existing monte_carlo_player_summary, filtered to the current XI (captaincy is only
-    ever assigned to a starting player in real FPL)."""
+    ever assigned to a starting player in real FPL).
+
+    horizon_ep_map (optional -- already computed once by run() for the other chip evaluators,
+    reused here, not recomputed) buys the same kind of zero-extra-run "is now the best time"
+    signal evaluate_wildcard()/evaluate_free_hit() carry: the winning candidate's own mu
+    trajectory across the visible horizon (captain_value_per_gw). A cheap EP proxy, not a
+    real Monte Carlo re-simulation at every horizon gameweek -- re-running M6's simulation
+    (antithetic-variate, thousands of draws) at each of up to 5 horizon gameweeks, every
+    simulated gameweek of a season, was rejected as a real cost blow-up for a comparison
+    signal, not a squad-selection decision. mu is the dominant term in tc_score anyway (see
+    the formula above), so a per-gw mu trajectory for the SAME candidate is an honest, cheap
+    stand-in for "would this player's fixture swing look better later," disclosed as a proxy,
+    not asserted as MC-equivalent precision."""
     kappa_tc, _ = params_mod.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", kappa_tc_params_version)
     rows = con.execute(
         "SELECT player_uid, mean_total, var_total FROM monte_carlo_player_summary WHERE model_version = ?",
@@ -420,7 +450,11 @@ def evaluate_triple_captain(con: duckdb.DuckDBPyConnection, mc_model_version: in
         return {"recommended": False, "reason": "no simulated XI players found for this model_version"}
     scored.sort(key=lambda r: r["tc_score"], reverse=True)
     best = scored[0]
-    return {"recommended": True, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"], "all_candidates": scored}
+    captain_value_per_gw = (horizon_ep_map or {}).get(best["player_uid"], {}).get("per_gw", {})
+    return {
+        "recommended": True, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"],
+        "all_candidates": scored, "captain_value_per_gw": captain_value_per_gw,
+    }
 
 
 def evaluate_bench_boost(con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str]) -> dict:
@@ -447,13 +481,25 @@ def evaluate_wildcard(
     con: duckdb.DuckDBPyConnection, calibration_asof_date: date, target_season: str, target_gameweek: int,
     current_squad_horizon_value: float, best_transfer_net_value: float, horizon_ep_versions: dict[int, tuple[int, int]],
     lambda_params_version: int, guardrail_params_version: int, threshold_params_version: int,
+    current_holdings: list[dict] | None = None,
 ) -> dict:
     """Calls M5 fresh (a real, logged, divergence-checked squad_optimizer.run() -- not raw
     solve(), so a Wildcard recommendation carries the same audit trail as any other real M5
     solve) at target_gameweek, compares its projected horizon value against the *best
     available alternative* -- current squad plus whatever single transfer would otherwise be
     made -- not a do-nothing baseline, since that's the real choice a manager faces. Recommends
-    Wildcard when the gain clears wildcard_gain_threshold_params."""
+    Wildcard when the gain clears wildcard_gain_threshold_params.
+
+    current_holdings (optional -- only the run()/season-simulation caller needs it) also buys
+    a real, zero-extra-solve "is now actually the best time" signal: current_squad_value_per_gw,
+    the CURRENT squad's own already-computed per-gw mu trajectory across the same visible
+    horizon (no new solve, horizon_ep_map is already being built for fresh_squad_horizon_value
+    above). Whoever weighs "play now vs. hold" (see backtest._decide_gameweek_action()) can
+    read this to check whether target_gameweek is genuinely the worst point in the CURRENT
+    squad's own visible trajectory -- the real situation Wildcard exists to fix -- rather than
+    just clearing the threshold in isolation. Deliberately NOT folded into `recommended` here:
+    a live one-off planner run has no "later week" to hold out for in the same sense a season
+    simulation does, so this stays additive, informational detail, not a changed gate."""
     if target_gameweek not in horizon_ep_versions:
         return {"recommended": False, "reason": "no fixtures this gameweek -- cannot rebuild"}
     ep_mv, un_mv = horizon_ep_versions[target_gameweek]
@@ -472,9 +518,17 @@ def evaluate_wildcard(
     baseline_value = current_squad_horizon_value + best_transfer_net_value
     gain = fresh_squad_horizon_value - baseline_value
     threshold, _ = params_mod.resolve_param(con, "wildcard_gain_threshold_params", "min_horizon_gain", threshold_params_version)
+    current_squad_value_per_gw = {}
+    if current_holdings is not None:
+        current_squad_uids = {h["player_uid"] for h in current_holdings}
+        current_squad_value_per_gw = {
+            gw: sum(horizon_ep_map.get(uid, {}).get("per_gw", {}).get(gw, 0.0) for uid in current_squad_uids)
+            for gw in horizon_ep_versions
+        }
     return {
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_squad_horizon_value": fresh_squad_horizon_value, "baseline_value": baseline_value, "gain": gain,
+        "current_squad_value_per_gw": current_squad_value_per_gw,
     }
 
 
@@ -511,9 +565,21 @@ def evaluate_free_hit(
 
     gain = fresh_gw_value - current_gw_value
     threshold, _ = params_mod.resolve_param(con, "free_hit_gain_threshold_params", "min_horizon_gain", threshold_params_version)
+    # Same zero-extra-solve "is now really the best time" signal evaluate_wildcard() computes
+    # (see its own docstring) -- the current XI's own mu trajectory across the visible horizon,
+    # reusing the same _horizon_ep_by_player() helper. Free Hit's economics are XI-only and
+    # single-gameweek (unlike Wildcard's whole-squad/whole-horizon gain), so the trajectory is
+    # XI-only too, matching current_gw_value/fresh_gw_value above -- one extra DB read (already
+    # paid by evaluate_bench_boost()'s own by-gameweek loop pattern), no new solves.
+    horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
+    current_xi_value_per_gw = {
+        gw: sum(horizon_ep_map.get(uid, {}).get("per_gw", {}).get(gw, 0.0) for uid in current_xi_uids)
+        for gw in horizon_ep_versions
+    }
     return {
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_gw_value": fresh_gw_value, "current_gw_value": current_gw_value, "gain": gain,
+        "current_xi_value_per_gw": current_xi_value_per_gw,
     }
 
 
@@ -608,7 +674,7 @@ def run(
     wildcard_result = evaluate_wildcard(
         con, calibration_asof_date, target_season, target_gameweek, current_squad_horizon_value,
         best_transfer_net_value, horizon_ep_versions, lambda_params_version, guardrail_params_version,
-        wildcard_threshold_params_version,
+        wildcard_threshold_params_version, current_holdings=current_holdings,
     )
     free_hit_result = evaluate_free_hit(
         con, calibration_asof_date, target_season, target_gameweek, current_holdings, horizon_ep_versions,
@@ -624,7 +690,7 @@ def run(
             mm_model_version, ts_model_version, un_mv, scoring_params_version, tau_params_version,
             rho_residual_params_version,
         )
-        tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version)
+        tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map)
     else:
         tc_result = {"recommended": False, "reason": "no fixtures this gameweek"}
     bb_result = evaluate_bench_boost(con, horizon_ep_versions, squad_uids, xi_uids)

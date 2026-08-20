@@ -158,10 +158,20 @@ def test_write_manager_snapshot_creates_a_real_flagged_run(con):
 # while fixing the free_hit_gain_threshold_params bug, not just patching the symptom.
 # ============================================================
 
-def _seed_real_squad_optimizer_candidate_pool(con, target_season="2026-2027", target_gameweek=2):
+def _seed_real_squad_optimizer_candidate_pool(con, target_season="2026-2027", target_gameweek=2, extra_gameweek_mu_overrides=None):
     """Same 2 GK/6 DEF/6 MID/4 FWD/6-club shape as test_squad_optimizer.py's _synthetic_pool()
     (budget-feasible, club-cap-feasible), but written into real tables so squad_optimizer.run()
-    -- called for real inside evaluate_wildcard()/evaluate_free_hit() -- can solve against it."""
+    -- called for real inside evaluate_wildcard()/evaluate_free_hit() -- can solve against it.
+
+    extra_gameweek_mu_overrides: optional {gameweek: flat_mu} -- seeds one additional real
+    ep_model_version/uncertainty_model_version pair (own fixture, own ep_outputs/
+    uncertainty_outputs) per extra gameweek, giving every one of the 11 held players
+    (holdings, below) that SAME flat mu at that gameweek -- different from target_gameweek's
+    own fixture mu. A single-gameweek horizon_ep_versions can't exercise the per-gw trajectory
+    fields evaluate_wildcard()/evaluate_free_hit()/evaluate_triple_captain() now carry
+    (current_squad_value_per_gw etc.); this buys a genuine, real second data point without
+    needing a full second candidate pool (only the held players need rows -- the field only
+    ever sums over currently-held/XI players, never the whole pool)."""
     clubs = ["clubA", "clubB", "clubC", "clubD", "clubE", "clubF"]
     for i, club in enumerate(clubs):
         con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [club, club])
@@ -246,7 +256,45 @@ def _seed_real_squad_optimizer_candidate_pool(con, target_season="2026-2027", ta
             )
 
     holdings = [{"player_uid": uid, "in_xi": True, "is_captain": False, "is_vice": False} for uid, *_ in players[:11]]
-    return {target_gameweek: (ep_mv, un_mv)}, holdings
+    held_uids = [h["player_uid"] for h in holdings]
+
+    horizon_ep_versions = {target_gameweek: (ep_mv, un_mv)}
+    for gw, flat_mu in (extra_gameweek_mu_overrides or {}).items():
+        mu_overrides = {uid: flat_mu for uid in held_uids}
+        match_id = f"m_{gw}"
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, ?, ?, 'clubA', 'clubB', FALSE, "
+            "'Premier League', '2026-08-24', current_timestamp)", [match_id, target_season, gw],
+        )
+        con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [target_season, ts_mv, mm_mv],
+        )
+        gw_ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+        con.execute(
+            "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+            "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+            [gw_ep_mv, mm_mv, ts_mv],
+        )
+        gw_un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+        for uid, mu in mu_overrides.items():
+            con.execute(
+                "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+                "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+                "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, ?, 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+                [gw_ep_mv, uid, match_id, mu],
+            )
+            con.execute(
+                "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+                "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+                "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+                "VALUES (?, ?, ?, 0,0,0,0,0,0,0,0, ?, 0,0,0,0,0,0)", [gw_un_mv, uid, match_id, 1.0 + mu * 3.0],
+            )
+        horizon_ep_versions[gw] = (gw_ep_mv, gw_un_mv)
+
+    return horizon_ep_versions, holdings
 
 
 def test_evaluate_free_hit_uses_its_own_threshold_family_not_wildcards(con):
@@ -282,6 +330,24 @@ def test_evaluate_free_hit_raises_if_only_wildcards_family_is_seeded(con):
         )
 
 
+def test_evaluate_free_hit_current_xi_value_per_gw_is_a_real_per_gameweek_sum(con):
+    """Same regression coverage as evaluate_wildcard()'s own version above, for Free Hit's
+    XI-only (not whole-squad) trajectory field."""
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(
+        con, target_gameweek=2, extra_gameweek_mu_overrides={3: 1.0},
+    )
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
+
+    result = tp.evaluate_free_hit(
+        con, date(2026, 8, 24), "2026-2027", 2, holdings, horizon_ep_versions,
+        lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    assert set(result["current_xi_value_per_gw"]) == {2, 3}
+    assert result["current_xi_value_per_gw"][3] == pytest.approx(11.0)  # 11 XI players x flat mu=1.0
+    assert result["current_xi_value_per_gw"][2] == pytest.approx(result["current_gw_value"])
+
+
 def test_evaluate_wildcard_still_uses_its_own_family(con):
     horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
     so.seed_v1_params(con)
@@ -293,6 +359,29 @@ def test_evaluate_wildcard_still_uses_its_own_family(con):
     )
     assert "gain" in result
     assert isinstance(result["recommended"], bool)
+
+
+def test_evaluate_wildcard_current_squad_value_per_gw_is_a_real_per_gameweek_sum(con):
+    """Regression test for the chip-timing work: current_squad_value_per_gw must be the
+    CURRENT holdings' own mu summed per horizon gameweek -- a real, zero-extra-solve number
+    the season simulation's decision rule uses to tell whether now or a later visible week is
+    genuinely worse for the squad it already owns, not the fresh (post-rebuild) squad's value."""
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(
+        con, target_gameweek=2, extra_gameweek_mu_overrides={3: 1.0},
+    )
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+    result = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", 2, current_squad_horizon_value=10.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+        current_holdings=holdings,
+    )
+    assert set(result["current_squad_value_per_gw"]) == {2, 3}
+    # gw3's mu was overridden to a flat 1.0 per held player -- 11 held players -> 11.0 exactly.
+    assert result["current_squad_value_per_gw"][3] == pytest.approx(11.0)
+    # gw2 is the real (non-overridden) mu the base fixture seeded -- just confirm it's the sum
+    # over the held players specifically, not the whole ~24-player pool.
+    assert result["current_squad_value_per_gw"][2] > 0.0
 
 
 def _seed_real_wildcard_chip_evaluation(con, old_state_version, target_gameweek=2):
@@ -603,6 +692,37 @@ def test_evaluate_triple_captain_no_data_returns_not_recommended(con):
     tp.seed_v1_params(con)
     result = tp.evaluate_triple_captain(con, 999, xi_uids={"anyone"}, kappa_tc_params_version=1)
     assert result["recommended"] is False
+
+
+def test_evaluate_triple_captain_captain_value_per_gw_reads_the_winning_candidates_own_trajectory(con):
+    """Regression test for the chip-timing work: captain_value_per_gw must be the WINNING
+    candidate's own mu trajectory (an EP proxy, not a fresh Monte Carlo re-simulation at every
+    horizon gameweek -- see evaluate_triple_captain()'s own docstring for why), read straight
+    off horizon_ep_map, not the runner-up's or some squad-wide aggregate."""
+    tp.seed_v1_params(con)
+    for uid in ("high_mean_high_var", "mod_mean_low_var"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    model_version = _seed_mc_run_and_summary(con, [
+        ("high_mean_high_var", 10.0, 25.0),
+        ("mod_mean_low_var", 8.0, 4.0),
+    ])
+    horizon_ep_map = {
+        "high_mean_high_var": {"per_gw": {2: 9.0, 3: 4.0}},
+        "mod_mean_low_var": {"per_gw": {2: 1.0, 3: 20.0}},
+    }
+    result = tp.evaluate_triple_captain(
+        con, model_version, xi_uids={"high_mean_high_var", "mod_mean_low_var"}, kappa_tc_params_version=1,
+        horizon_ep_map=horizon_ep_map,
+    )
+    assert result["captain_candidate"] == "high_mean_high_var"
+    assert result["captain_value_per_gw"] == {2: 9.0, 3: 4.0}  # NOT mod_mean_low_var's trajectory
+
+
+def test_evaluate_triple_captain_captain_value_per_gw_defaults_empty_without_horizon_ep_map(con):
+    tp.seed_v1_params(con)
+    model_version = _seed_mc_run_and_summary(con, [("p1", 10.0, 4.0)])  # p1 is seeded by the helper itself
+    result = tp.evaluate_triple_captain(con, model_version, xi_uids={"p1"}, kappa_tc_params_version=1)
+    assert result["captain_value_per_gw"] == {}
 
 
 # ============================================================

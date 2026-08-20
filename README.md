@@ -223,6 +223,14 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   for the `asof_scope()` extension this needed, the season-consistency metrics it's scored on,
   real (if synthetic) sensitivity findings on `lambda_value`/`xi_club_concentration_cap`, and
   the new optional captain-differential and price/ownership-momentum signals built alongside it.
+  A follow-up round closed three items a reviewer raised against this harness specifically: the
+  decision rule now weighs a set-1 chip's current-week value against holding it, not just
+  whether it clears its threshold; `_compute_bank_for_squad()`'s price lookup (called from
+  inside the harness's own bootstrap and Wildcard-accept paths) now composes correctly with
+  `asof_scope()`'s shadow instead of leaking a later gameweek's price; and the price/ownership
+  momentum signal's real-data assumption was checked as far as this environment allows and its
+  docstring corrected to say so honestly. See "Season-long objective: design notes" below for
+  all three, with real evidence.
 
 ## Quick start
 
@@ -924,3 +932,128 @@ for the existing (real-data) `lambda_value` finding above.
   it to resolve at all. Worth a real fix (`season_priority` threaded from the actual target
   season, not defaulted) the next time `uncertainty.py` gets touched -- named here so it isn't
   quietly rediscovered from a confusing empty-roster failure.
+
+### Follow-up round: chip timing, a bank look-ahead leak, and an honest data check
+
+Three items a reviewer raised against the season-long harness specifically, closed with the
+same standard as the rest of this section: real evidence where evidence was possible, an
+honest "couldn't check" where it wasn't, not a guess dressed up as a finding.
+
+- **Chip timing: `_decide_gameweek_action()` used to take the first CHIP_PRIORITY-recommended
+  chip with no play-now-vs-hold comparison -- fixed for set-1 (GW1-18), using only the model's
+  own already-visible forward EP, never a peek at realized future outcomes.** Clearing
+  `evaluate_*()`'s own gain threshold answers "is this worth it at all"; it never answered "is
+  now better than waiting," so a chip got played the moment it was merely non-trivially
+  positive, not when it was actually the best available week. Concretely: `evaluate_bench_boost()`
+  already computed a real per-gameweek breakdown (`all_gameweeks`) and picked the best one, but
+  `_decide_gameweek_action()` never checked whether *this* week was that best week before taking
+  it -- and `evaluate_triple_captain()`'s `recommended` was unconditionally `True` whenever any
+  XI player had simulated results at all, no gate whatsoever. Together, with wildcard/free_hit
+  rarely clearing their (deliberately conservative) thresholds in an early-season synthetic run,
+  those two low-priority chips would fire almost immediately (Bench Boost around GW2-3, Triple
+  Captain the gameweek after, since Bench Boost's own unconditional "yes" always wins the
+  priority race first) -- a real, structural timing bug, not a hypothetical one.
+
+  Fixed by giving `evaluate_wildcard()`/`evaluate_free_hit()`/`evaluate_triple_captain()` each a
+  new, additive detail field carrying a per-visible-gameweek value trajectory --
+  `current_squad_value_per_gw`/`current_xi_value_per_gw` (the CURRENTLY HELD squad's/XI's own mu,
+  summed per horizon gameweek -- is now genuinely the worst point in the squad's own visible
+  trajectory, the real situation a rebuild exists to fix?) and `captain_value_per_gw` (the
+  winning captain candidate's own mu trajectory, a cheap EP proxy rather than a fresh Monte
+  Carlo re-simulation at every horizon gameweek, disclosed as a proxy in its own docstring) --
+  all built from `horizon_ep_map`, already computed for every `run()` call, zero extra SCIP
+  solves or MC runs. `_decide_gameweek_action()` now additionally requires, for set-1 gameweeks
+  only, that the current gameweek be the argmin (wildcard/free_hit -- worst point for the squad
+  currently owned) or argmax (bench_boost/triple_captain -- best point for the bench/captain) of
+  that trajectory among the gameweeks the model can currently see; a chip that clears its
+  threshold but fails this check is held, and the loop tries the next-priority chip instead,
+  exactly as if nothing had been recommended at that priority level. "Currently visible" is the
+  operative constraint honoring the task's own warning against look-ahead cheating: at gameweek
+  G the model only ever sees `[G, G+horizon_gameweeks)` (H=5), so this can only ever compare
+  against that same bounded window every other part of the same planning call already can see --
+  it cannot know whether GW14 will be better than GW9 when planning at GW9, matching a real
+  manager's own bounded foresight. Set-2 gameweeks (GW19+) deliberately keep the original
+  threshold-only check -- out of scope for this round, named rather than silently extended.
+
+  Real evidence, not asserted: re-running the synthetic 6-club/18-player league across GW2-15
+  with the fix vs. with the timing gate monkeypatched back to always-pass (reproducing the old
+  behavior) gives an identical season total (1084.0 points either way, on this specific run) but
+  a materially different weekly distribution and a different `realized_sharpe` (9.91 old vs.
+  8.52 new) -- Triple Captain and Bench Boost land in different gameweeks under the two rules
+  (TC at GW3/BB at GW4 new, vs. BB at GW3/TC at GW4 old, both times Bench Boost's unconditional
+  "yes" only losing the priority race once the new timing gate actually applies to it), which is
+  exactly the real, structural fix working as intended -- same chips used exactly once each,
+  same total points on this run, genuinely different weeks and a genuinely different Sharpe
+  because of it. Chip-set correctness (`chips_used_set1`/`chips_used_set2` tracked across
+  weeks, never reused, set 2 independent of set 1) was already correct before this fix --
+  checked directly (state is read fresh from `manager_state_versions` every simulated week and
+  only updated by `apply_recommendation()` on acceptance) rather than assumed, and a dedicated
+  test (`test_decide_gameweek_action_checks_the_correct_chip_set_for_the_gameweek`) already
+  covered it; this round didn't need to change that mechanism, only confirm it.
+
+- **A real look-ahead leak in bank tracking, specific to the season-simulation harness --
+  found by checking the call sites, not by symptom.** `transfer_planner._compute_bank_for_squad()`
+  prices each held player via `ORDER BY gw DESC` with no ceiling of its own -- exactly correct
+  for a real live run (`scripts/run_transfer_planner.py`), where no future gameweek's price
+  could possibly exist yet to leak from. But `run_season_simulation()` walks through *historical*
+  gameweeks, and its bootstrap call (`bootstrap_from_squad_optimizer_run()`) and its Wildcard-
+  accept call (inside `apply_recommendation()`) both used to sit *after* their enclosing
+  `asof_scope()` with-block had already exited, reading `main.fact_player_season_stats`
+  completely unshadowed -- the manager's very first bank figure, or a mid-season Wildcard
+  rebuild's bank figure, could silently be computed from a *later* gameweek's price than the
+  gameweek actually being simulated. Fixed by moving both calls inside their enclosing
+  `asof_scope()` with-blocks, composing with the existing mechanism exactly as its own docstring
+  promises (no changes needed in `transfer_planner.py` itself) -- their unqualified
+  `fact_player_season_stats` reads now resolve to the same asof-safe, `gw`-ceilinged TEMP TABLE
+  every other M1-M5 call in the same block already gets.
+
+  Verified two ways, not asserted: a unit-level test seeds one held player with a genuinely
+  higher real price at a later gameweek than at the bootstrap gameweek and confirms
+  `bootstrap_from_squad_optimizer_run()` called inside `asof_scope()` prices off the earlier,
+  asof-safe value (never the later one), while the *same* call made with no `asof_scope()` at
+  all genuinely does pick up the later price -- proving the shadow is what makes the difference,
+  not a coincidence of the fixture. A second, structural test spies on
+  `_compute_bank_for_squad()` during a real `run_season_simulation()` call and records, at every
+  real invocation, whether `fact_player_season_stats` currently resolves to the shadowed TEMP
+  TABLE; reverting the fix locally and re-running that test fails it immediately (confirmed
+  directly, not assumed), then passes again once the fix is restored -- real proof the test
+  catches the actual regression, not just a plausible-sounding one.
+
+- **Price/ownership momentum's real-data assumption: checked as far as this environment
+  allows, and the code corrected to say so honestly, rather than left silently asserting more
+  certainty than was ever verified.** `data/external/` is gitignored and was not staged in this
+  environment (or, per this README's own earlier disclosure, in any environment this project
+  has been built in so far) -- confirmed by checking, not assumed: no such directory, and
+  neither the FPL-Core-Insights extract nor the two curated evidence workbooks exist anywhere on
+  this machine, so the real question -- do `now_cost`/`selected_by_percent` genuinely move
+  week to week in the real ingested data, or does the source happen to repeat one current
+  snapshot across every historical gw row -- could not be settled here. What *could* be checked,
+  by reading `reconcile.build_fact_player_season_stats()` directly: its dedup/`QUALIFY` logic
+  only ever collapses *multiple ingestion batches of the same (player, gw)* into one row (the
+  real bug the reconcile-dedup fix already addressed), never different gameweeks into each
+  other -- confirmed with a new regression test seeding two distinct real prices at two distinct
+  gameweeks for the same player and asserting both survive as distinct rows, unmodified. That is
+  a structural guarantee (whatever trajectory the real source genuinely carries is preserved
+  intact), not a claim about the real values themselves.
+
+  Given genuine uncertainty about the values and a real, checkable structural safety net, the
+  decision made here is to keep the signal rather than remove it, not by default but because the
+  downside of being wrong is already bounded and already tested: `price_momentum_by_player()`'s
+  `current_xi_value_per_gw`-style delta fields are, and always were, purely informational --
+  `test_evaluate_transfers_attaches_momentum_without_changing_the_ranking` already proves
+  `net_value`/ranking order are byte-for-byte identical with the flag on or off. If the real data
+  turns out flat, the signal degrades to an honest `price_delta`/`ownership_delta` of `0.0` (a
+  true "no movement observed," not a fabricated one) rather than corrupting anything -- it would
+  be uninformative, not misleading. `price_momentum_by_player()`'s own docstring now says exactly
+  this: what's structurally guaranteed, what was never checked, and why the un-checked part is
+  safe to leave open rather than a reason to gate or remove the feature. Whoever has the real DB
+  staged can settle it directly:
+  ```sql
+  SELECT player_uid, count(DISTINCT now_cost), count(DISTINCT selected_by_percent)
+  FROM fact_player_season_stats WHERE season = '2025-2026'
+  GROUP BY player_uid ORDER BY 2 DESC LIMIT 20;
+  ```
+  A real distribution of `count(DISTINCT now_cost) > 1` across players confirms the signal is
+  live; a column of 1s everywhere would mean it's currently inert (safe, per above, but worth
+  knowing) -- a five-minute check against the real DB, not run here because the real DB isn't
+  here, named as the natural next step rather than silently skipped.

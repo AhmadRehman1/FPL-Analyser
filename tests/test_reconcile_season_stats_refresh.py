@@ -63,3 +63,17 @@ def test_second_ingestion_batch_refreshes_live_stats(con, tmp_path):
         "SELECT count(*) FROM fact_player_season_stats WHERE season = '2026-2027' AND gw = 1"
     ).fetchone()[0]
     assert count == 1
+
+
+def test_distinct_gameweeks_are_preserved_as_distinct_rows_not_collapsed(con, tmp_path):
+    """The dedup above only ever collapses multiple ingestion BATCHES of the SAME (player, gw)
+    -- confirmed here that it never collapses DIFFERENT gws into each other. This is the real
+    structural premise price_momentum_by_player() (M8) depends on: whatever price/ownership
+    trajectory the real source CSVs genuinely carry across gameweeks is preserved intact, not
+    an artifact of this reconcile step itself. Two real, DIFFERENT prices at two different
+    gameweeks for the same player -- both must survive, each at its own value."""
+    _ingest_and_reconcile(con, tmp_path, ["101,1,15.0,a,90,1,0", "101,2,15.5,a,90,0,1"])
+    rows = con.execute(
+        "SELECT gw, now_cost FROM fact_player_season_stats WHERE season = '2026-2027' ORDER BY gw"
+    ).fetchall()
+    assert rows == [(1, 15.0), (2, 15.5)]

@@ -603,6 +603,46 @@ def run(
 
 CHIP_PRIORITY = ("wildcard", "free_hit", "bench_boost", "triple_captain")
 
+# Which chip_evaluations.detail field carries each chip's own per-visible-gameweek value
+# trajectory (see evaluate_wildcard()/evaluate_free_hit()/evaluate_triple_captain()/
+# evaluate_bench_boost()'s own docstrings for how each is built -- all reuse already-computed
+# horizon EP, zero extra solves/simulations), and whether "now" being genuinely the best time
+# to play means the LOWEST point on that trajectory (wildcard/free_hit -- the current squad's
+# own value is at its worst, the real situation a rebuild exists to fix) or the HIGHEST
+# (bench_boost/triple_captain -- the bench's or the captain candidate's own value peaks now).
+CHIP_TIMING_FIELD = {
+    "wildcard": ("current_squad_value_per_gw", "min"),
+    "free_hit": ("current_xi_value_per_gw", "min"),
+    "bench_boost": ("all_gameweeks", "max"),
+    "triple_captain": ("captain_value_per_gw", "max"),
+}
+
+
+def _is_best_gameweek_in_visible_horizon(per_gw: dict, target_gameweek: int, prefer: str) -> bool:
+    """A real, if myopic, "is now better than waiting" signal built entirely from the model's
+    own already-computed forward EP for the gameweeks currently visible in the planning
+    horizon -- never a peek at a chip's actual realized future outcome (nothing here reads a
+    real result; per_gw is projected mu, computed the same asof-safe way as everything else
+    inside run_season_simulation()'s own asof_scope). "Visible" is the operative word: at
+    gameweek G the model only ever sees [G, G+horizon_gameweeks), so this can only ever compare
+    against the SAME window every other part of this planning call already can see -- it
+    genuinely cannot know whether gameweek G+10 will be better than G+2 when planning at G,
+    exactly as a real manager's own forward-looking judgement is bounded too.
+
+    Missing/empty per_gw (a chip evaluator call that had nothing to compare against, e.g. an
+    old-shape or ex-{} detail payload) or target_gameweek absent from it (a rare edge case --
+    the DB dict's own JSON keys are stringified ints, handled below) defers to True: "can't
+    assess timing here, fall back to the existing threshold-only check" rather than silently
+    suppressing an otherwise-real recommendation just because comparison data is missing.
+    """
+    per_gw = {int(k): v for k, v in per_gw.items()} if per_gw else {}
+    if not per_gw or target_gameweek not in per_gw:
+        return True
+    epsilon = 1e-9
+    if prefer == "min":
+        return per_gw[target_gameweek] <= min(per_gw.values()) + epsilon
+    return per_gw[target_gameweek] >= max(per_gw.values()) - epsilon
+
 
 def _decide_gameweek_action(
     con: duckdb.DuckDBPyConnection, plan_run_id: int, chips_used_set1: set, chips_used_set2: set,
@@ -616,16 +656,33 @@ def _decide_gameweek_action(
     week -- Wildcard/Free Hit already are the "transfer" for that week, and combining Bench
     Boost/Triple Captain with an ordinary transfer in the same week is a real thing an expert
     manager sometimes does, but deliberately out of scope for this v1 decision rule (named
-    here, not silently modeled as if it were handled)."""
-    used_this_set = chips_used_set1 if target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK else chips_used_set2
-    recommended = {
-        chip_type for chip_type, recommended in con.execute(
-            "SELECT chip_type, recommended FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
-        ).fetchall() if recommended
-    }
+    here, not silently modeled as if it were handled).
+
+    Set-1 gameweeks (target_gameweek < GW19) also weigh a recommended chip's current-week
+    value against holding it (see _is_best_gameweek_in_visible_horizon() above): clearing
+    evaluate_*()'s own gain threshold answers "is this worth it at all," this answers "is now
+    actually better than waiting," a genuinely different question a fixed per-week threshold
+    alone can never answer. A chip that clears its threshold but isn't (per the model's own
+    currently-visible horizon) the best week to play it is held, not taken -- the loop tries
+    the next-priority chip instead, then falls through to a transfer, exactly as when nothing
+    was recommended at all. Set-2 gameweeks (GW19+) keep the original threshold-only check --
+    deliberately out of scope for this round, named here rather than silently extended."""
+    is_set1 = target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK
+    used_this_set = chips_used_set1 if is_set1 else chips_used_set2
+    rows = con.execute(
+        "SELECT chip_type, recommended, detail FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
+    ).fetchall()
+    recommended = {chip_type: json.loads(detail or "{}") for chip_type, is_rec, detail in rows if is_rec}
+
     for candidate in CHIP_PRIORITY:
-        if candidate in recommended and candidate not in used_this_set:
-            return None, candidate
+        if candidate not in recommended or candidate in used_this_set:
+            continue
+        if is_set1:
+            field, prefer = CHIP_TIMING_FIELD[candidate]
+            per_gw = recommended[candidate].get(field, {})
+            if not _is_best_gameweek_in_visible_horizon(per_gw, target_gameweek, prefer):
+                continue  # a later week within the model's currently-visible horizon looks better -- hold
+        return None, candidate
 
     top = con.execute(
         "SELECT rank, net_value FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1", [plan_run_id]
@@ -718,7 +775,18 @@ def run_season_simulation(
             con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,
             lambda_params_version, guardrail_params_version,
         )
-    state_version = transfer_planner.bootstrap_from_squad_optimizer_run(con, bootstrap_run_id)
+        # Real look-ahead leak, fixed here: bootstrap_from_squad_optimizer_run() -> its own
+        # _compute_bank_for_squad() prices each held player via `ORDER BY gw DESC` with no
+        # ceiling -- correct for a real live run (no future gameweeks exist yet to leak from),
+        # but this call used to sit AFTER the with-block exited, so inside a season simulation
+        # walking historical gameweeks it read main.fact_player_season_stats completely
+        # unshadowed -- the manager's very first bank figure could be computed from a LATER
+        # gameweek's price than start_gameweek's own deadline. Kept inside the shadow now, so
+        # its unqualified fact_player_season_stats read resolves to the same asof-safe TEMP
+        # TABLE (season = ? AND gw < start_gameweek) every other M1-M5 call in this block
+        # already gets -- no change needed in transfer_planner.py itself, this composes with
+        # the existing mechanism exactly as asof_scope()'s own docstring promises.
+        state_version = transfer_planner.bootstrap_from_squad_optimizer_run(con, bootstrap_run_id)
 
     weekly_points: list[float] = []
     gameweeks_scored: list[int] = []
@@ -761,12 +829,18 @@ def run_season_simulation(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
                 )
 
-            if accept_chip == "free_hit":
-                free_hit_squad = transfer_planner._read_fresh_chip_squad(con, plan_run_id, "free_hit")
+                if accept_chip == "free_hit":
+                    free_hit_squad = transfer_planner._read_fresh_chip_squad(con, plan_run_id, "free_hit")
 
-            state_version = transfer_planner.apply_recommendation(
-                con, plan_run_id, accept_transfer_rank=accept_transfer_rank, accept_chip=accept_chip,
-            )
+                # Same look-ahead leak as the bootstrap call above, same fix: apply_recommendation()'s
+                # Wildcard-accept branch calls _compute_bank_for_squad() too, and this call used to
+                # sit after the with-block exited -- kept inside the shadow now so a Wildcard
+                # accepted while walking through gameweek gw prices the fresh squad off gw's own
+                # asof-safe price snapshot (gw' < gw), never a later gameweek's price. No effect on
+                # the non-Wildcard paths (they never call _compute_bank_for_squad() at all).
+                state_version = transfer_planner.apply_recommendation(
+                    con, plan_run_id, accept_transfer_rank=accept_transfer_rank, accept_chip=accept_chip,
+                )
             actions.append({
                 "gameweek": gw, "accepted_transfer_rank": accept_transfer_rank, "accepted_chip": accept_chip,
                 "plan_run_id": plan_run_id,

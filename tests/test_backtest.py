@@ -1,3 +1,4 @@
+import json
 import math
 from datetime import date, datetime
 
@@ -853,6 +854,131 @@ def test_run_season_simulation_raises_on_unfittable_start_gameweek(con):
         bt.run_season_simulation(con, "2025-2026", start_gameweek=1, end_gameweek=2, **_SEASON_SIM_VERSIONS)
 
 
+# ============================================================
+# bank-tracking look-ahead: _compute_bank_for_squad()'s `ORDER BY gw DESC` price lookup has no
+# ceiling of its own -- correct for a real live run (no future gameweeks exist to leak from),
+# a real leak inside run_season_simulation() unless the call composes with asof_scope()'s own
+# shadow. Tested directly against the underlying mechanism (bootstrap_from_squad_optimizer_run
+# inside vs. outside asof_scope), not the full season-sim fixture -- the existing
+# _seed_season_simulation_league() gives every player one FLAT price across all gameweeks by
+# construction, so it can't distinguish a leak from a non-leak; this needs a genuine multi-gw
+# price difference for one player, which is cheaper to build standalone.
+# ============================================================
+
+def _seed_bootstrap_squad_with_price_history(con, season, start_gameweek, later_gameweek, price_at_start, price_at_later):
+    """One real squad_optimizer_runs + squad_optimizer_selections row (one held player, p1)
+    plus TWO fact_player_season_stats price snapshots for that player: one at gw < start_gameweek
+    (asof-safe -- knowable at start_gameweek's own deadline) and one at later_gameweek (only
+    knowable after it) -- deliberately a HIGHER price later, the real shape of the leak: bank
+    would be UNDERSTATED (a real transfer that should be legal looking illegal) if the earlier,
+    lower price were used, but OVERSTATED (an illegal transfer looking affordable) if the later,
+    higher price leaked through -- the actually dangerous direction, per _compute_bank_for_squad()'s
+    own docstring on why it conservatively returns 0.0 rather than guess."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'P1', 'Midfielder')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', ?, ?, 'team_a', 'team_b', FALSE, "
+        "'Premier League', ?, current_timestamp)",
+        [season, start_gameweek, date(2026, 8, 1) + (start_gameweek - 1) * pd.Timedelta(days=7)],
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+        "VALUES ('p1', ?, ?, ?, current_timestamp)", [season, start_gameweek - 1, price_at_start],
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+        "VALUES ('p1', ?, ?, ?, current_timestamp)", [season, later_gameweek, price_at_later],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [season, ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    so_run_id = con.execute(
+        "INSERT INTO squad_optimizer_runs (run_id, calibration_asof_date, target_season, target_gameweek, "
+        "ep_model_version, uncertainty_model_version, lambda_params_version, lambda_value, "
+        "guardrail_params_version, divergence_check_passed, solver_status, objective_value) "
+        "VALUES (nextval('seq_squad_optimizer_run'), '2026-08-10', ?, ?, ?, ?, 1, 0.15, 1, TRUE, 'optimal', 10.0) "
+        "RETURNING run_id",
+        [season, start_gameweek, ep_mv, un_mv],
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+        "VALUES (?, 'p1', TRUE, TRUE, TRUE, FALSE)", [so_run_id],
+    )
+    return so_run_id
+
+
+def test_bootstrap_bank_composes_with_asof_scope_never_leaking_a_later_price(con):
+    so_run_id = _seed_bootstrap_squad_with_price_history(
+        con, "2025-2026", start_gameweek=5, later_gameweek=10, price_at_start=5.0, price_at_later=9.0,
+    )
+    with bt.asof_scope(con, "2025-2026", 5):
+        shadowed_state_version = tp.bootstrap_from_squad_optimizer_run(con, so_run_id)
+    shadowed_bank = con.execute(
+        "SELECT bank FROM manager_state_versions WHERE state_version = ?", [shadowed_state_version]
+    ).fetchone()[0]
+    # priced off gw4 (< start_gameweek=5), never gw10's 9.0 -- the fix this test guards.
+    assert shadowed_bank == pytest.approx(tp.squad_optimizer.BUDGET - 5.0)
+
+    # Contrast, in the same test: called with NO asof_scope at all (the pre-fix call site in
+    # run_season_simulation()), _compute_bank_for_squad()'s own `ORDER BY gw DESC` genuinely
+    # does pick up the later, real price -- proving the asof_scope wrapping above is actually
+    # what makes the difference, not a coincidence of this fixture's data.
+    unshadowed_state_version = tp.bootstrap_from_squad_optimizer_run(con, so_run_id)
+    unshadowed_bank = con.execute(
+        "SELECT bank FROM manager_state_versions WHERE state_version = ?", [unshadowed_state_version]
+    ).fetchone()[0]
+    assert unshadowed_bank == pytest.approx(tp.squad_optimizer.BUDGET - 9.0)
+
+
+def test_run_season_simulation_calls_compute_bank_only_while_the_asof_shadow_is_active(con, monkeypatch):
+    """Ties the fix directly to run_season_simulation()'s own call sites, not just the
+    underlying asof_scope()/bootstrap_from_squad_optimizer_run() mechanism in isolation (see
+    the price-value test above, which wraps the call in its own `with` block and so can't by
+    itself catch a regression if run_season_simulation() moved the real call back outside its
+    with-block). Spies on _compute_bank_for_squad() and records, at every real call during a
+    real run, whether fact_player_season_stats currently resolves to asof_scope()'s shadowed
+    TEMP TABLE rather than main.* directly. The bootstrap call always fires at least once;
+    apply_recommendation()'s Wildcard-accept call is opportunistic (only fires if the sim's own
+    decision rule accepts one that week) and is covered whenever it happens to fire."""
+    _seed_season_simulation_league(con)
+    seen_shadowed = []
+    real_fn = tp._compute_bank_for_squad
+
+    def _spy(con_arg, *args, **kwargs):
+        is_shadowed = con_arg.execute(
+            "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'fact_player_season_stats' AND temporary"
+        ).fetchone()[0] > 0
+        seen_shadowed.append(is_shadowed)
+        return real_fn(con_arg, *args, **kwargs)
+
+    monkeypatch.setattr(tp, "_compute_bank_for_squad", _spy)
+    bt.run_season_simulation(con, "2025-2026", start_gameweek=2, end_gameweek=4, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS)
+
+    assert seen_shadowed  # at least the bootstrap call fired
+    assert all(seen_shadowed)  # every real call happened while the shadow was active -- none leaked
+
+
 def test_report_season_simulation_sensitivity_writes_versions_without_touching_the_live_pin(con):
     """Regression test for the read-only contract: running a lambda/cap sensitivity sweep must
     never mutate what version=1 (the live pin) itself resolves to -- each grid candidate gets
@@ -893,23 +1019,25 @@ def test_report_season_simulation_sensitivity_writes_versions_without_touching_t
 # this is pure decision logic over already-computed recommendations).
 # ============================================================
 
-def _seed_plan_run_with_recommendations(con, recommended_chips=(), top_transfer_net_value=None):
+def _seed_plan_run_with_recommendations(con, recommended_chips=(), top_transfer_net_value=None, target_gameweek=3, detail_by_chip=None):
+    detail_by_chip = detail_by_chip or {}
     state_version = con.execute(
         "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
         "chips_used_set1, chips_used_set2, derived_from_state_version) "
-        "VALUES ('2026-2027', 3, 1, '[]', '[]', NULL) RETURNING state_version"
+        "VALUES ('2026-2027', ?, 1, '[]', '[]', NULL) RETURNING state_version", [target_gameweek],
     ).fetchone()[0]
     con.execute(
         "INSERT INTO transfer_plan_runs (calibration_asof_date, target_season, target_gameweek, "
         "input_state_version, horizon_params_version, transfer_cost_params_version, ep_model_versions, "
-        "uncertainty_model_versions) VALUES ('2026-08-17', '2026-2027', 3, ?, 1, 1, '{}', '{}') RETURNING run_id",
-        [state_version],
+        "uncertainty_model_versions) VALUES ('2026-08-17', '2026-2027', ?, ?, 1, 1, '{}', '{}') RETURNING run_id",
+        [target_gameweek, state_version],
     )
     run_id = con.execute("SELECT max(run_id) FROM transfer_plan_runs").fetchone()[0]
     for chip_type in ("wildcard", "free_hit", "bench_boost", "triple_captain"):
         con.execute(
             "INSERT INTO chip_evaluations (run_id, chip_type, recommended, score_or_gain, detail, gw19_urgent_flag) "
-            "VALUES (?, ?, ?, 1.0, '{}', FALSE)", [run_id, chip_type, chip_type in recommended_chips],
+            "VALUES (?, ?, ?, 1.0, ?, FALSE)",
+            [run_id, chip_type, chip_type in recommended_chips, json.dumps(detail_by_chip.get(chip_type, {}))],
         )
     if top_transfer_net_value is not None:
         con.execute(
@@ -975,6 +1103,125 @@ def test_decide_gameweek_action_no_recommendations_at_all_does_nothing(con):
     run_id = _seed_plan_run_with_recommendations(con, recommended_chips=())
     rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
     assert rank is None and chip is None
+
+
+# ============================================================
+# chip timing: play-now-vs-hold, using only the model's own already-visible forward EP
+# ============================================================
+
+def test_is_best_gameweek_in_visible_horizon_true_when_target_is_the_min():
+    assert bt._is_best_gameweek_in_visible_horizon({3: 10.0, 4: 20.0, 5: 15.0}, target_gameweek=3, prefer="min")
+
+
+def test_is_best_gameweek_in_visible_horizon_false_when_a_later_week_is_lower():
+    # gameweek 4's projected value (5.0) is lower than gameweek 3's (10.0) -- a genuinely
+    # worse-looking future week is real evidence to hold a rebuild chip, not play it now.
+    assert not bt._is_best_gameweek_in_visible_horizon({3: 10.0, 4: 5.0, 5: 15.0}, target_gameweek=3, prefer="min")
+
+
+def test_is_best_gameweek_in_visible_horizon_true_when_target_is_the_max():
+    assert bt._is_best_gameweek_in_visible_horizon({3: 20.0, 4: 10.0, 5: 15.0}, target_gameweek=3, prefer="max")
+
+
+def test_is_best_gameweek_in_visible_horizon_false_when_a_later_week_is_higher():
+    assert not bt._is_best_gameweek_in_visible_horizon({3: 10.0, 4: 20.0, 5: 15.0}, target_gameweek=3, prefer="max")
+
+
+def test_is_best_gameweek_in_visible_horizon_defers_to_true_on_missing_data():
+    # Empty per_gw (a chip evaluator with no comparison data) or target_gameweek simply not
+    # present -- can't assess timing, defer to the existing threshold-only check rather than
+    # silently suppressing an otherwise-real recommendation.
+    assert bt._is_best_gameweek_in_visible_horizon({}, target_gameweek=3, prefer="min")
+    assert bt._is_best_gameweek_in_visible_horizon({4: 5.0, 5: 15.0}, target_gameweek=3, prefer="min")
+
+
+def test_is_best_gameweek_in_visible_horizon_handles_stringified_json_keys():
+    # chip_evaluations.detail round-trips through json.dumps/json.loads -- dict keys come back
+    # as strings ("3", not 3). The real bug this guards: comparing int target_gameweek against
+    # string dict keys would never match, silently defeating the whole comparison.
+    assert bt._is_best_gameweek_in_visible_horizon({"3": 10.0, "4": 20.0}, target_gameweek=3, prefer="min")
+    assert not bt._is_best_gameweek_in_visible_horizon({"3": 10.0, "4": 5.0}, target_gameweek=3, prefer="min")
+
+
+def test_decide_gameweek_action_holds_a_recommended_chip_when_a_later_week_looks_better(con):
+    # Wildcard clears its threshold (recommended=True) but the current squad's own visible
+    # trajectory says gameweek 5 is a genuinely worse week than gameweek 3 -- the real
+    # situation Wildcard exists to fix is worse LATER, not now, so this should hold, not play.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), target_gameweek=3,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {3: 20.0, 4: 15.0, 5: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # held, not played
+    assert rank is None  # no transfer seeded either in this fixture
+
+
+def test_decide_gameweek_action_plays_a_recommended_chip_when_now_is_the_best_visible_week(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), target_gameweek=3,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {3: 5.0, 4: 15.0, 5: 20.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "wildcard"
+
+
+def test_decide_gameweek_action_held_chip_falls_through_to_next_priority_chip(con):
+    # wildcard is recommended but timing says hold; free_hit is recommended AND timing says
+    # now is genuinely its best visible week -- the loop must keep trying, not stop at the
+    # first (held) candidate.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard", "free_hit"), target_gameweek=3,
+        detail_by_chip={
+            "wildcard": {"current_squad_value_per_gw": {3: 20.0, 4: 5.0}},
+            "free_hit": {"current_xi_value_per_gw": {3: 5.0, 4: 20.0}},
+        },
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "free_hit"
+
+
+def test_decide_gameweek_action_held_chip_falls_through_to_a_transfer(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), top_transfer_net_value=4.0, target_gameweek=3,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {3: 20.0, 4: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None
+    assert rank == 1
+
+
+def test_decide_gameweek_action_bench_boost_timing_uses_all_gameweeks_field(con):
+    # bench_boost's own evaluate_bench_boost() already carries a real per-gameweek breakdown
+    # (all_gameweeks) -- this is the pre-existing bug the reviewer flagged: recommended was
+    # always True whenever there's a bench, so bench_boost got taken on the very first
+    # eligible week regardless of whether a later week actually maximizes bench EP.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {"all_gameweeks": {3: 5.0, 4: 20.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw4 looks better than gw3 -- hold
+
+
+def test_decide_gameweek_action_triple_captain_timing_uses_captain_value_per_gw_field(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=3,
+        detail_by_chip={"triple_captain": {"captain_value_per_gw": {3: 12.0, 4: 4.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "triple_captain"  # gw3 is already the best visible week -- play now
+
+
+def test_decide_gameweek_action_timing_gate_is_skipped_for_set2_gameweeks(con):
+    # Chip timing is explicitly scoped to set-1 (GW1-18) per the task's own framing -- set-2
+    # gameweeks (GW19+) keep the original threshold-only check, even when a per_gw trajectory
+    # that would otherwise say "hold" is present in the detail payload.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("wildcard",), target_gameweek=25,
+        detail_by_chip={"wildcard": {"current_squad_value_per_gw": {25: 20.0, 26: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0)
+    assert chip == "wildcard"  # would be held under set-1 rules, but set-2 ignores timing
 
 
 # ============================================================
