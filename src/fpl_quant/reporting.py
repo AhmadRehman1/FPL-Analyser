@@ -108,8 +108,22 @@ def build_report(
     minutes_model_version = con.execute(
         "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [uncertainty_model_version]
     ).fetchone()[0]
+    # Real bug fixed here: this previously took max(model_version) for the squad_optimizer_run_id
+    # alone, with no check that the Monte Carlo run actually used the same ep_model_version/
+    # uncertainty_model_version this report is otherwise built from. monte_carlo_run_versions
+    # has no uniqueness constraint on squad_optimizer_run_id, so a second monte_carlo.run() call
+    # against the same run_id (e.g. after an upstream EP/uncertainty recalibration produced new
+    # model versions but the squad itself wasn't re-optimized) would silently pick the newest MC
+    # run even if it was simulated against stale EP/uncertainty inputs -- an internally
+    # inconsistent report mixing one gameweek's analytic risk numbers with another's empirical
+    # ones, with no warning. Filtering on the matching versions (still picking the latest MC run
+    # among those that actually match) makes the empirical section either genuinely consistent
+    # with the rest of the report, or explicitly absent (mc_model_version=None) rather than
+    # silently wrong.
     mc_model_version = con.execute(
-        "SELECT max(model_version) FROM monte_carlo_run_versions WHERE squad_optimizer_run_id = ?", [squad_optimizer_run_id]
+        "SELECT max(model_version) FROM monte_carlo_run_versions "
+        "WHERE squad_optimizer_run_id = ? AND ep_model_version = ? AND uncertainty_model_version = ?",
+        [squad_optimizer_run_id, ep_model_version, uncertainty_model_version],
     ).fetchone()[0]
 
     total_ep = 0.0

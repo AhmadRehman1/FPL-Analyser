@@ -110,6 +110,35 @@ def test_divergence_check_fails_when_variance_is_a_stub_zero():
     assert r0["squad"] == r_real["squad"]
 
 
+def test_captain_choice_is_risk_aware_not_just_risk_aware_for_squad_membership():
+    """Regression test for a real bug: the risk term used to weight every XI player's
+    variance/covariance by a flat `xi` indicator, so captaining (which doubles a player's
+    actual point variance -- Var(2X)=4*Var(X)) was invisible to the risk-aversion mechanism.
+    Two otherwise-identical high-mu candidates, one with much higher variance than the other:
+    a genuinely risk-aware optimizer should prefer captaining the LOWER-variance one once
+    lambda > 0, even though their raw mu is tied (so a risk-blind captain choice would be
+    indifferent between them)."""
+    pool = _synthetic_pool()
+    # tie two players' mu exactly, at the top of the pool, so captaincy is otherwise a coin
+    # flip between them -- the only thing that should break the tie is variance.
+    top_mu = max(c["mu"] for c in pool)
+    steady, volatile = pool[-1], pool[-2]  # fwd3, fwd2 (both Forwards, adjacent clubs/prices)
+    tied_mu = top_mu + 1.0  # make them the clear top-mu candidates in the whole pool
+    steady["mu"] = tied_mu
+    volatile["mu"] = tied_mu
+    steady["var"] = 1.0
+    volatile["var"] = 40.0  # a real boom-or-bust player: same expected points, far riskier
+
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    by_uid = {c["player_uid"]: c for c in pool}
+    assert result["captain"] in (steady["player_uid"], volatile["player_uid"])
+    assert by_uid[result["captain"]]["player_uid"] == steady["player_uid"], (
+        "with tied mu, a risk-aware optimizer must prefer captaining the lower-variance "
+        "player -- if this fails, the risk term is not accounting for captaincy doubling "
+        "variance (Var(2X)=4*Var(X)), i.e. the original bug has regressed"
+    )
+
+
 def test_divergence_check_passes_with_real_variance_structure(con):
     """A meaningfully differentiated variance/covariance structure (like M4's real output)
     should make lambda actually move the solve -- the check should NOT fire here."""

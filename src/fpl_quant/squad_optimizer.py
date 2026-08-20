@@ -161,9 +161,23 @@ def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: 
     linear_ep += scip.quicksum(captain[c["player_uid"]] * c["mu"] for c in candidates)
 
     if lam > 0:
-        risk_expr = scip.quicksum(xi[c["player_uid"]] * c["var"] for c in candidates)
+        # Effective scoring weight per player is w_i = xi_i + captain_i (1 for a normal XI
+        # player, 2 for the captain, since captain[uid] <= xi[uid] is already enforced above)
+        # -- exactly mirrors how linear_ep itself is built two lines up. The risk term must
+        # use the SAME weights: Var(total) = sum_i w_i^2 * var_i + 2 * sum_{i<j} w_i*w_j*cov_ij.
+        # Previously this used a flat xi_i weight even in the risk term while linear_ep used
+        # w_i -- captaincy doubled a player's EP contribution but never doubled (let alone
+        # quadrupled, since Var(2X)=4*Var(X)) their variance/covariance contribution, so the
+        # optimizer's risk aversion was structurally blind to the single largest variance
+        # decision in the whole squad (who to captain). Fixed by using w_i everywhere below.
+        # Binary algebra (captain_i <= xi_i, at most one captain): w_i^2 = xi_i + 3*captain_i,
+        # and for i != j, w_i*w_j = xi_i*xi_j + xi_i*captain_j + captain_i*xi_j (captain_i*
+        # captain_j is 0 for i != j since exactly one captain is chosen).
+        risk_expr = scip.quicksum(
+            (xi[c["player_uid"]] + 3 * captain[c["player_uid"]]) * c["var"] for c in candidates
+        )
         for (a, b), cov in sigma_pairs.items():
-            risk_expr += 2 * cov * xi[a] * xi[b]
+            risk_expr += 2 * cov * (xi[a] * xi[b] + xi[a] * captain[b] + captain[a] * xi[b])
         t = m.addVar(vtype="C", lb=0, name="risk")
         m.addCons(t >= risk_expr)
         m.setObjective(linear_ep - lam * t, sense="maximize")
@@ -214,14 +228,37 @@ def run(
     result_zero = solve(candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap)
     result_real = solve(candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap)
 
-    divergence_passed = bool(result_zero["squad"]) and result_zero["squad"] != result_real["squad"]
+    # The baseline (lambda=0) solve must itself have actually reached optimality -- a
+    # "timelimit" status there is silently accepted identically to "optimal" further down,
+    # so a slow/degenerate baseline solve could return an arbitrary incumbent squad and still
+    # spuriously "pass" the check below just by differing from result_real. Real bug fixed
+    # here: only a genuinely optimal baseline is trustworthy as the comparison point.
+    baseline_reliable = result_zero["status"] == "optimal" and bool(result_zero["squad"])
+
+    # Squad-membership alone is too weak a check: a single bench player swapping (while the
+    # XI, captain, and vice are all identical) would satisfy `squad != squad` and spuriously
+    # "pass," even though nothing that actually affects points changed and the risk term
+    # could still be doing essentially nothing on the decisions that matter. Real gap fixed
+    # here: require the XI or the captain to actually differ, not just any of the 15 slots.
+    meaningfully_different = (
+        result_zero["xi"] != result_real["xi"] or result_zero["captain"] != result_real["captain"]
+    )
+
+    divergence_passed = baseline_reliable and meaningfully_different
     note = None
     if not divergence_passed:
-        note = (
-            f"lambda=0 and lambda={lam} produced the identical squad "
-            f"({len(result_real['squad'])} players) -- the quadratic risk term is provably "
-            f"not affecting the solve. Per M5's frozen spec this is a hard stop, not a warning."
-        )
+        if not baseline_reliable:
+            note = (
+                f"lambda=0 baseline solve did not reach a reliable optimum "
+                f"(status={result_zero['status']}) -- cannot trust the divergence comparison."
+            )
+        else:
+            note = (
+                f"lambda=0 and lambda={lam} produced the same XI and captain "
+                f"({len(result_real['squad'])}-player squad) -- the quadratic risk term is "
+                f"provably not affecting the decisions that matter. Per M5's frozen spec this "
+                f"is a hard stop, not a warning."
+            )
 
     run_id = con.execute(
         """

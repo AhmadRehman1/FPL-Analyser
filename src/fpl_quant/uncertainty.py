@@ -196,13 +196,28 @@ def total_variance(con, ep_row: dict, position: str, rates: dict, def_rates: dic
     state_means = category_state_means(con, ep_row, position, rates, def_rates, mean_minutes, scoring_params_version)
     p0, p1, p2 = ep_row["p_0"], ep_row["p_1_59"], ep_row["p_60plus"]
 
+    # rho_residual is a flat, POSITIVE placeholder correlation applied uniformly to every
+    # active category pair "given the player is playing." That's a reasonable default for
+    # most pairs (e.g. goals/assists/bonus genuinely tend to move together), but it's wrong
+    # for a same-player pair that is mechanically complementary rather than reinforcing:
+    # clean_sheet and goals_conceded are both driven off the *same* opponent-goals draw for
+    # this player's own team in this same match, and a clean sheet (opponent scores 0)
+    # structurally excludes goals being conceded. The shared-gate term below already gets
+    # this right (it correctly comes out negative for this pair, since clean_sheet's state
+    # mean is positive exactly where goals_conceded's is at its least-negative), but adding
+    # a flat +rho_residual on top was silently fighting that correct negative signal and
+    # understating GK/DEF risk. Real bug, fixed here: this specific pair gets the residual
+    # applied with a negative sign instead of the flat positive default.
+    NEGATIVELY_LINKED_PAIRS = {frozenset({"clean_sheet", "goals_conceded"})}
+
     var_total = sum(variances.values())
     active = [c for c in CATEGORIES if variances[f"var_{c}"] > 0]
     for i, ca in enumerate(active):
         for cb in active[i + 1:]:
             shared = _shared_gate_covariance(state_means, p0, p1, p2, ca, cb)
-            residual = rho_residual * math.sqrt(variances[f"var_{ca}"] * variances[f"var_{cb}"])
-            var_total += 2 * (shared + residual)
+            residual_magnitude = rho_residual * math.sqrt(variances[f"var_{ca}"] * variances[f"var_{cb}"])
+            residual_sign = -1.0 if frozenset({ca, cb}) in NEGATIVELY_LINKED_PAIRS else 1.0
+            var_total += 2 * (shared + residual_sign * residual_magnitude)
 
     return variances, max(var_total, 0.0)
 

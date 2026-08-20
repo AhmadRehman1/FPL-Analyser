@@ -385,7 +385,7 @@ def test_apply_recommendation_accepting_a_transfer_updates_holdings_and_free_tra
     row = con.execute(
         "SELECT free_transfers_available, as_of_gameweek FROM manager_state_versions WHERE state_version = ?", [new_state_version]
     ).fetchone()
-    assert row == (0, 3)  # was 1 free transfer, used (cost 0.0), gameweek advances to 3
+    assert row == (1, 3)  # was 1 FT, used it (cost 0.0), but a new FT is granted this gameweek too -> back to 1
 
     linked = con.execute("SELECT produced_by_run_id FROM manager_state_versions WHERE state_version = ?", [new_state_version]).fetchone()[0]
     assert linked == run_id
@@ -414,7 +414,7 @@ def test_apply_recommendation_paid_transfer_does_not_consume_free_transfer(con):
     free_transfers = con.execute(
         "SELECT free_transfers_available FROM manager_state_versions WHERE state_version = ?", [new_state_version]
     ).fetchone()[0]
-    assert free_transfers == 1  # unchanged -- this was a paid hit, not a free transfer
+    assert free_transfers == 2  # paid hit doesn't consume the FT, and a new one is still granted this gameweek
 
 
 def test_apply_recommendation_accepting_a_chip_records_it_in_the_right_set(con):

@@ -594,7 +594,14 @@ def apply_recommendation(
         holdings_by_uid[player_in] = {
             "player_uid": player_in, "in_xi": outgoing["in_xi"], "is_captain": False, "is_vice": False,
         }
-        new_free_transfers = max(0, free_transfers_available - (1 if transfer_cost == 0.0 else 0))
+        # Real FPL rule: a new free transfer is granted every gameweek regardless of whether
+        # a transfer was made this week -- this must apply on the accepted-transfer path too,
+        # not just the "no transfer" path below. Previously this line only decremented (or
+        # held flat on a paid hit) with no +1, so free_transfers_available silently drained
+        # toward 0 every time a free transfer was actually used, and never grew back --
+        # a real bug: it made the planner progressively undercount how many free transfers
+        # it had available, biasing it toward pricing genuinely-free transfers as -4 hits.
+        new_free_transfers = min(5, max(0, free_transfers_available - (1 if transfer_cost == 0.0 else 0)) + 1)
     else:
         new_free_transfers = min(5, free_transfers_available + 1)  # banked, unused this gameweek
 
