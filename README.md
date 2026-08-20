@@ -181,6 +181,48 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   writing this proposal now shows **64 of 71** (`tc_risk_aversion_params` moved out of the
   never-backtested set) -- see Design notes for the important caveat before treating proposal
   #6 as a clean recommendation.
+- **Systematic bug-fix audit (follow-up, not a new milestone).** Two rounds. Round 1 found and
+  fixed six real bugs across M5/M7/M8: free-transfer undercounting, captain risk-blindness in
+  the MIQP's risk term, a divergence check that accepted a bench-only squad difference as
+  "passing," a sign error in GK/DEF residual covariance, stale "live" stats never refreshing on
+  re-ingestion, and evidence-claim duplication on re-ingestion. A follow-up pass resolved the
+  two issues that audit deliberately left for human review rather than auto-fixing: (1)
+  `refit_minutes_and_evidence_params()`'s multi-round coordinate descent selected against the
+  same steps it was scored on, a materially bigger overfitting risk than `refit_lambda()`'s
+  single 7-point grid -- fixed with a real chronological holdout split (descend on 2024-25's
+  warm gameweeks, report the final score against all of 2025-26, never touched by the descent);
+  (2) `snapshot.py`'s three `get_matches_asof`/`get_player_match_stats_asof`/
+  `get_player_season_stats_asof` functions filtered on wall-clock `_ingested_at` (the same class
+  of bug already fixed for `evidence_claims.ingested_date`), were confirmed dead code (zero
+  production callers -- `asof_scope()` is the real mechanism), and were deleted rather than
+  fixed, to avoid leaving a second, wrong-by-default parallel asof-aware path lying around. A
+  fresh audit pass on `monte_carlo.py`, `entity_resolution.py`, and M8's chip-evaluation logic
+  (lighter-scrutiny areas from the first round) found four more real bugs: GK saves-to-points
+  used continuous division instead of the real integer-floor rule; `check_gw19_deadline()`
+  could flag a chip both `urgent` and `forfeited_now` simultaneously at GW19 itself;
+  `evaluate_free_hit()` reused Wildcard's own gain threshold (calibrated for a 15-player x
+  5-gameweek sum) for an 11-player x 1-gameweek gain; and `apply_recommendation(accept_chip=
+  "wildcard")` never actually rebuilt the squad from the fresh M5 solve it evaluated -- a
+  complete no-op on the squad, found while reading M8 for the season-simulation work below, not
+  by the audit agent, and a hard prerequisite for that work (a season simulation that accepts
+  Wildcard needs Wildcard to actually do something). `entity_resolution.py` and Triple Captain's
+  marginal-value claim were checked and found correct, not silently assumed clean.
+- **Season-long objective (M7/M8 extension, not a new milestone): a real, evolving-manager
+  simulation harness.** Every walk-forward mechanism up to this point -- `backtest.run()`,
+  `refit_lambda()`, `report_concentration_sensitivity()` -- re-solves `squad_optimizer` fresh at
+  every single gameweek, exactly the gap this README already named explicitly (see
+  `wildcard_gain_threshold_params`'s own Design note above: "M7's walk-forward squad is M5's
+  from-scratch pick every single step, not an evolving manager holding ... a materially larger,
+  separately-scoped piece of work"). Season-long *rank* depends on cumulative points from ONE
+  evolving squad making real transfer/chip decisions week to week, not on any single gameweek's
+  score in isolation -- `backtest.run_season_simulation()` is that harness: bootstraps a real M5
+  squad, then walks forward calling the real, unmodified `transfer_planner.run()`/
+  `apply_recommendation()` every gameweek via an explicit, auditable decision rule
+  (`_decide_gameweek_action()`: accept the #1 transfer if its net value clears a threshold, else
+  one recommended chip in a fixed priority order, never both in the same week). See Design notes
+  for the `asof_scope()` extension this needed, the season-consistency metrics it's scored on,
+  real (if synthetic) sensitivity findings on `lambda_value`/`xi_club_concentration_cap`, and
+  the new optional captain-differential and price/ownership-momentum signals built alongside it.
 
 ## Quick start
 
@@ -226,19 +268,29 @@ src/fpl_quant/
     minutes_model.py           -- M2: historical fit, evidence adjustment, three-state output
     expected_points.py         -- M3: per-category sub-models, Plackett-Luce bonus, EP total
     uncertainty.py             -- M4: variance, within/cross-player covariance, Cornish-Fisher
-    squad_optimizer.py         -- M5: MIQP via SCIP, lambda=0-vs-real divergence check
+    squad_optimizer.py         -- M5: MIQP via SCIP, lambda=0-vs-real divergence check,
+                                    optional captain-differential tie-break (ownership proxy)
     monte_carlo.py              -- M6: Z_fixture Gamma-Poisson mixture, antithetic-variate
                                     gameweek simulation, empirical Sigma vs M4
-    backtest.py                  -- M7: asof_scope() TEMP TABLE shadowing, walk-forward loop +
-                                     tiered scoring, per-family recalibration + proposal gate
-    transfer_planner.py           -- M8: horizon EP, transfer search, Wildcard/Free Hit/Triple
-                                     Captain/Bench Boost evaluation, manager-state evolution
+    backtest.py                  -- M7: asof_scope() TEMP TABLE shadowing (now with an optional
+                                     multi-gameweek schedule_horizon_gameweeks window),
+                                     walk-forward loop + tiered scoring, per-family recalibration
+                                     + proposal gate, and run_season_simulation() -- a real
+                                     evolving-manager simulation with season_cumulative_metrics()
+                                     (Sharpe + max drawdown) and report_season_simulation_
+                                     sensitivity() for lambda/concentration-cap evidence
+    transfer_planner.py           -- M8: horizon EP, transfer search (with optional price/
+                                     ownership momentum, informational only), Wildcard/Free Hit/
+                                     Triple Captain/Bench Boost evaluation, manager-state
+                                     evolution (bank tracking included)
     reporting.py                   -- M9: automated sanity-check flags + report assembly/
                                      rendering, calling every other module's explain() adapter
 scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live gameweek)
 scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
 scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
+scripts/run_season_simulation.py   -- M7/M8: one real season simulation + a real lambda/
+                                     concentration-cap sensitivity sweep against the real DB
 scripts/run_report.py              -- M9: build + print a real squad report from the project database
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
@@ -678,3 +730,197 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   holding, so no equivalent "what would the manager have owned at gameweek N" state exists in
   M7's infrastructure to compare a wildcard's gain against. A materially larger, separately-
   scoped piece of work, not a small addition to `recalibrate()` -- named as a real, open gap.
+- **`apply_recommendation(accept_chip="wildcard")` used to be a complete no-op on the squad --
+  found reading M8 closely for the season-simulation work below, not by the fresh audit pass.**
+  It recorded the chip as used and nothing else; `holdings_by_uid` was never rebuilt from the
+  fresh M5 squad `evaluate_wildcard()` had already solved and stored a real `fresh_run_id` for.
+  This is also the exact reason the season-simulation harness couldn't have been built
+  meaningfully without fixing it first: a simulated manager that "accepts" Wildcard and gets
+  nothing has no real decision to make. Fixed by adding `_read_fresh_chip_squad()` (reads the
+  fresh squad straight off the stored `chip_evaluations.detail.fresh_run_id`, shared by both the
+  Wildcard-accept path and the season simulation's own one-off Free Hit scoring below) and
+  recomputing bank from the fresh squad's real leftover budget the same way
+  `bootstrap_from_squad_optimizer_run()` already does. Free Hit deliberately still leaves
+  holdings untouched on accept -- that's correct, not the same bug: its whole point is a
+  one-week-only rebuild that reverts, so nothing should persist forward from it at all.
+  `accept_chip="wildcard"` combined with `accept_transfer_rank` now raises rather than silently
+  picking a winner -- a real M5 solve already replaces every holding, so layering a single
+  transfer on top of it was never a coherent action to begin with.
+- **`refit_minutes_and_evidence_params()`'s coordinate descent had a real, undisclosed
+  overfitting risk -- resolved with an actual chronological holdout, not just a comment.**
+  `refit_lambda()`'s own "out-of-sample" framing means something narrower than a genuine train/
+  validate split (decisions were made without seeing outcomes, but the same 7-point grid is
+  both selected on and scored on the same steps) -- a small, real risk for a single-dimension
+  grid search, but `refit_minutes_and_evidence_params()` is a multi-round, multi-family block
+  coordinate descent over the same fixed step set, a materially bigger version of the identical
+  risk. `recalibrate()` now splits by season when this technique runs: the descent still climbs
+  2024-25's warm gameweeks (its `eval_steps`, unchanged), but the proposal's logged before/after
+  metric is a genuinely disjoint score against all of 2025-26 -- a real forward-chronological
+  holdout the descent never touched, not the in-sample number it was picked to maximize.
+  `holdout_steps` is opt-in (`minutes_holdout_flag`, default on for `recalibrate()`'s own
+  callers, but the underlying function defaults to off, `holdout_steps=None`, for any other
+  caller) -- existing behavior is unchanged unless a holdout set is actually supplied.
+
+## Season-long objective: design notes
+
+Everything below was verified against a real, if synthetic, run -- `data/external/` and
+`db/fpl_quant_v2.duckdb` are both gitignored and not present in every environment this was
+built in, so a 6-club/18-player synthetic league (`tests/test_backtest.py`'s own
+`_seed_season_simulation_league()`) stood in for the real ingested DB. The full real pipeline
+runs against it unmodified -- `team_strength.calibrate()` -> `minutes_model.run()` -> `ep.run()`
+-> `uncertainty.run()` -> `squad_optimizer.run()` (divergence check included) ->
+`transfer_planner.run()`/`apply_recommendation()`, every gameweek -- confirmed stable across 5
+different random seeds before any of these numbers were written down, not a single lucky run.
+Every finding below is named as synthetic evidence, not real-data evidence, on purpose: the
+methodology is real and immediately reusable against the real DB
+(`scripts/run_season_simulation.py`), but a toy 18-player league's specific numbers are not a
+basis for changing a live pinned parameter, the same discipline this README already insists on
+for the existing (real-data) `lambda_value` finding above.
+
+- **`asof_scope()` needed a real extension, not a workaround, to support multi-gameweek
+  planning.** `compute_horizon_ep()` plans 5 gameweeks ahead in one call, but the original
+  `asof_scope()` only ever revealed the *current* gameweek's fixture schedule -- every gameweek
+  beyond it was fully invisible, schedule included. That's correct for M7's single-gameweek-
+  ahead backtest, but structurally wrong for a 5-gameweek-ahead plan: a real manager genuinely
+  does know the announced fixture list several gameweeks out (the whole season's calendar is
+  published before a ball is kicked), just not results. `schedule_horizon_gameweeks` (default
+  1, exact unchanged behavior) widens the same schedule-only exception to
+  `[gameweek, gameweek+horizon)` -- confirmed the widened window still hides a future
+  gameweek's *result* and *player-level match stats* even when its schedule becomes visible
+  (a dedicated regression test asserts both). Reusing the existing mechanism, not building a
+  parallel one, was the whole point -- extending it was the only way to keep that true.
+- **The decision rule (`_decide_gameweek_action()`) is deliberately simple and auditable, not a
+  second optimization layer.** Accept the #1 ranked transfer iff its `net_value` clears a
+  threshold (default: any genuine positive expected gain), else accept one recommended chip in
+  a fixed priority order (`CHIP_PRIORITY = (wildcard, free_hit, bench_boost, triple_captain)`),
+  skipping any chip already spent from the set covering that gameweek, never both a transfer and
+  a chip in the same week. Combining Bench Boost/Triple Captain with an ordinary transfer in the
+  same week is a real thing an expert manager sometimes does -- deliberately out of scope for
+  this v1 rule, named here rather than silently half-modeled.
+- **Free Hit's scoring is handled in the harness itself, not by generalizing
+  `apply_recommendation()`'s contract.** Its whole point is a one-off squad that scores exactly
+  one gameweek and then reverts -- `run_season_simulation()` reads the fresh Free Hit squad
+  directly (`_read_fresh_chip_squad()`) and scores that gameweek off it, while
+  `apply_recommendation()` still leaves persisted holdings untouched (correct, see above), so
+  the *following* gameweek's decision continues from the pre-Free-Hit squad exactly as it
+  should. Bench Boost scores the full 15-player squad instead of just the XI for its one
+  gameweek; Triple Captain triples (not doubles) the captain -- `_realized_xi_points()` gained a
+  `captain_multiplier` parameter (default 2, the real rule every other week) for this.
+- **`season_cumulative_metrics()`: `realized_sharpe` is the exact same formula
+  `refit_lambda()` already uses, over a genuinely different population.** `refit_lambda()`
+  computes mean/std of realized points across *independent, from-scratch* squads, one per
+  backtest gameweek -- a cross-sectional read on which `lambda` typically scores better.
+  `season_cumulative_metrics()` computes the identical formula over *one* manager's own real
+  week-by-week trajectory across a season -- the actual quant-finance sense of a single track
+  record's Sharpe ratio, which is what season-long consistency is actually asking about. Sharpe
+  alone can't see drawdown, though: real weekly points are (virtually) always non-negative, so
+  cumulative points only ever accumulate -- a literal price-style drawdown computed on them
+  would always be ~0 and tell you nothing. `max_drawdown` instead applies the standard
+  "underwater curve" technique to *cumulative surplus over the season's own mean weekly score*
+  (`cumsum(weekly_points - mean)`, then the deepest fall from that curve's own running peak) --
+  verified this actually distinguishes what Sharpe alone can miss: two synthetic trajectories
+  with the identical total and identical variance (`[80,80,80,20,20,20]` vs
+  `[80,20,80,20,80,20]`) score identically on `realized_sharpe` but very differently on
+  `max_drawdown` -- the one long cold streak scores meaningfully worse, exactly the real
+  season-consistency distinction Sharpe's single whole-season standard deviation can't make.
+- **Real (synthetic) `lambda_value`/`xi_club_concentration_cap` sensitivity, via
+  `report_season_simulation_sensitivity()` against the 6-club/18-player league, GW2-6:**
+
+  | lambda | total | sharpe | max_drawdown |
+  |---|---|---|---|
+  | 0.10 | 400 | 10.97 | 12.0 |
+  | **0.15 (live pin)** | 376 | 13.88 | 5.2 |
+  | 0.20 | 400 | 11.95 | 15.0 |
+  | 0.30 | 400 | 11.95 | 15.0 |
+  | 0.50 | 369 | 15.14 | 5.8 |
+
+  | cap | total | sharpe | max_drawdown |
+  |---|---|---|---|
+  | 2 | 330 | 26.09 | 4.0 |
+  | **3 (live pin)** | 376 | 13.88 | 5.2 |
+  | 4 | 376 | 13.88 | 5.2 |
+  | 5 | 376 | 13.88 | 5.2 |
+
+  Two real, non-obvious findings, not assumed going in. First: raising `lambda_value` is *not*
+  monotonically safer on this run -- 0.20 and 0.30 both reach a higher total than the current
+  pin but with *worse* drawdown (15.0 vs 5.2), directly the naive "just crank risk aversion up
+  for safety" mistake this task was explicitly warned against; only pushing well past the
+  current pin (0.50) improves both Sharpe and drawdown further, at a small cost to total. Second,
+  the cap sweep reproduces the *same* redundancy relationship the real 63-gameweek backtest
+  already found (cap 3/4/5 identical at the current lambda -- the risk term alone already keeps
+  concentration below even the loosest cap tried) and extends it: cap=2 is *not* redundant, it
+  measurably trades total points for a much better Sharpe and drawdown, evidence the guardrail
+  has real teeth below 3, not just at-or-above it. Neither finding is a recommendation to change
+  the live pins -- both need the same real-data confirmation this README already insists on
+  before touching `lambda_value` -- but the *methodology* (this exact function, same code) is
+  ready to run against the real DB the moment it's available, and the non-monotonicity itself is
+  a real, reusable caution for whoever runs that real sweep next.
+  <br><br>One structural finding, not a tuning result: `lambda_value=0.0` is not a valid grid
+  candidate for this harness at all. `run_season_simulation()` always goes through the real,
+  divergence-checked `squad_optimizer.run()` (never bare `solve()`, unlike `refit_lambda()`),
+  and that check always compares its trial lambda against a lambda=0 baseline -- trialing 0.0
+  itself would compare that baseline against itself and always "fail" by construction. On this
+  small synthetic pool even `lambda=0.05` genuinely failed to move the optimal XI/captain at all
+  (confirmed empirically, not assumed, before picking a grid) -- a real, if pool-size-specific,
+  illustration of exactly the kind of degenerate-variance failure mode the divergence check
+  exists to catch.
+- **Horizon length: checked, not changed.** `compute_horizon_ep()` already re-evaluates a
+  rolling 5-gameweek EP window at *every* step of the season simulation, not once -- that's
+  already season-long-aware, not myopic to a single gameweek, since the same rolling horizon
+  gets applied consistently across the whole simulated window. No horizon-length sensitivity
+  report was built for this round (a natural, cheap extension mirroring
+  `report_concentration_sensitivity()`'s own pattern, left for whoever next has real backtest
+  time to spend on it) -- named as a deliberately deferred, not silently skipped, piece of work.
+- **Captain differential: a hard-constraint lexicographic tie-break, not an ownership bonus
+  blended into the objective.** The explicit design constraint was to break ties, not chase low
+  ownership for its own sake (pure differential-chasing is just variance-seeking, which
+  contradicts the season-consistency goal directly above). `captain_choice_with_differential()`
+  computes solve()'s own risk-adjusted objective for every candidate captain in the *already-
+  solved* XI (closed-form -- with the XI fixed, captain choice is one binary decision, not a new
+  MIQP) and only ever considers candidates within `tiebreak_epsilon` of the true optimum; a
+  candidate outside that band is never reachable no matter how low its ownership. Verified with
+  a real hand-computed near-tie (two candidates 0.02 objective-points apart get the lower-
+  ownership one preferred; a candidate 2.0 points back does not, even as the single lowest-
+  ownership option in the pool) and a tight-epsilon case that keeps the original pick entirely.
+  This directly extends a real near-tie this README already documented independently (M6's
+  Bruno-vs-Senesi Triple Captain near-exact-tie) -- the same signal, a second real mechanism.
+  Every result carries an explicit, unconditional caveat: this is a "how differentiated is my
+  own squad" proxy, not a real rival-manager overall-rank projection -- confirmed no such data
+  (other managers' squads, the overall leaderboard) exists anywhere in the ingested sources.
+- **Set-piece evidence was ingested and completely dormant -- confirmed by grep before writing
+  any code, not assumed.** `ingest_research_pull.ingest_set_piece_takers()` has written real
+  `claim_type="set_piece_order_override"` claims (`{club, duty, order: primary/secondary}`)
+  into `evidence_claims` since that module existed; nothing anywhere in `src/` ever read that
+  claim_type. Penalty-taker identity is correctly left at 0 for penalty *points* (no reconciled
+  penalty-frequency data, per this module's own docstring) -- goal-*rate* uplift is a different,
+  narrower lever: a small, versioned multiplicative boost to `e_goals` (feeding both `ep_goals`
+  and the BPS `mu` term consistently, the existing "intentional dual use" pattern this module's
+  own non-double-counting audit already documents) for confirmed *primary penalty takers*
+  specifically -- the single highest-signal, best-understood case, and the one pure historical
+  xG genuinely can't reflect yet for a summer signing or an in-season duty change. Free-kick/
+  corner duty claims exist in the same source tab and are deliberately left alone -- a smaller,
+  separately-scoped extension, not silently folded in. Asof-safe (a claim only applies after its
+  own `observed_date`, verified directly). The uplift magnitude (1.15) is an invented v1
+  default, same status as every other unpinned constant here -- no reconciled penalty-frequency/
+  conversion data exists anywhere in this project to derive a real number from.
+- **Price/ownership momentum: also already-available, wired in as strictly secondary.**
+  `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
+  `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --
+  a week-over-week trajectory per player was already sitting there. `evaluate_transfers()`'s
+  optional `target_gameweek` flag attaches `price_momentum_in/out` and
+  `ownership_momentum_in/out` to each result; verified byte-for-byte identical `net_value` and
+  ranking order with the flag on vs off, confirming this is purely informational and never a
+  ranking input -- budget timing is a different question from a player's own expected points,
+  and folding the two together would corrupt the EP-driven ranking for no defensible reason.
+- **A pre-existing quirk surfaced while building the synthetic league fixture, not fixed here
+  (disclosed, out of scope for this round).** `uncertainty.run()`'s cross-player-covariance
+  roster lookup (`team_of`, used to decide who's a teammate vs an opponent) is hardcoded to
+  `season_priority[0]` (default `"2026-2027"`) regardless of which season is actually being
+  processed -- confirmed by reading the code, not inferred from a crash message alone. It works
+  by accident against the real ingested DB (2026-27 rosters overlap enough with prior seasons'
+  `player_alias`/`team_alias` rows for the join to find real teammates), which is presumably why
+  the real 71-gameweek M7 backtest never surfaced it, but a season simulation run against a
+  synthetic league needed 2026-27-season `player_alias`/`team_alias` rows seeded explicitly for
+  it to resolve at all. Worth a real fix (`season_priority` threaded from the actual target
+  season, not defaulted) the next time `uncertainty.py` gets touched -- named here so it isn't
+  quietly rediscovered from a confusing empty-roster failure.
