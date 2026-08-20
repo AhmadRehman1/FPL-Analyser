@@ -427,9 +427,18 @@ def compute_player_fixture_components(
         ep_goals_conceded = -1.0 * e_floor_half_conceded
 
     # ---- DefCon (count-distribution, thresholded, gated by minutes) ----
+    # Real FPL rule: defenders clear a CBIT threshold (clearances+blocks+interceptions+tackles
+    # only, no recoveries) at 10; midfielders/forwards clear a CBIRT threshold (+recoveries) at
+    # 12 -- defcon_threshold above already encodes this split (10 vs 12), the rate composition
+    # must match it. Recoveries still feed mu/BPS for every position a few lines down (a real,
+    # separate FPL scoring category unrelated to the defensive-contribution threshold), so this
+    # only narrows defcon_rate, not e_recoveries itself.
     ep_defcon = 0.0
     if position in ("Defender", "Midfielder", "Forward"):
-        defcon_rate = (def_rates["cbi_per_90"] + def_rates["recoveries_per_90"]) * e_min_played / 90.0
+        own_defcon_rate = def_rates["cbi_per_90"]
+        if position != "Defender":
+            own_defcon_rate += def_rates["recoveries_per_90"]
+        defcon_rate = own_defcon_rate * e_min_played / 90.0
         threshold = _sm(con, "defcon_threshold", scoring_params_version, position)
         p_over_threshold = 1.0 - poisson.cdf(threshold - 1, max(defcon_rate, 1e-9)) if defcon_rate > 0 else 0.0
         ep_defcon = p_over_threshold * p_played * _sm(con, "defcon_points", scoring_params_version)

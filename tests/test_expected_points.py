@@ -213,3 +213,47 @@ def test_compute_player_fixture_components_applies_uplift_when_opted_in(con):
     )
     assert with_uplift["ep_goals"] == pytest.approx(without_uplift["ep_goals"] * 1.15)
     assert with_uplift["expected_bps"] > without_uplift["expected_bps"]
+
+
+def test_defcon_rate_excludes_recoveries_for_defenders_but_not_midfielders(con, monkeypatch):
+    """Real FPL rule this caught: defenders clear a CBIT threshold (10, no recoveries);
+    midfielders/forwards clear a CBIRT threshold (12, +recoveries) -- defcon_threshold already
+    encoded that split (10 vs 12) but defcon_rate used to add recoveries_per_90 for every
+    position unconditionally, letting recoveries alone push a defender over a threshold real
+    FPL would never credit them for reaching. Real case that surfaced this: three genuine
+    center-backs outscoring an elite attacking midfielder on total EP, purely on inflated
+    defcon. cbi_per_90 is deliberately set BELOW the defender threshold (10) here and
+    recoveries_per_90 high enough that only counting both together would clear it -- a
+    defender's ep_defcon must stay ~0, a midfielder's (same raw rates) must not."""
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', '2026-2027', 2, 'team_a', 'team_b', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)"
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    for team_uid, attack, defence in (("team_a", 0.3, 0.0), ("team_b", -0.1, 0.1)):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)",
+            [ts_mv, team_uid, attack, defence],
+        )
+    monkeypatch.setattr(
+        ep, "_defensive_action_rates_per_90",
+        lambda con, player_uid, position, seasons: {"cbi_per_90": 6.0, "recoveries_per_90": 8.0},
+    )
+    mean_minutes = {"mean_1_59": 30.0, "mean_60plus": 85.0}
+
+    defender = ep.compute_player_fixture_components(
+        con, "p1", "Defender", "team_a", "m1", 0.05, 0.15, 0.80, ts_mv, 1, 1, ["2026-2027"], mean_minutes,
+    )
+    midfielder = ep.compute_player_fixture_components(
+        con, "p1", "Midfielder", "team_a", "m1", 0.05, 0.15, 0.80, ts_mv, 1, 1, ["2026-2027"], mean_minutes,
+    )
+    assert defender["ep_defcon"] < 0.1, "cbi_per_90=6 is well below the defender threshold of 10 -- recoveries must not count"
+    assert midfielder["ep_defcon"] > 0.5, "cbi_per_90 + recoveries_per_90 = 14 clears the midfielder threshold of 12"
