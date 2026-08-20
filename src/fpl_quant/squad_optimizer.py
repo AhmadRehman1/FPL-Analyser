@@ -46,6 +46,13 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     params_mod.write_param(
         con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3
     )
+    # Invented v1 default for the optional captain-differential tie-break (see
+    # captain_choice_with_differential()): small enough that it can only ever break a genuine
+    # near-tie in the SAME risk-adjusted objective solve() itself optimizes, never override a
+    # real EP/risk-driven captain choice. Same invented-default status as every other unpinned
+    # constant in this project, flagged for M7 recalibration once real backtest evidence exists
+    # for how much objective value a real differential swing is actually worth.
+    params_mod.write_param(con, "captain_differential_params", 1, "2026-08-10", "tiebreak_epsilon", value_numeric=0.05)
 
 
 # ============================================================
@@ -84,6 +91,18 @@ def fetch_candidate_pool(
         """,
         [target_season],
     ).fetchall())
+    # ownership, for the optional captain-differential tie-break (see
+    # captain_choice_with_differential()) -- unlike price, missing ownership doesn't exclude a
+    # candidate (it's a secondary tie-break signal, not a hard budget requirement); None means
+    # "no ownership data for this player," handled as neutral by the tie-break, not silently 0.
+    ownership = dict(con.execute(
+        """
+        SELECT player_uid, selected_by_percent FROM fact_player_season_stats
+        WHERE season = ? AND selected_by_percent IS NOT NULL
+        QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
+        """,
+        [target_season],
+    ).fetchall())
 
     candidates = []
     for player_uid, position, name, mu, var, team_code in rows:
@@ -93,6 +112,7 @@ def fetch_candidate_pool(
         candidates.append({
             "player_uid": player_uid, "position": position, "name": name,
             "mu": mu, "var": var, "club": team_code, "price": price,
+            "selected_by_percent": ownership.get(player_uid),
         })
     return candidates
 
@@ -374,3 +394,119 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
         "captain_uid": captain_uid, "captain_position": captain_position,
         "captain_is_goalkeeper": captain_position == "Goalkeeper",
     }
+
+
+# ============================================================
+# optional captain-differential tie-break -- read-only advisory, never mutates the stored
+# EP/risk-optimal squad_optimizer_selections row (same "diagnostics separate from the frozen
+# source of truth" pattern M9's own automated-flags mechanism already uses).
+#
+# NOT a rank projection: there is no real rival-manager overall-rank data anywhere in the
+# ingested sources (verified -- grepped the whole schema/pipeline, nothing tracks other
+# managers' squads or the overall leaderboard). selected_by_percent lower-is-more-differentiated
+# is a proxy for "how differentiated is my own squad," named plainly here and in every result
+# this returns, not oversold as an actual rank estimate.
+# ============================================================
+
+def _captain_objective_component(
+    xi_uids: list[str], var_by_uid: dict[str, float], mu_by_uid: dict[str, float],
+    cov_by_xi_pair: dict[tuple[str, str], float], captain_uid: str, lam: float,
+) -> float:
+    """The exact slice of solve()'s own objective (linear_ep - lam*risk) that varies with
+    captain choice, holding a FIXED XI (xi_i=1 for every uid in xi_uids by construction) --
+    closed-form, not a re-solve, since with the XI already fixed only one binary choice (which
+    of the 11 is captain) remains free, and solve()'s own w_i=xi_i+captain_i risk weighting
+    (see its own docstring) reduces to a simple sum over 11 candidates rather than a new MIQP.
+    """
+    linear_ep = sum(mu_by_uid.values()) + mu_by_uid[captain_uid]
+    if lam <= 0:
+        return linear_ep
+    risk = sum((1 + (3 if uid == captain_uid else 0)) * var_by_uid[uid] for uid in xi_uids)
+    for (a, b), cov in cov_by_xi_pair.items():
+        cross = 1 + (1 if b == captain_uid else 0) + (1 if a == captain_uid else 0)
+        risk += 2 * cov * cross
+    return linear_ep - lam * risk
+
+
+def captain_choice_with_differential(
+    xi_candidates: list[dict], sigma_pairs: dict, lam: float, base_captain_uid: str, tiebreak_epsilon: float,
+) -> dict:
+    """Given the real XI solve() already chose and the risk-optimal captain it picked, checks
+    whether captaining a DIFFERENT XI player instead would cost at most tiebreak_epsilon in the
+    SAME risk-adjusted objective solve() itself optimizes -- and if so, among every such
+    near-optimal choice (base_captain_uid included), prefers whichever has the lowest
+    selected_by_percent. A hard constraint (near_optimal membership), not a blended epsilon
+    folded into the objective -- this can only ever break a genuine near-tie, never talk the
+    optimizer out of a real EP/risk-driven pick: a candidate outside the epsilon band is never
+    eligible regardless of how much lower its ownership is.
+
+    xi_candidates: the solved XI's own candidate dicts (mu/var/selected_by_percent, from
+    fetch_candidate_pool()). Goalkeepers are never proposed (captaining a GK is already a
+    separate, unconditional guardrail in solve() itself, not repeated here)."""
+    xi_uids = [c["player_uid"] for c in xi_candidates if c["position"] != "Goalkeeper"]
+    var_by_uid = {c["player_uid"]: c["var"] for c in xi_candidates}
+    mu_by_uid = {c["player_uid"]: c["mu"] for c in xi_candidates}
+    ownership_by_uid = {c["player_uid"]: c["selected_by_percent"] for c in xi_candidates}
+    xi_uid_set = set(c["player_uid"] for c in xi_candidates)
+    cov_by_xi_pair = {(a, b): cov for (a, b), cov in sigma_pairs.items() if a in xi_uid_set and b in xi_uid_set}
+
+    scores = {
+        uid: _captain_objective_component(xi_uids, var_by_uid, mu_by_uid, cov_by_xi_pair, uid, lam)
+        for uid in xi_uids
+    }
+    base_score = scores[base_captain_uid]
+    near_optimal = [uid for uid in xi_uids if scores[uid] >= base_score - tiebreak_epsilon]
+    # missing ownership data is neutral (never artificially preferred over a real, lower, known
+    # value) -- treated as the least-differentiated case among the near-optimal set, not 0.0
+    # (which would wrongly make "no data" look like the most differentiated option available).
+    recommended = min(near_optimal, key=lambda uid: ownership_by_uid[uid] if ownership_by_uid[uid] is not None else float("inf"))
+
+    return {
+        "base_captain_uid": base_captain_uid, "recommended_captain_uid": recommended,
+        "changed": recommended != base_captain_uid, "near_optimal_candidates": sorted(near_optimal),
+        "tiebreak_epsilon": tiebreak_epsilon,
+        "caveat": (
+            "selected_by_percent-based differentiation proxy, not a real rival-manager "
+            "overall-rank projection -- no rival-manager or overall-rank data exists in the "
+            "ingested sources."
+        ),
+    }
+
+
+def recommend_captain_with_differential(
+    con: duckdb.DuckDBPyConnection, run_id: int, differential_tiebreak_params_version: int,
+) -> dict:
+    """M9-adapter-style read-only wrapper: reads a real squad_optimizer_runs row's own stored
+    XI/captain and re-derives the candidate pool it was solved against, then applies
+    captain_choice_with_differential(). Never mutates squad_optimizer_selections -- the stored
+    captain remains the pure EP/risk-optimal one solve() actually chose; this is an advisory
+    overlay for a human (or M9's report) to weigh, not a silent second opinion that overrides
+    the audited decision."""
+    run_row = con.execute(
+        "SELECT ep_model_version, uncertainty_model_version, lambda_value, target_season "
+        "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
+    ).fetchone()
+    if not run_row:
+        raise ValueError(f"no squad_optimizer_runs row for run_id={run_id}")
+    ep_model_version, uncertainty_model_version, lam, target_season = run_row
+
+    xi_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_xi", [run_id]
+        ).fetchall()
+    }
+    captain_row = con.execute(
+        "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND is_captain", [run_id]
+    ).fetchone()
+    if not xi_uids or not captain_row:
+        raise ValueError(f"run_id={run_id} has no stored XI/captain -- was the divergence check ever passed for it?")
+    base_captain_uid = captain_row[0]
+
+    candidates = fetch_candidate_pool(con, ep_model_version, uncertainty_model_version, target_season)
+    xi_candidates = [c for c in candidates if c["player_uid"] in xi_uids]
+    sigma_pairs = fetch_sigma_pairs(con, uncertainty_model_version, xi_uids)
+
+    epsilon, _ = params_mod.resolve_param(
+        con, "captain_differential_params", "tiebreak_epsilon", differential_tiebreak_params_version
+    )
+    return {"run_id": run_id, **captain_choice_with_differential(xi_candidates, sigma_pairs, lam, base_captain_uid, epsilon)}
