@@ -29,6 +29,7 @@ from . import monte_carlo
 from . import params as params_mod
 from . import squad_optimizer
 from . import team_strength
+from . import transfer_planner
 from . import uncertainty
 
 PL = "Premier League"
@@ -136,7 +137,7 @@ def has_fittable_history(con: duckdb.DuckDBPyConnection, season: str, gameweek: 
 
 
 @contextmanager
-def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
+def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, schedule_horizon_gameweeks: int = 1):
     """Connection-scoped TEMP TABLE shadowing of the three fact tables, truncated to what was
     knowable strictly before this gameweek's deadline. DuckDB resolves an unqualified table
     name against `temp` before `main`, so every existing M1-M5 query -- all of which read
@@ -157,8 +158,18 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
     the very fixtures being predicted (their kickoff_time is exactly the deadline), and
     expected_points.run()/monte_carlo.run() both need that gameweek's schedule to know which
     players face which fixture -- that's the whole point of the prediction, not a leak. Only the
-    *result* is unknowable in advance; the schedule is announced well before any deadline. Any
-    other future gameweek stays fully invisible, schedule included.
+    *result* is unknowable in advance; the schedule is announced well before any deadline.
+
+    schedule_horizon_gameweeks (default 1, M7's original single-gameweek behavior, exact and
+    unchanged): widens that same schedule-only exception to cover [gameweek, gameweek +
+    schedule_horizon_gameweeks), not just gameweek itself. Needed for M8's compute_horizon_ep(),
+    which plans several gameweeks ahead in one call -- a real manager planning at gameweek G's
+    deadline genuinely does know gameweeks G+1..G+4's fixture schedules (the whole season's
+    calendar is announced well before a ball is kicked), just not their results, so revealing
+    only the schedule that far ahead is not a look-ahead leak, the same reasoning the single-
+    gameweek case already rests on, just extended over a wider, still-schedule-only window.
+    Every gameweek beyond that window stays fully invisible, schedule included, exactly as
+    before.
 
     Yields the deadline timestamp used for the shadow, for callers that also need it (e.g. to
     stamp the calibration_asof_date passed into M1-M6).
@@ -166,6 +177,7 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
         raise ValueError(f"no {PL} fixtures found for {season} GW{gameweek} -- cannot pin a deadline")
+    schedule_horizon_end_gameweek = gameweek + schedule_horizon_gameweeks - 1
 
     con.execute(
         """
@@ -177,9 +189,9 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
                CASE WHEN kickoff_time < ? THEN finished ELSE FALSE END AS finished,
                competition, _ingested_at
         FROM main.fact_match
-        WHERE kickoff_time < ? OR (season = ? AND gameweek = ?)
+        WHERE kickoff_time < ? OR (season = ? AND gameweek BETWEEN ? AND ?)
         """,
-        [deadline, deadline, deadline, deadline, season, gameweek],
+        [deadline, deadline, deadline, deadline, season, gameweek, schedule_horizon_end_gameweek],
     )
     con.execute(
         """CREATE OR REPLACE TEMP TABLE fact_player_match_stats AS
@@ -576,6 +588,215 @@ def run(
 
 
 # ============================================================
+# season simulation: an evolving M8 manager, not a fresh M5 solve every step.
+#
+# Every walk-forward mechanism above this point (run(), refit_lambda(), report_
+# concentration_sensitivity()) re-solves squad_optimizer fresh at every single gameweek --
+# exactly the gap the README's own Design notes name explicitly: "M7's walk-forward squad is
+# M5's from-scratch pick every single step, not an evolving manager holding, so no equivalent
+# 'what would the manager have owned at gameweek N' state exists ... to compare a wildcard's
+# gain against." Season-long rank depends on cumulative points from ONE evolving squad making
+# real transfer/chip decisions week to week, which is what this section actually builds --
+# reusing asof_scope() (extended above with schedule_horizon_gameweeks, not replaced) and
+# M8's own transfer_planner.run()/apply_recommendation() unmodified, not a parallel mechanism.
+# ============================================================
+
+CHIP_PRIORITY = ("wildcard", "free_hit", "bench_boost", "triple_captain")
+
+
+def _decide_gameweek_action(
+    con: duckdb.DuckDBPyConnection, plan_run_id: int, chips_used_set1: set, chips_used_set2: set,
+    target_gameweek: int, accept_transfer_if_net_value_above: float,
+) -> tuple[int | None, str | None]:
+    """The harness's own explicit decision rule, deliberately simple and auditable rather than
+    a second optimization layer: accept the #1 ranked transfer iff its net_value clears
+    accept_transfer_if_net_value_above (default 0.0 -- any genuine expected gain), or accept
+    one recommended chip in a fixed priority order (CHIP_PRIORITY) skipping any chip already
+    spent from the set covering this gameweek. Never both a transfer and a chip in the same
+    week -- Wildcard/Free Hit already are the "transfer" for that week, and combining Bench
+    Boost/Triple Captain with an ordinary transfer in the same week is a real thing an expert
+    manager sometimes does, but deliberately out of scope for this v1 decision rule (named
+    here, not silently modeled as if it were handled)."""
+    used_this_set = chips_used_set1 if target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK else chips_used_set2
+    recommended = {
+        chip_type for chip_type, recommended in con.execute(
+            "SELECT chip_type, recommended FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
+        ).fetchall() if recommended
+    }
+    for candidate in CHIP_PRIORITY:
+        if candidate in recommended and candidate not in used_this_set:
+            return None, candidate
+
+    top = con.execute(
+        "SELECT rank, net_value FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1", [plan_run_id]
+    ).fetchone()
+    if top and top[1] > accept_transfer_if_net_value_above:
+        return top[0], None
+    return None, None
+
+
+def run_season_simulation(
+    con: duckdb.DuckDBPyConnection,
+    season: str,
+    start_gameweek: int,
+    end_gameweek: int,
+    *,
+    xi_params_version: int,
+    rho_params_version: int,
+    decay_params_version: int,
+    adjustment_params_version: int,
+    shrinkage_params_version: int,
+    fact_multiplier_params_version: int,
+    scoring_params_version: int,
+    bps_params_version: int,
+    tau_params_version: int,
+    rho_residual_params_version: int,
+    corr_params_version: int,
+    lambda_params_version: int,
+    guardrail_params_version: int,
+    horizon_params_version: int,
+    transfer_cost_params_version: int,
+    wildcard_threshold_params_version: int,
+    free_hit_threshold_params_version: int,
+    kappa_tc_params_version: int,
+    accept_transfer_if_net_value_above: float = 0.0,
+    n_antithetic_pairs: int = 2000,
+) -> dict:
+    """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
+    one real M8 transfer_planner.run()-informed decision per gameweek (see
+    _decide_gameweek_action()), applying it via apply_recommendation() -- one continuously
+    evolving squad across the whole window, mirroring how a real manager actually plays,
+    instead of a fresh from-scratch squad every gameweek.
+
+    Every planning call for gameweek G+1 runs inside asof_scope(con, season, G+1,
+    schedule_horizon_gameweeks=horizon_gameweeks) -- pinned to G+1's OWN deadline, after G's
+    results are known, with G+1's own horizon of fixture schedules (not results) visible, the
+    same asof-safety guarantee every M7 walk-forward step already carries, extended (not
+    bypassed) to cover a multi-gameweek horizon. Real historical Double Gameweeks are skipped
+    for planning (same has_double_gameweek() v1 scope boundary M7's own walk-forward loop
+    already applies -- squad_optimizer_selections' primary key cannot represent a DGW player's
+    duplicate ep_outputs rows) but NOT for scoring: that gameweek's real, already-aggregated
+    event_points total is still read and counted, holdings just don't change that week.
+
+    Chip scoring effects that don't touch persisted holdings are applied for exactly the one
+    gameweek they're accepted: Free Hit scores off its own fresh one-off squad (never
+    persisted -- see apply_recommendation()'s own docstring for why leaving holdings unchanged
+    on accept_chip="free_hit" is correct, not a gap); Bench Boost scores the full 15-player
+    squad instead of just the XI; Triple Captain triples (not doubles) the captain's points.
+    Wildcard is the one chip that DOES persist -- apply_recommendation() already rebuilds
+    holdings for it, so the following gameweek's scoring reads it like any other transfer.
+
+    Returns {"weekly_points": [...], "gameweeks": [...], "final_state_version": int,
+    "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...]}
+    -- actions is the real per-gameweek decision log, for auditing what the simulated manager
+    actually did, not just the final score.
+    """
+    if not has_fittable_history(con, season, start_gameweek):
+        raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
+    horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
+    horizon_gameweeks = int(horizon_gameweeks)
+
+    with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+        calibration_asof_date = deadline.date()
+        ts_mv = team_strength.calibrate(
+            con, calibration_asof_date, xi_params_version, rho_params_version,
+            target_season=season, fit_seasons=fit_seasons_for(season),
+        )
+        mm_mv = minutes_model.run(
+            con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
+            shrinkage_params_version, fact_multiplier_params_version,
+        )
+        ep_mv = ep.run(
+            con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
+            scoring_params_version, bps_params_version, tau_params_version,
+        )
+        un_mv = uncertainty.run(
+            con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
+            tau_params_version, rho_residual_params_version, corr_params_version,
+        )
+        bootstrap_run_id = squad_optimizer.run(
+            con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,
+            lambda_params_version, guardrail_params_version,
+        )
+    state_version = transfer_planner.bootstrap_from_squad_optimizer_run(con, bootstrap_run_id)
+
+    weekly_points: list[float] = []
+    gameweeks_scored: list[int] = []
+    actions: list[dict] = []
+    skipped_dgw: list[int] = []
+
+    for gw in range(start_gameweek, end_gameweek + 1):
+        accept_chip = None
+        free_hit_squad = None
+
+        if has_double_gameweek(con, season, gw):
+            skipped_dgw.append(gw)
+        elif gw > start_gameweek:
+            state_row = con.execute(
+                "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank FROM manager_state_versions WHERE state_version = ?",
+                [state_version],
+            ).fetchone()
+            _fts, chips_used_set1_json, chips_used_set2_json, _bank = state_row
+            chips_used_set1 = set(json.loads(chips_used_set1_json))
+            chips_used_set2 = set(json.loads(chips_used_set2_json))
+
+            with asof_scope(con, season, gw, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+                calibration_asof_date = deadline.date()
+                ts_mv = team_strength.calibrate(
+                    con, calibration_asof_date, xi_params_version, rho_params_version,
+                    target_season=season, fit_seasons=fit_seasons_for(season),
+                )
+                mm_mv = minutes_model.run(
+                    con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
+                    shrinkage_params_version, fact_multiplier_params_version,
+                )
+                plan_run_id = transfer_planner.run(
+                    con, calibration_asof_date, season, gw, state_version, ts_mv, mm_mv,
+                    horizon_params_version, scoring_params_version, bps_params_version, tau_params_version,
+                    rho_residual_params_version, corr_params_version, transfer_cost_params_version,
+                    lambda_params_version, guardrail_params_version, wildcard_threshold_params_version,
+                    free_hit_threshold_params_version, kappa_tc_params_version,
+                )
+                accept_transfer_rank, accept_chip = _decide_gameweek_action(
+                    con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
+                )
+
+            if accept_chip == "free_hit":
+                free_hit_squad = transfer_planner._read_fresh_chip_squad(con, plan_run_id, "free_hit")
+
+            state_version = transfer_planner.apply_recommendation(
+                con, plan_run_id, accept_transfer_rank=accept_transfer_rank, accept_chip=accept_chip,
+            )
+            actions.append({
+                "gameweek": gw, "accepted_transfer_rank": accept_transfer_rank, "accepted_chip": accept_chip,
+                "plan_run_id": plan_run_id,
+            })
+
+        holdings = transfer_planner._read_holdings(con, state_version)
+        if accept_chip == "free_hit" and free_hit_squad is not None:
+            xi_uids = frozenset(h["player_uid"] for h in free_hit_squad if h["in_xi"])
+            captain_uid = next((h["player_uid"] for h in free_hit_squad if h["is_captain"]), None)
+            captain_multiplier = 2
+        elif accept_chip == "bench_boost":
+            xi_uids = frozenset(h["player_uid"] for h in holdings)  # full 15, not just the XI
+            captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+            captain_multiplier = 2
+        else:
+            xi_uids = frozenset(h["player_uid"] for h in holdings if h["in_xi"])
+            captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+            captain_multiplier = 3 if accept_chip == "triple_captain" else 2
+
+        points = _realized_xi_points(con, season, gw, xi_uids, captain_uid, captain_multiplier=captain_multiplier)
+        weekly_points.append(points)
+        gameweeks_scored.append(gw)
+
+    return {
+        "weekly_points": weekly_points, "gameweeks": gameweeks_scored, "final_state_version": state_version,
+        "actions": actions, "skipped_dgw_gameweeks": skipped_dgw, "bootstrap_run_id": bootstrap_run_id,
+    }
+
+
+# ============================================================
 # recalibration: proposal-writing gate + per-family refit techniques
 # ============================================================
 
@@ -852,11 +1073,17 @@ def refit_minutes_and_evidence_params(
     return result
 
 
-def _realized_xi_points(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None) -> float:
+def _realized_xi_points(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None,
+    captain_multiplier: int = 2,
+) -> float:
     """Real FPL scoring: only the starting XI's points count, and the captain's points double
     -- summing the full 15-player squad (bench included) would overstate what a squad actually
     scored. Uses fact_player_season_stats.event_points, the real ground truth, not a
-    reconstruction from raw stats."""
+    reconstruction from raw stats. captain_multiplier defaults to 2 (the real rule for every
+    normal gameweek); run_season_simulation() passes 3 for a gameweek Triple Captain was
+    accepted on -- the one real FPL rule change captaincy makes to this formula, not a second
+    scoring function."""
     total = 0.0
     for player_uid in xi_uids:
         row = con.execute(
@@ -864,8 +1091,52 @@ def _realized_xi_points(con: duckdb.DuckDBPyConnection, season: str, gameweek: i
             [player_uid, season, gameweek],
         ).fetchone()
         pts = row[0] if row and row[0] is not None else 0.0
-        total += pts * 2 if player_uid == captain_uid else pts
+        total += pts * captain_multiplier if player_uid == captain_uid else pts
     return total
+
+
+# ============================================================
+# season-long scoring -- one evolving manager's own weekly trajectory, not independent
+# from-scratch squads across many backtest steps (see run_season_simulation())
+# ============================================================
+
+def season_cumulative_metrics(weekly_points: list[float]) -> dict:
+    """Scores a season-long trajectory of realized XI points -- one manager's own week-by-week
+    sequence from a real evolving squad, not the cross-sectional population refit_lambda()'s
+    realized_sharpe was built to compare (independent from-scratch M5 squads, one per backtest
+    gameweek). realized_sharpe here reuses that exact same formula (mean/std) unchanged; what's
+    different is only the population it's computed over -- a genuine season-consistency read on
+    one continuous squad's own trajectory, the real quant-finance sense of a single track
+    record's Sharpe ratio, not a cross-sectional one.
+
+    Sharpe alone doesn't capture drawdown though. Real FPL weekly points are (virtually) always
+    non-negative, so cumulative points only ever accumulate -- a literal price-style drawdown
+    computed directly on cumulative points would always be ~0 and tell you nothing. Instead,
+    this applies the standard "underwater curve" technique to cumulative SURPLUS over the
+    season's own mean weekly score (weekly_points - mean_points, cumulatively summed): the
+    deepest fall from that surplus curve's own prior peak, in points. A genuinely distinct risk
+    signal from Sharpe -- a manager who banks most of their points in one purple patch then
+    grinds through a long, deep cold streak scores worse here than one with the same total and
+    even the same variance spread evenly across the season, which Sharpe's single whole-season
+    standard deviation can't always tell apart from the smoother trajectory.
+    """
+    if not weekly_points:
+        return {"total_points": 0.0, "mean_points": 0.0, "n_gameweeks": 0, "realized_sharpe": float("-inf"), "max_drawdown": 0.0}
+
+    arr = np.array(weekly_points, dtype=float)
+    total = float(arr.sum())
+    mean = float(arr.mean())
+    std = float(arr.std(ddof=0))
+    sharpe = mean / std if std > 0 else float("-inf")
+
+    cumulative_surplus = np.cumsum(arr - mean)
+    running_peak = np.maximum.accumulate(cumulative_surplus)
+    max_drawdown = float((running_peak - cumulative_surplus).max())
+
+    return {
+        "total_points": total, "mean_points": mean, "n_gameweeks": len(weekly_points),
+        "realized_sharpe": sharpe, "max_drawdown": max_drawdown,
+    }
 
 
 def refit_lambda(
