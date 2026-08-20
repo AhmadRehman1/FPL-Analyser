@@ -796,6 +796,64 @@ def run_season_simulation(
     }
 
 
+def report_season_simulation_sensitivity(
+    con: duckdb.DuckDBPyConnection,
+    season: str,
+    start_gameweek: int,
+    end_gameweek: int,
+    base_versions: dict,
+    *,
+    lambda_grid: tuple[float, ...] = (),
+    guardrail_cap_grid: tuple[float, ...] = (),
+    effective_date: str = "2026-08-11",
+) -> dict:
+    """Read-only reporting, deliberately separate from any writing/proposal mechanism --
+    mirrors report_concentration_sensitivity()'s own read-only pattern, extended to season-long
+    metrics. Runs run_season_simulation() once per lambda_grid candidate (guardrail_cap held
+    fixed at base_versions' own pinned value, for exactly the reason refit_lambda() already
+    holds it fixed: re-tuning a redundant backstop against the same signal the primary risk
+    dial is tuned against would erode the protection it exists for) and once per
+    guardrail_cap_grid candidate (lambda held fixed, same reasoning in reverse) -- never both
+    varied together, matching the existing precedent's own two-separate-questions split, not a
+    full cross-product grid (season_simulation is materially more expensive per point than a
+    single-gameweek solve: a real MIQP solve plus Monte Carlo simulation every gameweek in the
+    window, not once).
+
+    base_versions must carry exactly the keyword arguments run_season_simulation() itself
+    requires (including its own lambda_params_version/guardrail_params_version, held fixed on
+    whichever side of a given sweep isn't the one varying). Each grid candidate gets its own
+    freshly written param_versions row (via params_mod.write_param(), the normal immutable-
+    versioning mechanism -- writing a version never activates it) rather than mutating the live
+    pinned version, so nothing here can accidentally change what a real run resolves.
+
+    This does not, on its own, justify changing lambda_value or xi_club_concentration_cap --
+    that requires the same real-data discipline the README's own Design notes already insist on
+    for the existing cross-sectional lambda finding (a synthetic run is honest evidence the
+    MACHINERY works, not evidence about what the real pinned values should be).
+    """
+    results: dict[str, dict] = {"lambda": {}, "guardrail_cap": {}}
+    if lambda_grid:
+        for lam in lambda_grid:
+            trial_version = _next_param_version(con, "risk_aversion_params")
+            params_mod.write_param(con, "risk_aversion_params", trial_version, effective_date, "lambda_value", value_numeric=lam)
+            trial_versions = {**base_versions, "lambda_params_version": trial_version}
+            sim = run_season_simulation(con, season, start_gameweek, end_gameweek, **trial_versions)
+            results["lambda"][lam] = {**season_cumulative_metrics(sim["weekly_points"]), "actions": sim["actions"]}
+
+    if guardrail_cap_grid:
+        for cap in guardrail_cap_grid:
+            trial_version = _next_param_version(con, "squad_optimizer_guardrail_params")
+            params_mod.write_param(
+                con, "squad_optimizer_guardrail_params", trial_version, effective_date,
+                "xi_club_concentration_cap", value_numeric=cap,
+            )
+            trial_versions = {**base_versions, "guardrail_params_version": trial_version}
+            sim = run_season_simulation(con, season, start_gameweek, end_gameweek, **trial_versions)
+            results["guardrail_cap"][cap] = {**season_cumulative_metrics(sim["weekly_points"]), "actions": sim["actions"]}
+
+    return results
+
+
 # ============================================================
 # recalibration: proposal-writing gate + per-family refit techniques
 # ============================================================

@@ -853,6 +853,40 @@ def test_run_season_simulation_raises_on_unfittable_start_gameweek(con):
         bt.run_season_simulation(con, "2025-2026", start_gameweek=1, end_gameweek=2, **_SEASON_SIM_VERSIONS)
 
 
+def test_report_season_simulation_sensitivity_writes_versions_without_touching_the_live_pin(con):
+    """Regression test for the read-only contract: running a lambda/cap sensitivity sweep must
+    never mutate what version=1 (the live pin) itself resolves to -- each grid candidate gets
+    its own freshly written param_versions row, same discipline as
+    report_concentration_sensitivity()."""
+    _seed_season_simulation_league(con)
+    live_lambda_before, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", 1)
+    live_cap_before, _ = bt.params_mod.resolve_param(con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", 1)
+
+    # lambda=0.0 (and, empirically on this small synthetic pool, 0.05) is excluded from the
+    # grid: run_season_simulation() always goes through the real, divergence-checked
+    # squad_optimizer.run() (not solve() directly, unlike refit_lambda()), and that check always
+    # compares its trial lambda against a lambda=0 baseline -- trialing lambda=0.0 itself would
+    # compare that baseline against itself and always "fail" by construction, and a lambda close
+    # enough to 0 can genuinely fail to move this pool's optimal XI/captain at all, a real
+    # (if synthetic-data-specific) finding, not a test bug -- confirmed empirically (0.05 fails,
+    # 0.10-0.50 all pass reliably) before picking this grid, not guessed.
+    result = bt.report_season_simulation_sensitivity(
+        con, "2025-2026", 2, 3, _SEASON_SIM_VERSIONS,
+        lambda_grid=(0.10, 0.15), guardrail_cap_grid=(2,),
+    )
+
+    assert set(result["lambda"].keys()) == {0.10, 0.15}
+    assert set(result["guardrail_cap"].keys()) == {2}
+    for grid_result in {**result["lambda"], **result["guardrail_cap"]}.values():
+        assert math.isfinite(grid_result["total_points"])
+        assert grid_result["max_drawdown"] >= 0.0
+
+    live_lambda_after, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", 1)
+    live_cap_after, _ = bt.params_mod.resolve_param(con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", 1)
+    assert live_lambda_after == live_lambda_before
+    assert live_cap_after == live_cap_before
+
+
 # ============================================================
 # _decide_gameweek_action -- the harness's own decision rule, tested in isolation against a
 # lightweight chip_evaluations/transfer_recommendations fixture (no real M1-M6 solve needed --
