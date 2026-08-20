@@ -94,6 +94,35 @@ def test_bootstrap_raises_on_unknown_run_id(con):
         tp.bootstrap_from_squad_optimizer_run(con, 999)
 
 
+def test_bootstrap_computes_bank_from_leftover_budget_when_all_prices_known(con):
+    """Regression test for the transfer planner's disclosed no-bank-tracking gap: a manager
+    whose actual starting squad came in under M5's BUDGET (100.0) should start with that
+    leftover as real spendable bank, not silently discard it."""
+    run_id, _, _ = _seed_minimal_squad_optimizer_run(con)
+    for uid, price in (("p1", 10.0), ("p2", 20.0), ("p3", 65.0)):  # sums to 95.0, 5.0 leftover
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, '2026-2027', 1, ?, current_timestamp)", [uid, price],
+        )
+    state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id)
+    bank = con.execute("SELECT bank FROM manager_state_versions WHERE state_version = ?", [state_version]).fetchone()[0]
+    assert bank == pytest.approx(5.0)
+
+
+def test_bootstrap_defaults_bank_to_zero_when_a_held_players_price_is_unknown(con):
+    """Conservative fallback: overstating bank would let evaluate_transfers() legalize a
+    transfer the manager can't actually afford, so a squad with any unresolvable price starts
+    at bank=0.0 rather than guessing."""
+    run_id, _, _ = _seed_minimal_squad_optimizer_run(con)
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+        "VALUES ('p1', '2026-2027', 1, 10.0, current_timestamp)"
+    )  # p2, p3 left unpriced
+    state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id)
+    bank = con.execute("SELECT bank FROM manager_state_versions WHERE state_version = ?", [state_version]).fetchone()[0]
+    assert bank == 0.0
+
+
 def test_write_manager_snapshot_creates_a_real_flagged_run(con):
     run_id, ep_mv, un_mv = _seed_minimal_squad_optimizer_run(con)
     state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id)
@@ -215,6 +244,37 @@ def test_evaluate_transfers_applies_points_hit_when_no_free_transfer(con):
     top = results[0]
     assert top["transfer_cost"] == 4.0
     assert top["net_value"] == pytest.approx(4.0 - 4.0)
+
+
+def test_evaluate_transfers_sufficient_bank_legalizes_an_otherwise_too_expensive_transfer(con):
+    """Regression test for the transfer planner's real bug: with bank=0.0 (the old, only
+    behavior), p_in_too_expensive (price 9.0 vs p_out's 8.0) is illegal -- no single outgoing
+    player is pricey enough on its own, exactly the mechanism that made the planner unable to
+    ever recommend upgrading to a genuinely premium player. Enough banked cash must legalize
+    it; a bank that still falls short of the gap must not."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]  # price 8.0
+
+    # p_in_too_expensive costs 9.0 -- illegal at bank=0.0 (price_in > price_out), legal once
+    # bank covers the 1.0 gap.
+    zero_bank_results = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4, bank=0.0,
+    )
+    assert "p_in_too_expensive" not in {r["player_in"] for r in zero_bank_results}
+
+    insufficient_bank_results = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4, bank=0.5,
+    )
+    assert "p_in_too_expensive" not in {r["player_in"] for r in insufficient_bank_results}
+
+    funded_results = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4, bank=1.0,
+    )
+    in_uids = {r["player_in"] for r in funded_results}
+    assert "p_in_too_expensive" in in_uids
+    rec = next(r for r in funded_results if r["player_in"] == "p_in_too_expensive")
+    assert rec["price_out"] == pytest.approx(8.0)
+    assert rec["price_in"] == pytest.approx(9.0)
 
 
 # ============================================================
@@ -351,7 +411,7 @@ def test_check_gw19_deadline_forfeited_once_gw19_arrives_with_unused_chips():
 # apply_recommendation
 # ============================================================
 
-def _seed_transfer_plan_run_for_apply(con, state_version, target_gameweek=2, transfer_cost=0.0):
+def _seed_transfer_plan_run_for_apply(con, state_version, target_gameweek=2, transfer_cost=0.0, price_out=0.0, price_in=0.0):
     con.execute(
         "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p_new', 'New', 'Midfielder') "
         "ON CONFLICT DO NOTHING"
@@ -364,9 +424,9 @@ def _seed_transfer_plan_run_for_apply(con, state_version, target_gameweek=2, tra
     )
     run_id = con.execute("SELECT max(run_id) FROM transfer_plan_runs").fetchone()[0]
     con.execute(
-        "INSERT INTO transfer_recommendations (run_id, rank, player_out, player_in, horizon_value_gain, "
-        "transfer_cost, net_value) VALUES (?, 1, 'p1', 'p_new', 4.0, ?, ?)",
-        [run_id, transfer_cost, 4.0 - transfer_cost],
+        "INSERT INTO transfer_recommendations (run_id, rank, player_out, player_in, price_out, price_in, "
+        "horizon_value_gain, transfer_cost, net_value) VALUES (?, 1, 'p1', 'p_new', ?, ?, 4.0, ?, ?)",
+        [run_id, price_out, price_in, transfer_cost, 4.0 - transfer_cost],
     )
     return run_id
 
@@ -415,6 +475,42 @@ def test_apply_recommendation_paid_transfer_does_not_consume_free_transfer(con):
         "SELECT free_transfers_available FROM manager_state_versions WHERE state_version = ?", [new_state_version]
     ).fetchone()[0]
     assert free_transfers == 2  # paid hit doesn't consume the FT, and a new one is still granted this gameweek
+
+
+def test_apply_recommendation_spending_bank_on_an_upgrade_reduces_it(con):
+    """The other half of the bank fix: accepting a transfer that draws on saved-up cash
+    (price_in > price_out) must actually spend that cash from bank, not leave it untouched --
+    otherwise the same bank could be "spent" again on a later transfer that shouldn't be legal."""
+    run_id2, _, _ = _seed_minimal_squad_optimizer_run(con)
+    state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id2)
+    con.execute("UPDATE manager_state_versions SET bank = 10.0 WHERE state_version = ?", [state_version])
+
+    run_id = _seed_transfer_plan_run_for_apply(con, state_version, transfer_cost=0.0, price_out=7.5, price_in=15.5)
+    new_state_version = tp.apply_recommendation(con, run_id, accept_transfer_rank=1)
+
+    bank = con.execute("SELECT bank FROM manager_state_versions WHERE state_version = ?", [new_state_version]).fetchone()[0]
+    assert bank == pytest.approx(10.0 + 7.5 - 15.5)  # 2.0 left after funding the upgrade
+
+
+def test_apply_recommendation_selling_down_grows_bank(con):
+    run_id2, _, _ = _seed_minimal_squad_optimizer_run(con)
+    state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id2)
+    run_id = _seed_transfer_plan_run_for_apply(con, state_version, transfer_cost=0.0, price_out=8.0, price_in=4.0)
+    new_state_version = tp.apply_recommendation(con, run_id, accept_transfer_rank=1)
+
+    bank = con.execute("SELECT bank FROM manager_state_versions WHERE state_version = ?", [new_state_version]).fetchone()[0]
+    assert bank == pytest.approx(4.0)  # started at 0.0 (default), +8.0 sold -4.0 bought
+
+
+def test_apply_recommendation_declining_transfer_leaves_bank_unchanged(con):
+    run_id2, _, _ = _seed_minimal_squad_optimizer_run(con)
+    state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id2)
+    con.execute("UPDATE manager_state_versions SET bank = 3.0 WHERE state_version = ?", [state_version])
+    run_id = _seed_transfer_plan_run_for_apply(con, state_version)
+
+    new_state_version = tp.apply_recommendation(con, run_id, accept_transfer_rank=None)
+    bank = con.execute("SELECT bank FROM manager_state_versions WHERE state_version = ?", [new_state_version]).fetchone()[0]
+    assert bank == pytest.approx(3.0)
 
 
 def test_apply_recommendation_accepting_a_chip_records_it_in_the_right_set(con):

@@ -115,7 +115,12 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
 def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_optimizer_run_id: int) -> int:
     """One-time seed: reads a real squad_optimizer_selections row and writes the first
     manager_state_versions/manager_squad_holdings rows. free_transfers_available starts at 1
-    (a fresh account's real starting allocation); chip usage starts empty."""
+    (a fresh account's real starting allocation); chip usage starts empty. bank starts at
+    whatever the source squad left unspent against M5's BUDGET -- known exactly only when every
+    held player has a resolvable current price (the same price source squad_optimizer.
+    fetch_candidate_pool() itself uses); otherwise conservatively starts at 0.0 rather than
+    guessing, since overstating bank would let evaluate_transfers() legalize a transfer the
+    manager can't actually afford."""
     run_row = con.execute(
         "SELECT target_season, target_gameweek FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id]
     ).fetchone()
@@ -130,11 +135,22 @@ def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_opt
     if not holdings:
         raise ValueError(f"squad_optimizer_run_id={squad_optimizer_run_id} has no in_squad players -- cannot bootstrap")
 
+    prices = dict(con.execute(
+        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = ? AND now_cost IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [target_season],
+    ).fetchall())
+    held_uids = [uid for uid, *_ in holdings]
+    if all(uid in prices for uid in held_uids):
+        bank = max(0.0, squad_optimizer.BUDGET - sum(prices[uid] for uid in held_uids))
+    else:
+        bank = 0.0
+
     state_version = con.execute(
         "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
-        "chips_used_set1, chips_used_set2, derived_from_state_version) "
-        "VALUES (?, ?, 1, '[]', '[]', NULL) RETURNING state_version",
-        [target_season, target_gameweek],
+        "chips_used_set1, chips_used_set2, derived_from_state_version, bank) "
+        "VALUES (?, ?, 1, '[]', '[]', NULL, ?) RETURNING state_version",
+        [target_season, target_gameweek, bank],
     ).fetchone()[0]
 
     for player_uid, in_xi, is_captain, is_vice in holdings:
@@ -225,6 +241,7 @@ def evaluate_transfers(
     free_transfers_available: int,
     points_per_hit: float,
     max_club_count: int = 3,
+    bank: float = 0.0,
 ) -> list[dict]:
     """Exhaustive single-transfer search: every current squad player x every other real
     candidate, ranked by net value over the horizon. Single-best-transfer-per-gameweek scope
@@ -234,9 +251,11 @@ def evaluate_transfers(
 
     Enforces the three constraints a transfer must satisfy to be real, not optional
     embellishments: same position (can't swap a defender for a forward), price_in <=
-    price_out (no banked-budget tracking exists yet, so this conservatively assumes zero
-    bank -- a real extension, not silently ignored), and the post-swap club count staying
-    <= max_club_count (M5's own guardrail, must hold for the resulting squad too).
+    price_out + bank (a real upgrade can legitimately cost more than the player leaving, funded
+    by money already saved up from prior transfers -- see apply_recommendation()'s bank
+    bookkeeping; bank defaults to 0.0 for a caller that hasn't tracked it), and the post-swap
+    club count staying <= max_club_count (M5's own guardrail, must hold for the resulting squad
+    too).
     """
     horizon_ep = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
     current_uids = {h["player_uid"] for h in current_holdings}
@@ -256,7 +275,7 @@ def evaluate_transfers(
                 continue
             if in_info["position"] != out_info["position"]:
                 continue
-            if in_info["price"] > out_info["price"]:
+            if in_info["price"] > out_info["price"] + bank:
                 continue
             new_club_count = club_counts.get(in_info["club"], 0) + (1 if in_info["club"] != out_info["club"] else 0)
             if in_info["club"] != out_info["club"] and new_club_count > max_club_count:
@@ -265,6 +284,7 @@ def evaluate_transfers(
             transfer_cost = 0.0 if free_transfers_available >= 1 else points_per_hit
             results.append({
                 "player_out": out_uid, "player_in": in_uid,
+                "price_out": out_info["price"], "price_in": in_info["price"],
                 "horizon_value_gain": horizon_value_gain, "transfer_cost": transfer_cost,
                 "net_value": horizon_value_gain - transfer_cost,
             })
@@ -468,12 +488,12 @@ def run(
     only -- does not advance manager_state_versions (see apply_recommendation()), mirroring
     M7's propose-then-confirm gate."""
     state_row = con.execute(
-        "SELECT season, free_transfers_available, chips_used_set1 FROM manager_state_versions WHERE state_version = ?",
+        "SELECT season, free_transfers_available, chips_used_set1, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
     ).fetchone()
     if not state_row:
         raise ValueError(f"no manager_state_versions row for state_version={input_state_version}")
-    _season, free_transfers_available, chips_used_set1_json = state_row
+    _season, free_transfers_available, chips_used_set1_json, bank = state_row
     chips_used_set1 = json.loads(chips_used_set1_json)
     current_holdings = _read_holdings(con, input_state_version)
     if not current_holdings:
@@ -489,6 +509,7 @@ def run(
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
     transfer_results = evaluate_transfers(
         con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
+        bank=bank or 0.0,
     )
 
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
@@ -536,9 +557,11 @@ def run(
 
     for r in transfer_results[:10]:  # top 10 stored -- not all ~8k candidate pairs, this is a report, not an audit of the whole search
         con.execute(
-            "INSERT INTO transfer_recommendations (run_id, rank, player_out, player_in, horizon_value_gain, transfer_cost, net_value) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [run_id, r["rank"], r["player_out"], r["player_in"], r["horizon_value_gain"], r["transfer_cost"], r["net_value"]],
+            "INSERT INTO transfer_recommendations "
+            "(run_id, rank, player_out, player_in, price_out, price_in, horizon_value_gain, transfer_cost, net_value) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [run_id, r["rank"], r["player_out"], r["player_in"], r["price_out"], r["price_in"],
+             r["horizon_value_gain"], r["transfer_cost"], r["net_value"]],
         )
 
     for chip_type, result in (
@@ -574,26 +597,34 @@ def apply_recommendation(
     input_state_version, target_season, target_gameweek = run_row
 
     state_row = con.execute(
-        "SELECT free_transfers_available, chips_used_set1, chips_used_set2 FROM manager_state_versions WHERE state_version = ?",
+        "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
     ).fetchone()
-    free_transfers_available, chips_used_set1_json, chips_used_set2_json = state_row
+    free_transfers_available, chips_used_set1_json, chips_used_set2_json, bank = state_row
     chips_used_set1 = set(json.loads(chips_used_set1_json))
     chips_used_set2 = set(json.loads(chips_used_set2_json))
     holdings_by_uid = {h["player_uid"]: h for h in _read_holdings(con, input_state_version)}
+    new_bank = bank or 0.0
 
     if accept_transfer_rank is not None:
         rec = con.execute(
-            "SELECT player_out, player_in, transfer_cost FROM transfer_recommendations WHERE run_id = ? AND rank = ?",
+            "SELECT player_out, player_in, price_out, price_in, transfer_cost FROM transfer_recommendations "
+            "WHERE run_id = ? AND rank = ?",
             [run_id, accept_transfer_rank],
         ).fetchone()
         if not rec:
             raise ValueError(f"no transfer_recommendations row for run_id={run_id} rank={accept_transfer_rank}")
-        player_out, player_in, transfer_cost = rec
+        player_out, player_in, price_out, price_in, transfer_cost = rec
         outgoing = holdings_by_uid.pop(player_out)
         holdings_by_uid[player_in] = {
             "player_uid": player_in, "in_xi": outgoing["in_xi"], "is_captain": False, "is_vice": False,
         }
+        # bank moves by exactly what the swap frees up or costs -- selling a pricier player
+        # than the one bought in grows bank, buying up spends it down. This is what actually
+        # closes the "can't afford Haaland" gap: evaluate_transfers() only allows price_in >
+        # price_out up to this same bank, so a transfer that draws it down here is exactly one
+        # evaluate_transfers() already verified the manager could afford.
+        new_bank = new_bank + (price_out or 0.0) - (price_in or 0.0)
         # Real FPL rule: a new free transfer is granted every gameweek regardless of whether
         # a transfer was made this week -- this must apply on the accepted-transfer path too,
         # not just the "no transfer" path below. Previously this line only decremented (or
@@ -614,10 +645,10 @@ def apply_recommendation(
     new_state_version = con.execute(
         "INSERT INTO manager_state_versions "
         "(season, as_of_gameweek, free_transfers_available, chips_used_set1, chips_used_set2, "
-        "derived_from_state_version, produced_by_run_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING state_version",
+        "derived_from_state_version, produced_by_run_id, bank) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING state_version",
         [target_season, target_gameweek + 1, new_free_transfers, json.dumps(sorted(chips_used_set1)),
-         json.dumps(sorted(chips_used_set2)), input_state_version, run_id],
+         json.dumps(sorted(chips_used_set2)), input_state_version, run_id, new_bank],
     ).fetchone()[0]
     for h in holdings_by_uid.values():
         con.execute(
