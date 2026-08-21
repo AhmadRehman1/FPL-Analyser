@@ -71,6 +71,7 @@ def main() -> None:
         # gameweek horizon would silently plan transfers/chips off the un-adjusted EP.
         set_piece_params_version=1,
         decay_params_version=1, fact_multiplier_params_version=1, role_shift_params_version=1,
+        swing_params_version=1,
     )
     print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")
 

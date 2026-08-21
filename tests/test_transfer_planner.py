@@ -384,6 +384,56 @@ def test_evaluate_wildcard_current_squad_value_per_gw_is_a_real_per_gameweek_sum
     assert result["current_squad_value_per_gw"][2] > 0.0
 
 
+# ============================================================
+# A11: fixture-swing informational attach for evaluate_wildcard() -- "is the squad Wildcard
+# would rebuild me into walking into a favorable fixture run right now."
+# ============================================================
+
+def test_evaluate_wildcard_attaches_fixture_swing_for_the_new_squad_when_opted_in(con):
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    clubs = ["clubA", "clubB", "clubC", "clubD", "clubE", "clubF"]
+    # _team_code_to_uid() needs a raw teams table + team_alias -- _seed_real_squad_optimizer_
+    # candidate_pool() uses the club name itself as player_alias.team_code, so code=name=team_uid
+    # here resolves cleanly through the same two-hop join every other consumer uses.
+    con.execute('CREATE TABLE raw_2026_2027_teams (code VARCHAR, name VARCHAR)')
+    con.execute(
+        "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+        "VALUES ('raw_2026_2027_teams', '2026-2027', 'teams.csv', 'x', ?)", [len(clubs)],
+    )
+    for club in clubs:
+        con.execute("INSERT INTO raw_2026_2027_teams VALUES (?, ?)", [club, club])
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES (?, '2026-2027', ?)", [club, club])
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, 0.0, 0.0, 2, 1.0)", [ts_mv, club],
+        )
+    # 'm1' (clubA vs clubB) already exists in the base fixture -- add fixtures for the other
+    # four clubs too, so whichever clubs the freshly-solved squad actually lands on (not
+    # something this test predicts) all have a real GW2 fixture to compute favorability from.
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES "
+        "('m_cd', '2026-2027', 2, 'clubC', 'clubD', FALSE, 'Premier League', '2026-08-24', current_timestamp), "
+        "('m_ef', '2026-2027', 2, 'clubE', 'clubF', FALSE, 'Premier League', '2026-08-24', current_timestamp)"
+    )
+
+    without_swing = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", 2, current_squad_horizon_value=10.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    assert "fixture_swing_new_squad" not in without_swing
+
+    with_swing = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", 2, current_squad_horizon_value=10.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+        ts_model_version=ts_mv,
+    )
+    assert isinstance(with_swing["fixture_swing_new_squad"], float)
+
+
 def _seed_real_wildcard_chip_evaluation(con, old_state_version, target_gameweek=2):
     """Real evaluate_wildcard() call (a genuine squad_optimizer.run() solve) plus the same
     transfer_plan_runs/chip_evaluations rows run() itself would write -- the exact shape
@@ -645,6 +695,144 @@ def test_evaluate_transfers_attaches_momentum_without_changing_the_ranking(con):
     assert top["ownership_momentum_in"] is None
 
 
+# ============================================================
+# A9: fixture-swing epsilon-band tiebreak -- "influence, not override" applied to transfer
+# timing, same shape as captain_choice_with_differential().
+# ============================================================
+
+def _seed_swing_tiebreak_league(con, target_season="2026-2027", target_gameweek=2):
+    """Two clubs with deliberately opposite short-window fixture trajectories at
+    target_gameweek, using swing_short=1/swing_long=2 (the test's own call) to keep the
+    fixture list small: clubGood plays a weak GW2 opponent then a strong GW3 one (near-term
+    easier than the 2-game average -- positive swing); clubBad plays the exact mirror (near-
+    term harder -- negative swing). p_in_good_swing (clubGood) and p_in_bad_swing
+    (clubBad) are given near-tied net_value, close enough to fall inside the epsilon band."""
+    for code, name in (("CG", "ClubGood"), ("CB", "ClubBad"), ("CN", "ClubNeutral"),
+                       ("CW", "ClubWeak"), ("CS", "ClubStrong")):
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [f"{code}_uid", name])
+    raw_teams_table = f"raw_{target_season.replace('-', '_')}_teams"
+    con.execute(f'CREATE TABLE "{raw_teams_table}" (code VARCHAR, name VARCHAR)')
+    for code, name in (("CG", "ClubGood"), ("CB", "ClubBad"), ("CN", "ClubNeutral"),
+                       ("CW", "ClubWeak"), ("CS", "ClubStrong")):
+        con.execute(f'INSERT INTO "{raw_teams_table}" VALUES (?, ?)', [code, name])
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES (?, ?, ?)", [name, target_season, f"{code}_uid"])
+    con.execute(
+        "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+        "VALUES (?, ?, 'teams.csv', 'x', 5)", [raw_teams_table, target_season],
+    )
+    # clubGood: GW2 vs weak (favorable), GW3 vs strong (unfavorable) -- near-term easier.
+    # clubBad: GW2 vs strong (unfavorable), GW3 vs weak (favorable) -- near-term harder.
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES "
+        "('m_g2', ?, ?, 'CG_uid', 'CW_uid', FALSE, 'Premier League', '2026-08-24', current_timestamp), "
+        "('m_g3', ?, ?, 'CG_uid', 'CS_uid', FALSE, 'Premier League', '2026-08-31', current_timestamp), "
+        "('m_b2', ?, ?, 'CB_uid', 'CS_uid', FALSE, 'Premier League', '2026-08-24', current_timestamp), "
+        "('m_b3', ?, ?, 'CB_uid', 'CW_uid', FALSE, 'Premier League', '2026-08-31', current_timestamp)",
+        [target_season, target_gameweek, target_season, target_gameweek + 1,
+         target_season, target_gameweek, target_season, target_gameweek + 1],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.0, 1, 1, 'CG_uid')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    for team_uid, attack, defence in (
+        ("CG_uid", 0.0, 0.0), ("CB_uid", 0.0, 0.0), ("CN_uid", 0.0, 0.0),
+        ("CW_uid", -1.0, -1.0), ("CS_uid", 1.0, 1.0),
+    ):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)",
+            [ts_mv, team_uid, attack, defence],
+        )
+    return ts_mv
+
+
+def test_evaluate_transfers_swing_promotes_the_better_timed_near_tied_candidate(con):
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    ts_mv = _seed_swing_tiebreak_league(con)
+    tp.seed_v1_params(con)
+    for uid, team_code, ep_val in (("p_in_good_swing", "CG", 9.0), ("p_in_bad_swing", "CB", 9.3)):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, ?, '2026-2027', ?)", [uid, uid.lower(), team_code, uid],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, '2026-2027', 1, 4.0, current_timestamp)", [uid],
+        )
+        ep_mv, un_mv = horizon_ep_versions[2]
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, uid, ep_val],
+        )
+        con.execute(
+            "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+            "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+            "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+            "VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0, 1.0, 0,0,0,0,0,0)", [un_mv, uid],
+        )
+    current_holdings = [holdings_dict["p_out"]]
+
+    without_swing = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+    )
+    assert without_swing[0]["player_in"] == "p_in_bad_swing"  # higher net_value wins with the feature off
+    assert "fixture_swing_in" not in without_swing[0]
+
+    with_swing = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=2, ts_model_version=ts_mv, swing_params_version=1, swing_short=1, swing_long=2,
+    )
+    assert with_swing[0]["player_in"] == "p_in_good_swing"  # within epsilon, better timing wins
+    by_uid = {r["player_in"]: r for r in with_swing}
+    assert by_uid["p_in_good_swing"]["fixture_swing_in"] > 0
+    assert by_uid["p_in_bad_swing"]["fixture_swing_in"] < 0
+
+
+def test_evaluate_transfers_swing_never_overrides_a_gap_beyond_epsilon(con):
+    """The same setup, but p_in_bad_swing's net_value lead is widened beyond the epsilon band
+    -- the better-timed candidate must NOT be promoted once the EP gap is real, not a near-tie
+    (the exact "influence, not override" guarantee this feature exists to provide)."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    ts_mv = _seed_swing_tiebreak_league(con)
+    tp.seed_v1_params(con)
+    for uid, team_code, ep_val in (("p_in_good_swing", "CG", 9.0), ("p_in_bad_swing", "CB", 20.0)):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, ?, '2026-2027', ?)", [uid, uid.lower(), team_code, uid],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, '2026-2027', 1, 4.0, current_timestamp)", [uid],
+        )
+        ep_mv, un_mv = horizon_ep_versions[2]
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, uid, ep_val],
+        )
+        con.execute(
+            "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+            "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+            "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+            "VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0, 1.0, 0,0,0,0,0,0)", [un_mv, uid],
+        )
+    current_holdings = [holdings_dict["p_out"]]
+
+    with_swing = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=2, ts_model_version=ts_mv, swing_params_version=1, swing_short=1, swing_long=2,
+    )
+    assert with_swing[0]["player_in"] == "p_in_bad_swing"  # real ~11-point gap survives the swing tiebreak
+
+
 def test_evaluate_transfers_sufficient_bank_legalizes_an_otherwise_too_expensive_transfer(con):
     """Regression test for the transfer planner's real bug: with bank=0.0 (the old, only
     behavior), p_in_too_expensive (price 9.0 vs p_out's 8.0) is illegal -- no single outgoing
@@ -808,6 +996,157 @@ def test_evaluate_bench_boost_picks_gameweek_with_highest_bench_ep(con):
 def test_evaluate_bench_boost_no_bench_players(con):
     result = tp.evaluate_bench_boost(con, {2: (1, 1)}, squad_uids={"p1"}, xi_uids={"p1"})
     assert result["recommended"] is False
+
+
+# ============================================================
+# A10: fixture-swing wiring into evaluate_bench_boost() (gameweek-choice epsilon-band tiebreak)
+# and evaluate_triple_captain() (informational attach only, no "pick a different week" here).
+# ============================================================
+
+def test_evaluate_bench_boost_swing_promotes_the_better_timed_near_tied_gameweek(con):
+    """bench1 (clubGood) has slightly higher raw bench_ep_sum at GW3 than GW2, but GW2 is a
+    genuinely more favorable fixture-swing window (weak opponent GW2, strong GW3 -- see
+    _seed_swing_tiebreak_league) -- within the epsilon band, GW2 must win."""
+    ts_mv = _seed_swing_tiebreak_league(con)
+    tp.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('bench1', 'B1', 'Defender')")
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES ('bench1', 'bench1', 'CG', '2026-2027', 'bench1')"
+    )
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv_by_gw = {}
+    for gw, ep_val in ((2, 6.8), (3, 7.0)):
+        con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+        )
+        ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'bench1', ?, 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, f"m_g{gw}", ep_val],
+        )
+        ep_mv_by_gw[gw] = ep_mv
+    horizon_ep_versions = {2: (ep_mv_by_gw[2], 0), 3: (ep_mv_by_gw[3], 0)}
+
+    without_swing = tp.evaluate_bench_boost(con, horizon_ep_versions, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"})
+    assert without_swing["target_gameweek"] == 3  # raw bench_ep_sum alone prefers GW3
+
+    with_swing = tp.evaluate_bench_boost(
+        con, horizon_ep_versions, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"},
+        target_season="2026-2027", ts_model_version=ts_mv, swing_params_version=1, swing_short=1, swing_long=2,
+    )
+    assert with_swing["target_gameweek"] == 2  # within epsilon, the better-timed gameweek wins
+    assert with_swing["bench_ep_sum"] == pytest.approx(6.8)
+    assert with_swing["fixture_swing_by_gw"][2] > with_swing["fixture_swing_by_gw"][3]
+
+
+def test_evaluate_bench_boost_swing_never_overrides_a_gap_beyond_epsilon(con):
+    ts_mv = _seed_swing_tiebreak_league(con)
+    tp.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('bench1', 'B1', 'Defender')")
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES ('bench1', 'bench1', 'CG', '2026-2027', 'bench1')"
+    )
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv_by_gw = {}
+    for gw, ep_val in ((2, 3.0), (3, 20.0)):  # a real, wide-beyond-epsilon gap
+        con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+        )
+        ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'bench1', ?, 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, f"m_g{gw}", ep_val],
+        )
+        ep_mv_by_gw[gw] = ep_mv
+    horizon_ep_versions = {2: (ep_mv_by_gw[2], 0), 3: (ep_mv_by_gw[3], 0)}
+
+    with_swing = tp.evaluate_bench_boost(
+        con, horizon_ep_versions, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"},
+        target_season="2026-2027", ts_model_version=ts_mv, swing_params_version=1, swing_short=1, swing_long=2,
+    )
+    assert with_swing["target_gameweek"] == 3  # the real 17-point gap survives the swing tiebreak
+
+
+def test_evaluate_triple_captain_attaches_fixture_swing_when_opted_in(con):
+    tp.seed_v1_params(con)
+    ts_mv = _seed_swing_tiebreak_league(con)  # target_gameweek=2 by default: CG's near-term run is genuinely easier
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('tc_candidate', 'tc_candidate', 'Midfielder')")
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES ('tc_candidate', 'tc_candidate', 'CG', '2026-2027', 'tc_candidate')"
+    )
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    run_id = con.execute(
+        "INSERT INTO squad_optimizer_runs (run_id, calibration_asof_date, target_season, target_gameweek, "
+        "ep_model_version, uncertainty_model_version, lambda_params_version, lambda_value, "
+        "guardrail_params_version, divergence_check_passed, solver_status, objective_value) "
+        "VALUES (nextval('seq_squad_optimizer_run'), '2026-08-10', '2026-2027', 2, ?, ?, 1, 0.15, 1, TRUE, 'optimal', 10.0) "
+        "RETURNING run_id", [ep_mv, un_mv],
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+        "VALUES (?, 'tc_candidate', TRUE, TRUE, FALSE, FALSE)", [run_id],
+    )
+    model_version = con.execute("SELECT nextval('seq_monte_carlo_model_version')").fetchone()[0]
+    con.execute(
+        "INSERT INTO monte_carlo_run_versions (model_version, calibration_asof_date, squad_optimizer_run_id, "
+        "ep_model_version, minutes_model_version, team_strength_model_version, uncertainty_model_version, "
+        "rho_residual_params_version, z_fixture_lambda_representative, z_fixture_variance, n_antithetic_pairs, "
+        "query_id, seed) VALUES (?, '2026-08-10', ?, ?, ?, ?, ?, 1, 0.1, 0.1, 100, 'test', 1)",
+        [model_version, run_id, ep_mv, mm_mv, ts_mv, un_mv],
+    )
+    con.execute(
+        "INSERT INTO monte_carlo_player_summary (model_version, player_uid, mean_total, var_total, "
+        "quantile_05, quantile_25, quantile_75, quantile_95, min_total, max_total) "
+        "VALUES (?, 'tc_candidate', 5.0, 1.0, 0,0,0,0,0,0)", [model_version],
+    )
+
+    without = tp.evaluate_triple_captain(con, model_version, xi_uids={"tc_candidate"}, kappa_tc_params_version=1)
+    assert "fixture_swing" not in without
+
+    with_swing = tp.evaluate_triple_captain(
+        con, model_version, xi_uids={"tc_candidate"}, kappa_tc_params_version=1,
+        target_season="2026-2027", as_of_gameweek=2, ts_model_version=ts_mv, swing_short=1, swing_long=2,
+    )
+    assert with_swing["captain_candidate"] == "tc_candidate"  # unchanged by the swing attach
+    assert with_swing["fixture_swing"] > 0
 
 
 # ============================================================

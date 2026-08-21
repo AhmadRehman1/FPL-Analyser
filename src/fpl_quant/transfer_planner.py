@@ -37,8 +37,10 @@ from datetime import date
 import duckdb
 
 from . import expected_points as ep
+from . import fixture_swing
 from . import monte_carlo
 from . import params as params_mod
+from . import reconcile as reconcile_mod
 from . import squad_optimizer
 from . import uncertainty as un_mod
 
@@ -125,6 +127,20 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # classified rise/fall rather than stable -- deliberately conservative so this doesn't
     # flag routine day-to-day noise as a real trend.
     params_mod.write_param(con, "price_momentum_params", 1, "2026-08-12", "net_transfers_event_threshold", value_numeric=20000)
+    # A9: fixture-swing epsilon-band tiebreak for evaluate_transfers() -- same "influence, not
+    # override" shape as captain_differential_params.tiebreak_epsilon: small enough to only
+    # ever decide between transfer candidates that are already near-equal on net_value, never
+    # promote a genuinely worse transfer for better fixture timing. Own, independently-versioned
+    # family rather than reusing captain_differential_params' epsilon -- net_value (points over
+    # a multi-gameweek horizon) and captain objective score live on different natural scales, so
+    # sharing one pinned epsilon between them would be coincidental, not principled. Invented v1
+    # default, same status as every other unpinned constant here, flagged for M7 recalibration.
+    params_mod.write_param(con, "transfer_swing_tiebreak_params", 1, "2026-08-12", "tiebreak_epsilon", value_numeric=0.5)
+    # A10: evaluate_bench_boost()'s own gameweek-choice epsilon -- a SEPARATE family from
+    # transfer_swing_tiebreak_params (different natural scale: bench_ep_sum is several bench
+    # players' summed EP for one gameweek, not a single-transfer net_value). Same "influence,
+    # not override" invented-v1-default status as every other epsilon band in this project.
+    params_mod.write_param(con, "chip_swing_tiebreak_params", 1, "2026-08-12", "tiebreak_epsilon", value_numeric=0.5)
 
 
 # ============================================================
@@ -368,6 +384,36 @@ def price_momentum_by_player(
 # transfer evaluation
 # ============================================================
 
+def _team_code_to_uid(con: duckdb.DuckDBPyConnection, target_season: str) -> dict[str, str]:
+    """{team_code: team_uid} for a season -- candidates carry team_code (player_alias's own
+    field, see squad_optimizer.fetch_candidate_pool()), but fixture_swing needs team_uid
+    (fact_match/team_strength_snapshots' key). Same two-hop code->name->team_uid resolution
+    expected_points.run() already uses for its own roster-by-team-uid lookup, just inverted."""
+    raw_teams_table = reconcile_mod._season_root_table(con, target_season, "teams.csv")[1]
+    rows = con.execute(
+        f'SELECT t.code, ta.team_uid FROM "{raw_teams_table}" t '
+        "JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = ?",
+        [target_season],
+    ).fetchall()
+    return dict(rows)
+
+
+def _team_uids_for_players(con: duckdb.DuckDBPyConnection, player_uids, target_season: str) -> list[str]:
+    """team_uid for each of player_uids (via _team_code_to_uid()), batched -- one query for
+    the whole set rather than one per player. Players with no resolvable team_code/team_uid
+    are simply omitted, not errored on."""
+    player_uids = list(player_uids)
+    if not player_uids:
+        return []
+    code_to_uid = _team_code_to_uid(con, target_season)
+    placeholders = ",".join("?" * len(player_uids))
+    rows = con.execute(
+        f"SELECT DISTINCT team_code FROM player_alias WHERE season = ? AND player_uid IN ({placeholders})",
+        [target_season, *player_uids],
+    ).fetchall()
+    return [code_to_uid[code] for (code,) in rows if code in code_to_uid]
+
+
 def evaluate_transfers(
     con: duckdb.DuckDBPyConnection,
     current_holdings: list[dict],
@@ -379,6 +425,10 @@ def evaluate_transfers(
     bank: float = 0.0,
     target_gameweek: int | None = None,
     momentum_lookback_gameweeks: int = 3,
+    ts_model_version: int | None = None,
+    swing_params_version: int | None = None,
+    swing_short: int = 3,
+    swing_long: int = 6,
 ) -> list[dict]:
     """Exhaustive single-transfer search: every current squad player x every other real
     candidate, ranked by net value over the horizon. Single-best-transfer-per-gameweek scope
@@ -398,6 +448,14 @@ def evaluate_transfers(
     when given, each result also carries price_momentum_in/out and ownership_momentum_in/out
     (see price_momentum_by_player()) -- purely informational, never part of net_value or the
     ranking sort, which stays exactly the same EP/risk-driven order regardless of this flag.
+
+    A9: ts_model_version + swing_params_version (both optional, default None -- opt-in, same
+    shape as every other qualitative-evidence feature in this project): when supplied alongside
+    target_gameweek, every result also carries fixture_swing_in (see fixture_swing.swing_score()
+    for the incoming player's club), and the TOP-RANKED transfer can shift -- but only among
+    candidates within transfer_swing_tiebreak_params' epsilon of the best net_value, exactly
+    captain_choice_with_differential()'s "influence, not override" shape applied to transfer
+    timing. A transfer meaningfully worse on points is never promoted for better fixture timing.
     """
     horizon_ep = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
     momentum = price_momentum_by_player(con, target_season, target_gameweek, momentum_lookback_gameweeks) if target_gameweek is not None else {}
@@ -441,6 +499,34 @@ def evaluate_transfers(
             results.append(result)
 
     results.sort(key=lambda r: r["net_value"], reverse=True)
+
+    if target_gameweek is not None and ts_model_version is not None and swing_params_version is not None and results:
+        code_to_uid = _team_code_to_uid(con, target_season)
+        swing_by_team_uid = fixture_swing.swing_score_by_team(
+            con, target_gameweek, target_season, ts_model_version, short=swing_short, long=swing_long,
+        )
+
+        def _swing_for(r):
+            team_uid = code_to_uid.get(horizon_ep[r["player_in"]]["club"])
+            return swing_by_team_uid.get(team_uid) if team_uid else None
+
+        for r in results:
+            r["fixture_swing_in"] = _swing_for(r)
+
+        epsilon, _ = params_mod.resolve_param(
+            con, "transfer_swing_tiebreak_params", "tiebreak_epsilon", swing_params_version
+        )
+        top_net_value = results[0]["net_value"]
+        near_optimal = [r for r in results if r["net_value"] >= top_net_value - epsilon]
+        # missing swing data (blank near-term fixtures for that club) is neutral, never
+        # preferred over a real, known-favorable swing -- same "absence of evidence isn't
+        # evidence of absence, but shouldn't win a tie-break either" shape as everywhere else
+        # in this project that handles missing evidence.
+        swing_preferred = max(near_optimal, key=lambda r: r["fixture_swing_in"] if r["fixture_swing_in"] is not None else float("-inf"))
+        if swing_preferred is not results[0]:
+            results.remove(swing_preferred)
+            results.insert(0, swing_preferred)
+
     for rank, r in enumerate(results, start=1):
         r["rank"] = rank
     return results
@@ -475,6 +561,7 @@ def ensure_squad_simulation(
 def evaluate_triple_captain(
     con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int,
     horizon_ep_map: dict | None = None, target_season: str | None = None, as_of_gameweek: int | None = None,
+    ts_model_version: int | None = None, swing_short: int = 3, swing_long: int = 6,
 ) -> dict:
     """TC_score_i = E[marginal_value_i] - kappa_tc * StdDev[marginal_value_i], where
     marginal_value_i is exactly player i's own simulated total_points (captaincy has no other
@@ -518,6 +605,18 @@ def evaluate_triple_captain(
         # already single/double-captains buys much less relative rank-gain than the raw points
         # swing implies), not the rest of the XI's.
         result["field_crowding"] = chip_field_crowding(con, target_season, as_of_gameweek, {best["player_uid"]})
+    if ts_model_version is not None and target_season is not None and as_of_gameweek is not None:
+        # A10: informational only, same shape as field_crowding just above -- TC evaluates ONE
+        # specific gameweek's opportunity (no "pick a different week" mechanism exists here the
+        # way evaluate_bench_boost()'s multi-gameweek by_gw scan has), so fixture-swing has
+        # nothing to re-rank; it's a genuine, separate signal for a human/M9 to weigh alongside
+        # tc_score ("this captain's own recent-fixture trajectory is trending easier/harder"),
+        # never a silent adjustment to tc_score or which candidate gets recommended.
+        team_uids = _team_uids_for_players(con, [best["player_uid"]], target_season)
+        result["fixture_swing"] = (
+            fixture_swing.swing_score(con, team_uids[0], as_of_gameweek, target_season, ts_model_version, swing_short, swing_long)
+            if team_uids else None
+        )
     return result
 
 
@@ -559,6 +658,8 @@ def chip_field_crowding(con: duckdb.DuckDBPyConnection, target_season: str, as_o
 def evaluate_bench_boost(
     con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str],
     target_season: str | None = None, as_of_gameweek: int | None = None,
+    ts_model_version: int | None = None, swing_params_version: int | None = None,
+    swing_short: int = 3, swing_long: int = 6,
 ) -> dict:
     """Compares projected bench EP sum (M3's ep_total, not a simulation) across horizon
     gameweeks, recommends the gameweek maximizing it. Bench = squad minus XI.
@@ -567,7 +668,15 @@ def evaluate_bench_boost(
     field_crowding (see chip_field_crowding()) for the bench -- informational only, exactly
     like price/ownership momentum elsewhere in this module, never changes which gameweek gets
     picked as best_gw above. A crowded Bench Boost week isn't wrong to take, it's just worth
-    the manager knowing the relative rank-gain is smaller than the raw EP swing implies."""
+    the manager knowing the relative rank-gain is smaller than the raw EP swing implies.
+
+    A10: ts_model_version + swing_params_version (both optional, opt-in): unlike field_crowding,
+    fixture-swing DOES get to influence which gameweek is picked here -- Bench Boost genuinely
+    has several horizon gameweeks to choose between (unlike Triple Captain, which evaluates one
+    specific week), so "is this near-tied gameweek's bench also entering a favorable fixture
+    run" is a real, applicable tiebreak, same epsilon-band "influence, not override" shape as
+    evaluate_transfers(): only ever chooses among gameweeks within chip_swing_tiebreak_params'
+    epsilon of the best raw bench_ep_sum, never promotes a genuinely worse gameweek."""
     bench_uids = squad_uids - xi_uids
     if not bench_uids:
         return {"recommended": False, "reason": "no bench players (XI equals full squad?)"}
@@ -585,6 +694,29 @@ def evaluate_bench_boost(
     result = {"recommended": True, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw}
     if target_season is not None and as_of_gameweek is not None:
         result["field_crowding"] = chip_field_crowding(con, target_season, as_of_gameweek, bench_uids)
+
+    if ts_model_version is not None and swing_params_version is not None and target_season is not None and len(by_gw) > 1:
+        bench_team_uids = _team_uids_for_players(con, bench_uids, target_season)
+
+        def _mean_swing(gw):
+            scores = [
+                s for tu in bench_team_uids
+                if (s := fixture_swing.swing_score(con, tu, gw, target_season, ts_model_version, swing_short, swing_long)) is not None
+            ]
+            return sum(scores) / len(scores) if scores else None
+
+        swing_by_gw = {gw: _mean_swing(gw) for gw in by_gw}
+        result["fixture_swing_by_gw"] = swing_by_gw
+        epsilon, _ = params_mod.resolve_param(con, "chip_swing_tiebreak_params", "tiebreak_epsilon", swing_params_version)
+        top_value = by_gw[best_gw]
+        near_optimal_gws = [gw for gw, val in by_gw.items() if val >= top_value - epsilon]
+        if len(near_optimal_gws) > 1:
+            swing_preferred_gw = max(
+                near_optimal_gws, key=lambda gw: swing_by_gw[gw] if swing_by_gw[gw] is not None else float("-inf")
+            )
+            if swing_preferred_gw != best_gw:
+                result["target_gameweek"] = swing_preferred_gw
+                result["bench_ep_sum"] = by_gw[swing_preferred_gw]
     return result
 
 
@@ -593,6 +725,7 @@ def evaluate_wildcard(
     current_squad_horizon_value: float, best_transfer_net_value: float, horizon_ep_versions: dict[int, tuple[int, int]],
     lambda_params_version: int, guardrail_params_version: int, threshold_params_version: int,
     current_holdings: list[dict] | None = None,
+    ts_model_version: int | None = None, swing_short: int = 3, swing_long: int = 6,
 ) -> dict:
     """Calls M5 fresh (a real, logged, divergence-checked squad_optimizer.run() -- not raw
     solve(), so a Wildcard recommendation carries the same audit trail as any other real M5
@@ -610,7 +743,19 @@ def evaluate_wildcard(
     squad's own visible trajectory -- the real situation Wildcard exists to fix -- rather than
     just clearing the threshold in isolation. Deliberately NOT folded into `recommended` here:
     a live one-off planner run has no "later week" to hold out for in the same sense a season
-    simulation does, so this stays additive, informational detail, not a changed gate."""
+    simulation does, so this stays additive, informational detail, not a changed gate.
+
+    A11: ts_model_version (optional, opt-in): when supplied, attaches fixture_swing_new_squad --
+    mean fixture_swing.swing_score() across the freshly-built wildcard squad's own clubs at
+    target_gameweek. Answers a real, complementary question to current_squad_value_per_gw
+    above: not "is my OLD squad at its worst point right now" but "is the squad Wildcard would
+    actually REBUILD me into walking into a favorable fixture run right now" -- the real
+    "trigger just before a swing starts" intuition, made concrete. Informational only, same
+    "influence, not override" discipline as everywhere else in this module -- Wildcard evaluates
+    ONE target_gameweek's opportunity here (the "is a LATER gameweek better to wait for"
+    question is backtest._decide_gameweek_action()'s own separate, multi-call comparison via
+    _is_best_gameweek_in_visible_horizon(), a natural place to fold this signal in too, left as
+    a follow-up rather than bundled into this already-large change)."""
     if target_gameweek not in horizon_ep_versions:
         return {"recommended": False, "reason": "no fixtures this gameweek -- cannot rebuild"}
     ep_mv, un_mv = horizon_ep_versions[target_gameweek]
@@ -636,11 +781,19 @@ def evaluate_wildcard(
             gw: sum(horizon_ep_map.get(uid, {}).get("per_gw", {}).get(gw, 0.0) for uid in current_squad_uids)
             for gw in horizon_ep_versions
         }
-    return {
+    result = {
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_squad_horizon_value": fresh_squad_horizon_value, "baseline_value": baseline_value, "gain": gain,
         "current_squad_value_per_gw": current_squad_value_per_gw,
     }
+    if ts_model_version is not None:
+        new_squad_team_uids = _team_uids_for_players(con, fresh_uids, target_season)
+        swing_scores = [
+            s for tu in new_squad_team_uids
+            if (s := fixture_swing.swing_score(con, tu, target_gameweek, target_season, ts_model_version, swing_short, swing_long)) is not None
+        ]
+        result["fixture_swing_new_squad"] = sum(swing_scores) / len(swing_scores) if swing_scores else None
+    return result
 
 
 def evaluate_free_hit(
@@ -750,6 +903,7 @@ def run(
     *, set_piece_params_version: int | None = None,
     decay_params_version: int | None = None, fact_multiplier_params_version: int | None = None,
     role_shift_params_version: int | None = None,
+    swing_params_version: int | None = None, swing_short: int = 3, swing_long: int = 6,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -783,6 +937,8 @@ def run(
     transfer_results = evaluate_transfers(
         con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
         bank=bank or 0.0, target_gameweek=target_gameweek,
+        ts_model_version=ts_model_version, swing_params_version=swing_params_version,
+        swing_short=swing_short, swing_long=swing_long,
     )
 
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
@@ -793,6 +949,7 @@ def run(
         con, calibration_asof_date, target_season, target_gameweek, current_squad_horizon_value,
         best_transfer_net_value, horizon_ep_versions, lambda_params_version, guardrail_params_version,
         wildcard_threshold_params_version, current_holdings=current_holdings,
+        ts_model_version=ts_model_version, swing_short=swing_short, swing_long=swing_long,
     )
     free_hit_result = evaluate_free_hit(
         con, calibration_asof_date, target_season, target_gameweek, current_holdings, horizon_ep_versions,
@@ -811,11 +968,14 @@ def run(
         tc_result = evaluate_triple_captain(
             con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map,
             target_season=target_season, as_of_gameweek=target_gameweek,
+            ts_model_version=ts_model_version, swing_short=swing_short, swing_long=swing_long,
         )
     else:
         tc_result = {"recommended": False, "reason": "no fixtures this gameweek"}
     bb_result = evaluate_bench_boost(
         con, horizon_ep_versions, squad_uids, xi_uids, target_season=target_season, as_of_gameweek=target_gameweek,
+        ts_model_version=ts_model_version, swing_params_version=swing_params_version,
+        swing_short=swing_short, swing_long=swing_long,
     )
 
     gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
