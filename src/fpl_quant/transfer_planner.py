@@ -37,6 +37,7 @@ from datetime import date
 import duckdb
 
 from . import expected_points as ep
+from . import fixture_swing
 from . import monte_carlo
 from . import params as params_mod
 from . import squad_optimizer
@@ -323,6 +324,9 @@ def evaluate_transfers(
     bank: float = 0.0,
     target_gameweek: int | None = None,
     momentum_lookback_gameweeks: int = 3,
+    ts_model_version: int | None = None,
+    swing_short_window: int = 3,
+    swing_long_window: int = 6,
 ) -> list[dict]:
     """Exhaustive single-transfer search: every current squad player x every other real
     candidate, ranked by net value over the horizon. Single-best-transfer-per-gameweek scope
@@ -342,9 +346,24 @@ def evaluate_transfers(
     when given, each result also carries price_momentum_in/out and ownership_momentum_in/out
     (see price_momentum_by_player()) -- purely informational, never part of net_value or the
     ranking sort, which stays exactly the same EP/risk-driven order regardless of this flag.
+
+    ts_model_version (optional, default None -- prior behavior, no swing keys on results):
+    when given (together with target_gameweek), each result also carries
+    fixture_swing_in/out (see fixture_swing.rolling_swing_score()) -- the incoming/outgoing
+    player's own team's rolling fixture-difficulty swing as of target_gameweek. Same
+    informational-only convention as price/ownership momentum above: never folded into
+    horizon_value_gain/net_value or the ranking sort.
     """
     horizon_ep = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
     momentum = price_momentum_by_player(con, target_season, target_gameweek, momentum_lookback_gameweeks) if target_gameweek is not None else {}
+    attach_swing = target_gameweek is not None and ts_model_version is not None
+    swing_by_team: dict = {}
+    team_by_player: dict = {}
+    if attach_swing:
+        swing_by_team = fixture_swing.swing_scores_by_team(
+            con, target_season, target_gameweek, ts_model_version, swing_short_window, swing_long_window,
+        )
+        team_by_player = fixture_swing.team_uid_by_player(con, target_season)
     current_uids = {h["player_uid"] for h in current_holdings}
     club_counts: dict[str, int] = {}
     for h in current_holdings:
@@ -382,6 +401,13 @@ def evaluate_transfers(
                 result["price_momentum_out"] = out_momentum["price_delta"]
                 result["ownership_momentum_in"] = in_momentum["ownership_delta"]
                 result["ownership_momentum_out"] = out_momentum["ownership_delta"]
+            if attach_swing:
+                in_team = team_by_player.get(in_uid)
+                out_team = team_by_player.get(out_uid)
+                in_swing = swing_by_team.get(in_team)
+                out_swing = swing_by_team.get(out_team)
+                result["fixture_swing_in"] = in_swing.swing_score if in_swing is not None else None
+                result["fixture_swing_out"] = out_swing.swing_score if out_swing is not None else None
             results.append(result)
 
     results.sort(key=lambda r: r["net_value"], reverse=True)
@@ -664,7 +690,7 @@ def run(
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
     transfer_results = evaluate_transfers(
         con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
-        bank=bank or 0.0, target_gameweek=target_gameweek,
+        bank=bank or 0.0, target_gameweek=target_gameweek, ts_model_version=ts_model_version,
     )
 
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)

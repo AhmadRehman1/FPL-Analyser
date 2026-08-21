@@ -3,6 +3,7 @@ from datetime import date, datetime
 
 import pytest
 
+from fpl_quant import fixture_swing
 from fpl_quant import params
 from fpl_quant import squad_optimizer as so
 from fpl_quant import transfer_planner as tp
@@ -611,6 +612,91 @@ def test_evaluate_transfers_attaches_momentum_without_changing_the_ranking(con):
     # the base fixture never seeded selected_by_percent at gw1 for this player -- missing
     # history means None, not a fabricated 0.0 baseline.
     assert top["ownership_momentum_in"] is None
+
+
+# ============================================================
+# evaluate_transfers fixture-swing keys -- same informational-only convention as momentum
+# above (never folded into net_value or the ranking sort). See fixture_swing.py.
+# ============================================================
+
+def _seed_raw_teams_csv(con, season, rows):
+    """rows: list of (code, name). team_uid_by_player() resolves player->team via
+    reconcile._season_root_table, which reads fact_raw's teams.csv table -- a real
+    dependency, matching test_minutes_model.py's own helper of the same shape."""
+    table = f"raw_{season.replace('-', '_')}_teams_tp"
+    con.execute(f'CREATE TABLE "{table}" (code VARCHAR, name VARCHAR)')
+    for code, name in rows:
+        con.execute(f'INSERT INTO "{table}" VALUES (?, ?)', [code, name])
+    con.execute(
+        "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+        "VALUES (?, ?, 'teams.csv', ?, ?)",
+        [table, season, f"fakehash_{table}", len(rows)],
+    )
+
+
+def test_evaluate_transfers_attaches_fixture_swing_without_changing_the_ranking(con):
+    """ts_model_version (together with target_gameweek) opts the fixture_swing keys in; the
+    ranking (net_value, sort order) must be byte-for-byte identical to the case without it --
+    same informational-only convention price/ownership momentum already established."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]
+
+    _seed_raw_teams_csv(con, "2026-2027", [("1", "TeamOne")])
+    con.execute(
+        "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) "
+        "VALUES ('TeamOne', '2026-2027', 'team_a', 't')"
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    for team_uid, attack, defence in (("team_a", 0.3, 0.0), ("team_b", -0.1, 0.1)):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)",
+            [ts_mv, team_uid, attack, defence],
+        )
+    # m1 (gw2) already seeded by _seed_ep_and_holdings_for_transfers -- one more fixture so the
+    # rolling window has more than a single data point to average over.
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m2', '2026-2027', 3, 'team_a', 'team_b', FALSE, "
+        "'Premier League', '2026-08-31', current_timestamp)"
+    )
+
+    without = tp.evaluate_transfers(con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4)
+    with_swing = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=2, ts_model_version=ts_mv,
+    )
+
+    assert [r["net_value"] for r in without] == [r["net_value"] for r in with_swing]
+    assert [r["player_in"] for r in without] == [r["player_in"] for r in with_swing]
+    assert "fixture_swing_in" not in without[0]
+
+    top = with_swing[0]
+    assert top["player_in"] == "p_in_same_pos_cheaper"
+    # every synthetic player in this fixture is on the same team_code -- fixture_swing_in/out
+    # must both equal that one team's own rolling_swing_score(), computed independently here
+    # to prove evaluate_transfers() is really reading fixture_swing's output, not inventing one.
+    expected = fixture_swing.rolling_swing_score(con, "team_a", "2026-2027", as_of_gameweek=2, ts_model_version=ts_mv)
+    assert expected.swing_score is not None
+    assert top["fixture_swing_in"] == pytest.approx(expected.swing_score)
+    assert top["fixture_swing_out"] == pytest.approx(expected.swing_score)
+
+
+def test_evaluate_transfers_fixture_swing_none_without_ts_model_version(con):
+    """target_gameweek alone (no ts_model_version) must not add the fixture_swing keys --
+    they're gated on both, since a swing score is meaningless without a team-strength model."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]
+
+    results = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=2,
+    )
+    assert "fixture_swing_in" not in results[0]
 
 
 def test_evaluate_transfers_sufficient_bank_legalizes_an_otherwise_too_expensive_transfer(con):
