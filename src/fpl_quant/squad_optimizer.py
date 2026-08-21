@@ -129,7 +129,22 @@ def fetch_sigma_pairs(con: duckdb.DuckDBPyConnection, uncertainty_model_version:
 # MIQP solve (one lambda value)
 # ============================================================
 
-def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: float) -> dict:
+def solve(
+    candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: float,
+    forced_squad_uids: frozenset[str] = frozenset(),
+) -> dict:
+    """forced_squad_uids: a manager's own hard lock-ins (e.g. "I'm keeping this player
+    regardless of what the model ranks him"), applied as a real constraint on the SAME MIQP --
+    still risk/budget/quota-optimal *given* those picks, not a hand-assembled squad pasted in
+    afterward. Every forced uid must actually be in the candidate pool (a typo'd or unpriced
+    uid fails loudly here, not silently ignored); infeasibility (e.g. forcing more than a
+    position's quota, or a combined price over budget) surfaces as a normal non-optimal solver
+    status, handled the same way run() already handles any other non-optimal result."""
+    if forced_squad_uids:
+        missing = forced_squad_uids - {c["player_uid"] for c in candidates}
+        if missing:
+            raise ValueError(f"forced_squad_uids not found in candidate pool: {sorted(missing)}")
+
     m = scip.Model()
     m.hideOutput()
     m.setParam("limits/time", 300)
@@ -139,6 +154,8 @@ def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: 
     captain = {c["player_uid"]: m.addVar(vtype="B", name=f"cap_{i}") for i, c in enumerate(candidates)}
     vice = {c["player_uid"]: m.addVar(vtype="B", name=f"vice_{i}") for i, c in enumerate(candidates)}
 
+    for uid in forced_squad_uids:
+        m.addCons(squad[uid] == 1)
     m.addCons(scip.quicksum(squad.values()) == 15)
     for pos, quota in POSITION_QUOTA.items():
         m.addCons(scip.quicksum(squad[c["player_uid"]] for c in candidates if c["position"] == pos) == quota)
@@ -229,6 +246,7 @@ def run(
     uncertainty_model_version: int,
     lambda_params_version: int,
     guardrail_params_version: int,
+    forced_squad_uids: frozenset[str] = frozenset(),
 ) -> int:
     lam, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", lambda_params_version)
     guardrail_cap, _ = params_mod.resolve_param(
@@ -245,8 +263,8 @@ def run(
     # candidate pool once at lambda=0 and once at the frozen lambda. If the two squads are
     # identical, the quadratic risk term is provably not affecting the solve -- carried
     # forward verbatim from LESSONS_LEARNED.md rather than left as unwritten folklore.
-    result_zero = solve(candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap)
-    result_real = solve(candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap)
+    result_zero = solve(candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap, forced_squad_uids=forced_squad_uids)
+    result_real = solve(candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap, forced_squad_uids=forced_squad_uids)
 
     # The baseline (lambda=0) solve must itself have actually reached optimality -- a
     # "timelimit" status there is silently accepted identically to "optimal" further down,

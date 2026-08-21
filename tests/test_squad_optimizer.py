@@ -72,6 +72,37 @@ def test_solve_satisfies_all_constraints():
     assert result["captain"] != result["vice"]
 
 
+def test_forced_squad_uids_are_present_in_the_solved_squad_and_solution_stays_valid():
+    """A manager's own hard lock-in: the forced player must be in the squad, and every other
+    constraint (budget, quotas, club cap) still holds around that pick -- a real constrained
+    re-solve, not a squad hand-assembled after the fact."""
+    pool = _synthetic_pool()
+    forced = frozenset({"fwd3"})  # the most expensive forward in the synthetic pool
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, forced_squad_uids=forced)
+    assert result["status"] == "optimal"
+    assert forced <= result["squad"]
+    by_uid = {c["player_uid"]: c for c in pool}
+    assert sum(by_uid[u]["price"] for u in result["squad"]) <= 100.0 + 1e-6
+    assert sum(1 for u in result["squad"] if by_uid[u]["position"] == "Forward") == 3
+
+
+def test_forced_squad_uids_raises_loudly_on_a_uid_not_in_the_candidate_pool():
+    pool = _synthetic_pool()
+    with pytest.raises(ValueError, match="not_a_real_uid"):
+        so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, forced_squad_uids=frozenset({"not_a_real_uid"}))
+
+
+def test_forced_squad_uids_infeasible_combination_surfaces_as_non_optimal_not_a_crash():
+    """Forcing every forward in a 4-forward pool (position quota is exactly 3) is infeasible
+    by construction -- must come back as a normal non-optimal status, the same way any other
+    infeasible/degenerate solve already does, not raise or silently drop the constraint."""
+    pool = _synthetic_pool()
+    all_fwds = frozenset(c["player_uid"] for c in pool if c["position"] == "Forward")
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, forced_squad_uids=all_fwds)
+    assert result["status"] != "optimal"
+    assert result["squad"] == frozenset()
+
+
 def test_captain_is_never_a_goalkeeper():
     pool = _synthetic_pool()
     result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
