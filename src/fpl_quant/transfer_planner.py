@@ -462,7 +462,7 @@ def ensure_squad_simulation(
 
 def evaluate_triple_captain(
     con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int,
-    horizon_ep_map: dict | None = None,
+    horizon_ep_map: dict | None = None, target_season: str | None = None, as_of_gameweek: int | None = None,
 ) -> dict:
     """TC_score_i = E[marginal_value_i] - kappa_tc * StdDev[marginal_value_i], where
     marginal_value_i is exactly player i's own simulated total_points (captaincy has no other
@@ -495,15 +495,67 @@ def evaluate_triple_captain(
     scored.sort(key=lambda r: r["tc_score"], reverse=True)
     best = scored[0]
     captain_value_per_gw = (horizon_ep_map or {}).get(best["player_uid"], {}).get("per_gw", {})
-    return {
+    result = {
         "recommended": True, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"],
         "all_candidates": scored, "captain_value_per_gw": captain_value_per_gw,
     }
+    if target_season is not None and as_of_gameweek is not None:
+        # single-player field_crowding, same real signal chip_field_crowding() computes for
+        # Bench Boost's whole bench above -- a Triple Captain candidate's OWN ownership is the
+        # relevant crowding question here (tripling a nailed, high-EO captain the whole field
+        # already single/double-captains buys much less relative rank-gain than the raw points
+        # swing implies), not the rest of the XI's.
+        result["field_crowding"] = chip_field_crowding(con, target_season, as_of_gameweek, {best["player_uid"]})
+    return result
 
 
-def evaluate_bench_boost(con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str]) -> dict:
+# Part 3 (rank-relative work): invented v1 default -- mean EO(effective_ownership()) above
+# which a chip week is classified "crowded" (a lot of the field holds the same players
+# benefiting from this same week, so firing a chip here buys less RELATIVE rank-gain than
+# the raw points swing alone suggests, even when that swing is genuinely large). No real
+# chip-timing distribution was analyzed to derive this from -- same invented-default status
+# as every other unpinned threshold in this project, flagged for M7.
+CROWDED_CHIP_MEAN_EO_THRESHOLD = 0.15
+
+
+def chip_field_crowding(con: duckdb.DuckDBPyConnection, target_season: str, as_of_gameweek: int, player_uids: set[str]) -> dict:
+    """Mean effective_ownership() across player_uids (a chip's own relevant player set --
+    the bench for Bench Boost, the candidate for Triple Captain) as of the most recent
+    available gameweek's own selected_by_percent. A real, self-contained "is the wider field
+    also set up to benefit from this same week" signal built from Part 1's own EO formula --
+    deliberately NOT dependent on the fixture-swing module (a gameweek can be crowded on
+    ownership grounds alone, e.g. a widely-templated captain's double-value week, independent
+    of whether fixture-swing timing is separately favorable) -- fixture-swing awareness is a
+    real, separate, additive refinement for later, not a blocker to reporting this now."""
+    if not player_uids:
+        return {"mean_eo": 0.0, "crowded": False}
+    placeholders = ",".join("?" * len(player_uids))
+    rows = con.execute(
+        f"SELECT player_uid, selected_by_percent FROM fact_player_season_stats "
+        f"WHERE season = ? AND gw <= ? AND player_uid IN ({placeholders}) "
+        f"QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [target_season, as_of_gameweek, *player_uids],
+    ).fetchall()
+    eo_by_uid = {uid: squad_optimizer.effective_ownership({"selected_by_percent": pct}) for uid, pct in rows}
+    mean_eo = sum(eo_by_uid.values()) / len(player_uids) if player_uids else 0.0
+    return {
+        "mean_eo": mean_eo, "crowded": mean_eo > CROWDED_CHIP_MEAN_EO_THRESHOLD,
+        "n_priced": len(eo_by_uid), "n_total": len(player_uids),
+    }
+
+
+def evaluate_bench_boost(
+    con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str],
+    target_season: str | None = None, as_of_gameweek: int | None = None,
+) -> dict:
     """Compares projected bench EP sum (M3's ep_total, not a simulation) across horizon
-    gameweeks, recommends the gameweek maximizing it. Bench = squad minus XI."""
+    gameweeks, recommends the gameweek maximizing it. Bench = squad minus XI.
+
+    target_season/as_of_gameweek (both optional, opt-in): when supplied, attaches
+    field_crowding (see chip_field_crowding()) for the bench -- informational only, exactly
+    like price/ownership momentum elsewhere in this module, never changes which gameweek gets
+    picked as best_gw above. A crowded Bench Boost week isn't wrong to take, it's just worth
+    the manager knowing the relative rank-gain is smaller than the raw EP swing implies."""
     bench_uids = squad_uids - xi_uids
     if not bench_uids:
         return {"recommended": False, "reason": "no bench players (XI equals full squad?)"}
@@ -518,7 +570,10 @@ def evaluate_bench_boost(con: duckdb.DuckDBPyConnection, horizon_ep_versions: di
     if not by_gw:
         return {"recommended": False, "reason": "no horizon gameweeks with fixtures"}
     best_gw = max(by_gw, key=by_gw.get)
-    return {"recommended": True, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw}
+    result = {"recommended": True, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw}
+    if target_season is not None and as_of_gameweek is not None:
+        result["field_crowding"] = chip_field_crowding(con, target_season, as_of_gameweek, bench_uids)
+    return result
 
 
 def evaluate_wildcard(
@@ -734,10 +789,15 @@ def run(
             mm_model_version, ts_model_version, un_mv, scoring_params_version, tau_params_version,
             rho_residual_params_version,
         )
-        tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map)
+        tc_result = evaluate_triple_captain(
+            con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map,
+            target_season=target_season, as_of_gameweek=target_gameweek,
+        )
     else:
         tc_result = {"recommended": False, "reason": "no fixtures this gameweek"}
-    bb_result = evaluate_bench_boost(con, horizon_ep_versions, squad_uids, xi_uids)
+    bb_result = evaluate_bench_boost(
+        con, horizon_ep_versions, squad_uids, xi_uids, target_season=target_season, as_of_gameweek=target_gameweek,
+    )
 
     gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
 

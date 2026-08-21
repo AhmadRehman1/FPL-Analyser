@@ -970,3 +970,40 @@ def test_apply_recommendation_accepting_a_chip_records_it_in_the_right_set(con):
         "SELECT chips_used_set1 FROM manager_state_versions WHERE state_version = ?", [new_state_version]
     ).fetchone()[0]
     assert "bench_boost" in chips_used_set1
+
+
+# ============================================================
+# chip_field_crowding -- Part 3: a real, self-contained "is the wider field also set up to
+# benefit from this same chip week" signal built from Part 1's own EO formula.
+# ============================================================
+
+def test_chip_field_crowding_flags_high_mean_eo_as_crowded(con):
+    for uid, pct in (("p_popular1", 40.0), ("p_popular2", 35.0)):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, selected_by_percent, _ingested_at) "
+            "VALUES (?, '2026-2027', 1, ?, current_timestamp)", [uid, pct],
+        )
+    result = tp.chip_field_crowding(con, "2026-2027", 1, {"p_popular1", "p_popular2"})
+    assert result["crowded"] is True
+    assert result["mean_eo"] == pytest.approx((0.40 + 0.35) / 2)
+    assert result["n_priced"] == 2 and result["n_total"] == 2
+
+
+def test_chip_field_crowding_not_crowded_for_differentials(con):
+    for uid, pct in (("p_diff1", 0.5), ("p_diff2", 1.0)):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, selected_by_percent, _ingested_at) "
+            "VALUES (?, '2026-2027', 1, ?, current_timestamp)", [uid, pct],
+        )
+    result = tp.chip_field_crowding(con, "2026-2027", 1, {"p_diff1", "p_diff2"})
+    assert result["crowded"] is False
+
+
+def test_chip_field_crowding_missing_ownership_data_treated_as_zero_not_error(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Midfielder')")
+    result = tp.chip_field_crowding(con, "2026-2027", 1, {"p1"})
+    assert result["mean_eo"] == 0.0
+    assert result["crowded"] is False
+    assert result["n_priced"] == 0 and result["n_total"] == 1
