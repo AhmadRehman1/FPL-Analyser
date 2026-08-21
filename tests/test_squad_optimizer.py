@@ -86,6 +86,15 @@ def test_forced_squad_uids_are_present_in_the_solved_squad_and_solution_stays_va
     assert sum(1 for u in result["squad"] if by_uid[u]["position"] == "Forward") == 3
 
 
+def test_forced_xi_uids_are_started_not_just_rostered():
+    pool = _synthetic_pool()
+    forced = frozenset({"mid5"})  # the most expensive midfielder in the synthetic pool
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, forced_xi_uids=forced)
+    assert result["status"] == "optimal"
+    assert forced <= result["xi"]
+    assert forced <= result["squad"]
+
+
 def test_forced_squad_uids_raises_loudly_on_a_uid_not_in_the_candidate_pool():
     pool = _synthetic_pool()
     with pytest.raises(ValueError, match="not_a_real_uid"):
