@@ -583,6 +583,38 @@ def test_price_momentum_by_player_none_when_no_history_that_far_back(con):
     assert momentum["p1"]["ownership_delta"] is None
 
 
+def test_price_momentum_by_player_transfer_fields_are_off_by_default(con):
+    """net_transfers_event/trending require price_rise_threshold_params_version to be
+    supplied -- same opt-in convention as every other optional signal in this module. Not
+    supplying it must leave trending unset, not silently apply some default threshold."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Midfielder')")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, "
+        "transfers_in_event, transfers_out_event, cost_change_event, cost_change_start, _ingested_at) "
+        "VALUES ('p1', '2026-2027', 1, 7.0, 10.0, 50000, 1000, 0.1, 0.2, current_timestamp)"
+    )
+    momentum = tp.price_momentum_by_player(con, "2026-2027", as_of_gameweek=1, lookback_gameweeks=3)
+    assert momentum["p1"]["net_transfers_event"] == pytest.approx(49000)
+    assert momentum["p1"]["cost_change_event"] == pytest.approx(0.1)
+    assert momentum["p1"]["season_value_impact"] == pytest.approx(0.2)
+    assert momentum["p1"]["trending"] is None
+
+
+def test_price_momentum_by_player_trending_classification(con):
+    tp.seed_v1_params(con)
+    for uid, tin, tout in (("p_rise", 100000, 1000), ("p_fall", 1000, 100000), ("p_stable", 5000, 4000)):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, "
+            "transfers_in_event, transfers_out_event, _ingested_at) "
+            "VALUES (?, '2026-2027', 1, 7.0, 10.0, ?, ?, current_timestamp)", [uid, tin, tout],
+        )
+    momentum = tp.price_momentum_by_player(con, "2026-2027", as_of_gameweek=1, lookback_gameweeks=3, price_rise_threshold_params_version=1)
+    assert momentum["p_rise"]["trending"] == "rise"
+    assert momentum["p_fall"]["trending"] == "fall"
+    assert momentum["p_stable"]["trending"] == "stable"
+
+
 def test_evaluate_transfers_attaches_momentum_without_changing_the_ranking(con):
     """target_gameweek opts the momentum keys in; the ranking (net_value, sort order) must be
     byte-for-byte identical to the target_gameweek=None case -- momentum is informational

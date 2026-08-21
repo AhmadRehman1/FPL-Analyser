@@ -315,6 +315,12 @@ _SEASON_STATS_NUMERIC_COLS = {
     "expected_goals_per_90": "DOUBLE", "expected_assists_per_90": "DOUBLE",
     "defensive_contribution": "DOUBLE", "defensive_contribution_per_90": "DOUBLE",
     "saves_per_90": "DOUBLE", "total_points": "INTEGER", "event_points": "INTEGER",
+    # Part 2 (rank-relative work): already-ingested-but-previously-dropped market-data columns
+    # (same gap selected_by_percent itself was in), appended at the end of the dict so the
+    # existing select_exprs[N] indices below stay stable for every prior column.
+    "transfers_in": "INTEGER", "transfers_out": "INTEGER",
+    "transfers_in_event": "INTEGER", "transfers_out_event": "INTEGER",
+    "cost_change_event": "DOUBLE", "cost_change_start": "DOUBLE",
 }
 
 
@@ -375,7 +381,8 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                  chance_of_playing_next_round, status, minutes, goals_scored, assists, bps,
                  expected_goals, expected_assists, expected_goals_per_90, expected_assists_per_90,
                  defensive_contribution, defensive_contribution_per_90, saves_per_90,
-                 total_points, event_points, _ingested_at)
+                 total_points, event_points, transfers_in, transfers_out, transfers_in_event,
+                 transfers_out_event, cost_change_event, cost_change_start, _ingested_at)
             SELECT
                 pm.player_uid, '{season_sql}', TRY_CAST(r.gw AS INTEGER),
                 -- unlike the standard FPL API convention (tenths, e.g. 155 => 15.5m),
@@ -387,6 +394,8 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                 {select_exprs[8]}, {select_exprs[9]}, {select_exprs[10]}, {select_exprs[11]},
                 {select_exprs[12]}, {select_exprs[13]}, {select_exprs[14]},
                 {select_exprs[15]}, {select_exprs[16]},
+                {select_exprs[17]}, {select_exprs[18]}, {select_exprs[19]},
+                {select_exprs[20]}, {select_exprs[21]}, {select_exprs[22]},
                 TIMESTAMP '{now_sql}'
             FROM "{table}" r
             JOIN _player_id_map pm ON pm.season = '{season_sql}' AND pm.player_id_local = norm_id(r.id)
@@ -413,6 +422,12 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                 saves_per_90 = excluded.saves_per_90,
                 total_points = excluded.total_points,
                 event_points = excluded.event_points,
+                transfers_in = excluded.transfers_in,
+                transfers_out = excluded.transfers_out,
+                transfers_in_event = excluded.transfers_in_event,
+                transfers_out_event = excluded.transfers_out_event,
+                cost_change_event = excluded.cost_change_event,
+                cost_change_start = excluded.cost_change_start,
                 _ingested_at = excluded._ingested_at
             """
         )
@@ -445,6 +460,12 @@ _COLUMN_SEMANTICS = [
         "live",
         "closest available tag; actually a single-gameweek delta, not a running total nor a current-state snapshot",
     ),
+    ("fact_player_season_stats", "transfers_in", "cumulative_to_date", "season-total transfers in, not a gameweek delta"),
+    ("fact_player_season_stats", "transfers_out", "cumulative_to_date", "season-total transfers out, not a gameweek delta"),
+    ("fact_player_season_stats", "transfers_in_event", "live", "single-gameweek delta, same tag caveat as event_points"),
+    ("fact_player_season_stats", "transfers_out_event", "live", "single-gameweek delta, same tag caveat as event_points"),
+    ("fact_player_season_stats", "cost_change_event", "live", "single-gameweek price delta"),
+    ("fact_player_season_stats", "cost_change_start", "live", "cumulative price delta since season launch price, not a running total of anything"),
 ]
 
 

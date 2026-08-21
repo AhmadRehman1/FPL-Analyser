@@ -118,6 +118,13 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # in this project (not derived from data), flagged for its own future M7 recalibration,
     # independent of Wildcard's.
     params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
+    # Part 2 (rank-relative work): invented v1 default for price_momentum_by_player()'s
+    # trending classification -- no real net-transfers-event distribution was analyzed to
+    # derive this threshold from (same status as every other unpinned constant here, flagged
+    # for M7). A player needs net_transfers_event beyond +/-20,000 in one gameweek to be
+    # classified rise/fall rather than stable -- deliberately conservative so this doesn't
+    # flag routine day-to-day noise as a real trend.
+    params_mod.write_param(con, "price_momentum_params", 1, "2026-08-12", "net_transfers_event_threshold", value_numeric=20000)
 
 
 # ============================================================
@@ -254,6 +261,7 @@ def _horizon_ep_by_player(con: duckdb.DuckDBPyConnection, target_season: str, ho
 
 def price_momentum_by_player(
     con: duckdb.DuckDBPyConnection, target_season: str, as_of_gameweek: int, lookback_gameweeks: int = 3,
+    price_rise_threshold_params_version: int | None = None,
 ) -> dict[str, dict]:
     """{player_uid: {"price_delta": float | None, "ownership_delta": float | None}} --
     now_cost/selected_by_percent change over the last lookback_gameweeks gameweeks, both real,
@@ -282,28 +290,64 @@ def price_momentum_by_player(
     corrupt the EP-driven ranking for no good reason. None means no price/ownership row exists
     that far back (a genuinely new player, or early enough in a season that lookback_gameweeks
     of history doesn't exist yet) -- not silently treated as zero movement.
-    """
+
+    Part 2 addition -- net_transfers_event/trending/season_value_impact, from columns
+    reconcile.py already carries into fact_player_season_stats (transfers_in_event,
+    transfers_out_event, cost_change_event, cost_change_start): net_transfers_event is the
+    LATEST gameweek's real net transfer flow (a forward-looking signal -- real FPL price
+    changes are driven by net transfer volume, though the exact threshold algorithm isn't
+    public); trending classifies it against a versioned, invented-default threshold (same
+    unpinned-constant status as every other invented default here, flagged for M7) only when
+    price_rise_threshold_params_version is supplied (opt-in, defaults to None/not computed,
+    same convention as the rest of this module's optional signals). season_value_impact is
+    cost_change_start itself -- the REAL, already-realized price movement since the season's
+    launch price, reported as-is rather than projected forward with an invented multiplier
+    this project has no real data to calibrate."""
     rows = con.execute(
-        "SELECT player_uid, gw, now_cost, selected_by_percent FROM fact_player_season_stats "
+        "SELECT player_uid, gw, now_cost, selected_by_percent, transfers_in_event, "
+        "transfers_out_event, cost_change_event, cost_change_start FROM fact_player_season_stats "
         "WHERE season = ? AND gw <= ? AND gw >= ?",
         [target_season, as_of_gameweek, max(1, as_of_gameweek - lookback_gameweeks)],
     ).fetchall()
     by_player: dict[str, dict[int, tuple]] = {}
-    for player_uid, gw, now_cost, selected_by_percent in rows:
-        by_player.setdefault(player_uid, {})[gw] = (now_cost, selected_by_percent)
+    for player_uid, gw, now_cost, selected_by_percent, tin, tout, cost_change_event, cost_change_start in rows:
+        by_player.setdefault(player_uid, {})[gw] = (
+            now_cost, selected_by_percent, tin, tout, cost_change_event, cost_change_start,
+        )
+
+    threshold = None
+    if price_rise_threshold_params_version is not None:
+        threshold, _ = params_mod.resolve_param(
+            con, "price_momentum_params", "net_transfers_event_threshold", price_rise_threshold_params_version,
+        )
 
     out = {}
     for player_uid, by_gw in by_player.items():
         gws = sorted(by_gw)
         latest_gw, earliest_gw = gws[-1], gws[0]
-        latest_price, latest_ownership = by_gw[latest_gw]
-        earliest_price, earliest_ownership = by_gw[earliest_gw]
+        latest_price, latest_ownership, latest_tin, latest_tout, latest_cce, latest_ccs = by_gw[latest_gw]
+        earliest_price, earliest_ownership = by_gw[earliest_gw][0], by_gw[earliest_gw][1]
+
+        net_transfers_event = (latest_tin - latest_tout) if (latest_tin is not None and latest_tout is not None) else None
+        trending = None
+        if threshold is not None and net_transfers_event is not None:
+            if net_transfers_event > threshold:
+                trending = "rise"
+            elif net_transfers_event < -threshold:
+                trending = "fall"
+            else:
+                trending = "stable"
+
         out[player_uid] = {
             "price_delta": (latest_price - earliest_price) if (latest_price is not None and earliest_price is not None and latest_gw != earliest_gw) else None,
             "ownership_delta": (
                 latest_ownership - earliest_ownership
                 if (latest_ownership is not None and earliest_ownership is not None and latest_gw != earliest_gw) else None
             ),
+            "net_transfers_event": net_transfers_event,
+            "cost_change_event": latest_cce,
+            "trending": trending,
+            "season_value_impact": latest_ccs,
         }
     return out
 

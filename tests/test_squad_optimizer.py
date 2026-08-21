@@ -280,6 +280,15 @@ def test_captain_differential_breaks_a_genuine_near_tie_toward_lower_ownership()
     assert set(result["near_optimal_candidates"]) == {"A", "B"}
     assert "C" not in result["near_optimal_candidates"]
 
+    # captain_eo_risk: a distinct, explicit report -- B (80% owned) is the field-typical
+    # captain even though A (5% owned) won the tie-break; the report must surface BOTH,
+    # not just whichever the tie-break happened to pick.
+    eo_risk = result["captain_eo_risk"]
+    assert eo_risk["field_typical_captain_uid"] == "B"
+    assert eo_risk["field_typical_captain_eo"] == pytest.approx(0.80)
+    assert eo_risk["recommended_captain_eo"] == pytest.approx(0.05)
+    assert eo_risk["eo_gap"] == pytest.approx(0.75)
+
 
 def test_captain_differential_never_overrides_a_real_ep_risk_gap_beyond_epsilon():
     """Same pool, a tight epsilon (0.01) that excludes even A from the near-optimal band

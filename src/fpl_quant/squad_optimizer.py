@@ -581,10 +581,32 @@ def captain_choice_with_differential(
     # (which would wrongly make "no data" look like the most differentiated option available).
     recommended = min(near_optimal, key=lambda uid: ownership_by_uid[uid] if ownership_by_uid[uid] is not None else float("inf"))
 
+    # Captain EO-risk: a distinct, explicit report on TOP OF the tie-break above, not folded
+    # into how recommended is picked -- a manager choosing between "nailed high-EO captain" and
+    # "differential captain" needs to see the real point-swing between those two SPECIFIC
+    # options, not just which one wins the epsilon-band tie-break. field_typical_captain_uid is
+    # the highest-EO player in the XI eligible to captain -- the natural proxy for "who does the
+    # template captain" (no rival-manager captaincy-rate data exists to do better, same gap
+    # effective_ownership() itself already discloses).
+    xi_candidates_by_eo = {c["player_uid"]: effective_ownership(c) for c in xi_candidates if c["player_uid"] in xi_uid_set and c["position"] != "Goalkeeper"}
+    field_typical_captain_uid = max(xi_candidates_by_eo, key=xi_candidates_by_eo.get)
+    captain_eo_risk = {
+        "field_typical_captain_uid": field_typical_captain_uid,
+        "field_typical_captain_eo": xi_candidates_by_eo[field_typical_captain_uid],
+        "recommended_captain_eo": xi_candidates_by_eo[recommended],
+        "eo_gap": xi_candidates_by_eo[field_typical_captain_uid] - xi_candidates_by_eo[recommended],
+        "objective_gap": scores[field_typical_captain_uid] - scores[recommended],
+        "caveat": (
+            "EO(ownership%) proxy for 'who the template captains' -- no rival-manager "
+            "captaincy-rate data exists to compute this more directly."
+        ),
+    }
+
     return {
         "base_captain_uid": base_captain_uid, "recommended_captain_uid": recommended,
         "changed": recommended != base_captain_uid, "near_optimal_candidates": sorted(near_optimal),
         "tiebreak_epsilon": tiebreak_epsilon,
+        "captain_eo_risk": captain_eo_risk,
         "caveat": (
             "selected_by_percent-based differentiation proxy, not a real rival-manager "
             "overall-rank projection -- no rival-manager or overall-rank data exists in the "
