@@ -53,6 +53,37 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # constant in this project, flagged for M7 recalibration once real backtest evidence exists
     # for how much objective value a real differential swing is actually worth.
     params_mod.write_param(con, "captain_differential_params", 1, "2026-08-10", "tiebreak_epsilon", value_numeric=0.05)
+    # Invented v1 default for the rank-relative objective term (see solve()'s field_cov_by_uid
+    # param) -- magnitude chosen small relative to lambda_value's own risk penalty so that even
+    # at kappa_rank's full pinned value, the rank-relative term can shift a genuine near-tie,
+    # not override a real EP/variance-driven pick. Flagged for M7 recalibration like every
+    # other unpinned constant here; risk_posture itself (protect/neutral/chase) is a per-run
+    # user choice, not a pinned param -- neutral is the only one seeded as a "default" in the
+    # sense of matching pre-existing behavior exactly (kappa_rank's sign multiplies out to 0).
+    params_mod.write_param(con, "rank_posture_params", 1, "2026-08-10", "kappa_rank", value_numeric=0.02)
+
+
+# ============================================================
+# effective ownership -- FPL is a rank tournament against the field, not a points-forecasting
+# contest in isolation. EO_i approximates a player's real exposure across the field: ownership%
+# alone understates it since captaincy doubles a captained player's point contribution for
+# whoever holds him as captain. EO_i = ownership_i + captaincy_rate_i x 1 is the textbook
+# formula (the x1 reflects captaincy's own point-doubling, already "spent" once in ownership_i
+# itself, added again for the doubled share). No captaincy-rate data exists anywhere in the
+# ingested sources -- checked fact_player_season_stats' full column list and every raw
+# FPL-Core-Insights CSV column, neither carries a per-player captaincy percentage -- so this
+# falls back to ownership% alone, a real, disclosed understatement for heavily-captained
+# players (Haaland's true field exposure is higher than his raw ownership% suggests), not a
+# derived number. Flagged here rather than silently assumed complete.
+# ============================================================
+
+def effective_ownership(candidate: dict) -> float:
+    """Fraction in [0, 1], not a raw percent -- used as a portfolio weight below, where a
+    percent-scaled value would inflate the synthetic field portfolio ~100x. Missing
+    selected_by_percent (never priced/no ownership row) is treated as 0.0, the conservative,
+    non-inflating choice for a genuine absence of ownership data."""
+    ownership_percent = candidate.get("selected_by_percent")
+    return (ownership_percent or 0.0) / 100.0
 
 
 # ============================================================
@@ -132,6 +163,7 @@ def fetch_sigma_pairs(con: duckdb.DuckDBPyConnection, uncertainty_model_version:
 def solve(
     candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: float,
     forced_squad_uids: frozenset[str] = frozenset(), forced_xi_uids: frozenset[str] = frozenset(),
+    field_cov_by_uid: dict[str, float] | None = None, kappa_rank: float = 0.0, risk_posture: str = "neutral",
 ) -> dict:
     """forced_squad_uids/forced_xi_uids: a manager's own hard lock-ins (e.g. "I'm keeping this
     player regardless of what the model ranks him" / "...and starting him"), applied as real
@@ -142,7 +174,34 @@ def solve(
     or unpriced uid fails loudly here, not silently ignored); infeasibility (e.g. forcing more
     than a position's XI quota, or a combined price over budget) surfaces as a normal
     non-optimal solver status, handled the same way run() already handles any other
-    non-optimal result."""
+    non-optimal result.
+
+    field_cov_by_uid/kappa_rank/risk_posture: the rank-relative objective term. FPL rank
+    depends on Excess = MyPoints - FieldPoints, not MyPoints alone; Var[Excess] = Var[My] +
+    Var[Field] - 2*Cov[My,Field], and Var[Field] is a constant (independent of my squad) that
+    drops out. What's left is a REAL Cov(player_i, field_portfolio) per player -- computed
+    once, outside this function, from paired Monte Carlo draws sharing the same scenario space
+    as the field's own synthetic EO-weighted portfolio (see monte_carlo.compute_field_covariance)
+    -- not a naive EO% proxy, which can't distinguish two equally-owned players with different
+    variance or team-correlation exposure. Added to the objective as
+    posture_sign * kappa_rank * sum_i w_i * field_cov_i, where w_i = xi_i + captain_i (the
+    SAME effective weight linear_ep/risk_expr already use two sections down -- a captained
+    player's correlation with the field counts double too, matching their doubled point
+    contribution). This term is LINEAR in the binary variables (field_cov_i is a precomputed
+    constant per player), so it adds zero quadratic complexity to the solve.
+
+    risk_posture="protect" (posture_sign=+1) REWARDS high field-covariance: preferentially
+    holds whatever the field's variance is concentrated in, so when those players swing, this
+    squad swings WITH the field instead of alone -- reduces Var[Excess]. "chase"
+    (posture_sign=-1) penalizes it: pushes toward players genuinely uncorrelated (or
+    negatively correlated) with the field, deliberately taking on Var[Excess] to close a rank
+    gap. "neutral" (posture_sign=0, the default) makes this whole term vanish regardless of
+    kappa_rank or field_cov_by_uid -- an EXACT reduction to the pre-existing objective, not an
+    approximate one, so every caller that doesn't opt in sees byte-identical behavior to
+    before this parameter existed."""
+    posture_sign = {"protect": 1.0, "neutral": 0.0, "chase": -1.0}.get(risk_posture)
+    if posture_sign is None:
+        raise ValueError(f"risk_posture must be 'protect', 'neutral', or 'chase', got {risk_posture!r}")
     if forced_squad_uids or forced_xi_uids:
         missing = (forced_squad_uids | forced_xi_uids) - {c["player_uid"] for c in candidates}
         if missing:
@@ -223,9 +282,18 @@ def solve(
             risk_expr += 2 * cov * (xi[a] * xi[b] + xi[a] * captain[b] + captain[a] * xi[b])
         t = m.addVar(vtype="C", lb=0, name="risk")
         m.addCons(t >= risk_expr)
-        m.setObjective(linear_ep - lam * t, sense="maximize")
+        objective_expr = linear_ep - lam * t
     else:
-        m.setObjective(linear_ep, sense="maximize")
+        objective_expr = linear_ep
+
+    if posture_sign != 0.0 and field_cov_by_uid:
+        field_overlap = scip.quicksum(
+            (xi[c["player_uid"]] + captain[c["player_uid"]]) * field_cov_by_uid.get(c["player_uid"], 0.0)
+            for c in candidates
+        )
+        objective_expr = objective_expr + posture_sign * kappa_rank * field_overlap
+
+    m.setObjective(objective_expr, sense="maximize")
 
     m.optimize()
     status = m.getStatus()
@@ -254,11 +322,27 @@ def run(
     guardrail_params_version: int,
     forced_squad_uids: frozenset[str] = frozenset(),
     forced_xi_uids: frozenset[str] = frozenset(),
+    risk_posture: str = "neutral",
+    rank_posture_params_version: int | None = None,
+    field_cov_by_uid: dict[str, float] | None = None,
 ) -> int:
     lam, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", lambda_params_version)
     guardrail_cap, _ = params_mod.resolve_param(
         con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", guardrail_params_version
     )
+    # kappa_rank is only ever resolved (and field_cov_by_uid only ever required) when the
+    # caller actually opts into a non-neutral posture -- callers that never pass risk_posture
+    # keep working unmodified, with the rank-relative term fully absent, not merely zeroed.
+    kappa_rank = 0.0
+    if risk_posture != "neutral":
+        if rank_posture_params_version is None:
+            raise ValueError("risk_posture other than 'neutral' requires rank_posture_params_version")
+        if not field_cov_by_uid:
+            raise ValueError(
+                "risk_posture other than 'neutral' requires field_cov_by_uid -- see "
+                "monte_carlo.compute_field_covariance() to produce it"
+            )
+        kappa_rank, _ = params_mod.resolve_param(con, "rank_posture_params", "kappa_rank", rank_posture_params_version)
 
     candidates = fetch_candidate_pool(con, ep_model_version, uncertainty_model_version, target_season)
     if len(candidates) < 15:
@@ -270,13 +354,18 @@ def run(
     # candidate pool once at lambda=0 and once at the frozen lambda. If the two squads are
     # identical, the quadratic risk term is provably not affecting the solve -- carried
     # forward verbatim from LESSONS_LEARNED.md rather than left as unwritten folklore.
+    # risk_posture/kappa_rank/field_cov_by_uid are held IDENTICAL across both solves, same as
+    # forced_squad_uids/forced_xi_uids above -- the whole point of this check is to isolate
+    # lambda's own effect, so every other input must be held fixed between the two solves.
     result_zero = solve(
         candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap,
         forced_squad_uids=forced_squad_uids, forced_xi_uids=forced_xi_uids,
+        field_cov_by_uid=field_cov_by_uid, kappa_rank=kappa_rank, risk_posture=risk_posture,
     )
     result_real = solve(
         candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap,
         forced_squad_uids=forced_squad_uids, forced_xi_uids=forced_xi_uids,
+        field_cov_by_uid=field_cov_by_uid, kappa_rank=kappa_rank, risk_posture=risk_posture,
     )
 
     # The baseline (lambda=0) solve must itself have actually reached optimality -- a

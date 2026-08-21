@@ -283,3 +283,165 @@ def test_assemble_points_saves_zero_for_non_goalkeeper(con):
     }
     result = mc._assemble_points(con, "Defender", draws, scoring_params_version=1)
     np.testing.assert_array_equal(result["pts_saves"], [0.0, 0.0, 0.0])
+
+
+# ============================================================
+# compute_field_covariance -- the real proof the naive EO%-only tracking-error term couldn't
+# produce: two players at the IDENTICAL EO get genuinely different field-covariance once one
+# of them shares a fixture (and therefore a real z_fixture/scoreline draw) with other
+# high-EO players and the other doesn't.
+# ============================================================
+
+def _seed_field_covariance_league(con, target_season="2026-2027", target_gameweek=1):
+    from fpl_quant import expected_points as ep
+    from fpl_quant import uncertainty as un
+
+    ep.seed_v1_params(con)
+    un.seed_v1_params(con)
+    from fpl_quant import params as params_mod
+    params_mod.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    clubs = ["clubA", "clubB", "clubC", "clubD"]
+    for club in clubs:
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [club, club])
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid) VALUES (?, ?, ?)", [club, target_season, club])
+    # _team_of_for_fixture() (used by simulate_fixture() to resolve clean-sheet side/team
+    # correlation) needs a real raw teams table + player_alias, the same raw-ingestion-log
+    # convention every other test seeding a raw season-root table already follows.
+    raw_teams_table = f"raw_{target_season.replace('-', '_')}_teams"
+    con.execute(f'CREATE TABLE "{raw_teams_table}" (code VARCHAR, name VARCHAR)')
+    for club in clubs:
+        con.execute(f'INSERT INTO "{raw_teams_table}" VALUES (?, ?)', [club, club])
+    con.execute(
+        "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+        "VALUES (?, ?, 'teams.csv', 'x', ?)", [raw_teams_table, target_season, len(clubs)],
+    )
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES "
+        "('m1', ?, ?, 'clubA', 'clubB', FALSE, 'Premier League', '2026-08-24', current_timestamp), "
+        "('m2', ?, ?, 'clubC', 'clubD', FALSE, 'Premier League', '2026-08-24', current_timestamp)",
+        [target_season, target_gameweek, target_season, target_gameweek],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'clubA')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    # clubA/clubC (and clubB/clubD) share identical strength -- the two fixtures are
+    # symmetric in every way EXCEPT ownership structure, isolating that as the only thing
+    # that can move field-covariance apart below.
+    for club, attack, defence in (
+        ("clubA", 0.3, 0.0), ("clubB", -0.1, 0.1), ("clubC", 0.3, 0.0), ("clubD", -0.1, 0.1),
+    ):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)",
+            [ts_mv, club, attack, defence],
+        )
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [target_season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [target_season, ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+
+    # p_crowded (clubA, fixture m1) shares m1 -- and its shared z_fixture/scoreline draw --
+    # with two OTHER high-EO teammates. p_isolated (clubC, fixture m2) is the only
+    # meaningfully-owned player in its own fixture. Both get the SAME EO (0.20).
+    # p_opponent/p_low1/p_low2 all get EO=0.0 -- the ONLY structural difference left between
+    # the two (otherwise-symmetric) fixtures is p_crowded's high-EO SAME-TEAM teammates,
+    # isolating the z_fixture-shared-tempo correlation channel specifically (teammates only
+    # ever correlate positively through it -- unlike opponents, which also carry a negative
+    # clean-sheet-complementarity channel that would confound the direction being tested here).
+    roster = [
+        ("p_crowded", "clubA", "m1", 0.20), ("p_teammate1", "clubA", "m1", 0.30), ("p_teammate2", "clubA", "m1", 0.25),
+        ("p_opponent", "clubB", "m1", 0.0),
+        ("p_isolated", "clubC", "m2", 0.20), ("p_low1", "clubD", "m2", 0.0), ("p_low2", "clubD", "m2", 0.0),
+    ]
+    # expected_bps deliberately LOW and equal for the teammates/opponents/low-EO fillers (only
+    # p_crowded/p_isolated -- the two players actually being compared -- get a real, higher
+    # expected_bps): the Plackett-Luce bonus mechanism is a genuine zero-sum competition for
+    # the SAME 3 bonus slots among everyone in a match, which creates a real NEGATIVE
+    # correlation component between same-match participants of comparable strength -- found by
+    # this test's own first (failing) run, where identical expected_bps for every participant
+    # let that zero-sum competition swamp the positive z_fixture-driven goals/assists channel
+    # this test actually means to isolate. Keeping the other participants clearly weaker avoids
+    # that confound rather than asserting a wrong direction against it.
+    bps_by_uid = {"p_crowded": 18.0, "p_isolated": 18.0}
+    eo_by_uid = {}
+    for uid, club, match_id, eo_percent in roster:
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, ?, ?, ?)", [uid, uid.lower(), club, target_season, uid],
+        )
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_own, "
+            "p_start_historical_position_avg, weight_own, p_start_historical_final, logit_adjustment_total, "
+            "p_start_final, p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, "
+            "competitive_matches_last_2_seasons) VALUES (?, ?, 'Midfielder', 0.8, 0.5, 1.0, 0.8, 0.0, 0.8, "
+            "0.1, 0.1, 0.2, 0.7, 50)", [mm_mv, uid],
+        )
+        expected_bps = bps_by_uid.get(uid, 4.0)
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, ?, 1.5,0.5,0.3,0.2,0,0.1,0.3,0,0,0,0, 2.9, ?)",
+            [ep_mv, uid, match_id, expected_bps],
+        )
+        # simulate_fixture()'s per-realization goals/assists draw (the ONLY channel real
+        # z_fixture-shared-tempo correlation actually flows through) reads
+        # expected_goals_per_90/expected_assists_per_90 off fact_player_season_stats, not off
+        # ep_outputs -- omitting this (this test's own first two failing attempts did) leaves
+        # goals/assists at a permanent 0 variance, so the ONLY same-match correlation left
+        # standing is the Plackett-Luce bonus mechanism's zero-sum ranking competition
+        # (negative for every match participant, teammates included), which is real but not
+        # what this test means to isolate.
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, minutes, expected_goals, "
+            "expected_assists, _ingested_at) VALUES (?, ?, 1, 900, 8.0, 4.0, current_timestamp)",
+            [uid, target_season],
+        )
+        eo_by_uid[uid] = eo_percent * 100.0  # effective_ownership() divides by 100 -- store as a percent like real selected_by_percent
+
+    return {"ts_mv": ts_mv, "mm_mv": mm_mv, "ep_mv": ep_mv, "eo_by_uid": eo_by_uid, "target_season": target_season, "target_gameweek": target_gameweek}
+
+
+def test_field_covariance_differs_for_equal_eo_players_by_team_correlation_exposure(con):
+    """The real proof the naive EO%-only version couldn't produce: p_crowded and p_isolated
+    have the IDENTICAL EO (0.20) but genuinely different field-covariance, because p_crowded
+    shares a real, simulated fixture (and its z_fixture/scoreline draw) with two other
+    high-EO players while p_isolated's fixture has almost no field weight in it."""
+    from fpl_quant import squad_optimizer as so
+
+    seeded = _seed_field_covariance_league(con)
+    eo_fraction_by_uid = {uid: pct / 100.0 for uid, pct in seeded["eo_by_uid"].items()}
+
+    field_cov = mc.compute_field_covariance(
+        con, date(2026, 8, 21), seeded["target_season"], seeded["target_gameweek"],
+        seeded["ep_mv"], seeded["mm_mv"], seeded["ts_mv"],
+        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=1,
+        eo_by_uid=eo_fraction_by_uid, n_antithetic_pairs=4000,
+    )
+    assert "p_crowded" in field_cov and "p_isolated" in field_cov
+    assert field_cov["p_crowded"] > field_cov["p_isolated"], (
+        f"equal-EO players must NOT get equal field-covariance -- p_crowded (shares a fixture "
+        f"with other high-EO players) should exceed p_isolated: {field_cov}"
+    )
+
+
+def test_field_covariance_empty_eo_returns_empty_dict(con):
+    seeded = _seed_field_covariance_league(con)
+    result = mc.compute_field_covariance(
+        con, date(2026, 8, 21), seeded["target_season"], seeded["target_gameweek"],
+        seeded["ep_mv"], seeded["mm_mv"], seeded["ts_mv"],
+        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=1,
+        eo_by_uid={},
+    )
+    assert result == {}

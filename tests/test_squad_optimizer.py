@@ -112,6 +112,56 @@ def test_forced_squad_uids_infeasible_combination_surfaces_as_non_optimal_not_a_
     assert result["squad"] == frozenset()
 
 
+def test_risk_posture_neutral_is_an_exact_reduction_to_the_pre_existing_objective():
+    """kappa_rank=0.0 / risk_posture defaults must reproduce the exact pre-existing result --
+    not approximately, byte-identical -- confirming the new term is fully absent (not merely
+    zeroed) for any caller that doesn't opt in."""
+    pool = _synthetic_pool()
+    baseline = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    with_defaults = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, risk_posture="neutral")
+    assert with_defaults["squad"] == baseline["squad"]
+    assert with_defaults["xi"] == baseline["xi"]
+    assert with_defaults["captain"] == baseline["captain"]
+    assert with_defaults["objective"] == pytest.approx(baseline["objective"])
+
+
+def test_risk_posture_protect_vs_chase_pick_opposite_sides_of_a_genuine_tie():
+    """The real proof the risk-posture toggle changes squad OUTPUT, not just that it runs:
+    fwd0 and fwd1 are fully tied on mu/var/price/club-slot-cost (a genuine coin-flip in the
+    base objective) and only ONE of them fits the 3-forward XI quota alongside the two
+    strictly-better fwd2/fwd3 -- so which one survives is decided entirely by field_cov_by_uid
+    once risk_posture opts in. fwd0 has high field_cov (a stand-in for "popular, moves with
+    the field"), fwd1 has negative field_cov (a stand-in for "genuine differential, moves
+    against the field")."""
+    pool = _synthetic_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    # make fwd0/fwd1 a genuine tie: same mu/var/price (still different clubs, already true in
+    # the fixture, so the club cap can't be what breaks the tie either)
+    by_uid["fwd1"]["mu"] = by_uid["fwd0"]["mu"]
+    by_uid["fwd1"]["var"] = by_uid["fwd0"]["var"]
+    by_uid["fwd1"]["price"] = by_uid["fwd0"]["price"]
+
+    field_cov = {"fwd0": 5.0, "fwd1": -5.0}
+
+    protect = so.solve(
+        pool, sigma_pairs={}, lam=0.15, guardrail_cap=3,
+        field_cov_by_uid=field_cov, kappa_rank=0.5, risk_posture="protect",
+    )
+    chase = so.solve(
+        pool, sigma_pairs={}, lam=0.15, guardrail_cap=3,
+        field_cov_by_uid=field_cov, kappa_rank=0.5, risk_posture="chase",
+    )
+    assert protect["status"] == "optimal" and chase["status"] == "optimal"
+    assert "fwd0" in protect["squad"] and "fwd1" not in protect["squad"]
+    assert "fwd1" in chase["squad"] and "fwd0" not in chase["squad"]
+
+
+def test_risk_posture_requires_a_valid_value():
+    pool = _synthetic_pool()
+    with pytest.raises(ValueError, match="risk_posture"):
+        so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, risk_posture="hug_the_field")
+
+
 def test_captain_is_never_a_goalkeeper():
     pool = _synthetic_pool()
     result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)

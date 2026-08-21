@@ -264,15 +264,29 @@ def _fixture_roster(con: duckdb.DuckDBPyConnection, ep_model_version: int, mm_mo
 
 def simulate_fixture(
     con: duckdb.DuckDBPyConnection, match_id: str, home_uid: str, away_uid: str, target_season: str,
-    season_priority: list[str], squad_uids: set, ep_model_version: int, mm_model_version: int, ts_model_version: int,
+    season_priority: list[str], full_draw_uids: set, ep_model_version: int, mm_model_version: int, ts_model_version: int,
     scoring_params_version: int, tau_val: float, sigma_z_sq: float, mean_minutes: dict,
     rng: np.random.Generator, n_pairs: int,
 ) -> dict:
-    """Returns {player_uid: {category: array of shape (2*n_pairs,)}} for every squad player
-    present in this fixture (empty dict if none). One call = one fixture's contribution to
-    one full-gameweek realization, across all 2*n_pairs realizations at once."""
+    """Returns {player_uid: {category: array of shape (2*n_pairs,)}} for every player in
+    full_draw_uids present in this fixture (empty dict if none). One call = one fixture's
+    contribution to one full-gameweek realization, across all 2*n_pairs realizations at once.
+
+    full_draw_uids (was squad_uids until compute_field_covariance() below needed the same
+    per-realization machinery for a much wider pool than one squad_optimizer run's 15 players
+    -- renamed, not duplicated, so both use cases share one real simulation, not two that could
+    drift apart): every player in this set gets the FULL per-realization treatment (minutes
+    state, goals, assists, clean sheet, goals conceded, DefCon, saves, bonus rank all
+    genuinely resampled); everyone else in the fixture roster gets the cheap mean-based
+    strength proxy this function already computed before full_draw_uids existed (see module
+    docstring's own documented scope tradeoff) -- correct for run()'s own Plackett-Luce-needs-
+    the-whole-match-field purpose, and also correct for compute_field_covariance() as long as
+    every player whose OWN covariance is being computed is itself in full_draw_uids (their
+    field-portfolio co-participants sharing a full draw only sharpens the correlation
+    estimate; the mean-based proxy elsewhere still reacts to the same per-realization
+    z_fixture, so it isn't a constant contribution, just a coarser one)."""
     roster = _fixture_roster(con, ep_model_version, mm_model_version, match_id)
-    squad_in_fixture = [r for r in roster if r["player_uid"] in squad_uids]
+    squad_in_fixture = [r for r in roster if r["player_uid"] in full_draw_uids]
     if not squad_in_fixture:
         return {}
 
@@ -297,7 +311,7 @@ def simulate_fixture(
         player_uid = r["player_uid"]
         team_uid = team_of.get(player_uid)
 
-        if player_uid not in squad_uids:
+        if player_uid not in full_draw_uids:
             # non-squad fixture participant: mean-based strength reacting only to the shared
             # Z_fixture tempo factor -- see module docstring for the scope reasoning. Side
             # (home/away) is irrelevant here since non-squad players never need
@@ -546,6 +560,111 @@ def run(
                 )
 
     return model_version
+
+
+# ============================================================
+# rank-relative field covariance -- deliberately separate from run() above, not a widened
+# version of it. run()'s own module-docstring scope decision (one squad_optimizer_runs'
+# chosen 15 players, non-squad fixture participants get the cheap mean-based proxy) stays
+# exactly as documented and exercised for every existing caller; this function is a second,
+# real departure from that same scope tradeoff, for a genuinely different question ("how does
+# a candidate correlate with the ownership-weighted field") that needs full per-realization
+# draws for a much wider pool (every player with a real fixture this gameweek, not just 15) to
+# answer honestly -- disclosed here as its own real cost, not folded silently into run()'s.
+# ============================================================
+
+def compute_field_covariance(
+    con: duckdb.DuckDBPyConnection,
+    calibration_asof_date: date,
+    target_season: str,
+    target_gameweek: int,
+    ep_model_version: int,
+    mm_model_version: int,
+    ts_model_version: int,
+    scoring_params_version: int,
+    tau_params_version: int,
+    rho_residual_params_version: int,
+    eo_by_uid: dict[str, float],
+    n_antithetic_pairs: int = 500,
+    season_priority: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
+) -> dict[str, float]:
+    """Cov(player_i_total_points, field_portfolio_return), one real scalar per player in
+    eo_by_uid, computed ONCE here -- not re-run per candidate squad -- for squad_optimizer.py's
+    rank-relative objective term (see solve()'s field_cov_by_uid param) to consume as a plain
+    linear coefficient.
+
+    field_portfolio_return[realization] = sum_j EO_j * total_points_j[realization], a synthetic
+    ownership-weighted portfolio standing in for "the field" (the standard active-portfolio-
+    management proxy -- not a claim that 9 million real squads were simulated). Built from the
+    SAME shared Monte Carlo scenario draws (z_fixture Gamma-Poisson tempo factor, bivariate-
+    Poisson scoreline, minutes-state sampling) run()/simulate_fixture() already use, not
+    independent per-player draws -- that's the entire point: two high-ownership players from
+    the same in-form team move together in these draws because they share the same fixture's
+    z_fixture and scoreline, exactly the correlation a raw ownership-percent number can't see.
+
+    eo_by_uid is every player this should compute a coefficient for -- typically
+    squad_optimizer.fetch_candidate_pool() run through effective_ownership(), passed in rather
+    than fetched here to keep this module's own dependency graph one-directional (monte_carlo
+    has never imported squad_optimizer, and shouldn't start now for a caller-suppliable dict).
+    A player missing from eo_by_uid is simply excluded from the field portfolio's own
+    construction (treated as EO=0, the same convention effective_ownership() itself uses for a
+    genuinely absent ownership row) -- not an error, since "not priced this gameweek" and
+    "priced but with 0.0% ownership" are indistinguishable to this function and both correctly
+    contribute nothing to the field's aggregate.
+
+    n_antithetic_pairs defaults far lower than run()'s own 5000 -- this is a marginal-
+    covariance estimate over a MUCH wider player pool (every fixture participant, not 15), and
+    the wider run()'s own reporting (quantiles, the full joint distribution) needs more
+    precision than a single covariance scalar per player does. A real, disclosed precision-
+    for-cost tradeoff, not silently reusing run()'s default as if the two computations were
+    equally expensive."""
+    if not eo_by_uid:
+        return {}
+    tau_val, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
+    rho_residual, _ = params_mod.resolve_param(con, "correlation_params", "rho_residual", rho_residual_params_version)
+    mean_minutes = ep._mean_minutes_by_bucket(con)
+
+    full_draw_uids = set(eo_by_uid.keys())
+    lambda_representative = compute_lambda_representative(con, list(full_draw_uids), ep_model_version, scoring_params_version)
+    sigma_z_sq = z_fixture_variance(rho_residual, lambda_representative)
+
+    query_id = f"field_cov_{target_season}_gw{target_gameweek}"
+    seed = deterministic_seed(0, calibration_asof_date, query_id)
+    rng = np.random.default_rng(seed)
+    n_real = 2 * n_antithetic_pairs
+    realization_index = np.arange(n_real)
+
+    fixtures = con.execute(
+        "SELECT match_id, home_team_uid, away_team_uid FROM fact_match "
+        "WHERE season = ? AND gameweek = ? AND competition = ?",
+        [target_season, target_gameweek, ep.PL],
+    ).fetchall()
+
+    frames = []
+    for match_id, home_uid, away_uid in fixtures:
+        fixture_result = simulate_fixture(
+            con, match_id, home_uid, away_uid, target_season, list(season_priority), full_draw_uids,
+            ep_model_version, mm_model_version, ts_model_version, scoring_params_version,
+            tau_val, sigma_z_sq, mean_minutes, rng, n_antithetic_pairs,
+        )
+        for player_uid, draws in fixture_result.items():
+            pts = _assemble_points(con, draws["position"], draws, scoring_params_version)
+            frames.append(pd.DataFrame({
+                "player_uid": player_uid, "realization_index": realization_index, "total_points": pts["total_points"],
+            }))
+
+    if not frames:
+        return {}
+    df = pd.concat(frames, ignore_index=True)
+    wide = df.pivot(index="realization_index", columns="player_uid", values="total_points").fillna(0.0)
+
+    weights = pd.Series({uid: eo_by_uid.get(uid, 0.0) for uid in wide.columns})
+    field_return = wide.mul(weights, axis=1).sum(axis=1)
+
+    return {
+        uid: float(np.cov(wide[uid].to_numpy(), field_return.to_numpy(), ddof=0)[0, 1])
+        for uid in wide.columns
+    }
 
 
 # ============================================================
