@@ -61,6 +61,27 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # user choice, not a pinned param -- neutral is the only one seeded as a "default" in the
     # sense of matching pre-existing behavior exactly (kappa_rank's sign multiplies out to 0).
     params_mod.write_param(con, "rank_posture_params", 1, "2026-08-10", "kappa_rank", value_numeric=0.02)
+    # Real gap this fixed, caught sanity-checking a live GW1 run: solve()'s captain choice used
+    # to inherit the FULL squad-level lambda (at 3-4x weight, per Var(2X)=4*Var(X) below) with
+    # no separate cap of its own -- on the real GW1 candidate pool this made a 0.4%-owned,
+    # 2.42-EP defensive midfielder the "risk-optimal" captain over a 69%-owned, 4.51-EP striker
+    # (objective_gap=-2.80, nowhere near a near-tie the differential mechanism could catch).
+    # Squad-level risk aversion legitimately protects against a genuinely disastrous gameweek
+    # across a diversified 15-player squad; applying that SAME magnitude to a single
+    # concentrated captaincy bet is a different, much stronger risk decision than lambda was
+    # ever calibrated for, and it contradicts how captaincy is actually played (maximize EP on
+    # your captain; only deviate for a genuine near-tie or an explicit differential/chase
+    # decision -- both of which already have their own dedicated, narrowly-scoped mechanisms:
+    # captain_choice_with_differential()'s epsilon band and the risk_posture/kappa_rank term).
+    # kappa_captain is deliberately an order of magnitude below lambda_value: small enough to
+    # still break a genuine exact-mu tie toward the lower-variance player (preserving
+    # test_captain_choice_is_risk_aware_not_just_risk_aware_for_squad_membership's original
+    # intent when a caller opts into that magnitude explicitly), nowhere near enough to
+    # overturn a real multi-point EP gap like the one this default now protects against.
+    # Invented v1 default, same status as every other unpinned constant here, flagged for M7
+    # recalibration once real backtest evidence exists for what a captaincy bet's risk penalty
+    # should actually be.
+    params_mod.write_param(con, "captain_risk_aversion_params", 1, "2026-08-10", "kappa_captain", value_numeric=0.01)
 
 
 # ============================================================
@@ -164,6 +185,7 @@ def solve(
     candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: float,
     forced_squad_uids: frozenset[str] = frozenset(), forced_xi_uids: frozenset[str] = frozenset(),
     field_cov_by_uid: dict[str, float] | None = None, kappa_rank: float = 0.0, risk_posture: str = "neutral",
+    kappa_captain: float = 0.0,
 ) -> dict:
     """forced_squad_uids/forced_xi_uids: a manager's own hard lock-ins (e.g. "I'm keeping this
     player regardless of what the model ranks him" / "...and starting him"), applied as real
@@ -262,29 +284,43 @@ def solve(
     linear_ep = scip.quicksum(xi[c["player_uid"]] * c["mu"] for c in candidates)
     linear_ep += scip.quicksum(captain[c["player_uid"]] * c["mu"] for c in candidates)
 
+    # Effective scoring weight per player is w_i = xi_i + captain_i (1 for a normal XI player, 2
+    # for the captain, since captain[uid] <= xi[uid] is already enforced above) -- exactly
+    # mirrors how linear_ep itself is built two lines up. Var(total) = sum_i w_i^2 * var_i +
+    # 2 * sum_{i<j} w_i*w_j*cov_ij, using the SAME weights linear_ep uses (Var(2X)=4*Var(X), not
+    # Var(X), for a captained player -- captaincy doubling a player's EP contribution but never
+    # his variance/covariance contribution was a real, since-fixed bug). Binary algebra
+    # (captain_i <= xi_i, at most one captain): w_i^2 = xi_i + 3*captain_i, and for i != j,
+    # w_i*w_j = xi_i*xi_j + xi_i*captain_j + captain_i*xi_j (captain_i*captain_j is 0 for i != j
+    # since exactly one captain is chosen).
+    #
+    # Split into two independently-scaled pieces rather than one combined term scaled by a
+    # single lambda -- a second real gap this fixed, caught sanity-checking a live GW1 run: the
+    # combined-lambda version applied squad-level risk aversion (calibrated for diversifying a
+    # 15-player squad) to a single concentrated captaincy bet at 3-4x weight, with no separate
+    # cap of its own, which on real data made a 0.4%-owned defensive midfielder the "risk-
+    # optimal" captain over a 69%-owned, nearly-double-EP striker -- a real multi-point EP gap
+    # overturned by a risk term that was never calibrated for a decision this concentrated.
+    # risk_xi_base (scaled by lam, squad-level risk aversion, exactly as before this split for
+    # non-captaincy decisions -- flat xi_i weight, unaffected by who captains) governs WHICH 15/
+    # 11 players are selected; risk_captain_extra (scaled by kappa_captain, deliberately much
+    # smaller -- see seed_v1_params()) governs the marginal risk added by WHO captains, on top
+    # of whichever base squad/XI risk_xi_base already selected.
+    objective_expr = linear_ep
     if lam > 0:
-        # Effective scoring weight per player is w_i = xi_i + captain_i (1 for a normal XI
-        # player, 2 for the captain, since captain[uid] <= xi[uid] is already enforced above)
-        # -- exactly mirrors how linear_ep itself is built two lines up. The risk term must
-        # use the SAME weights: Var(total) = sum_i w_i^2 * var_i + 2 * sum_{i<j} w_i*w_j*cov_ij.
-        # Previously this used a flat xi_i weight even in the risk term while linear_ep used
-        # w_i -- captaincy doubled a player's EP contribution but never doubled (let alone
-        # quadrupled, since Var(2X)=4*Var(X)) their variance/covariance contribution, so the
-        # optimizer's risk aversion was structurally blind to the single largest variance
-        # decision in the whole squad (who to captain). Fixed by using w_i everywhere below.
-        # Binary algebra (captain_i <= xi_i, at most one captain): w_i^2 = xi_i + 3*captain_i,
-        # and for i != j, w_i*w_j = xi_i*xi_j + xi_i*captain_j + captain_i*xi_j (captain_i*
-        # captain_j is 0 for i != j since exactly one captain is chosen).
-        risk_expr = scip.quicksum(
-            (xi[c["player_uid"]] + 3 * captain[c["player_uid"]]) * c["var"] for c in candidates
-        )
+        risk_xi_base = scip.quicksum(xi[c["player_uid"]] * c["var"] for c in candidates)
         for (a, b), cov in sigma_pairs.items():
-            risk_expr += 2 * cov * (xi[a] * xi[b] + xi[a] * captain[b] + captain[a] * xi[b])
-        t = m.addVar(vtype="C", lb=0, name="risk")
-        m.addCons(t >= risk_expr)
-        objective_expr = linear_ep - lam * t
-    else:
-        objective_expr = linear_ep
+            risk_xi_base += 2 * cov * xi[a] * xi[b]
+        t_xi = m.addVar(vtype="C", lb=0, name="risk_xi_base")
+        m.addCons(t_xi >= risk_xi_base)
+        objective_expr = objective_expr - lam * t_xi
+    if kappa_captain > 0:
+        risk_captain_extra = scip.quicksum(3 * captain[c["player_uid"]] * c["var"] for c in candidates)
+        for (a, b), cov in sigma_pairs.items():
+            risk_captain_extra += 2 * cov * (xi[a] * captain[b] + captain[a] * xi[b])
+        t_captain = m.addVar(vtype="C", lb=0, name="risk_captain_extra")
+        m.addCons(t_captain >= risk_captain_extra)
+        objective_expr = objective_expr - kappa_captain * t_captain
 
     if posture_sign != 0.0 and field_cov_by_uid:
         field_overlap = scip.quicksum(
@@ -303,7 +339,16 @@ def solve(
     squad_set = frozenset(uid for uid, v in squad.items() if m.getVal(v) > 0.5)
     xi_set = frozenset(uid for uid, v in xi.items() if m.getVal(v) > 0.5)
     captain_uid = next((uid for uid, v in captain.items() if m.getVal(v) > 0.5), None)
-    vice_uid = next((uid for uid, v in vice.items() if m.getVal(v) > 0.5), None)
+    # Real gap fixed here, caught alongside the captain-risk fix above: vice[uid] never appears
+    # in objective_expr anywhere in this function -- the `vice` variables exist purely to
+    # satisfy "someone is vice, distinct from captain" constraints, so the solver's own choice
+    # of who is entirely arbitrary (whatever feasible assignment it lands on), never EP-driven.
+    # Vice-captain points only matter as a fallback (doubled only if the actual captain doesn't
+    # play at all), so standard practice -- next-highest-mu XI player after the captain -- is
+    # applied here as a deterministic post-processing step rather than by trusting the solver's
+    # unconstrained choice of the `vice` decision variable.
+    mu_by_uid = {c["player_uid"]: c["mu"] for c in candidates}
+    vice_uid = max((uid for uid in xi_set if uid != captain_uid), key=lambda uid: mu_by_uid[uid], default=None)
     return {"status": status, "squad": squad_set, "xi": xi_set, "captain": captain_uid, "vice": vice_uid, "objective": m.getObjVal()}
 
 
@@ -325,10 +370,17 @@ def run(
     risk_posture: str = "neutral",
     rank_posture_params_version: int | None = None,
     field_cov_by_uid: dict[str, float] | None = None,
+    captain_lambda_params_version: int = 1,
 ) -> int:
     lam, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", lambda_params_version)
     guardrail_cap, _ = params_mod.resolve_param(
         con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", guardrail_params_version
+    )
+    # Real bug fix, not an opt-in feature -- see seed_v1_params()'s captain_risk_aversion_params
+    # comment. Defaults to v1 (not None/off) so every existing caller picks up the fix without
+    # needing to change its call site; a caller can still pass a different version explicitly.
+    kappa_captain, _ = params_mod.resolve_param(
+        con, "captain_risk_aversion_params", "kappa_captain", captain_lambda_params_version
     )
     # kappa_rank is only ever resolved (and field_cov_by_uid only ever required) when the
     # caller actually opts into a non-neutral posture -- callers that never pass risk_posture
@@ -354,18 +406,24 @@ def run(
     # candidate pool once at lambda=0 and once at the frozen lambda. If the two squads are
     # identical, the quadratic risk term is provably not affecting the solve -- carried
     # forward verbatim from LESSONS_LEARNED.md rather than left as unwritten folklore.
-    # risk_posture/kappa_rank/field_cov_by_uid are held IDENTICAL across both solves, same as
-    # forced_squad_uids/forced_xi_uids above -- the whole point of this check is to isolate
-    # lambda's own effect, so every other input must be held fixed between the two solves.
+    # risk_posture/kappa_rank/field_cov_by_uid/kappa_captain are held IDENTICAL across both
+    # solves, same as forced_squad_uids/forced_xi_uids above -- the whole point of this check is
+    # to isolate lambda's own effect, so every other input must be held fixed between the two
+    # solves. (kappa_captain no longer scales with lambda, so it no longer contributes to
+    # "captain differs" between these two solves the way it used to -- see seed_v1_params()'s
+    # captain_risk_aversion_params comment. The check remains a real, live guarantee via "XI
+    # differs", which lambda still governs on its own.)
     result_zero = solve(
         candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap,
         forced_squad_uids=forced_squad_uids, forced_xi_uids=forced_xi_uids,
         field_cov_by_uid=field_cov_by_uid, kappa_rank=kappa_rank, risk_posture=risk_posture,
+        kappa_captain=kappa_captain,
     )
     result_real = solve(
         candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap,
         forced_squad_uids=forced_squad_uids, forced_xi_uids=forced_xi_uids,
         field_cov_by_uid=field_cov_by_uid, kappa_rank=kappa_rank, risk_posture=risk_posture,
+        kappa_captain=kappa_captain,
     )
 
     # The baseline (lambda=0) solve must itself have actually reached optimality -- a

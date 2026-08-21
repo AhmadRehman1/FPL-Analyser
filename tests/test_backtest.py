@@ -996,13 +996,21 @@ def test_report_season_simulation_sensitivity_writes_versions_without_touching_t
     # enough to 0 can genuinely fail to move this pool's optimal XI/captain at all, a real
     # (if synthetic-data-specific) finding, not a test bug -- confirmed empirically (0.05 fails,
     # 0.10-0.50 all pass reliably) before picking this grid, not guessed.
+    # guardrail_cap=2 (empirically viable before the captain-risk decoupling fix -- see
+    # squad_optimizer.py's captain_risk_aversion_params/kappa_captain) stopped reliably
+    # diverging from the cap=3 live pin on this synthetic pool once captain choice was no
+    # longer coupled to squad-level lambda at 3-4x weight: some of what looked like "cap-driven"
+    # divergence here was actually captain-driven (via the shared lambda), which the fix
+    # correctly removed as an unintended channel. Re-verified empirically post-fix (cap=1 is
+    # infeasible on this pool, cap=2 no longer diverges, cap=4/5 both do) before picking cap=4,
+    # same "confirmed empirically, not guessed" discipline as the lambda grid below.
     result = bt.report_season_simulation_sensitivity(
         con, "2025-2026", 2, 3, _SEASON_SIM_VERSIONS,
-        lambda_grid=(0.10, 0.15), guardrail_cap_grid=(2,),
+        lambda_grid=(0.10, 0.15), guardrail_cap_grid=(4,),
     )
 
     assert set(result["lambda"].keys()) == {0.10, 0.15}
-    assert set(result["guardrail_cap"].keys()) == {2}
+    assert set(result["guardrail_cap"].keys()) == {4}
     for grid_result in {**result["lambda"], **result["guardrail_cap"]}.values():
         assert math.isfinite(grid_result["total_points"])
         assert grid_result["max_drawdown"] >= 0.0

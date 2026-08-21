@@ -169,6 +169,20 @@ def test_captain_is_never_a_goalkeeper():
     assert by_uid[result["captain"]]["position"] != "Goalkeeper"
 
 
+def test_vice_captain_is_the_next_highest_mu_xi_player():
+    """Real gap fixed alongside the captain-risk decoupling: the `vice` decision variable never
+    appeared in solve()'s objective_expr at all, so the solver's choice of vice was entirely
+    unconstrained/arbitrary -- not EP-driven. Fixed as a deterministic post-processing step:
+    vice must be the highest-mu XI player after the captain, not merely someone in the XI."""
+    pool = _synthetic_pool()
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    by_uid = {c["player_uid"]: c for c in pool}
+    expected_vice = max(
+        (uid for uid in result["xi"] if uid != result["captain"]), key=lambda uid: by_uid[uid]["mu"],
+    )
+    assert result["vice"] == expected_vice
+
+
 def test_captain_points_double_counted_in_objective():
     """With zero variance/covariance, the objective should equal sum(XI mu) + captain's mu
     a second time -- verifies the captain bonus term is actually wired into the objective,
@@ -200,14 +214,19 @@ def test_divergence_check_fails_when_variance_is_a_stub_zero():
     assert r0["squad"] == r_real["squad"]
 
 
-def test_captain_choice_is_risk_aware_not_just_risk_aware_for_squad_membership():
+def test_captain_choice_is_risk_aware_when_kappa_captain_is_opted_in():
     """Regression test for a real bug: the risk term used to weight every XI player's
     variance/covariance by a flat `xi` indicator, so captaining (which doubles a player's
     actual point variance -- Var(2X)=4*Var(X)) was invisible to the risk-aversion mechanism.
     Two otherwise-identical high-mu candidates, one with much higher variance than the other:
     a genuinely risk-aware optimizer should prefer captaining the LOWER-variance one once
-    lambda > 0, even though their raw mu is tied (so a risk-blind captain choice would be
-    indifferent between them)."""
+    kappa_captain > 0, even though their raw mu is tied (so a risk-blind captain choice would be
+    indifferent between them).
+
+    kappa_captain (not lam) is what governs captain risk-awareness now -- see solve()'s
+    risk_xi_base/risk_captain_extra split and seed_v1_params()'s captain_risk_aversion_params
+    comment for why squad-level lambda alone stopped being enough (it could, and on real data
+    did, override a genuine multi-point EP gap, not just break an exact tie like this one)."""
     pool = _synthetic_pool()
     # tie two players' mu exactly, at the top of the pool, so captaincy is otherwise a coin
     # flip between them -- the only thing that should break the tie is variance.
@@ -219,7 +238,7 @@ def test_captain_choice_is_risk_aware_not_just_risk_aware_for_squad_membership()
     steady["var"] = 1.0
     volatile["var"] = 40.0  # a real boom-or-bust player: same expected points, far riskier
 
-    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, kappa_captain=0.15)
     by_uid = {c["player_uid"]: c for c in pool}
     assert result["captain"] in (steady["player_uid"], volatile["player_uid"])
     assert by_uid[result["captain"]]["player_uid"] == steady["player_uid"], (
@@ -227,6 +246,59 @@ def test_captain_choice_is_risk_aware_not_just_risk_aware_for_squad_membership()
         "player -- if this fails, the risk term is not accounting for captaincy doubling "
         "variance (Var(2X)=4*Var(X)), i.e. the original bug has regressed"
     )
+
+
+def test_captain_choice_ignores_variance_when_kappa_captain_is_zero():
+    """The new default at the solve() level (kappa_captain=0.0) -- the same tied-mu, wildly-
+    different-variance setup as above, but with kappa_captain left at its default: captain
+    choice must be driven purely by mu (a coin flip here, since mu is tied), never penalized
+    by variance at all. This is what makes squad-level lambda's effect on captain choice fully
+    opt-in via kappa_captain, not automatic."""
+    pool = _synthetic_pool()
+    top_mu = max(c["mu"] for c in pool)
+    steady, volatile = pool[-1], pool[-2]
+    tied_mu = top_mu + 1.0
+    steady["mu"] = tied_mu
+    volatile["mu"] = tied_mu
+    steady["var"] = 1.0
+    volatile["var"] = 40.0
+
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    assert result["captain"] in (steady["player_uid"], volatile["player_uid"])
+    # Either is a valid outcome here: kappa_captain=0 means the captain-incremental risk term
+    # contributes nothing, so which of the two tied-mu players ends up captain is down to
+    # solver tie-break internals, not this module's own behavior -- asserting a specific one
+    # would test the solver, not the fix.
+
+
+def test_captain_choice_does_not_override_a_real_ep_gap_at_default_kappa_captain():
+    """The real scenario this fix addresses, reproduced synthetically: a high-mu, high-var
+    candidate (Haaland-like) versus a low-mu, low-var candidate (Berge-like) with a real,
+    substantial EP gap -- not a near-tie. At the v1 default kappa_captain (0.01, an order of
+    magnitude below lambda_value), the high-EP candidate must still win the captaincy despite
+    its much larger variance; the old combined-lambda formula (equivalent to kappa_captain=lam
+    here) would have flipped this, which is exactly the bug this test guards against."""
+    pool = _synthetic_pool()
+    high_mu_high_var, low_mu_low_var = pool[-1], pool[-2]
+    top_mu = max(c["mu"] for c in pool)
+    high_mu_high_var["mu"] = top_mu + 2.09  # real observed EP gap from the live GW1 case
+    high_mu_high_var["var"] = 16.1
+    low_mu_low_var["mu"] = top_mu
+    low_mu_low_var["var"] = 5.1
+
+    # at the old, pre-fix combined-lambda equivalent (kappa_captain == lam), the EP gap is
+    # overturned -- confirms the synthetic setup actually reproduces the real bug's magnitude.
+    # Whichever lower-variance player actually wins depends on the whole pool's variance
+    # landscape (here it's a third, untouched midfielder with even lower variance than either
+    # of the two players this test modified) -- the real, load-bearing assertion is just that
+    # the high-EP candidate LOSES the captaincy despite its 2+ point lead.
+    result_old_equivalent = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, kappa_captain=0.15)
+    by_uid = {c["player_uid"]: c for c in pool}
+    assert by_uid[result_old_equivalent["captain"]]["player_uid"] != high_mu_high_var["player_uid"]
+
+    # at the v1 default (kappa_captain=0.01), the real EP gap must survive.
+    result_fixed = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, kappa_captain=0.01)
+    assert by_uid[result_fixed["captain"]]["player_uid"] == high_mu_high_var["player_uid"]
 
 
 def test_divergence_check_passes_with_real_variance_structure(con):
