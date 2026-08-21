@@ -403,19 +403,18 @@ def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
 # real per-duty outcome data exists to fit it against.
 # ============================================================
 
-def _set_piece_duty_evidence(
+def _set_piece_duty_claims(
     con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, duty_keywords: tuple[str, ...],
-    decay_params_version: int, fact_multiplier_params_version: int,
-) -> tuple[float, float]:
-    """Sums effective_weight() per order ('primary'/'secondary') across asof-visible
-    set_piece_order_override claims whose duty string contains ANY of duty_keywords -- checked
-    as a single any-of match (not one pass per keyword) specifically because the real data
-    contains combined duty strings like "corners/free-kicks", which a per-keyword-summed loop
-    would double-count."""
+) -> list[dict]:
+    """asof-visible set_piece_order_override claims whose duty string contains ANY of
+    duty_keywords -- checked as a single any-of match (not one pass per keyword)
+    specifically because the real data contains combined duty strings like
+    "corners/free-kicks", which a per-keyword-summed loop would double-count. Each returned
+    dict carries the parsed payload as claim['_payload'] alongside the raw claim fields."""
     claims = snapshot_mod.get_claims_asof(
         con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="set_piece_order_override",
     ).to_dict("records")
-    primary_weight = secondary_weight = 0.0
+    matched = []
     for c in claims:
         if not c["claim_value"]:
             continue
@@ -423,8 +422,20 @@ def _set_piece_duty_evidence(
         duty = (payload.get("duty") or "").lower()
         if not any(kw in duty for kw in duty_keywords):
             continue
+        matched.append({**c, "_payload": payload})
+    return matched
+
+
+def _set_piece_duty_evidence(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, duty_keywords: tuple[str, ...],
+    decay_params_version: int, fact_multiplier_params_version: int,
+) -> tuple[float, float]:
+    """Sums effective_weight() per order ('primary'/'secondary') across the claims
+    _set_piece_duty_claims() matches."""
+    primary_weight = secondary_weight = 0.0
+    for c in _set_piece_duty_claims(con, player_uid, asof, duty_keywords):
         w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
-        order = payload.get("order")
+        order = c["_payload"].get("order")
         if order == "primary":
             primary_weight += w
         elif order == "secondary":
@@ -681,12 +692,16 @@ def run(
         """
         INSERT INTO ep_model_versions
             (calibration_asof_date, target_season, team_strength_model_version, minutes_model_version,
-             scoring_matrix_params_version, bps_params_version, bps_tau_params_version)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
+             set_piece_params_version, decay_params_version, fact_multiplier_params_version,
+             role_shift_params_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
-         scoring_params_version, bps_params_version, tau_params_version],
+         scoring_params_version, bps_params_version, tau_params_version,
+         set_piece_params_version, decay_params_version, fact_multiplier_params_version,
+         role_shift_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -806,14 +821,129 @@ def non_double_counting_audit() -> list[dict]:
 
 
 # ============================================================
+# A4: M9 adapter -- qualitative-adjustment provenance trail. Extends the same "raw_stat ->
+# feeds" transparency NON_DOUBLE_COUNTING_AUDIT documents at the audit-table level down to
+# "for this player, which specific evidence_claims rows moved the number, by how much
+# confidence/reliability, and which side lost" -- mirroring minutes_model.
+# explain_player_adjustment()'s shape (source, confidence, reliability tier, information_type,
+# included vs merely considered).
+#
+# Deliberately calls the real _role_shift_multiplier()/_set_piece_goal_uplift_multiplier()/
+# _set_piece_assist_uplift_multiplier() functions for the reported multiplier itself, rather
+# than re-deriving it from the per-claim rows below: blend_categorical's weighted-distribution
+# normalization is opaque from outside without recomputing it, and re-deriving that number by
+# hand here would risk a provenance trail that quietly drifts from what was actually applied --
+# worse than no explain function at all. The per-claim rows are for "what evidence contributed"
+# transparency; the multiplier is the actual multiplier, from the actual function.
+# ============================================================
+
+def explain_qualitative_adjustment(con: duckdb.DuckDBPyConnection, ep_model_version: int, player_uid: str) -> dict:
+    """Returns {} when this ep_model_version ran with every qualitative-adjustment param left
+    unset (a legitimate opted-out run, not a missing player) -- same "distinguish absence of
+    the feature from absence of data" shape used elsewhere in this project."""
+    run_row = con.execute(
+        "SELECT calibration_asof_date, set_piece_params_version, decay_params_version, "
+        "fact_multiplier_params_version, role_shift_params_version FROM ep_model_versions WHERE model_version = ?",
+        [ep_model_version],
+    ).fetchone()
+    if not run_row:
+        return {}
+    (calibration_asof_date, set_piece_params_version, decay_params_version,
+     fact_multiplier_params_version, role_shift_params_version) = run_row
+    if all(v is None for v in (set_piece_params_version, decay_params_version, fact_multiplier_params_version, role_shift_params_version)):
+        return {}
+    asof = datetime.combine(calibration_asof_date, datetime.max.time(), tzinfo=timezone.utc)
+    decay_v = decay_params_version if decay_params_version is not None else 1
+    fact_v = fact_multiplier_params_version if fact_multiplier_params_version is not None else 1
+
+    position_row = con.execute("SELECT position FROM dim_player WHERE player_uid = ?", [player_uid]).fetchone()
+    registered_position = position_row[0] if position_row else None
+
+    sources_by_id = {r[0]: (r[1], r[2]) for r in con.execute("SELECT source_id, source_name, source_type FROM sources").fetchall()}
+
+    def _source_info(source_id):
+        row = sources_by_id.get(source_id)
+        return {"source_name": row[0], "source_type": row[1]} if row else {"source_name": None, "source_type": None}
+
+    def _claim_base(c):
+        return {
+            "claim_id": c["claim_id"], "claim_type": c["claim_type"], **_source_info(c["source_id"]),
+            "information_type": c["information_type"], "confidence": c["confidence"],
+            "reliability_score": c["source_reliability_score"], "observed_date": c["observed_date"],
+            "raw_text": c["raw_text"],
+        }
+
+    result = {
+        "role_shift": {"applied": False, "multiplier": 1.0, "registered_position": registered_position, "claims": []},
+        "set_piece_goal": {"applied": False, "multiplier": 1.0, "claims": []},
+        "set_piece_assist": {"applied": False, "multiplier": 1.0, "claims": []},
+    }
+
+    # ---- role shift (A2) ----
+    if role_shift_params_version is not None and registered_position in _POSITION_RANK:
+        multiplier = _role_shift_multiplier(
+            con, player_uid, registered_position, asof, decay_v, fact_v, role_shift_params_version,
+        )
+        claims = snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="predicted_xi",
+        ).to_dict("records")
+        rows = []
+        for c in claims:
+            payload = json.loads(c["claim_value"]) if c["claim_value"] else {}
+            exp_position = payload.get("exp_position")
+            base = {**_claim_base(c), "exp_position": exp_position}
+            if exp_position not in _POSITION_RANK:
+                rows.append({**base, "included": False, "exclusion_reason": "exp_position missing or not one of the four canonical positions"})
+                continue
+            w = eb.effective_weight(con, c, asof, decay_v, fact_v)
+            rows.append({
+                **base, "included": True, "exclusion_reason": None, "weight": w,
+                "rank_delta": _POSITION_RANK[exp_position] - _POSITION_RANK[registered_position],
+            })
+        result["role_shift"] = {
+            "applied": multiplier != 1.0, "multiplier": multiplier,
+            "registered_position": registered_position, "claims": rows,
+        }
+
+    # ---- set-piece goal/assist (A3) ----
+    for key, duty_keywords, uplift_fn in (
+        ("set_piece_goal", ("penalt",), _set_piece_goal_uplift_multiplier),
+        ("set_piece_assist", ("free-kick", "corner"), _set_piece_assist_uplift_multiplier),
+    ):
+        if set_piece_params_version is None:
+            continue
+        multiplier = uplift_fn(con, player_uid, asof, set_piece_params_version, decay_v, fact_v)
+        matched = _set_piece_duty_claims(con, player_uid, asof, duty_keywords)
+        # arbitrary when multiplier == 1.0 (no net directional evidence) -- doesn't matter,
+        # `included` below is forced False in that case regardless of this value.
+        winning_order = "primary" if multiplier >= 1.0 else "secondary"
+        rows = []
+        for c in matched:
+            order = c["_payload"].get("order")
+            w = eb.effective_weight(con, c, asof, decay_v, fact_v)
+            included = multiplier != 1.0 and order == winning_order
+            rows.append({
+                **_claim_base(c), "duty": c["_payload"].get("duty"), "order": order, "weight": w,
+                "included": included,
+                "exclusion_reason": None if included else "outweighed by stronger opposing-order evidence" if multiplier != 1.0 else "no net directional evidence",
+            })
+        result[key] = {"applied": multiplier != 1.0, "multiplier": multiplier, "claims": rows}
+
+    return result
+
+
+# ============================================================
 # M9 adapter -- category-level EP breakdown, display-ready shape
 # ============================================================
 
 def explain_player_ep(con: duckdb.DuckDBPyConnection, ep_model_version: int, player_uid: str) -> dict | None:
     """M9's category-level EP breakdown section: "not a single blended number, so a human can
     see e.g. this defender's value is mostly DefCon-driven." Pure read against ep_outputs,
-    labeled by category rather than raw column name -- no new computation. Returns None if the
-    player has no fixture at this model_version (a legitimate blank gameweek, not an error)."""
+    labeled by category rather than raw column name -- no new computation, except for the
+    qualitative_adjustments key (A4), which extends the same provenance-trail idea
+    minutes_model.explain_player_adjustment() already established for minutes into EP's own
+    evidence-driven multipliers. Returns None if the player has no fixture at this
+    model_version (a legitimate blank gameweek, not an error)."""
     row = con.execute(
         "SELECT fixture_match_id, ep_appearance, ep_goals, ep_assists, ep_clean_sheet, "
         "ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, "
@@ -833,4 +963,5 @@ def explain_player_ep(con: duckdb.DuckDBPyConnection, ep_model_version: int, pla
             "own_goal": own_goal,
         },
         "total": total, "expected_bps": expected_bps,
+        "qualitative_adjustments": explain_qualitative_adjustment(con, ep_model_version, player_uid),
     }

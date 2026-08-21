@@ -471,3 +471,125 @@ def test_defcon_rate_excludes_recoveries_for_defenders_but_not_midfielders(con, 
     )
     assert defender["ep_defcon"] < 0.1, "cbi_per_90=6 is well below the defender threshold of 10 -- recoveries must not count"
     assert midfielder["ep_defcon"] > 0.5, "cbi_per_90 + recoveries_per_90 = 14 clears the midfielder threshold of 12"
+
+
+# ============================================================
+# A4: explain_qualitative_adjustment() / explain_player_ep() provenance trail
+# ============================================================
+
+def _seed_ep_model_version(con, *, set_piece_params_version=None, decay_params_version=None,
+                            fact_multiplier_params_version=None, role_shift_params_version=None,
+                            calibration_asof_date="2026-08-10"):
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES (?, 0.2, 1, 1, 'team_a')",
+        [calibration_asof_date],
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES (?, '2026-2027', 1, 1, 1, 1, '[]')",
+        [calibration_asof_date],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv = con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version, "
+        "set_piece_params_version, decay_params_version, fact_multiplier_params_version, role_shift_params_version) "
+        "VALUES (?, '2026-2027', ?, ?, 1, 1, 1, ?, ?, ?, ?) RETURNING model_version",
+        [calibration_asof_date, ts_mv, mm_mv, set_piece_params_version, decay_params_version,
+         fact_multiplier_params_version, role_shift_params_version],
+    ).fetchone()[0]
+    return ep_mv
+
+
+def test_explain_qualitative_adjustment_empty_when_fully_opted_out(con):
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Defender')")
+    ep_mv = _seed_ep_model_version(con)
+    assert ep.explain_qualitative_adjustment(con, ep_mv, "p1") == {}
+
+
+def test_explain_qualitative_adjustment_reports_role_shift_and_set_piece_goal(con):
+    ep.seed_v1_params(con)
+    _seed_predicted_xi_claim(con, "p1", exp_position="Forward", registered_position="Defender")
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES ('src_sp', 'Set Piece Source', 'official', 0.9)"
+    )
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, information_type, source_id, source_reliability_score, confidence, "
+        "observed_date, ingested_date, tab_origin, row_origin) "
+        "VALUES ('claim_sp1', 'player', 'p1', 'set_piece_order_override', ?, 'FACT', 'src_sp', 0.9, 0.9, "
+        "'2026-08-01', '2026-08-01', 'research_pull:SetPieceTakers', 1)",
+        [__import__("json").dumps({"club": "A", "duty": "Penalties", "order": "primary"})],
+    )
+    ep_mv = _seed_ep_model_version(
+        con, set_piece_params_version=1, decay_params_version=1, fact_multiplier_params_version=1, role_shift_params_version=1,
+    )
+
+    result = ep.explain_qualitative_adjustment(con, ep_mv, "p1")
+
+    assert result["role_shift"]["applied"] is True
+    assert result["role_shift"]["multiplier"] == pytest.approx(1.16)
+    assert result["role_shift"]["registered_position"] == "Defender"
+    role_claims = result["role_shift"]["claims"]
+    assert len(role_claims) == 1
+    assert role_claims[0]["included"] is True
+    assert role_claims[0]["exp_position"] == "Forward"
+    assert role_claims[0]["source_name"] == "Test XI Source"
+
+    assert result["set_piece_goal"]["applied"] is True
+    assert result["set_piece_goal"]["multiplier"] == pytest.approx(1.15)
+    sp_claims = result["set_piece_goal"]["claims"]
+    assert len(sp_claims) == 1
+    assert sp_claims[0]["included"] is True
+    assert sp_claims[0]["order"] == "primary"
+    assert sp_claims[0]["source_name"] == "Set Piece Source"
+
+    assert result["set_piece_assist"]["applied"] is False
+    assert result["set_piece_assist"]["multiplier"] == pytest.approx(1.0)
+    assert result["set_piece_assist"]["claims"] == []
+
+
+def test_explain_qualitative_adjustment_marks_losing_side_excluded(con):
+    """Two conflicting penalty-duty claims: the stronger evidence wins and applies, the weaker
+    evidence is shown as considered-but-excluded, not silently dropped from the trail."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="secondary",
+                            source_id="src_weak", reliability=0.2, confidence=0.3)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary",
+                            source_id="src_strong", reliability=0.9, confidence=0.9)
+    ep_mv = _seed_ep_model_version(con, set_piece_params_version=1, decay_params_version=1, fact_multiplier_params_version=1)
+
+    result = ep.explain_qualitative_adjustment(con, ep_mv, "p1")
+    assert result["set_piece_goal"]["applied"] is True
+    assert result["set_piece_goal"]["multiplier"] == pytest.approx(1.15)
+    by_order = {c["order"]: c for c in result["set_piece_goal"]["claims"]}
+    assert by_order["primary"]["included"] is True
+    assert by_order["secondary"]["included"] is False
+    assert by_order["secondary"]["exclusion_reason"] == "outweighed by stronger opposing-order evidence"
+
+
+def test_explain_player_ep_includes_qualitative_adjustments_key(con):
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Defender')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', '2026-2027', 2, 'team_a', 'team_b', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)"
+    )
+    ep_mv = _seed_ep_model_version(con)
+    con.execute(
+        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+        "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+        "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'p1', 'm1', 1.0, 0.1, 0.1, 0.3, 0.0, 0.0, "
+        "0.2, 0.0, 0.0, 0.0, 0.0, 1.7, 15.0)",
+        [ep_mv],
+    )
+    result = ep.explain_player_ep(con, ep_mv, "p1")
+    assert result is not None
+    assert result["qualitative_adjustments"] == {}  # fully opted out -- consistent with the dedicated test above
