@@ -241,6 +241,42 @@ def test_compute_automated_flags_catches_club_at_cap(con):
 # build_report / render_report_text
 # ============================================================
 
+def test_assemble_adversarial_review_brief_includes_price_and_all_guardrail_sections(con):
+    run_id, ep_mv, un_mv, mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+        "VALUES ('p1', '2026-2027', 1, 6.0, 15.5, current_timestamp)"
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+        "VALUES ('p2', '2026-2027', 1, 9.5, 40.2, current_timestamp)"
+    )
+    report = reporting.build_report(con, run_id)
+    brief = reporting.assemble_adversarial_review_brief(con, report)
+
+    assert brief["n_squad"] == 2 and brief["n_xi"] == 2
+    assert brief["total_price"] == pytest.approx(15.5)
+    by_name = {p["name"]: p for p in brief["squad"]}
+    assert by_name["Player One"]["price"] == pytest.approx(6.0)
+    assert by_name["Player One"]["ownership_percent"] == pytest.approx(15.5)
+    assert by_name["Player One"]["is_captain"] is True
+    # every section a fresh, context-free reviewer would need is present, not just the headline
+    assert brief["automated_flags"] == report["automated_flags"]
+    assert brief["guardrail_audit"] == report["guardrail_audit"]
+    assert "consensus_divergence" in brief and "community_evidence_roundup" in brief
+    assert "Argue AGAINST this squad" in brief["review_instructions"]
+
+
+def test_assemble_adversarial_review_brief_handles_missing_price_data_gracefully(con):
+    """No fact_player_season_stats seeded at all -- price/ownership must come back None per
+    player and total_price must be 0.0 (sum of nothing), never crash on a missing lookup."""
+    run_id, *_ = _seed_full_squad_scenario(con)
+    report = reporting.build_report(con, run_id)
+    brief = reporting.assemble_adversarial_review_brief(con, report)
+    assert brief["total_price"] == 0.0
+    assert all(p["price"] is None for p in brief["squad"])
+
+
 def test_build_report_headline_and_sections(con):
     run_id, ep_mv, un_mv, mc_mv = _seed_full_squad_scenario(con)
     report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})

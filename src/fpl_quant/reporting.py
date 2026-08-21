@@ -94,6 +94,78 @@ def compute_automated_flags(con: duckdb.DuckDBPyConnection, squad_optimizer_run_
 # top-level assembler
 # ============================================================
 
+# ============================================================
+# Part 5 (squad-quality guardrails work): adversarial-review packaging.
+#
+# Per spec: "run a SEPARATE step (a distinct agent pass, not the same context that built the
+# squad)" whose only job is to argue AGAINST the squad. Every other M0-M9 module in this
+# project is pure deterministic Python/SQL with zero LLM/API dependency anywhere -- that's a
+# real, load-bearing property (reproducibility, no external service to fail/cost/rate-limit),
+# not an oversight. The adversarial CRITIQUE itself genuinely needs a separate reasoning
+# process (a fresh model context, or a human) to be worth anything -- a rule reproduced here
+# would just be another automated_flags entry, not "a distinct agent pass." So this function
+# does only the part that IS a good fit for this codebase: packaging build_report()'s output
+# into a self-contained brief a genuinely separate reviewer can act on with zero other
+# context, no DB access required. The actual critique step is deliberately left to whoever
+# calls this with that brief.
+# ============================================================
+
+def assemble_adversarial_review_brief(con: duckdb.DuckDBPyConnection, report: dict) -> dict:
+    """Self-contained: every field a fresh reviewer would need is inlined here, nothing
+    requires going back to the DB or this session's context. Deliberately re-queries price/
+    ownership itself (a few extra rows) rather than threading them through build_report()'s
+    own return shape -- keeps this callable standalone against any already-built report dict.
+    """
+    h = report["headline"]
+    squad_uids = [p["player_uid"] for p in h["squad"]]
+    price_by_uid, ownership_by_uid = {}, {}
+    if squad_uids:
+        placeholders = ",".join(["?"] * len(squad_uids))
+        rows = con.execute(
+            f"SELECT player_uid, now_cost, selected_by_percent FROM fact_player_season_stats "
+            f"WHERE player_uid IN ({placeholders}) "
+            f"QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+            squad_uids,
+        ).fetchall()
+        price_by_uid = {uid: price for uid, price, _own in rows}
+        ownership_by_uid = {uid: own for uid, _price, own in rows}
+
+    squad_lines = [
+        {
+            "name": p["name"], "position": p["position"], "in_xi": p["in_xi"],
+            "is_captain": p["is_captain"], "is_vice": p["is_vice"],
+            "price": price_by_uid.get(p["player_uid"]),
+            "ownership_percent": ownership_by_uid.get(p["player_uid"]),
+        }
+        for p in sorted(h["squad"], key=lambda p: (not p["in_xi"], p["position"]))
+    ]
+    total_price = sum(v for v in price_by_uid.values() if v is not None)
+
+    return {
+        "target_season": h["target_season"], "target_gameweek": h["target_gameweek"],
+        "squad": squad_lines,
+        "n_squad": len(h["squad"]), "n_xi": sum(1 for p in h["squad"] if p["in_xi"]),
+        "total_price": total_price,
+        "total_projected_ep": h["total_projected_ep"],
+        "rationale": h["rationale"],
+        "automated_flags": report["automated_flags"],
+        "guardrail_audit": report["guardrail_audit"],
+        "consensus_divergence": report["consensus_divergence"],
+        "community_evidence_roundup": report["community_evidence_roundup"],
+        "review_instructions": (
+            "Argue AGAINST this squad. Look specifically for: an incomplete squad (not 15 "
+            "players, or XI not exactly 11), an impossible or miscounted budget (total_price "
+            "must be <= 100.0), a captain pick that looks indefensible given its ownership% or "
+            "the consensus_divergence evidence, excessive same-club concentration, a weak or "
+            "unstartable bench, and anything else that looks wrong even though the "
+            "automated_flags above may say 'passed'. A passed flag is a pattern-detection "
+            "result, not proof of correctness -- do not treat it as license to skip your own "
+            "check of the same failure modes. Report every issue you find, however minor, even "
+            "if you conclude the squad is still defensible overall."
+        ),
+    }
+
+
 def build_report(
     con: duckdb.DuckDBPyConnection,
     squad_optimizer_run_id: int,
