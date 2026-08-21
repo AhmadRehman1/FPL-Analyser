@@ -325,17 +325,25 @@ def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_seas
     """GW0 friendly minutes never enter the quantitative fit (see module docstring) --
     logged here as low-weight, qualitative-only evidence claims instead (M2 spec).
 
-    src_system-derived is this function's own source_id for these claims (they're derived
-    from fact_player_match_stats, not pulled from any external outlet) -- the sources table's
-    source_type CHECK constraint already anticipates 'system-derived' as a category, but
+    src_minutes_model_system_derived is this function's own source_id for these claims (they're
+    derived from fact_player_match_stats, not pulled from any external outlet) -- the sources
+    table's source_type CHECK constraint already anticipates 'system-derived' as a category, but
     nothing ever actually registered this row (a real, pre-existing gap: every other ingest
     module registers its own sources on the fly the same way, this one just never had one).
     Registered here, idempotently, the first time this function actually runs against real
-    GW0 data rather than assuming it already exists."""
+    GW0 data rather than assuming it already exists.
+
+    Deliberately NOT called 'src_system-derived' (as first written) -- ingest_workbook.py
+    independently reserves that exact same source_id for its own, differently-scoped generic
+    'system-derived' bucket (unrelated claims lacking a specific named source), a real
+    same-name-different-owner collision only surfaced once a real run actually ingested both
+    the main workbook and GW0 preseason data in the same pass. ON CONFLICT (source_name) DO
+    NOTHING doesn't catch it either, since the two rows have different source_name values but
+    the same derived source_id -- a source_id collision, not a source_name one."""
     con.execute(
         "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score, "
         "citation_count, source_notes, last_reviewed_date) VALUES "
-        "('src_system-derived', 'System-derived (fact_player_match_stats)', 'system-derived', 0.0, NULL, NULL, NULL) "
+        "('src_minutes_model_system_derived', 'System-derived (fact_player_match_stats)', 'system-derived', 0.0, NULL, NULL, NULL) "
         "ON CONFLICT (source_name) DO NOTHING"
     )
     rows = con.execute(
@@ -356,7 +364,7 @@ def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_seas
             "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
             "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, "
             "confidence, observed_date, ingested_date, tab_origin, row_origin) "
-            "VALUES (?, 'player', ?, 'preseason_involvement', ?, ?, 'FACT', 'src_system-derived', 0.0, "
+            "VALUES (?, 'player', ?, 'preseason_involvement', ?, ?, 'FACT', 'src_minutes_model_system_derived', 0.0, "
             "0.3, ?, ?, 'fact_player_match_stats:GW0', NULL)",
             [
                 str(uuid.uuid4()), player_uid,
