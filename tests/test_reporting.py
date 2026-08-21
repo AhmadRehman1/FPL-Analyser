@@ -267,6 +267,28 @@ def test_assemble_adversarial_review_brief_includes_price_and_all_guardrail_sect
     assert "Argue AGAINST this squad" in brief["review_instructions"]
 
 
+def test_assemble_adversarial_review_brief_ignores_a_prior_seasons_higher_gw_row(con):
+    """Real bug caught building the live GW1 brief: fact_player_season_stats carries rows for
+    every ingested season, and gw numbering restarts each season -- "ORDER BY gw DESC" with no
+    season filter picked a PRIOR season's gw=38 row over the current season's gw=1, silently
+    returning a stale price. p1's 2025-2026 gw=38 row (price 99.0, deliberately absurd so a
+    regression can't be missed) must never win over its real 2026-2027 gw=1 row (price 6.0)."""
+    run_id, ep_mv, un_mv, mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+        "VALUES ('p1', '2025-2026', 38, 99.0, 99.0, current_timestamp)"
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+        "VALUES ('p1', '2026-2027', 1, 6.0, 15.5, current_timestamp)"
+    )
+    report = reporting.build_report(con, run_id)
+    brief = reporting.assemble_adversarial_review_brief(con, report)
+    by_name = {p["name"]: p for p in brief["squad"]}
+    assert by_name["Player One"]["price"] == pytest.approx(6.0)
+    assert by_name["Player One"]["ownership_percent"] == pytest.approx(15.5)
+
+
 def test_assemble_adversarial_review_brief_handles_missing_price_data_gracefully(con):
     """No fact_player_season_stats seeded at all -- price/ownership must come back None per
     player and total_price must be 0.0 (sum of nothing), never crash on a missing lookup."""

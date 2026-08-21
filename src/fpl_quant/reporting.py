@@ -121,11 +121,19 @@ def assemble_adversarial_review_brief(con: duckdb.DuckDBPyConnection, report: di
     price_by_uid, ownership_by_uid = {}, {}
     if squad_uids:
         placeholders = ",".join(["?"] * len(squad_uids))
+        # Real gap fixed here, caught building the actual live GW1 brief: fact_player_season_
+        # stats carries rows from EVERY ingested season for a given player_uid, and gw numbering
+        # restarts each season (1..38) -- "ORDER BY gw DESC" with no season filter happily
+        # returns a prior season's gw=38 row (a much higher gw number) over the current season's
+        # gw=1, silently substituting last season's price for this season's. Real, live impact:
+        # this returned Haaland's 2024-25 season-end price (14.9) instead of his actual current
+        # 2026-27 GW1 price, and similarly for every other squad member -- exactly the kind of
+        # mistake this brief exists to help a reviewer catch, caught here in its own code first.
         rows = con.execute(
             f"SELECT player_uid, now_cost, selected_by_percent FROM fact_player_season_stats "
-            f"WHERE player_uid IN ({placeholders}) "
+            f"WHERE player_uid IN ({placeholders}) AND season = ? "
             f"QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
-            squad_uids,
+            [*squad_uids, h["target_season"]],
         ).fetchall()
         price_by_uid = {uid: price for uid, price, _own in rows}
         ownership_by_uid = {uid: own for uid, _price, own in rows}
