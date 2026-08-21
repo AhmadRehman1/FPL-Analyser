@@ -37,6 +37,87 @@ def _synthetic_pool():
     return pool
 
 
+# ============================================================
+# fetch_candidate_pool -- chance_of_playing_next_round hard exclusion. Real gap fixed here,
+# caught sanity-checking a live GW1 run: a player with an official, confirmed
+# chance_of_playing_next_round=0 was still XI-eligible because nothing checked this field --
+# the soft evidence-claims minutes adjustment alone wasn't reliably suppressing his start
+# probability (real case: decay+reliability weighting left a genuine "Out, surgery" claim
+# contributing only -0.11 logit units).
+# ============================================================
+
+def _seed_candidate_pool_versions(con, target_season="2026-2027"):
+    """Minimal real ep_model_versions/uncertainty_model_versions chain -- ep_outputs/
+    uncertainty_outputs FK into these, same shape test_transfer_planner.py's own fixtures use."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('clubA', 'A'), ('clubB', 'B') ON CONFLICT DO NOTHING")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', ?, 1, 'clubA', 'clubB', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp) ON CONFLICT DO NOTHING", [target_season],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'clubA')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [target_season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [target_season, ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    return ep_mv, un_mv
+
+
+def _seed_minimal_candidate(con, player_uid, ep_mv, un_mv, position="Midfielder", club="clubA", price=5.0, mu=4.0,
+                              chance_of_playing_next_round=None, target_season="2026-2027"):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", [player_uid, player_uid, position])
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING", [player_uid, player_uid.lower(), club, target_season, player_uid],
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, chance_of_playing_next_round, _ingested_at) "
+        "VALUES (?, ?, 1, ?, ?, current_timestamp)", [player_uid, target_season, price, chance_of_playing_next_round],
+    )
+    con.execute(
+        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+        "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+        "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+        [ep_mv, player_uid, mu],
+    )
+    con.execute(
+        "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+        "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+        "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+        "VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0, 1.0, 0,0,0,0,0,0)", [un_mv, player_uid],
+    )
+
+
+def test_fetch_candidate_pool_excludes_confirmed_chance_of_playing_zero(con):
+    ep_mv, un_mv = _seed_candidate_pool_versions(con)
+    _seed_minimal_candidate(con, "p_injured", ep_mv, un_mv, chance_of_playing_next_round=0)
+    _seed_minimal_candidate(con, "p_fit", ep_mv, un_mv, chance_of_playing_next_round=None)
+    _seed_minimal_candidate(con, "p_doubtful", ep_mv, un_mv, chance_of_playing_next_round=75)
+    candidates = so.fetch_candidate_pool(con, ep_model_version=ep_mv, uncertainty_model_version=un_mv, target_season="2026-2027")
+    uids = {c["player_uid"] for c in candidates}
+    assert "p_injured" not in uids
+    assert "p_fit" in uids  # NULL (no doubt flag at all) must never be excluded
+    assert "p_doubtful" in uids  # a real, nonzero chance stays a soft signal, not a hard exclusion
+
+
 def test_solve_satisfies_all_constraints():
     pool = _synthetic_pool()
     result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)

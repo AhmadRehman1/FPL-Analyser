@@ -155,11 +155,36 @@ def fetch_candidate_pool(
         """,
         [target_season],
     ).fetchall())
+    # Real gap fixed here, caught sanity-checking a live GW1 run: a player with an official,
+    # unambiguous chance_of_playing_next_round=0 (FPL's own "will not play" signal, already
+    # reconciled into fact_player_season_stats -- not a qualitative claim) was still showing up
+    # as an XI-eligible candidate, because nothing downstream of minutes_model_outputs ever
+    # checked this field -- the model relied entirely on the SOFT evidence-claims adjustment
+    # mechanism to suppress his start probability, and for a source with real decay/reliability
+    # suppression applied, that signal can end up too weak to matter (confirmed: a real "Out,
+    # groin surgery, expected to miss start of season" claim contributed only -0.11 logit units
+    # after decay+reliability weighting, nowhere near enough to counter a historically
+    # near-ever-present player's baseline rate). chance_of_playing_next_round=0 is a hard,
+    # official exclusion here -- not a down-weight -- since it means the player genuinely
+    # cannot score regardless of what the qualitative evidence mechanism computed. A NULL value
+    # (the vast majority of players -- no doubt flag at all) is never excluded; only an explicit
+    # confirmed zero is.
+    unavailable = {
+        player_uid for player_uid, chance in con.execute(
+            """
+            SELECT player_uid, chance_of_playing_next_round FROM fact_player_season_stats
+            WHERE season = ? AND chance_of_playing_next_round IS NOT NULL
+            QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
+            """,
+            [target_season],
+        ).fetchall()
+        if chance == 0
+    }
 
     candidates = []
     for player_uid, position, name, mu, var, team_code in rows:
         price = prices.get(player_uid)
-        if price is None or position not in POSITIONS:
+        if price is None or position not in POSITIONS or player_uid in unavailable:
             continue
         candidates.append({
             "player_uid": player_uid, "position": position, "name": name,
