@@ -1,3 +1,5 @@
+import json
+from datetime import datetime
 from pathlib import Path
 
 import openpyxl
@@ -97,3 +99,53 @@ def test_confidence_normalizes_1_to_10_scale():
     assert iw._confidence_0_1(9) == 0.9
     assert iw._confidence_0_1(None) is None
     assert iw._confidence_0_1("") is None
+
+
+def _seed_player_and_source(con, player_uid="p1", canonical_name="Test Player", alias="Test Player"):
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'MID')",
+        [player_uid, canonical_name],
+    )
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES (?, ?, 'TST', '2026-2027', ?)",
+        [alias, alias.lower(), player_uid],
+    )
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES ('s1', 'Test Source', 'specialist', 0.6)"
+    )
+
+
+def test_ingest_predicted_xi_stores_exp_position_and_system_fit(con):
+    # Regression test for the real gap this fixed: exp_position ("Expected Position") and
+    # system_fit ("Manager System Fit") were unpacked from every row and then silently
+    # discarded before ever reaching claim_value -- confirmed by reading the function before
+    # touching it. Both must now survive into the stored claim so expected_points.py's
+    # role-shift adjustment (A2) has something real to consume.
+    _seed_player_and_source(con)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "18_Predicted XI Database"
+    ws.append([
+        "label", "club", "player", "position", "price", "predicted_starter", "start_conf",
+        "exp_position", "exp_minutes", "rotation_risk", "competition_for_pos", "backup",
+        "preseason_status", "system_fit", "reasoning", "conf_level", "source", "source_date",
+        "cross_check",
+    ])
+    ws.append([
+        "L1", "TST", "Test Player", "Midfielder", 6.5, "Yes", 80,
+        "Forward", 90, "Low", "None", "N/A",
+        "Fit", "4-3-3", "Playing as auxiliary striker", 8, "Test Source", "2026-08-01",
+        "OK",
+    ])
+
+    result = iw.ingest_predicted_xi(con, wb, datetime(2026, 8, 10))
+    assert result == {"inserted": 1, "skipped": 0}
+
+    row = con.execute(
+        "SELECT claim_value FROM evidence_claims WHERE claim_type = 'predicted_xi' AND subject_entity_id = 'p1'"
+    ).fetchone()
+    stored = json.loads(row[0])
+    assert stored["exp_position"] == "Forward"
+    assert stored["system_fit"] == "4-3-3"

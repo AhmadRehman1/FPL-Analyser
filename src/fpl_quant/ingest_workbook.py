@@ -430,6 +430,17 @@ def ingest_predicted_xi(con, wb, ingested_date) -> dict:
             claim_value={
                 "label": label, "predicted_starter": predicted_starter, "rotation_risk": rotation_risk,
                 "expected_minutes": exp_minutes, "reasoning": reasoning,
+                # Real gap this fixed: exp_position ("Expected Position" -- e.g. a player
+                # registered as Midfielder in dim_player but predicted to play as an auxiliary
+                # Forward) was read off the sheet and then discarded before this dict was ever
+                # built -- confirmed by reading this function before touching it, not assumed.
+                # A real, structured "predicted XI role change" signal expected_points.py's
+                # role-shift adjustment (see compute_player_fixture_components) now consumes;
+                # previously nothing anywhere stored it at all. system_fit ("Manager System Fit",
+                # e.g. a formation string) is carried for traceability/future human review only
+                # -- deliberately NOT parsed into a structured signal, same "not an NLP problem"
+                # boundary this project already draws for 6_Manager Database's free text.
+                "exp_position": exp_position, "system_fit": system_fit,
                 # M1b: "Club Cross-Check Status" is audit metadata only -- never used to
                 # re-validate against 1_Player Database, which is outside the M0 allowlist
                 # entirely. Carried here for traceability, not consumed by any scoring logic.

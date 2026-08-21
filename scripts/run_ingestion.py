@@ -168,6 +168,15 @@ def main() -> None:
         con, CALIBRATION_ASOF_DATE, TARGET_SEASON, TARGET_GAMEWEEK,
         ts_model_version=ts_model_version, mm_model_version=mm_model_version,
         scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        # Opt in the qualitative-evidence adjustments (previously wired at the function level
+        # but never actually turned on by this script -- confirmed by grepping for
+        # set_piece_params_version here before touching it): confirmed-primary-penalty-taker
+        # goal uplift, and A2's exp_position role-shift multiplier. decay_params_version=1
+        # matches minutes_model.run()'s own hardcoded v1 above (claim_type_decay_params has no
+        # M7-confirmed version yet, same gap -- see A6).
+        set_piece_params_version=1,
+        decay_params_version=1, fact_multiplier_params_version=fact_multiplier_params_version,
+        role_shift_params_version=1,
     )
     n_ep_rows = con.execute(
         "SELECT count(*) FROM ep_outputs WHERE model_version = ?", [ep_model_version]

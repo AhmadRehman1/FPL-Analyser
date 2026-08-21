@@ -66,6 +66,11 @@ def main() -> None:
         wildcard_threshold_params_version=1,
         free_hit_threshold_params_version=1,
         kappa_tc_params_version=1,
+        # Opt in the same qualitative-evidence adjustments scripts/run_ingestion.py now turns
+        # on for GW1 (see that script's expected_points.run() call) -- otherwise this multi-
+        # gameweek horizon would silently plan transfers/chips off the un-adjusted EP.
+        set_piece_params_version=1,
+        decay_params_version=1, fact_multiplier_params_version=1, role_shift_params_version=1,
     )
     print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")
 

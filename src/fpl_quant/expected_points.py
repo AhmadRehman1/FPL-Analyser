@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import poisson
 
+from . import evidence_blend as eb
 from . import minutes_model as mm
 from . import params as params_mod
 from . import reconcile as reconcile_mod
@@ -95,6 +96,19 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # modest ~15% boost: enough to matter for a real early-season/new-signing case, deliberately
     # not large enough to swamp the real historical xG signal it's applied on top of.
     params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "penalty_taker_goal_rate_multiplier", value_numeric=1.15)
+
+    # A2: qualitative "predicted role" adjustment -- see _role_shift_multiplier(). exp_position
+    # ("Expected Position") from 18_Predicted XI Database claims is a genuinely different
+    # evidence dimension than the same claim's numeric start_conf (which minutes_model already
+    # consumes for P(start)): this is about *what role* a starting player is expected to play,
+    # not *whether* they start, so reading both off the same predicted_xi claim is not double
+    # counting -- see NON_DOUBLE_COUNTING_AUDIT below. Both constants are invented v1 defaults,
+    # same status as every other unpinned constant here, flagged for the same eventual M7
+    # recalibration once real per-role attacking-output deltas exist to fit against. Deliberately
+    # small and capped: this shades the historical xG/xA rate for a specific fixture's predicted
+    # role, it doesn't override it.
+    params_mod.write_param(con, "role_shift_params", 1, "2026-08-10", "per_rank_multiplier_step", value_numeric=0.08)
+    params_mod.write_param(con, "role_shift_params", 1, "2026-08-10", "max_multiplier_delta", value_numeric=0.16)
 
 
 def _sm(con, key, params_version, position=None):
@@ -388,12 +402,64 @@ def _set_piece_goal_uplift_multiplier(
     return 1.0
 
 
+# ============================================================
+# A2: role-shift adjustment -- a bounded, explainable multiplier on attacking output when
+# 18_Predicted XI Database evidence says a player is expected to play a fixture-specific role
+# more/less advanced than their FPL-registered position. Registered `position` still decides
+# every points-category bucket (clean_sheet_points, defcon_threshold, etc. -- FPL scores off
+# registered position, not matchday role, so this deliberately never touches those), but a
+# genuine role-shift ("this Defender is playing as a auxiliary wing-back/winger this week") is
+# real evidence about attacking involvement that the season-long historical xG/xA rate alone
+# can't see. Consumes evidence_blend.blend_categorical() -- previously ingested, dead code
+# outside its own tests -- as its first real caller.
+# ============================================================
+
+_POSITION_RANK = {"Goalkeeper": 0, "Defender": 1, "Midfielder": 2, "Forward": 3}
+
+
+def _role_shift_multiplier(
+    con: duckdb.DuckDBPyConnection, player_uid: str, registered_position: str, asof: datetime,
+    decay_params_version: int, fact_multiplier_params_version: int, role_shift_params_version: int,
+) -> float:
+    """1.0 (no-op) unless asof-visible predicted_xi evidence assigns this player an exp_position
+    on the opposite side of the attacking-order hierarchy (GK < DEF < MID < FWD) from their
+    registered position. blend_categorical's weighted distribution over exp_position values
+    handles multiple/conflicting source claims the same way every other evidence-blended signal
+    in this project does; an exp_position string outside the four canonical positions (e.g. a
+    free-text "Right-back/Wing-back") is silently excluded from the weighted sum rather than
+    guessed at -- understates confidence slightly rather than risking a wrong-direction shift."""
+    if registered_position not in _POSITION_RANK:
+        return 1.0
+    dist = eb.blend_categorical(
+        con, "player", player_uid, "predicted_xi", "exp_position", asof,
+        decay_params_version, fact_multiplier_params_version,
+    )
+    if not dist:
+        return 1.0
+    registered_rank = _POSITION_RANK[registered_position]
+    expected_rank_shift = sum(
+        weight * (_POSITION_RANK[pos] - registered_rank)
+        for pos, weight in dist.items() if pos in _POSITION_RANK
+    )
+    if expected_rank_shift == 0.0:
+        return 1.0
+    try:
+        per_rank, _ = params_mod.resolve_param(con, "role_shift_params", "per_rank_multiplier_step", role_shift_params_version)
+        cap, _ = params_mod.resolve_param(con, "role_shift_params", "max_multiplier_delta", role_shift_params_version)
+    except params_mod.ParamNotFoundError:
+        return 1.0
+    delta = max(-cap, min(cap, expected_rank_shift * per_rank))
+    return 1.0 + delta
+
+
 def compute_player_fixture_components(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, team_uid: str, match_id: str,
     p_0: float, p_1_59: float, p_60plus: float,
     ts_model_version: int, scoring_params_version: int, bps_params_version: int,
     season_priority: list[str], mean_minutes: dict,
     *, asof: datetime | None = None, set_piece_params_version: int | None = None,
+    decay_params_version: int | None = None, fact_multiplier_params_version: int | None = None,
+    role_shift_params_version: int | None = None,
 ) -> dict:
     rates = player_rates_shrunk(con, player_uid, position, season_priority)
     def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority)
@@ -413,6 +479,15 @@ def compute_player_fixture_components(
     e_assists = rates["expected_assists_per_90"] * e_min_played / 90.0 * p_played
     if asof is not None and set_piece_params_version is not None:
         e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
+    if (
+        asof is not None and decay_params_version is not None
+        and fact_multiplier_params_version is not None and role_shift_params_version is not None
+    ):
+        role_multiplier = _role_shift_multiplier(
+            con, player_uid, position, asof, decay_params_version, fact_multiplier_params_version, role_shift_params_version,
+        )
+        e_goals *= role_multiplier
+        e_assists *= role_multiplier
     ep_goals = e_goals * _sm(con, "goal_points", scoring_params_version, position)
     ep_assists = e_assists * _sm(con, "assist_points", scoring_params_version)
 
@@ -493,6 +568,8 @@ def run(
     tau_params_version: int,
     lookback_seasons: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
     set_piece_params_version: int | None = None,
+    decay_params_version: int | None = None, fact_multiplier_params_version: int | None = None,
+    role_shift_params_version: int | None = None,
 ) -> int:
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
     mean_minutes = _mean_minutes_by_bucket(con)
@@ -553,6 +630,9 @@ def run(
                     ts_model_version, scoring_params_version, bps_params_version,
                     list(lookback_seasons), mean_minutes,
                     asof=asof, set_piece_params_version=set_piece_params_version,
+                    decay_params_version=decay_params_version,
+                    fact_multiplier_params_version=fact_multiplier_params_version,
+                    role_shift_params_version=role_shift_params_version,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)
@@ -610,6 +690,12 @@ NON_DOUBLE_COUNTING_AUDIT = [
      "intentional_dual_use": True, "note": "save points and save BPS are separate real FPL mechanisms"},
     {"raw_stat": "ep_bonus (Plackett-Luce over expected_bps)", "feeds": ["ep_total"],
      "intentional_dual_use": False, "note": "expected_bps itself is a ranking input, not points -- only realized bonus points enter ep_total, so this is not additional double counting"},
+    {"raw_stat": "predicted_xi claim: claim_value_numeric (start_conf)", "feeds": ["minutes_model P(start) shift (compute_logit_adjustment)"],
+     "intentional_dual_use": False,
+     "note": "consumed entirely in minutes_model.py, never read again here -- see the exp_position row below for why this is a genuinely different evidence dimension off the same claim, not the same evidence counted twice"},
+    {"raw_stat": "predicted_xi claim: claim_value['exp_position']", "feeds": ["e_goals (role-shift multiplier)", "e_assists (role-shift multiplier)", "expected_bps (via e_goals/e_assists)"],
+     "intentional_dual_use": True,
+     "note": "A2: a genuinely different question (what ROLE a starting player plays) than the same claim's numeric start_conf (WHETHER they start, consumed only by minutes_model -- row above). Registered position, not exp_position, still decides every points-category bucket (clean_sheet_points, defcon_threshold, ...) -- this only shades the attacking-rate magnitude, bounded and capped by role_shift_params."},
 ]
 
 _NOT_MODELED_FOR_LACK_OF_RECONCILED_DATA = [

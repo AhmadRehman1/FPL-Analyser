@@ -217,6 +217,9 @@ def compute_horizon_ep(
     tau_params_version: int,
     rho_residual_params_version: int,
     corr_params_version: int,
+    *, set_piece_params_version: int | None = None,
+    decay_params_version: int | None = None, fact_multiplier_params_version: int | None = None,
+    role_shift_params_version: int | None = None,
 ) -> dict[int, tuple[int, int]]:
     """One ep.run() + uncertainty.run() pair per gameweek in [start_gameweek,
     start_gameweek+horizon_gameweeks), reusing the same ts_model_version/mm_model_version
@@ -224,6 +227,11 @@ def compute_horizon_ep(
     dependency in either). Returns {gameweek: (ep_model_version, uncertainty_model_version)}.
     A gameweek with no fixtures for either side (ep.run() raises on zero fixtures) is skipped,
     not fatal -- a real blank gameweek is a legitimate, if currently unscheduled, outcome.
+
+    The four trailing kwargs are ep.run()'s own opt-in qualitative-evidence adjustments
+    (A2's role-shift multiplier, the pre-existing set-piece goal uplift) -- default None/off,
+    same opt-in-only shape as ep.run() itself, so every existing caller of this function is
+    unaffected until it explicitly opts in.
     """
     out = {}
     for gw in range(start_gameweek, start_gameweek + horizon_gameweeks):
@@ -231,6 +239,10 @@ def compute_horizon_ep(
             ep_mv = ep.run(
                 con, calibration_asof_date, target_season, gw, ts_model_version, mm_model_version,
                 scoring_params_version, bps_params_version, tau_params_version,
+                set_piece_params_version=set_piece_params_version,
+                decay_params_version=decay_params_version,
+                fact_multiplier_params_version=fact_multiplier_params_version,
+                role_shift_params_version=role_shift_params_version,
             )
         except ValueError:
             continue
@@ -735,6 +747,9 @@ def run(
     wildcard_threshold_params_version: int,
     free_hit_threshold_params_version: int,
     kappa_tc_params_version: int,
+    *, set_piece_params_version: int | None = None,
+    decay_params_version: int | None = None, fact_multiplier_params_version: int | None = None,
+    role_shift_params_version: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -758,6 +773,10 @@ def run(
         con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
         int(horizon_gameweeks), scoring_params_version, bps_params_version, tau_params_version,
         rho_residual_params_version, corr_params_version,
+        set_piece_params_version=set_piece_params_version,
+        decay_params_version=decay_params_version,
+        fact_multiplier_params_version=fact_multiplier_params_version,
+        role_shift_params_version=role_shift_params_version,
     )
 
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
