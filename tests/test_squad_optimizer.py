@@ -138,7 +138,7 @@ def test_solve_satisfies_all_constraints():
     xi_gk = sum(1 for u in result["xi"] if by_uid[u]["position"] == "Goalkeeper")
     assert xi_gk == 1
     xi_def = sum(1 for u in result["xi"] if by_uid[u]["position"] == "Defender")
-    assert 3 <= xi_def <= 5
+    assert 3 <= xi_def <= 4  # never 5 -- see test_xi_never_plays_a_five_at_the_back below
     xi_mid = sum(1 for u in result["xi"] if by_uid[u]["position"] == "Midfielder")
     assert 2 <= xi_mid <= 5
     xi_fwd = sum(1 for u in result["xi"] if by_uid[u]["position"] == "Forward")
@@ -151,6 +151,24 @@ def test_solve_satisfies_all_constraints():
     assert result["captain"] in result["xi"]
     assert result["vice"] in result["xi"]
     assert result["captain"] != result["vice"]
+
+
+def test_xi_never_plays_a_five_at_the_back():
+    """Explicit manager preference, hard-coded per direct instruction: XI_POSITION_MAX caps
+    Defender at 4, never 5. Proven the hard way, not just by inspection: make every defender's
+    mu enormous (far better than any midfielder/forward) so an unconstrained objective would
+    obviously want all 5 of them in the XI -- confirm the cap still holds even when the
+    objective is straining against it, not just in the default-balanced case every other test
+    here already covers."""
+    pool = _synthetic_pool()
+    for c in pool:
+        if c["position"] == "Defender":
+            c["mu"] = 50.0
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    assert result["status"] == "optimal"
+    by_uid = {c["player_uid"]: c for c in pool}
+    xi_def = sum(1 for u in result["xi"] if by_uid[u]["position"] == "Defender")
+    assert xi_def == 4, "XI_POSITION_MAX['Defender'] must cap at 4 even when the objective wants 5"
 
 
 # ============================================================

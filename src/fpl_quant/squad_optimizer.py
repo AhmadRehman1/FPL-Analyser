@@ -25,7 +25,11 @@ from . import params as params_mod
 POSITIONS = ["Goalkeeper", "Defender", "Midfielder", "Forward"]
 POSITION_QUOTA = {"Goalkeeper": 2, "Defender": 5, "Midfielder": 5, "Forward": 3}
 XI_POSITION_MIN = {"Defender": 3, "Midfielder": 2, "Forward": 1}
-XI_POSITION_MAX = {"Defender": 5, "Midfielder": 5, "Forward": 3}
+# Defender capped at 4, not 5 -- explicit manager preference, hard-coded per direct
+# instruction: never solve into a 5-at-the-back XI (5-3-2/5-4-1), regardless of what the
+# objective would otherwise pick. Squad-level quota (POSITION_QUOTA) stays at 5 defenders --
+# this only forbids starting all 5, not owning them (the 5th is always available as bench cover).
+XI_POSITION_MAX = {"Defender": 4, "Midfielder": 5, "Forward": 3}
 BUDGET = 100.0
 
 
