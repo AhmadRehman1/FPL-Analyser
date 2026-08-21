@@ -10,6 +10,51 @@ over categories rather than forcing a single winner."
 M1b adds one thing to the weight formula: a fact_type_multiplier boost for FACT-tagged
 rows from high-tier sources. FACT-tagged evidence is never promoted into fact_reconciled
 regardless -- that boundary lives entirely upstream of this module, in M0's schema.
+
+============================================================
+B9: bias-guardrail review (explicit review pass, not new code -- results only, cross-checked
+against the actual code, not assumed).
+============================================================
+
+(1) Does consensus/high-ownership get an implicit boost via volume-of-coverage?
+Checked ingest_workbook.py's source-reliability formula: base_reliability_score =
+tier_weight * log_scaled(citation_count) -- citation_count is confirmed PER-SOURCE (an
+outlet's own citation count, e.g. how often "BBC Sport" itself is referenced), never
+per-player. A source being widely cited is a legitimate credibility signal (log-scaled, so
+diminishing returns, not linear), not a proxy for any specific player's popularity.
+community_sentiment/analyst_debate/youtube_evidence -- the claim_types this concern names
+most directly -- are ingested but confirmed to have ZERO live consumers anywhere in
+minutes_model.py or expected_points.py (grepped both before writing this): the question is
+currently moot, not merely "not found to be a problem."
+
+A real, adjacent effect DOES exist and is worth naming even though it isn't the mechanism
+above: minutes_model.compute_logit_adjustment() SUMS magnitude*effective_weight() across
+every active claim of a shift claim_type for a player (not a weighted average) -- a popular
+player who genuinely attracts more independent claims (more journalists covering them) will
+accumulate a larger total adjustment than an identically-situated player with fewer sources
+writing about them, purely from claim COUNT, capped only by minutes_adjustment_params' global
+cap. This is a real, structural "more coverage -> more pull" property of the existing SUM
+design (predates this review), distinct from and NOT the citation_count/reliability-score
+mechanism above. A2's role-shift multiplier and A3's set-piece uplift were checked against
+the same concern when built: both use a weighted AVERAGE/side-selection (blend_categorical,
+or picking whichever side's total effective_weight is larger) rather than a sum, so
+additional corroborating claims increase confidence in the SAME conclusion, not the
+magnitude of the adjustment itself -- deliberately not replicating the sum pattern.
+
+(2) Does anything overweight the most recent 1-2 gameweeks without explicit justification?
+The only recency-weighting mechanisms found (grepped both modules for gameweek-ordered
+queries and decay usage): M1's Dixon-Coles xi (model_decay_params, ~385-day half-life,
+Dixon & Coles 1997's own published decay) and M2's minutes_model_decay_params xi (~200-day
+half-life, explicitly reasoned in scripts/run_ingestion.py's own seeding comment: "rotation
+patterns track manager tenure/squad changes more than pure calendar time"). Both are
+versioned, both carry an explicit justification comment at their seed site. A6's new
+claim_type_decay_params half-lives (7-75 days depending on claim_type) are the only other
+recency-weighting in the codebase and are likewise individually justified per claim_type in
+decay.py's own seed_v1_params(). expected_points.py's one gameweek-ordered query
+(_player_rate_pool's "ORDER BY gw DESC LIMIT 1") reads the latest CUMULATIVE stats row per
+season, not a specific recent gameweek's performance -- fact_player_season_stats is a
+running total, so this is "read the most complete available snapshot," not a recency
+weighting at all. No unexplained short-window (1-2 gameweek) bias found anywhere.
 """
 
 import json

@@ -2,6 +2,7 @@ import pytest
 from scipy.stats import poisson
 
 from fpl_quant import expected_points as ep
+from fpl_quant import minutes_model as mm
 from fpl_quant import params
 
 
@@ -593,3 +594,73 @@ def test_explain_player_ep_includes_qualitative_adjustments_key(con):
     result = ep.explain_player_ep(con, ep_mv, "p1")
     assert result is not None
     assert result["qualitative_adjustments"] == {}  # fully opted out -- consistent with the dedicated test above
+
+
+# ============================================================
+# A5: double-counting regression test. NON_DOUBLE_COUNTING_AUDIT documents (in metadata) that
+# a predicted_xi claim's numeric start_conf and its exp_position field are two genuinely
+# different evidence dimensions -- one consumed only by minutes_model, the other only by A2's
+# role-shift multiplier. This proves it empirically against the real functions, not just the
+# audit table's own self-description: changing ONE field on a claim must move ONLY the
+# consumer that actually reads it, never both.
+# ============================================================
+
+def test_start_conf_and_exp_position_move_independent_consumers_not_each_other(con):
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Defender')")
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES ('src1', 'Test Source', 'official', 0.9)"
+    )
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
+                        value_numeric=0.8, dimensions={"claim_type": "predicted_xi"})
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap",
+                        value_numeric=6.0, dimensions={"scope": "global"})
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, confidence, "
+        "observed_date, ingested_date, tab_origin, row_origin) "
+        "VALUES ('c1', 'player', 'p1', 'predicted_xi', ?, 0.9, 'OPINION', 'src1', 0.9, 0.9, "
+        "'2026-08-01', '2026-08-01', '18_Predicted XI Database', 1)",
+        [__import__("json").dumps({"exp_position": "Forward"})],
+    )
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    p_start_historical_final = 0.5
+
+    baseline_minutes_adj = mm.compute_logit_adjustment(
+        con, "p1", p_start_historical_final, asof, adjustment_params_version=1,
+        decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    baseline_role_mult = ep._role_shift_multiplier(con, "p1", "Defender", asof, 1, 1, 1)
+    assert baseline_role_mult != 1.0  # confirms the setup actually exercises the role-shift path
+
+    # Variant A: change ONLY exp_position (claim_value_numeric untouched) -- the "what role"
+    # dimension. Must move the role-shift multiplier and leave minutes_model's adjustment
+    # byte-for-byte unchanged (it never reads claim_value at all for this claim_type).
+    con.execute(
+        "UPDATE evidence_claims SET claim_value = ? WHERE claim_id = 'c1'",
+        [__import__("json").dumps({"exp_position": "Defender"})],  # now matches registered position
+    )
+    variant_a_minutes_adj = mm.compute_logit_adjustment(
+        con, "p1", p_start_historical_final, asof, adjustment_params_version=1,
+        decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    variant_a_role_mult = ep._role_shift_multiplier(con, "p1", "Defender", asof, 1, 1, 1)
+    assert variant_a_minutes_adj == pytest.approx(baseline_minutes_adj)
+    assert variant_a_role_mult != baseline_role_mult
+    assert variant_a_role_mult == pytest.approx(1.0)
+
+    # Variant B: restore exp_position, change ONLY claim_value_numeric (start_conf) -- the
+    # "whether they start" dimension. Must move minutes_model's adjustment and leave the
+    # role-shift multiplier byte-for-byte unchanged (it never reads claim_value_numeric).
+    con.execute(
+        "UPDATE evidence_claims SET claim_value = ?, claim_value_numeric = 0.2 WHERE claim_id = 'c1'",
+        [__import__("json").dumps({"exp_position": "Forward"})],
+    )
+    variant_b_minutes_adj = mm.compute_logit_adjustment(
+        con, "p1", p_start_historical_final, asof, adjustment_params_version=1,
+        decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    variant_b_role_mult = ep._role_shift_multiplier(con, "p1", "Defender", asof, 1, 1, 1)
+    assert variant_b_role_mult == pytest.approx(baseline_role_mult)
+    assert variant_b_minutes_adj != pytest.approx(baseline_minutes_adj)

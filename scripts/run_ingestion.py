@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import (  # noqa: E402
-    db, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
+    db, decay, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
     monte_carlo, params, reconcile, squad_optimizer, team_strength, transfer_planner, uncertainty,
 )
 
@@ -89,12 +89,17 @@ def main() -> None:
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
     transfer_planner.seed_v1_params(con)
+    # A6: claim_type_decay_params was confirmed never seeded anywhere -- every real
+    # evidence_blend.effective_weight() caller (minutes_model's shift claims, expected_points'
+    # role-shift/set-piece adjustments) has been silently getting decay=1.0 (no decay at all)
+    # the whole time, including in this live pipeline.
+    decay.seed_v1_params(con)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "
           "cross_player_correlation_params, risk_aversion_params, "
           "squad_optimizer_guardrail_params, planning_horizon_params, transfer_cost_params, "
-          "tc_risk_aversion_params, wildcard_gain_threshold_params v1 seeded")
+          "tc_risk_aversion_params, wildcard_gain_threshold_params, claim_type_decay_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH) if XLSX_PATH.exists() else None)
