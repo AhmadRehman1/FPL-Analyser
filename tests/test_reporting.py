@@ -152,6 +152,29 @@ def test_compute_automated_flags_catches_captained_goalkeeper(con):
     assert by_name["captained_goalkeeper"]["passed"] is False
 
 
+def test_compute_automated_flags_proven_optimal_reflects_stored_gap(con):
+    """Part 4: compute_automated_flags()'s new proven_optimal flag must read through
+    squad_optimizer.explain_run()'s stored solver_gap/proven_optimal, not just default True --
+    a run stored with a nonzero gap (e.g. a real timelimit-terminated incumbent) must surface
+    as passed=False here, not be shown with the same confidence as a proven-optimal one."""
+    run_id, *_ = _seed_full_squad_scenario(con)
+    con.execute(
+        "UPDATE squad_optimizer_runs SET solver_gap = 0.0, proven_optimal = TRUE WHERE run_id = ?", [run_id]
+    )
+    flags = reporting.compute_automated_flags(con, run_id)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["proven_optimal"]["passed"] is True
+    assert by_name["proven_optimal"]["detail"] == "solver_gap=0.0"
+
+    con.execute(
+        "UPDATE squad_optimizer_runs SET solver_gap = 0.08, proven_optimal = FALSE WHERE run_id = ?", [run_id]
+    )
+    flags = reporting.compute_automated_flags(con, run_id)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["proven_optimal"]["passed"] is False
+    assert by_name["proven_optimal"]["detail"] == "solver_gap=0.08"
+
+
 def test_compute_automated_flags_catches_club_at_cap(con):
     run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con)
     params.write_param(con, "squad_optimizer_guardrail_params", 2, "2026-08-10", "xi_club_concentration_cap", value_numeric=1)

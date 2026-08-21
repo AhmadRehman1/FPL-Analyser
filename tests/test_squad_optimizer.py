@@ -153,6 +153,21 @@ def test_solve_satisfies_all_constraints():
     assert result["captain"] != result["vice"]
 
 
+# ============================================================
+# Part 4 (solve-quality transparency): gap / proven_optimal
+# ============================================================
+
+def test_solve_reports_proven_optimal_with_a_near_zero_gap_on_an_easy_synthetic_pool():
+    """The synthetic pool (18 candidates, one club-cap-driven combinatorial choice) is trivial
+    for SCIP -- well within its default gap tolerance almost instantly, so this should always
+    come back status="optimal" with gap==0.0 (up to float noise), not just "optimal" alone."""
+    pool = _synthetic_pool()
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    assert result["status"] == "optimal"
+    assert result["gap"] == pytest.approx(0.0, abs=1e-6)
+    assert result["proven_optimal"] is True
+
+
 def test_forced_squad_uids_are_present_in_the_solved_squad_and_solution_stays_valid():
     """A manager's own hard lock-in: the forced player must be in the squad, and every other
     constraint (budget, quotas, club cap) still holds around that pick -- a real constrained
@@ -191,6 +206,9 @@ def test_forced_squad_uids_infeasible_combination_surfaces_as_non_optimal_not_a_
     result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, forced_squad_uids=all_fwds)
     assert result["status"] != "optimal"
     assert result["squad"] == frozenset()
+    # Part 4: the no-solution branch must never claim a proof it doesn't have.
+    assert result["gap"] is None
+    assert result["proven_optimal"] is False
 
 
 def test_risk_posture_neutral_is_an_exact_reduction_to_the_pre_existing_objective():

@@ -63,6 +63,14 @@ def compute_automated_flags(con: duckdb.DuckDBPyConnection, squad_optimizer_run_
         "name": "club_concentration", "passed": not concentration_hit,
         "detail": {"clubs_at_squad_cap": audit["clubs_at_squad_cap"], "clubs_at_xi_cap": audit["clubs_at_xi_cap"]},
     })
+    # Part 4 (solve-quality transparency): status=="optimal" alone doesn't tell a report reader
+    # whether SCIP actually PROVED no better solution exists, or just cleared its own internal
+    # gap tolerance/hit limits/time=300 with an unproven incumbent -- surfaced as its own flag so
+    # a not-proven-optimal squad is never shown with the same confidence as a proven one.
+    flags.append({
+        "name": "proven_optimal", "passed": bool(audit["proven_optimal"]),
+        "detail": f"solver_gap={audit['solver_gap']}",
+    })
     return flags
 
 

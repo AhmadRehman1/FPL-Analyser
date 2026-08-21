@@ -359,7 +359,10 @@ def solve(
     m.optimize()
     status = m.getStatus()
     if status not in ("optimal", "timelimit") or m.getNSols() == 0:
-        return {"status": status, "squad": frozenset(), "xi": frozenset(), "captain": None, "vice": None, "objective": None}
+        return {
+            "status": status, "squad": frozenset(), "xi": frozenset(), "captain": None, "vice": None,
+            "objective": None, "gap": None, "proven_optimal": False,
+        }
 
     squad_set = frozenset(uid for uid, v in squad.items() if m.getVal(v) > 0.5)
     xi_set = frozenset(uid for uid, v in xi.items() if m.getVal(v) > 0.5)
@@ -374,7 +377,20 @@ def solve(
     # unconstrained choice of the `vice` decision variable.
     mu_by_uid = {c["player_uid"]: c["mu"] for c in candidates}
     vice_uid = max((uid for uid in xi_set if uid != captain_uid), key=lambda uid: mu_by_uid[uid], default=None)
-    return {"status": status, "squad": squad_set, "xi": xi_set, "captain": captain_uid, "vice": vice_uid, "objective": m.getObjVal()}
+    # Part 4 (solve-quality transparency): m.getGap() is SCIP's own proven optimality gap --
+    # 0.0 (up to float noise) means the solve is PROVEN optimal, not just "the best solution
+    # SCIP happened to find before limits/time=300 cut it off." status=="optimal" alone doesn't
+    # distinguish those two cases from the caller's side (SCIP reports "optimal" for a solve
+    # that hits its own internal gap tolerance, which is a real proof, but a caller has no way
+    # to tell a genuine proof from a timelimit-terminated incumbent without reading the gap
+    # itself) -- surfaced here so every consumer can tell the difference rather than trusting
+    # every returned squad with the same confidence.
+    gap = m.getGap()
+    proven_optimal = status == "optimal" and gap <= 1e-6
+    return {
+        "status": status, "squad": squad_set, "xi": xi_set, "captain": captain_uid, "vice": vice_uid,
+        "objective": m.getObjVal(), "gap": gap, "proven_optimal": proven_optimal,
+    }
 
 
 # ============================================================
@@ -488,13 +504,15 @@ def run(
         INSERT INTO squad_optimizer_runs
             (calibration_asof_date, target_season, target_gameweek, ep_model_version,
              uncertainty_model_version, lambda_params_version, lambda_value, guardrail_params_version,
-             divergence_check_passed, divergence_check_note, solver_status, objective_value)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             divergence_check_passed, divergence_check_note, solver_status, objective_value,
+             solver_gap, proven_optimal)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING run_id
         """,
         [calibration_asof_date, target_season, target_gameweek, ep_model_version, uncertainty_model_version,
          lambda_params_version, lam, guardrail_params_version, divergence_passed, note,
-         result_real["status"], result_real["objective"]],
+         result_real["status"], result_real["objective"],
+         result_real["gap"], result_real["proven_optimal"]],
     ).fetchone()[0]
 
     if not divergence_passed:
@@ -532,12 +550,13 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
     """
     run_row = con.execute(
         "SELECT target_season, divergence_check_passed, divergence_check_note, "
-        "guardrail_params_version, lambda_value, is_manager_snapshot "
+        "guardrail_params_version, lambda_value, is_manager_snapshot, solver_gap, proven_optimal "
         "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
     ).fetchone()
     if not run_row:
         raise ValueError(f"no squad_optimizer_runs row for run_id={run_id}")
-    target_season, divergence_passed, divergence_note, guardrail_params_version, lambda_value, is_snapshot = run_row
+    (target_season, divergence_passed, divergence_note, guardrail_params_version, lambda_value,
+     is_snapshot, solver_gap, proven_optimal) = run_row
 
     xi_cap = None
     if guardrail_params_version:
@@ -596,6 +615,7 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
         "clubs_at_squad_cap": clubs_at_squad_cap, "clubs_at_xi_cap": clubs_at_xi_cap,
         "captain_uid": captain_uid, "captain_position": captain_position,
         "captain_is_goalkeeper": captain_position == "Goalkeeper",
+        "solver_gap": solver_gap, "proven_optimal": proven_optimal,
     }
 
 
