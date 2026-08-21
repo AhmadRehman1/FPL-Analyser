@@ -141,6 +141,15 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # players' summed EP for one gameweek, not a single-transfer net_value). Same "influence,
     # not override" invented-v1-default status as every other epsilon band in this project.
     params_mod.write_param(con, "chip_swing_tiebreak_params", 1, "2026-08-12", "tiebreak_epsilon", value_numeric=0.5)
+    # "Roll the transfer instead of using it every week": backtest.run_season_simulation()'s
+    # own accept_transfer_if_net_value_above used to be a bare, unversioned 0.0 float default --
+    # any positive net_value, however marginal, was spent on the spot. min_net_value_to_use is
+    # a real, reasoned bar: roughly half of one points_per_hit (4.0) -- small enough that a
+    # genuine upgrade still clears it easily, large enough that a 0.3-point marginal swap isn't
+    # worth spending the flexibility a banked free transfer buys (a bigger move next week, or
+    # combining two transfers to avoid a hit later). Invented v1 default, same status as every
+    # other unpinned threshold in this project, flagged for M7 recalibration.
+    params_mod.write_param(con, "transfer_accept_threshold_params", 1, "2026-08-12", "min_net_value_to_use", value_numeric=2.0)
 
 
 # ============================================================

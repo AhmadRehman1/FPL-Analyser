@@ -38,6 +38,7 @@ PARAM_VERSIONS = dict(
     lambda_params_version=1, guardrail_params_version=1,
     horizon_params_version=1, transfer_cost_params_version=1,
     wildcard_threshold_params_version=1, free_hit_threshold_params_version=1, kappa_tc_params_version=1,
+    transfer_accept_threshold_params_version=1,
 )
 
 

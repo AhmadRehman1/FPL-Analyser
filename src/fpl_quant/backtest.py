@@ -717,6 +717,7 @@ def run_season_simulation(
     free_hit_threshold_params_version: int,
     kappa_tc_params_version: int,
     accept_transfer_if_net_value_above: float = 0.0,
+    transfer_accept_threshold_params_version: int | None = None,
     n_antithetic_pairs: int = 2000,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -747,11 +748,26 @@ def run_season_simulation(
     "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...]}
     -- actions is the real per-gameweek decision log, for auditing what the simulated manager
     actually did, not just the final score.
+
+    "Roll the transfer instead of using it every week": transfer_accept_threshold_params_version
+    (optional, default None -- preserves the exact prior behavior, accept_transfer_if_net_value_
+    above's own bare 0.0 default, i.e. any positive net_value is taken immediately). When
+    supplied, overrides accept_transfer_if_net_value_above with a real, versioned bar (see
+    transfer_planner.seed_v1_params()'s transfer_accept_threshold_params) -- a marginal transfer
+    (net_value above 0 but below the bar) is now HELD rather than auto-spent, banking the free
+    transfer for a later gameweek that might combine it with a second one (avoiding a hit on a
+    bigger structural move) or simply offer a better single opportunity. A genuinely large-gain
+    transfer still clears the bar and gets taken immediately -- this only changes the marginal
+    case, same "influence, not override" shape as every other threshold/epsilon in this project.
     """
     if not has_fittable_history(con, season, start_gameweek):
         raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
     horizon_gameweeks = int(horizon_gameweeks)
+    if transfer_accept_threshold_params_version is not None:
+        accept_transfer_if_net_value_above, _ = params_mod.resolve_param(
+            con, "transfer_accept_threshold_params", "min_net_value_to_use", transfer_accept_threshold_params_version,
+        )
 
     with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
         calibration_asof_date = deadline.date()

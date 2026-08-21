@@ -847,6 +847,23 @@ def test_run_season_simulation_walks_forward_with_real_decisions(con):
     assert metrics["max_drawdown"] >= 0.0
 
 
+def test_run_season_simulation_transfer_accept_threshold_can_hold_a_marginal_transfer(con):
+    """"Roll the transfer instead of using it every week": with
+    transfer_accept_threshold_params_version supplied and a deliberately huge bar (no real
+    synthetic net_value can ever clear it), every gameweek must be held (no transfer accepted)
+    -- proving the new version param genuinely overrides accept_transfer_if_net_value_above's
+    old bare-0.0 default, not silently ignored."""
+    _seed_season_simulation_league(con)
+    tp.params_mod.write_param(
+        con, "transfer_accept_threshold_params", 2, "2026-08-12", "min_net_value_to_use", value_numeric=1000.0,
+    )
+    result = bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=4, n_antithetic_pairs=200,
+        transfer_accept_threshold_params_version=2, **_SEASON_SIM_VERSIONS,
+    )
+    assert all(a["accepted_transfer_rank"] is None for a in result["actions"])
+
+
 def test_run_season_simulation_raises_on_unfittable_start_gameweek(con):
     """No prior finished match exists anywhere -- the real cold-start guard, same one
     has_fittable_history() already protects run_gameweek_step() with."""
