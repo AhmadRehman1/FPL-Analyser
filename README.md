@@ -1057,3 +1057,132 @@ honest "couldn't check" where it wasn't, not a guess dressed up as a finding.
   live; a column of 1s everywhere would mean it's currently inert (safe, per above, but worth
   knowing) -- a five-minute check against the real DB, not run here because the real DB isn't
   here, named as the natural next step rather than silently skipped.
+
+### Qualitative evidence into EP, fixture swing, rank-relative decisions, and a real captain-risk bug
+
+Two large capability requests landed together: routing genuinely relevant qualitative evidence
+into `expected_points.py` (not just minutes, per M2's existing scope) with a rolling fixture-
+swing signal built from M1's own live team strengths; and rank-relative, ownership-aware
+decision-making (EO in the squad/captain objective, price-momentum evidence, chip-timing vs. the
+field). Both are real, tested, and wired through the live pipeline (`scripts/run_ingestion.py`,
+`scripts/run_transfer_planner.py`), not left as opt-in library code nobody calls.
+
+- **`predicted_xi`'s `exp_position` field was read off every row and then silently discarded
+  before ever reaching `claim_value`** -- confirmed by reading `ingest_workbook.py` before
+  touching it, not assumed. Fixed (alongside `system_fit`, carried for traceability only, same
+  "not an NLP problem" boundary this project already draws for free text). A2's new
+  `_role_shift_multiplier()` consumes it via `evidence_blend.blend_categorical()` -- previously
+  dead code outside its own tests, now with a real caller -- to apply a small, capped multiplier
+  to `e_goals`/`e_assists` when a player is predicted to play a fixture-specific role more or
+  less advanced than their FPL-registered position (Goalkeeper < Defender < Midfielder <
+  Forward). Registered position still decides every points-category bucket (`clean_sheet_points`,
+  `defcon_threshold`, ...) -- FPL scores off registered position, not matchday role, so this
+  never touches those, only the attacking-rate magnitude. Explicitly NOT double-counting against
+  minutes_model's own consumption of the same `predicted_xi` claim's numeric `start_conf` field
+  (whether a player starts, vs. what role they play if they do) -- proven with a real regression
+  test (`test_start_conf_and_exp_position_move_independent_consumers_not_each_other`) that
+  changes one field at a time and asserts only the matching consumer moves.
+
+- **Set-piece evidence (A3) extended two ways.** The existing PRIMARY-penalty-only goal uplift
+  now also handles confirmed SECONDARY duty (previously read and silently ignored) as a real,
+  bounded demotion, and free-kick/corner delivery duty (same tab, never consumed at all before)
+  now drives a separate `e_assists` adjustment. Both directions route through real evidence
+  *strength* (`evidence_blend.effective_weight()` -- reliability x confidence x decay) rather
+  than "whichever claim the loop reaches first": when sources disagree, the side with stronger
+  supporting evidence wins; a genuine tie stays a no-op.
+
+- **`explain_qualitative_adjustment()` (A4)** extends `explain_player_ep()` with the same kind
+  of per-claim provenance trail `minutes_model.explain_player_adjustment()` already provides --
+  source, confidence, reliability, included vs. considered-but-excluded -- for every qualitative
+  multiplier above. `ep_model_versions` gained the params-version columns needed to reconstruct,
+  after the fact, which (if any) qualitative params a given stored run actually used.
+
+- **A real, previously-undetected gap: `claim_type_decay_params` had never been seeded
+  anywhere in this project (A6)**, confirmed by grepping every module and test file before
+  writing the fix. Every real `evidence_blend.effective_weight()` caller -- including the live
+  pipeline -- had been silently getting `decay=1.0` (no decay at all): a month-old injury report
+  carried exactly the same weight as one from that morning. Fixed with real, claim-type-specific
+  half-lives (lineup predictions ~7 days, injury status ~10, transfer rumors ~21, manager/set-
+  piece patterns ~75) rather than one flat number, each independently reasoned in
+  `decay.seed_v1_params()`.
+
+- **`fixture_swing.py` (A7)** computes `favorability()`/`rolling_avg()`/`swing_score()` by
+  reusing `expected_points._fixture_lambdas()` -- the same live Dixon-Coles-fitted team
+  strengths every EP number is already computed from -- never FPL's static 1-5 FDR, and
+  deliberately never the evidence workbook's own `30_Fixture Swing GW1-10` tab (explicitly
+  marked `EXCLUDED_DEPRECATED`, a one-time hand analysis that goes stale the moment real results
+  move the ratings). `swing_score = rolling_avg(short window) - rolling_avg(long window)`: a real
+  trajectory signal ("is this team's near-term run easier than their own longer baseline"), not
+  a rehash of "this team currently has easy fixtures." A direction-flip test
+  (`test_swing_score_positive/negative_when_near_term_run_is_easier/harder_than_the_longer_
+  baseline`) constructs a 3-weak-then-3-strong vs. 3-strong-then-3-weak fixture list and confirms
+  the sign genuinely flips, not just "always positive."
+
+  Wired into `transfer_planner.py` as an epsilon-band tiebreak for `evaluate_transfers()` (A9)
+  and a gameweek-choice tiebreak for `evaluate_bench_boost()` (A10) -- the same "influence, not
+  override" shape `captain_choice_with_differential()` already established: only ever decides
+  between candidates/gameweeks already within a small epsilon of the best net_value/bench_ep_sum,
+  proven with a test asserting a real ~11-17 point gap survives the tiebreak unchanged.
+  `evaluate_triple_captain()` and `evaluate_wildcard()` (A10/A11) get an informational-only
+  attach instead, since neither evaluates multiple gameweeks to choose between in the first
+  place -- Wildcard's attach answers a different question than the existing
+  `current_squad_value_per_gw` signal: not "is my old squad at its worst point now" but "is the
+  squad Wildcard would rebuild me into walking into a favorable fixture run right now."
+
+- **A real captain-selection bug, caught sanity-checking a live GW1 pipeline run, not found by
+  a test.** `solve()`'s captain choice inherited the FULL squad-level risk-aversion lambda at
+  3-4x weight (`Var(2X) = 4*Var(X)` for a captained player), with no cap of its own. On the real
+  GW1 candidate pool this made a 0.4%-owned, 2.42-EP defensive midfielder the "risk-optimal"
+  captain over a 69%-owned, 4.51-EP striker -- `objective_gap = -2.80`, nowhere near a near-tie
+  the existing differential mechanism could catch. Squad-level risk aversion legitimately
+  protects a diversified 15-player squad from a genuinely disastrous week; applying that same
+  magnitude to a single concentrated captaincy bet is a different, much stronger decision than
+  lambda was ever calibrated for, and contradicts how captaincy is actually played (maximize EP
+  on your captain; deviate only for a genuine near-tie or an explicit chase/differential
+  decision -- both of which already have dedicated, narrowly-scoped mechanisms). Fixed by
+  splitting the risk term into `risk_xi_base` (lambda, squad selection, unchanged) and
+  `risk_captain_extra` (new `captain_risk_aversion_params`/`kappa_captain`, an order of magnitude
+  below lambda -- still breaks a genuine exact-mu tie toward lower variance, never overturns a
+  real multi-point EP gap), defaulting to v1 so every existing caller picks up the fix without
+  changing its call site. A related, previously undetected gap fixed alongside it: `vice[uid]`
+  never appeared in `solve()`'s objective at all, so vice-captain was solver-arbitrary, not
+  EP-driven -- now a deterministic post-processing step (next-highest-mu XI player after the
+  captain).
+
+- **"Roll the transfer instead of using one every week."** `run_season_simulation()`'s accept-
+  transfer threshold was a bare, unversioned `0.0` float -- any positive net_value, however
+  marginal, was spent immediately, with no notion of banking a free transfer for a better
+  opportunity or a bigger combined move later. New optional
+  `transfer_accept_threshold_params_version` (default `None`, preserving the exact prior
+  behavior) resolves a real, versioned bar (`transfer_accept_threshold_params`, v1 default 2.0,
+  roughly half a hit's worth of gain) below which a transfer is held rather than auto-taken.
+
+- **Part 4 bias-guardrail review (B9, explicit review, no functional code changes -- findings
+  in `evidence_blend.py`'s own module docstring).** No consensus/high-ownership volume bias in
+  source reliability: `citation_count` is confirmed per-source (an outlet's own citation count),
+  never per-player, and `community_sentiment`/`analyst_debate`/`youtube_evidence` -- the claim
+  types this concern names most directly -- have zero live consumers anywhere in this project,
+  so the question is currently moot, not merely "not found to be a problem." A real, separate,
+  pre-existing effect does exist and is worth naming: `minutes_model.compute_logit_adjustment()`
+  SUMS `magnitude * effective_weight()` across every active claim of a shift claim_type, so a
+  popular player who genuinely attracts more independent claims accumulates a larger total
+  adjustment purely from claim count (capped only by the global cap) -- distinct from the
+  citation-count mechanism above. A2/A3's own qualitative adjustments were deliberately built
+  with a weighted-average/side-selection shape instead of a sum, specifically to avoid
+  replicating this. No unexplained short-window recency bias found: every recency-weighting
+  mechanism in the codebase (M1's Dixon-Coles xi, M2's rotation-decay xi, A6's new claim-type
+  half-lives) is versioned and individually justified at its own seed site.
+
+- **A quick audit of what qualitative evidence remains genuinely dormant, done rather than
+  assumed complete.** `community_sentiment`/`analyst_debate`/`youtube_evidence` store real
+  free-text prose (`opinion`, `strength`, `claim` fields are narrative sentences, e.g. "Favours
+  Cunha as Bruno Fernandes strike partner outscoring Mbeumo 4G1A to 2G" -- checked directly
+  against the real workbook, not assumed), not a structured categorical or number a formula can
+  consume -- genuinely the same "not an NLP problem" boundary this project already draws for
+  `6_Manager Database`'s free text, not a quick wire-up like `exp_position` or set-piece duty
+  turned out to be. `manager_tendency` has the opposite gap: a real, already-built consumer in
+  `minutes_model.py`'s `_SHIFT_CLAIM_TYPES`, but no ingestion path anywhere writes that
+  claim_type -- `6_Manager Database` is staged (raw text preserved) but never parsed into
+  structured claims, same NLP boundary. Left named here rather than forced through a shallow
+  keyword-matching extractor that would produce more noise than signal on real manager-tendency
+  prose.
