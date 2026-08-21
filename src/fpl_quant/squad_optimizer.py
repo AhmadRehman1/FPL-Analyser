@@ -82,6 +82,30 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # recalibration once real backtest evidence exists for what a captaincy bet's risk penalty
     # should actually be.
     params_mod.write_param(con, "captain_risk_aversion_params", 1, "2026-08-10", "kappa_captain", value_numeric=0.01)
+    # Part 2 (squad-quality guardrails work): invented v1 default for kappa_concentration (see
+    # solve()'s docstring). Same order of magnitude as kappa_captain -- both scale a covariance
+    # term restricted to a narrow subset of pairs (captain-vs-rest there, same-club here), so
+    # both should be small relative to lam's full-squad risk_xi_base, enough to discourage
+    # unjustified stacking without overturning a real EP edge. Flagged for M7 recalibration like
+    # every other unpinned constant here.
+    params_mod.write_param(con, "team_concentration_risk_params", 1, "2026-08-10", "kappa_concentration", value_numeric=0.01)
+    # Part 1b (squad-quality guardrails work): invented v1 default for the bench-quality floor,
+    # deliberately conservative (not the 0.3+ that might otherwise be reasonable) because GW1 in
+    # particular carries unusually thin, high-uncertainty start-probability data across the
+    # whole pool -- a stricter floor risks genuine infeasibility (solve() has no fallback other
+    # than surfacing a non-optimal status, which run() already turns into a loud RuntimeError
+    # rather than a silently bad squad). Flagged for M7 recalibration once a season's worth of
+    # settled minutes data makes p_start_final more reliable early in a gameweek cycle.
+    params_mod.write_param(con, "bench_quality_params", 1, "2026-08-10", "min_bench_p_start_probability", value_numeric=0.25)
+    # Part 1a (squad-quality guardrails work): invented v1 defaults for the attacking-return/
+    # rotation-risk flag. "Attacking returns" is deliberately MID/FWD only, not DEF -- attacking
+    # wing-backs get real goal involvements too, but folding them into this specific check
+    # muddies what it's testing (a clean, standard "does this squad have a nailed goal/assist
+    # threat" reading); that upside can get its own signal later if it matters. Reporting-only
+    # (see compute_automated_flags()) -- a wrong threshold here just makes the flag less useful,
+    # never breaks a squad, so no infeasibility risk the way bench_quality_params carries.
+    params_mod.write_param(con, "squad_quality_flag_params", 1, "2026-08-10", "nailed_p_start_threshold", value_numeric=0.75)
+    params_mod.write_param(con, "squad_quality_flag_params", 1, "2026-08-10", "rotation_risk_threshold", value_numeric=0.55)
 
 
 # ============================================================
@@ -181,6 +205,23 @@ def fetch_candidate_pool(
         if chance == 0
     }
 
+    # p_start, for the bench-quality floor (Part 1b, squad-quality guardrails work) and the
+    # attacking-return/rotation-risk flag (Part 1a) -- both read the EXISTING minutes model's
+    # own start-probability output, not a new heuristic. minutes_model_version resolves via
+    # uncertainty_model_versions, the same two-hop FK chain reporting.build_report() already
+    # uses. A player with no minutes_model_outputs row for this model_version gets None here,
+    # never excluded/constrained by absence of data (see solve()'s min_bench_p_start docstring).
+    mm_model_version = con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?",
+        [uncertainty_model_version],
+    ).fetchone()
+    p_start_by_uid = {}
+    if mm_model_version and mm_model_version[0] is not None:
+        p_start_by_uid = dict(con.execute(
+            "SELECT player_uid, p_start_final FROM minutes_model_outputs WHERE model_version = ?",
+            [mm_model_version[0]],
+        ).fetchall())
+
     candidates = []
     for player_uid, position, name, mu, var, team_code in rows:
         price = prices.get(player_uid)
@@ -190,6 +231,7 @@ def fetch_candidate_pool(
             "player_uid": player_uid, "position": position, "name": name,
             "mu": mu, "var": var, "club": team_code, "price": price,
             "selected_by_percent": ownership.get(player_uid),
+            "p_start": p_start_by_uid.get(player_uid),
         })
     return candidates
 
@@ -210,7 +252,7 @@ def solve(
     candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: float,
     forced_squad_uids: frozenset[str] = frozenset(), forced_xi_uids: frozenset[str] = frozenset(),
     field_cov_by_uid: dict[str, float] | None = None, kappa_rank: float = 0.0, risk_posture: str = "neutral",
-    kappa_captain: float = 0.0,
+    kappa_captain: float = 0.0, kappa_concentration: float = 0.0, min_bench_p_start: float = 0.0,
 ) -> dict:
     """forced_squad_uids/forced_xi_uids: a manager's own hard lock-ins (e.g. "I'm keeping this
     player regardless of what the model ranks him" / "...and starting him"), applied as real
@@ -245,7 +287,29 @@ def solve(
     gap. "neutral" (posture_sign=0, the default) makes this whole term vanish regardless of
     kappa_rank or field_cov_by_uid -- an EXACT reduction to the pre-existing objective, not an
     approximate one, so every caller that doesn't opt in sees byte-identical behavior to
-    before this parameter existed."""
+    before this parameter existed.
+
+    kappa_concentration: squad-quality guardrails work, Part 2 (team-concentration risk).
+    risk_xi_base above already prices in real teammate covariance for XI pairs (sigma_pairs
+    carries positive teammate_attacking/teammate_defensive correlation for any two candidates
+    sharing a club+fixture -- see uncertainty.cross_player_covariance_for_fixture), but only for
+    xi_i*xi_j pairs, so a bench-only teammate contributes nothing to that term even though
+    same-club rotation/postponement/bad-week exposure is real regardless of who starts. This
+    term reuses the SAME sigma_pairs covariance data (no new data source, no ad hoc cap),
+    restricted to same-club pairs and weighted by squad_i*squad_j instead of xi_i*xi_j, so
+    stacking a club's cheap squad depth also carries a cost. The existing hard <=3-per-club
+    (squad) and <=guardrail_cap (XI) caps are unchanged legality constraints; this only prices
+    how expensive it is to sit at or near them without enough EP to justify it. 0.0 (default)
+    is an exact no-op, same guard pattern as kappa_captain above.
+
+    min_bench_p_start: squad-quality guardrails work, Part 1b (bench-quality floor). Forbids
+    any candidate whose minutes-model start probability (candidate["p_start"], from the EXISTING
+    minutes model -- see fetch_candidate_pool) is below this threshold from ever being bench-only
+    (squad_i=1, xi_i=0): such a player can still be picked for the XI if the solver judges it
+    worth it, just never stashed as bench cover the model itself doesn't trust to play. A
+    candidate with no p_start data (None) is never constrained by this -- absence of data is not
+    evidence of low probability. 0.0 (default) never binds (p_start is in [0, 1]), an exact
+    no-op for any caller that doesn't opt in."""
     posture_sign = {"protect": 1.0, "neutral": 0.0, "chase": -1.0}.get(risk_posture)
     if posture_sign is None:
         raise ValueError(f"risk_posture must be 'protect', 'neutral', or 'chase', got {risk_posture!r}")
@@ -306,6 +370,18 @@ def solve(
     for club in clubs:
         m.addCons(scip.quicksum(xi[c["player_uid"]] for c in candidates if c["club"] == club) <= guardrail_cap)
 
+    # Guardrail 3 (Part 1b, squad-quality guardrails work): bench-quality floor. A candidate
+    # the minutes model itself doesn't trust to start (p_start below min_bench_p_start) can
+    # still be picked for the XI if the solver judges it worth the gamble, but must never be
+    # squad_i=1 & xi_i=0 -- stashed on the bench purely as cheap, unlikely-to-play cover.
+    # p_start is None for a candidate with no minutes_model_outputs row -- never constrained,
+    # absence of data is not evidence of low probability. 0.0 (default) never binds.
+    if min_bench_p_start > 0:
+        for c in candidates:
+            p_start = c.get("p_start")
+            if p_start is not None and p_start < min_bench_p_start:
+                m.addCons(squad[c["player_uid"]] - xi[c["player_uid"]] <= 0)
+
     linear_ep = scip.quicksum(xi[c["player_uid"]] * c["mu"] for c in candidates)
     linear_ep += scip.quicksum(captain[c["player_uid"]] * c["mu"] for c in candidates)
 
@@ -346,6 +422,19 @@ def solve(
         t_captain = m.addVar(vtype="C", lb=0, name="risk_captain_extra")
         m.addCons(t_captain >= risk_captain_extra)
         objective_expr = objective_expr - kappa_captain * t_captain
+    if kappa_concentration > 0:
+        # Part 2 (squad-quality guardrails work): same sigma_pairs covariance risk_xi_base
+        # already uses, restricted to same-club pairs (the only pairs cross_player_covariance
+        # ever gives a positive value to -- opponent pairs are zero or negative, so no extra
+        # relationship lookup is needed) and weighted by squad_i*squad_j rather than xi_i*xi_j,
+        # so bench-level same-club stacking carries a cost too, not just XI-level stacking.
+        club_of = {c["player_uid"]: c["club"] for c in candidates}
+        risk_concentration = scip.quicksum(
+            2 * cov * squad[a] * squad[b] for (a, b), cov in sigma_pairs.items() if club_of[a] == club_of[b]
+        )
+        t_conc = m.addVar(vtype="C", lb=0, name="risk_concentration")
+        m.addCons(t_conc >= risk_concentration)
+        objective_expr = objective_expr - kappa_concentration * t_conc
 
     if posture_sign != 0.0 and field_cov_by_uid:
         field_overlap = scip.quicksum(
@@ -412,6 +501,8 @@ def run(
     rank_posture_params_version: int | None = None,
     field_cov_by_uid: dict[str, float] | None = None,
     captain_lambda_params_version: int = 1,
+    concentration_params_version: int = 1,
+    bench_quality_params_version: int = 1,
 ) -> int:
     lam, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", lambda_params_version)
     guardrail_cap, _ = params_mod.resolve_param(
@@ -422,6 +513,16 @@ def run(
     # needing to change its call site; a caller can still pass a different version explicitly.
     kappa_captain, _ = params_mod.resolve_param(
         con, "captain_risk_aversion_params", "kappa_captain", captain_lambda_params_version
+    )
+    # Parts 1b/2 of the squad-quality guardrails work: same "on by default, not opt-in" status
+    # as kappa_captain above -- these are baseline expectations of a trustworthy squad, not a
+    # per-run strategic choice like risk_posture. Defaults to v1 so every existing caller picks
+    # them up without a call-site change.
+    kappa_concentration, _ = params_mod.resolve_param(
+        con, "team_concentration_risk_params", "kappa_concentration", concentration_params_version
+    )
+    min_bench_p_start, _ = params_mod.resolve_param(
+        con, "bench_quality_params", "min_bench_p_start_probability", bench_quality_params_version
     )
     # kappa_rank is only ever resolved (and field_cov_by_uid only ever required) when the
     # caller actually opts into a non-neutral posture -- callers that never pass risk_posture
@@ -458,13 +559,13 @@ def run(
         candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap,
         forced_squad_uids=forced_squad_uids, forced_xi_uids=forced_xi_uids,
         field_cov_by_uid=field_cov_by_uid, kappa_rank=kappa_rank, risk_posture=risk_posture,
-        kappa_captain=kappa_captain,
+        kappa_captain=kappa_captain, kappa_concentration=kappa_concentration, min_bench_p_start=min_bench_p_start,
     )
     result_real = solve(
         candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap,
         forced_squad_uids=forced_squad_uids, forced_xi_uids=forced_xi_uids,
         field_cov_by_uid=field_cov_by_uid, kappa_rank=kappa_rank, risk_posture=risk_posture,
-        kappa_captain=kappa_captain,
+        kappa_captain=kappa_captain, kappa_concentration=kappa_concentration, min_bench_p_start=min_bench_p_start,
     )
 
     # The baseline (lambda=0) solve must itself have actually reached optimality -- a
@@ -539,7 +640,7 @@ def run(
 # M9 adapter -- guardrail/audit trail, captain-position sanity check
 # ============================================================
 
-def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
+def explain_run(con: duckdb.DuckDBPyConnection, run_id: int, squad_quality_flag_params_version: int = 1) -> dict:
     """M9's guardrail/audit-trail section: "which M5 guardrails bound for this specific run...
     and the pass/fail result of the lambda=0-vs-lambda=0.15 divergence check." The divergence
     result is already stored; which club(s) actually sit at the concentration cap is not
@@ -547,16 +648,23 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
     stored solution against the two caps (squad-level, hardcoded literal 3 at solve()'s own
     MIQP constraint; XI-level, the resolved xi_club_concentration_cap param), not just
     confirming the constraints existed at solve time.
+
+    squad_quality_flag_params_version: Part 1a of the squad-quality guardrails work. Unlike
+    guardrail_params_version above, this is never persisted on the run row -- it's a purely
+    reporting-time judgment call (what counts as "nailed" vs "uncertain"), not something the
+    MIQP solve itself used, so re-auditing an old run against a revised threshold later doesn't
+    require a new solve. Defaults to v1, same pattern as every other params_version here.
     """
     run_row = con.execute(
         "SELECT target_season, divergence_check_passed, divergence_check_note, "
-        "guardrail_params_version, lambda_value, is_manager_snapshot, solver_gap, proven_optimal "
+        "guardrail_params_version, lambda_value, is_manager_snapshot, solver_gap, proven_optimal, "
+        "uncertainty_model_version "
         "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
     ).fetchone()
     if not run_row:
         raise ValueError(f"no squad_optimizer_runs row for run_id={run_id}")
     (target_season, divergence_passed, divergence_note, guardrail_params_version, lambda_value,
-     is_snapshot, solver_gap, proven_optimal) = run_row
+     is_snapshot, solver_gap, proven_optimal, uncertainty_model_version) = run_row
 
     xi_cap = None
     if guardrail_params_version:
@@ -607,6 +715,50 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
     clubs_at_squad_cap = sorted(c for c, n in club_counts_squad.items() if n >= squad_cap)
     clubs_at_xi_cap = sorted(c for c, n in club_counts_xi.items() if xi_cap is not None and n >= xi_cap)
 
+    # Part 1a (squad-quality guardrails work): "does this XI have a clearly-nailed high-start
+    # attacking threat, and is the XI's defensive spine free of blanket rotation uncertainty" --
+    # using the EXISTING minutes model's own p_start_final output, not a new heuristic. Checked
+    # against the XI specifically (not the full 15-man squad): a bench MID/FWD or bench DEF
+    # provides no attacking return or defensive solidity THIS gameweek regardless of his own
+    # p_start, so squad depth isn't what this particular flag is about.
+    nailed_threshold, _ = params_mod.resolve_param(
+        con, "squad_quality_flag_params", "nailed_p_start_threshold", squad_quality_flag_params_version
+    )
+    rotation_risk_threshold, _ = params_mod.resolve_param(
+        con, "squad_quality_flag_params", "rotation_risk_threshold", squad_quality_flag_params_version
+    )
+    mm_model_version = None
+    if uncertainty_model_version is not None:
+        row = con.execute(
+            "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?",
+            [uncertainty_model_version],
+        ).fetchone()
+        mm_model_version = row[0] if row else None
+    xi_position_p_start = []
+    if mm_model_version is not None:
+        xi_position_p_start = con.execute(
+            "SELECT dp.position, mo.p_start_final FROM squad_optimizer_selections s "
+            "JOIN dim_player dp ON dp.player_uid = s.player_uid "
+            "LEFT JOIN minutes_model_outputs mo ON mo.player_uid = s.player_uid AND mo.model_version = ? "
+            "WHERE s.run_id = ? AND s.in_xi",
+            [mm_model_version, run_id],
+        ).fetchall()
+    # "Nailed" requires a REAL known p_start >= threshold -- missing data (None) never counts as
+    # evidence of a nailed return. "Uncertain" (for the DEF/MID check) treats missing data the
+    # same as a genuinely low p_start -- unlike solve()'s bench-quality floor, this flag never
+    # blocks a pick, so there's no false-exclusion risk in treating "we don't know" as itself a
+    # form of uncertainty worth a human's attention.
+    ATTACKING_POSITIONS = {"Midfielder", "Forward"}
+    DEFENSIVE_POSITIONS = {"Defender", "Midfielder"}
+    has_nailed_attacking_return = any(
+        pos in ATTACKING_POSITIONS and p_start is not None and p_start >= nailed_threshold
+        for pos, p_start in xi_position_p_start
+    )
+    def_mid_p_starts = [p_start for pos, p_start in xi_position_p_start if pos in DEFENSIVE_POSITIONS]
+    all_def_mid_uncertain = bool(def_mid_p_starts) and all(
+        p_start is None or p_start < rotation_risk_threshold for p_start in def_mid_p_starts
+    )
+
     return {
         "run_id": run_id, "is_manager_snapshot": bool(is_snapshot), "lambda_value": lambda_value,
         "divergence_check_passed": divergence_passed, "divergence_check_note": divergence_note,
@@ -616,6 +768,8 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
         "captain_uid": captain_uid, "captain_position": captain_position,
         "captain_is_goalkeeper": captain_position == "Goalkeeper",
         "solver_gap": solver_gap, "proven_optimal": proven_optimal,
+        "has_nailed_attacking_return": has_nailed_attacking_return,
+        "all_def_mid_uncertain": all_def_mid_uncertain,
     }
 
 

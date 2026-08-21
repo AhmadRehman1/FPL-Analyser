@@ -113,6 +113,11 @@ def _seed_full_squad_scenario(con, captain_position="Defender"):
         "VALUES (?, 'p2', TRUE, TRUE, FALSE, TRUE)", [run_id],
     )
     params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    # Part 1a (squad-quality guardrails work): explain_run() now resolves these unconditionally
+    # (default squad_quality_flag_params_version=1), same requirement as guardrail_params_version
+    # above -- any run_id row it's asked to audit needs this family seeded.
+    params.write_param(con, "squad_quality_flag_params", 1, "2026-08-10", "nailed_p_start_threshold", value_numeric=0.75)
+    params.write_param(con, "squad_quality_flag_params", 1, "2026-08-10", "rotation_risk_threshold", value_numeric=0.55)
 
     con.execute(
         "INSERT INTO monte_carlo_run_versions (model_version, calibration_asof_date, squad_optimizer_run_id, "
@@ -173,6 +178,51 @@ def test_compute_automated_flags_proven_optimal_reflects_stored_gap(con):
     by_name = {f["name"]: f for f in flags}
     assert by_name["proven_optimal"]["passed"] is False
     assert by_name["proven_optimal"]["detail"] == "solver_gap=0.08"
+
+
+def _mm_model_version_for(con, uncertainty_model_version):
+    return con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?",
+        [uncertainty_model_version],
+    ).fetchone()[0]
+
+
+def test_compute_automated_flags_attacking_return_flag_passes_with_a_nailed_forward(con):
+    """p2 is always 'Forward' in _seed_full_squad_scenario() -- a real p_start_final >= the
+    v1 nailed_p_start_threshold (0.75) on that forward, and the (Defender) p1 comfortably
+    above the rotation-risk threshold (0.55), must pass the flag."""
+    run_id, _ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    mm_mv = _mm_model_version_for(con, un_mv)
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.8 WHERE model_version = ? AND player_uid = 'p2'", [mm_mv])
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.6 WHERE model_version = ? AND player_uid = 'p1'", [mm_mv])
+    flags = reporting.compute_automated_flags(con, run_id)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["attacking_return_and_rotation_risk"]["passed"] is True
+
+
+def test_compute_automated_flags_attacking_return_flag_fails_with_no_nailed_attacker(con):
+    run_id, _ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    mm_mv = _mm_model_version_for(con, un_mv)
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.3 WHERE model_version = ? AND player_uid = 'p2'", [mm_mv])
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.6 WHERE model_version = ? AND player_uid = 'p1'", [mm_mv])
+    flags = reporting.compute_automated_flags(con, run_id)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["attacking_return_and_rotation_risk"]["passed"] is False
+    assert by_name["attacking_return_and_rotation_risk"]["detail"]["has_nailed_attacking_return"] is False
+
+
+def test_compute_automated_flags_attacking_return_flag_fails_when_all_def_mid_uncertain(con):
+    """A nailed forward alone isn't enough -- the flag must also fail when the (Defender) p1
+    is below the rotation-risk threshold, even with has_nailed_attacking_return=True."""
+    run_id, _ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    mm_mv = _mm_model_version_for(con, un_mv)
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.9 WHERE model_version = ? AND player_uid = 'p2'", [mm_mv])
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.3 WHERE model_version = ? AND player_uid = 'p1'", [mm_mv])
+    flags = reporting.compute_automated_flags(con, run_id)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["attacking_return_and_rotation_risk"]["passed"] is False
+    assert by_name["attacking_return_and_rotation_risk"]["detail"]["has_nailed_attacking_return"] is True
+    assert by_name["attacking_return_and_rotation_risk"]["detail"]["all_def_mid_uncertain"] is True
 
 
 def test_compute_automated_flags_catches_club_at_cap(con):

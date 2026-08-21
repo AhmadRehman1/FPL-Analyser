@@ -71,6 +71,19 @@ def compute_automated_flags(con: duckdb.DuckDBPyConnection, squad_optimizer_run_
         "name": "proven_optimal", "passed": bool(audit["proven_optimal"]),
         "detail": f"solver_gap={audit['solver_gap']}",
     })
+    # Part 1a (squad-quality guardrails work): "technically legal but obviously wrong" also
+    # covers an XI with no real attacking threat, or a defensive spine that's entirely a
+    # rotation gamble -- using the EXISTING minutes model's start-probability output (see
+    # squad_optimizer.explain_run()), not a new heuristic. Flags, doesn't block, same as every
+    # other entry in this list.
+    flags.append({
+        "name": "attacking_return_and_rotation_risk",
+        "passed": bool(audit["has_nailed_attacking_return"]) and not audit["all_def_mid_uncertain"],
+        "detail": {
+            "has_nailed_attacking_return": audit["has_nailed_attacking_return"],
+            "all_def_mid_uncertain": audit["all_def_mid_uncertain"],
+        },
+    })
     return flags
 
 

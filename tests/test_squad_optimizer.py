@@ -400,6 +400,113 @@ def test_captain_choice_does_not_override_a_real_ep_gap_at_default_kappa_captain
     assert by_uid[result_fixed["captain"]]["player_uid"] == high_mu_high_var["player_uid"]
 
 
+# ============================================================
+# Part 2 (squad-quality guardrails work): kappa_concentration
+# ============================================================
+
+def test_kappa_concentration_penalizes_same_club_pairs_by_exactly_the_covariance_term():
+    """Direct proof risk_concentration is wired into the objective correctly, isolated from
+    everything else it could be confused with: a MINIMAL pool where every position has exactly
+    its squad quota (2 GK, 5 DEF, 5 MID, 3 FWD, no alternatives at all -- squad membership has
+    zero freedom, the only thing kappa_concentration could possibly change). def0 and fwd0
+    share a club and get a real covariance entry; since both are squad members regardless of
+    kappa_concentration, risk_concentration for this pair is a pure constant (squad_i*squad_j=
+    1*1 always) -- so the objective gap between kappa_concentration=0 and >0 must be EXACTLY
+    kappa_concentration * 2 * cov, and XI/captain must be byte-identical (the term doesn't
+    depend on who starts, only who's in the 15)."""
+    def add(pool, pid, pos, mu, price, club):
+        pool.append({"player_uid": pid, "position": pos, "mu": mu, "var": 1.0, "club": club, "price": price, "name": pid})
+
+    pool = []
+    add(pool, "gk0", "Goalkeeper", 3.0, 4.0, "A")
+    add(pool, "gk1", "Goalkeeper", 3.2, 4.0, "B")
+    add(pool, "def0", "Defender", 2.5, 4.0, "A")
+    add(pool, "def1", "Defender", 2.6, 4.0, "B")
+    add(pool, "def2", "Defender", 2.7, 4.0, "C")
+    add(pool, "def3", "Defender", 2.8, 4.0, "D")
+    add(pool, "def4", "Defender", 2.9, 4.0, "E")
+    add(pool, "mid0", "Midfielder", 3.0, 4.5, "F")
+    add(pool, "mid1", "Midfielder", 3.1, 4.5, "F")
+    add(pool, "mid2", "Midfielder", 3.2, 4.5, "C")
+    add(pool, "mid3", "Midfielder", 3.3, 4.5, "D")
+    add(pool, "mid4", "Midfielder", 3.4, 4.5, "E")
+    add(pool, "fwd0", "Forward", 4.0, 5.0, "A")
+    add(pool, "fwd1", "Forward", 4.1, 5.0, "B")
+    add(pool, "fwd2", "Forward", 4.2, 5.0, "C")
+    # club tally: A=3 (gk0,def0,fwd0), B=3, C=3, D=2, E=2, F=2 -- all within the <=3 squad cap.
+
+    sigma_pairs = {("def0", "fwd0"): 6.0}  # same club (A), a real positive covariance
+
+    no_penalty = so.solve(pool, sigma_pairs=sigma_pairs, lam=0.15, guardrail_cap=3, kappa_concentration=0.0)
+    with_penalty = so.solve(pool, sigma_pairs=sigma_pairs, lam=0.15, guardrail_cap=3, kappa_concentration=0.2)
+
+    assert no_penalty["status"] == "optimal" and with_penalty["status"] == "optimal"
+    full_pool = frozenset(c["player_uid"] for c in pool)
+    assert no_penalty["squad"] == with_penalty["squad"] == full_pool
+    assert no_penalty["xi"] == with_penalty["xi"]
+    assert no_penalty["captain"] == with_penalty["captain"]
+    assert no_penalty["objective"] - with_penalty["objective"] == pytest.approx(0.2 * 2 * 6.0)
+
+
+def test_kappa_concentration_ignores_opponent_pairs_not_flagged_same_club():
+    """sigma_pairs can carry OPPONENT covariance too (real, negative, from M4) -- the
+    club_of[a]==club_of[b] filter must exclude those from risk_concentration entirely, not
+    just happen to net out small. def0 (clubA) and def1 (clubB) are different clubs; giving
+    them a covariance entry and confirming the objective is unaffected by kappa_concentration
+    proves the filter is doing real work, not just multiplying by a coincidentally-zero cov."""
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): -3.0}  # def0=clubA, def1=clubB in _synthetic_pool()
+    no_penalty = so.solve(pool, sigma_pairs=sigma_pairs, lam=0.0, guardrail_cap=3, kappa_concentration=0.0)
+    with_penalty = so.solve(pool, sigma_pairs=sigma_pairs, lam=0.0, guardrail_cap=3, kappa_concentration=0.5)
+    assert with_penalty["objective"] == pytest.approx(no_penalty["objective"])
+
+
+# ============================================================
+# Part 1b (squad-quality guardrails work): min_bench_p_start
+# ============================================================
+
+def test_min_bench_p_start_forbids_a_low_p_start_candidate_from_being_bench_only():
+    """mid0 is the weakest/cheapest midfielder in _synthetic_pool() -- forced into the squad,
+    it's naturally benched (not started) when nothing else is in play. Giving it a low p_start
+    and a real min_bench_p_start floor must force it INTO the XI instead (the only way to keep
+    squad_i=1 & xi_i=0 from ever being feasible for it), never simply excluded from the squad
+    outright (forced_squad_uids already guarantees squad membership) and never silently ignored.
+    gk0 (the weaker of the two goalkeepers, always benched -- only 1 GK plays) has no p_start
+    data at all, confirming a real, separate case: missing data is never constrained, even
+    under the same floor that just forced mid0 into the XI."""
+    pool = _synthetic_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    by_uid["mid0"]["p_start"] = 0.1
+
+    no_floor = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, forced_squad_uids=frozenset({"mid0"}))
+    assert no_floor["status"] == "optimal"
+    assert "mid0" not in no_floor["xi"], "weakest MID should be benched with no floor in play"
+
+    with_floor = so.solve(
+        pool, sigma_pairs={}, lam=0.15, guardrail_cap=3,
+        forced_squad_uids=frozenset({"mid0"}), min_bench_p_start=0.3,
+    )
+    assert with_floor["status"] == "optimal"
+    assert "mid0" in with_floor["xi"], (
+        "a candidate below min_bench_p_start must never be squad-but-not-xi -- if this fails, "
+        "the bench-quality floor constraint is not being applied"
+    )
+    assert "gk0" not in with_floor["xi"], "gk0 has no p_start data -- must stay benchable regardless of the floor"
+
+
+def test_min_bench_p_start_defaults_to_an_exact_no_op():
+    pool = _synthetic_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    by_uid["mid0"]["p_start"] = 0.0  # even a zero p_start must not bind at the 0.0 default
+    baseline = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3, forced_squad_uids=frozenset({"mid0"}))
+    with_default = so.solve(
+        pool, sigma_pairs={}, lam=0.15, guardrail_cap=3,
+        forced_squad_uids=frozenset({"mid0"}), min_bench_p_start=0.0,
+    )
+    assert with_default["xi"] == baseline["xi"]
+    assert with_default["objective"] == pytest.approx(baseline["objective"])
+
+
 def test_divergence_check_passes_with_real_variance_structure(con):
     """A meaningfully differentiated variance/covariance structure (like M4's real output)
     should make lambda actually move the solve -- the check should NOT fire here."""
