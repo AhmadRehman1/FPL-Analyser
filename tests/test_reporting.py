@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 
 import pytest
@@ -264,6 +265,67 @@ def test_build_report_headline_and_sections(con):
     # explicit reasoning that automated checks must never read as self-certification
     assert "automated_flags" in report and "human_prompt" in report
     assert report["automated_flags"] != report["human_prompt"]
+
+
+def _seed_source(con, source_id="s_official", reliability=1.0):
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES (?, ?, 'official', ?) ON CONFLICT DO NOTHING", [source_id, source_id, reliability],
+    )
+
+
+def _seed_analyst_debate_row(con, uid_a, uid_b, row_origin):
+    for uid, opinion in ((uid_a, f"Favours {uid_a}"), (uid_b, f"Favours {uid_b}")):
+        con.execute(
+            "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+            "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, "
+            "confidence, observed_date, ingested_date, tab_origin, row_origin) "
+            "VALUES (?, 'player', ?, 'analyst_debate', ?, NULL, 'OPINION', 's_official', 1.0, 1.0, "
+            "'2026-08-01', ?, '15_Analyst Debate Database', ?)",
+            [f"d_{uid}_{row_origin}", uid, json.dumps({"opinion": opinion, "reason": "r", "strength": "s"}),
+             datetime(2026, 8, 1), row_origin],
+        )
+
+
+def _seed_community_claim(con, uid, claim_id="c1"):
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, "
+        "confidence, observed_date, ingested_date) "
+        "VALUES (?, 'player', ?, 'community_sentiment', ?, NULL, 'OPINION', 's_official', 1.0, 1.0, "
+        "'2026-08-01', ?)",
+        [claim_id, uid, json.dumps({"claim": "budget pick", "category": "Player Pick"}), datetime(2026, 8, 1)],
+    )
+
+
+def test_build_report_consensus_divergence_and_roundup_when_evidence_versions_given(con):
+    run_id, ep_mv, un_mv, mc_mv = _seed_full_squad_scenario(con)
+    _seed_source(con)
+    _seed_analyst_debate_row(con, "p1", "p2", row_origin=3)
+    _seed_community_claim(con, "p1")
+
+    report = reporting.build_report(
+        con, run_id, evidence_asof=datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    assert "p1" in report["consensus_divergence"] and "p2" in report["consensus_divergence"]
+    sides = {s["player_uid"] for s in report["consensus_divergence"]["p1"][0]["sides"]}
+    assert sides == {"p1", "p2"}
+    assert "p1" in report["community_evidence_roundup"]
+    assert "p2" not in report["community_evidence_roundup"]  # no community claim seeded for p2
+
+    text = reporting.render_report_text(report)
+    assert "Consensus divergence" in text
+    assert "Community/YouTube evidence roundup" in text
+
+
+def test_build_report_consensus_divergence_is_none_when_evidence_versions_not_given(con):
+    """None (not {}), matching backtest_summary/transfer_chip_rationale's own
+    not-requested-vs-empty distinction -- a caller that doesn't ask for this section shouldn't
+    see an empty dict that could be misread as "checked, found nothing"."""
+    run_id, *_ = _seed_full_squad_scenario(con)
+    report = reporting.build_report(con, run_id)
+    assert report["consensus_divergence"] is None
+    assert report["community_evidence_roundup"] is None
 
 
 def test_render_report_text_includes_every_top_level_section(con):

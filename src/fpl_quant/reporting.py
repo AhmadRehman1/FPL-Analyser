@@ -21,9 +21,12 @@ self-certification -- "the original lambda=0 bug passed whatever internal checks
 the time," per the spec's own stated reasoning for keeping them apart.
 """
 
+from datetime import datetime
+
 import duckdb
 
 from . import backtest as bt
+from . import evidence_blend
 from . import expected_points as ep
 from . import minutes_model as mm
 from . import monte_carlo
@@ -98,6 +101,9 @@ def build_report(
     transfer_plan_run_id: int | None = None,
     backtest_run_id: int | None = None,
     active_param_versions: dict[str, int] | None = None,
+    evidence_asof: datetime | None = None,
+    decay_params_version: int | None = None,
+    fact_multiplier_params_version: int | None = None,
 ) -> dict:
     """The minimal headline is always present; every other section is a dict key a caller can
     choose to render or not -- that choice is the "expandable on demand" the spec asks for,
@@ -105,6 +111,12 @@ def build_report(
     are optional because not every report has an existing squad to plan transfers from, or a
     backtest run to cite -- absence is recorded plainly (a `None` section), never silently
     dropped from the report's shape.
+
+    evidence_asof/decay_params_version/fact_multiplier_params_version (Part 3, squad-quality
+    guardrails work): all three optional, same "None section when not supplied" pattern as
+    backtest_run_id/active_param_versions above -- a caller with no opinion on asof/decay
+    versioning gets consensus_divergence=community_evidence_roundup=None rather than a
+    guessed default.
     """
     run_row = con.execute(
         "SELECT target_season, target_gameweek, ep_model_version, uncertainty_model_version "
@@ -147,8 +159,13 @@ def build_report(
         [squad_optimizer_run_id, ep_model_version, uncertainty_model_version],
     ).fetchone()[0]
 
+    evidence_versions_given = (
+        evidence_asof is not None and decay_params_version is not None and fact_multiplier_params_version is not None
+    )
+
     total_ep = 0.0
     category_breakdown, risk_analytic, risk_empirical, evidence_provenance = {}, {}, {}, {}
+    consensus_divergence, community_evidence_roundup = {}, {}
     for p in squad:
         uid = p["player_uid"]
         breakdown = ep.explain_player_ep(con, ep_model_version, uid)
@@ -164,6 +181,18 @@ def build_report(
             if empirical:
                 risk_empirical[uid] = empirical
         evidence_provenance[uid] = mm.explain_player_adjustment(con, minutes_model_version, uid)
+        if evidence_versions_given:
+            # Part 3: only recorded when there's actually something to show -- most players
+            # have zero analyst-debate/community claims right now, and a report shouldn't
+            # carry an empty entry for every one of them.
+            divergence = evidence_blend.explain_analyst_debate_divergence(
+                con, uid, evidence_asof, decay_params_version, fact_multiplier_params_version
+            )
+            if divergence:
+                consensus_divergence[uid] = divergence
+            roundup = evidence_blend.explain_community_evidence_roundup(con, uid, evidence_asof)
+            if roundup:
+                community_evidence_roundup[uid] = roundup
 
     guardrail_audit = squad_optimizer.explain_run(con, squad_optimizer_run_id)
     automated_flags = compute_automated_flags(con, squad_optimizer_run_id)
@@ -187,6 +216,15 @@ def build_report(
         "backtest_summary": bt.explain_backtest_summary(con, backtest_run_id) if backtest_run_id is not None else None,
         "transfer_chip_rationale": tp.explain_plan(con, transfer_plan_run_id) if transfer_plan_run_id is not None else None,
         "automated_flags": automated_flags,
+        # Part 3: consensus_divergence is the structured analyst_debate check (real comparative
+        # structure, weighted, never auto-judged); community_evidence_roundup is deliberately
+        # separate and unweighted (community_sentiment/youtube_evidence have no comparative
+        # structure to diverge FROM) -- see evidence_blend.py's own module-level comment for why
+        # these two are kept apart rather than merged into one "consensus" section. Both None
+        # (not {}) when the caller didn't supply evidence_asof/decay/fact-multiplier versions,
+        # matching backtest_summary/transfer_chip_rationale's own None-when-not-requested shape.
+        "consensus_divergence": consensus_divergence if evidence_versions_given else None,
+        "community_evidence_roundup": community_evidence_roundup if evidence_versions_given else None,
         "human_prompt": HUMAN_PROMPT,
     }
 
@@ -239,6 +277,22 @@ def render_report_text(report: dict) -> str:
         n_invented = sum(1 for row in report["parameter_transparency"] if not row["backtested_via_m7"])
         lines.append("")
         lines.append(f"--- Parameter transparency: {n_invented}/{len(report['parameter_transparency'])} still invented, not yet backtested via M7 ---")
+
+    if report["consensus_divergence"]:
+        lines.append("")
+        lines.append("--- Consensus divergence (analyst_debate, structured, weighted) ---")
+        for uid, debates in report["consensus_divergence"].items():
+            for d in debates:
+                lines.append(f"  {uid} vs. debate ({d['tab_origin']} row {d['row_origin']}):")
+                for side in d["sides"]:
+                    lines.append(f"    {side['player_uid']} (weight={side['weight']:.3f}): {side['opinion']}")
+
+    if report["community_evidence_roundup"]:
+        lines.append("")
+        lines.append("--- Community/YouTube evidence roundup (unweighted, not a divergence check) ---")
+        for uid, claims in report["community_evidence_roundup"].items():
+            for c in claims:
+                lines.append(f"  {uid} [{c['claim_type']}]: {c['payload']}")
 
     lines.append("")
     lines.append(f">>> {report['human_prompt']}")

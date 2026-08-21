@@ -106,6 +106,100 @@ def test_null_confidence_via_dataframe_round_trip_defaults_to_1_not_nan(con):
     assert w == w  # not NaN (NaN != NaN)
 
 
+# ============================================================
+# Part 3 (squad-quality guardrails work): explain_analyst_debate_divergence /
+# explain_community_evidence_roundup
+# ============================================================
+
+def _insert_debate_claim(con, claim_id, subject_uid, source_id, reliability, confidence, opinion, reason,
+                          strength, row_origin, tab_origin="15_Analyst Debate Database", observed_date="2026-08-01"):
+    value = json.dumps({"opinion": opinion, "reason": reason, "strength": strength})
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, "
+        "confidence, observed_date, ingested_date, tab_origin, row_origin) "
+        "VALUES (?, 'player', ?, 'analyst_debate', ?, NULL, 'OPINION', ?, ?, ?, ?, ?, ?, ?)",
+        [claim_id, subject_uid, value, source_id, reliability, confidence, observed_date,
+         datetime(2026, 8, 1), tab_origin, row_origin],
+    )
+
+
+def _insert_roundup_claim(con, claim_id, subject_uid, claim_type, source_id, reliability, confidence, payload,
+                           observed_date="2026-08-01"):
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, "
+        "confidence, observed_date, ingested_date) "
+        "VALUES (?, 'player', ?, ?, ?, NULL, 'OPINION', ?, ?, ?, ?, ?)",
+        [claim_id, subject_uid, claim_type, json.dumps(payload), source_id, reliability, confidence,
+         observed_date, datetime(2026, 8, 1)],
+    )
+
+
+def test_explain_analyst_debate_divergence_pairs_both_sides_of_the_same_row(con):
+    """The real structural link is (tab_origin, row_origin) shared by two claims tagged to two
+    different players -- confirms both sides come back with their raw opinion text and a real
+    weight difference driven by source reliability, nothing parsed from the text itself."""
+    _seed_player_and_sources(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Other Player', 'FWD')")
+    _insert_debate_claim(con, "d1a", "p1", "s_official", 1.0, 1.0, "Favours p1", "reason A", "strong", row_origin=5)
+    _insert_debate_claim(con, "d1b", "p2", "s_community", 0.4, 1.0, "Favours p2", "reason B", "weak", row_origin=5)
+
+    result = eb.explain_analyst_debate_divergence(
+        con, "p1", datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    assert len(result) == 1
+    sides_by_uid = {s["player_uid"]: s for s in result[0]["sides"]}
+    assert set(sides_by_uid) == {"p1", "p2"}
+    assert sides_by_uid["p1"]["opinion"] == "Favours p1"
+    assert sides_by_uid["p2"]["opinion"] == "Favours p2"
+    assert sides_by_uid["p1"]["weight"] > sides_by_uid["p2"]["weight"]  # higher-reliability source
+
+
+def test_explain_analyst_debate_divergence_empty_when_player_has_no_debates(con):
+    _seed_player_and_sources(con)
+    result = eb.explain_analyst_debate_divergence(
+        con, "p1", datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    assert result == []
+
+
+def test_explain_analyst_debate_divergence_skips_a_single_sided_row(con):
+    """A debate row with only one surviving claim (e.g. the other side got superseded/never
+    resolved to a real player) isn't a real two-sided comparison -- must not be surfaced as one."""
+    _seed_player_and_sources(con)
+    _insert_debate_claim(con, "d2a", "p1", "s_official", 1.0, 1.0, "solo", "reason", "strength", row_origin=12)
+    result = eb.explain_analyst_debate_divergence(
+        con, "p1", datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    assert result == []
+
+
+def test_explain_community_evidence_roundup_returns_verbatim_payloads_across_claim_types(con):
+    """community_sentiment and youtube_evidence have different payload shapes -- confirms
+    nothing here picks out specific keys and silently drops the rest."""
+    _seed_player_and_sources(con)
+    _insert_roundup_claim(
+        con, "c1", "p1", "community_sentiment", "s_community", 0.4, 1.0,
+        {"claim": "budget pick", "category": "Player Pick"},
+    )
+    _insert_roundup_claim(
+        con, "c2", "p1", "youtube_evidence", "s_official", 1.0, 1.0,
+        {"claim": "explosive underlying numbers", "supporting_data": "22 big chances"},
+    )
+    result = eb.explain_community_evidence_roundup(con, "p1", datetime(2026, 8, 10))
+    assert len(result) == 2
+    by_type = {r["claim_type"]: r for r in result}
+    assert by_type["community_sentiment"]["payload"]["category"] == "Player Pick"
+    assert by_type["youtube_evidence"]["payload"]["supporting_data"] == "22 big chances"
+
+
+def test_explain_community_evidence_roundup_empty_when_no_claims(con):
+    _seed_player_and_sources(con)
+    result = eb.explain_community_evidence_roundup(con, "p1", datetime(2026, 8, 10))
+    assert result == []
+
+
 def test_community_tier_fact_gets_no_boost_even_if_flagged_fact(con):
     _seed_player_and_sources(con)
     params.write_param(con, "fact_type_multiplier_params", 1, "2026-08-10", "multiplier", value_numeric=1.5)

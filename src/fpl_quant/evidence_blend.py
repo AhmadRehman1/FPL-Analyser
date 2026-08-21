@@ -172,3 +172,79 @@ def blend_categorical(
     if total == 0:
         return {}
     return {k: v / total for k, v in weights.items()}
+
+
+# ============================================================
+# Part 3 (squad-quality guardrails work): consensus-divergence flagging.
+#
+# analyst_debate is the ONLY evidence_claims claim_type with real comparative structure --
+# ingest_analyst_debate() splits one workbook row into two claims, one per named player,
+# never sharing subject_entity_id but always sharing (tab_origin, row_origin). That pairing
+# is a real, structural link (which row this came from), not an inference -- it's the sole
+# thing here safe to treat as "these two claims are opposite sides of the same debate."
+# opinion/reason/strength inside claim_value are free text straight from the workbook and are
+# surfaced verbatim, never parsed into a stance or auto-judged -- same "not an NLP problem"
+# boundary ingest_workbook.py's own predicted_xi comment already draws elsewhere in this
+# project. community_sentiment/youtube_evidence carry no such comparative structure at all
+# (single-subject claims) -- explain_community_evidence_roundup() below is deliberately NOT
+# named or shaped like a divergence check, so a report never conflates "a real structured
+# disagreement" with "here's what's been said."
+# ============================================================
+
+def explain_analyst_debate_divergence(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime,
+    decay_params_version: int, fact_multiplier_params_version: int,
+) -> list[dict]:
+    """One entry per analyst_debate row player_uid is named in, each with BOTH sides' raw
+    claim text and their reliability x confidence x decay weighted evidence total (reusing
+    effective_weight() -- the same weighting every other blend in this module uses, no new
+    formula invented for this). Never declares a "winner" between the two sides -- that
+    judgment is left to whoever reads the report; this only surfaces the citation and the
+    weight comparison so a disagreement with the model's own pick has to be argued from
+    specific claims, not asserted."""
+    all_claims = snapshot_mod.get_claims_asof(
+        con, asof, subject_entity_type="player", claim_type="analyst_debate",
+    ).to_dict("records")
+    by_debate: dict[tuple, list[dict]] = {}
+    for c in all_claims:
+        by_debate.setdefault((c["tab_origin"], c["row_origin"]), []).append(c)
+
+    out = []
+    for (tab_origin, row_origin), claims in by_debate.items():
+        subjects = {c["subject_entity_id"] for c in claims}
+        if player_uid not in subjects or len(claims) < 2:
+            continue  # not a real two-sided debate row, or doesn't involve this player
+        sides = []
+        for c in claims:
+            payload = json.loads(c["claim_value"]) if c["claim_value"] else {}
+            sides.append({
+                "player_uid": c["subject_entity_id"],
+                "opinion": payload.get("opinion"), "reason": payload.get("reason"), "strength": payload.get("strength"),
+                "weight": effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version),
+            })
+        out.append({"tab_origin": tab_origin, "row_origin": row_origin, "sides": sides})
+    return out
+
+
+def explain_community_evidence_roundup(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime,
+    claim_types: tuple[str, ...] = ("community_sentiment", "youtube_evidence"),
+) -> list[dict]:
+    """NOT a divergence check -- community_sentiment/youtube_evidence are single-subject
+    claims with no comparative structure (unlike analyst_debate above), so there's no
+    structural "the crowd wants someone else instead" to surface. This is a plain, unweighted
+    roundup of every active claim naming this player, payload returned verbatim (the two
+    claim_types don't even share a payload shape -- community_sentiment carries "category",
+    youtube_evidence carries "supporting_data" -- so nothing here picks out specific keys)."""
+    out = []
+    for claim_type in claim_types:
+        claims = snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type=claim_type,
+        ).to_dict("records")
+        for c in claims:
+            out.append({
+                "claim_type": claim_type, "claim_id": c["claim_id"],
+                "payload": json.loads(c["claim_value"]) if c["claim_value"] else {},
+                "source_id": c["source_id"], "confidence": c["confidence"], "information_type": c["information_type"],
+            })
+    return out
