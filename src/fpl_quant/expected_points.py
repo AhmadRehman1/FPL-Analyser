@@ -97,6 +97,19 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # not large enough to swamp the real historical xG signal it's applied on top of.
     params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "penalty_taker_goal_rate_multiplier", value_numeric=1.15)
 
+    # A3: extends the same set_piece_evidence_params family -- confirmed SECONDARY penalty duty
+    # (previously ingested, silently ignored) now applies a bounded demotion, deliberately a
+    # smaller magnitude than the primary uplift's +15% (a confirmed secondary taker still
+    # sometimes scores penalties when the primary is unavailable, so full symmetric downside
+    # isn't warranted). Free-kick/corner delivery duty is a new, separate assist-side signal
+    # (this tab's rows were previously read into `duty` but never consumed at all) -- a modest
+    # uplift/demotion on e_assists specifically, not e_goals: delivering a set piece creates a
+    # teammate's chance, it isn't a personal shot the way a penalty is. All three invented v1
+    # defaults, same status as every other unpinned constant here, flagged for M7 recalibration.
+    params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "secondary_penalty_taker_goal_rate_multiplier", value_numeric=0.90)
+    params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "set_piece_deliverer_assist_rate_multiplier", value_numeric=1.12)
+    params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "secondary_set_piece_deliverer_assist_rate_multiplier", value_numeric=0.92)
+
     # A2: qualitative "predicted role" adjustment -- see _role_shift_multiplier(). exp_position
     # ("Expected Position") from 18_Predicted XI Database claims is a genuinely different
     # evidence dimension than the same claim's numeric start_conf (which minutes_model already
@@ -363,42 +376,117 @@ def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
 # ============================================================
 
 # ============================================================
-# optional set-piece rate uplift -- ingested but previously unused. ingest_research_pull.py's
+# set-piece rate adjustments -- ingested but previously unused. ingest_research_pull.py's
 # ingest_set_piece_takers() has written real claim_type="set_piece_order_override" claims
 # ({club, duty, order: primary/secondary}) into evidence_claims since the module existed, but
-# grepping the whole src/ tree turns up zero readers of that claim_type anywhere -- confirmed
-# ingested and dormant, not a hypothetical gap. Scoped narrowly to confirmed PRIMARY penalty
-# duty specifically (the single highest-signal, best-understood case: penalty conversion is
-# close to deterministic, and a summer transfer's new penalty duty won't yet show up in pure
-# historical expected_goals_per_90, especially on a small early-season sample) -- free-kick/
-# corner duty claims exist in the same tab but are deliberately left alone here, a smaller,
-# separately-scoped extension if ever wanted, not silently folded in.
+# grepping the whole src/ tree turned up zero readers of that claim_type anywhere before this
+# was first wired in -- confirmed ingested and dormant, not a hypothetical gap.
+#
+# A3 extends the original PRIMARY-penalty-only uplift two ways:
+#   - a SECONDARY penalty claim (previously read and silently ignored) is now real evidence of
+#     reduced personal conversion likelihood -- a bounded demotion, not just the absence of a
+#     boost. Smaller magnitude than the primary uplift: a confirmed secondary taker still
+#     sometimes scores penalties in practice (primary injured/subbed/off form), so full
+#     symmetric downside isn't justified.
+#   - free-kick/corner delivery duty (same tab, same claim_type, previously left alone entirely
+#     as "a smaller, separately-scoped extension") is now a real e_assists adjustment --
+#     deliberately kept off e_goals: delivering a set piece creates a teammate's chance, it
+#     isn't a personal shot the way a penalty is.
+#
+# Both directions are now decided by real evidence STRENGTH (evidence_blend.effective_weight --
+# source reliability x confidence x decay) rather than "whichever claim happens to be iterated
+# first": when multiple sources disagree on a player's duty, the side with more/stronger
+# supporting evidence wins; a genuine tie (including "no evidence either way") stays a no-op.
+# No real penalty-frequency/conversion or set-piece-assist-rate data is reconciled anywhere in
+# this project (same honest gap this module's own docstring already names for GK penalty
+# saves) -- every multiplier below is an invented v1 default, flagged for M7 recalibration once
+# real per-duty outcome data exists to fit it against.
 # ============================================================
 
-def _set_piece_goal_uplift_multiplier(
-    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
-) -> float:
-    """1.0 (no-op) unless an asof-visible set_piece_order_override claim confirms this player
-    as the PRIMARY penalty taker, in which case a small, versioned multiplicative uplift is
-    applied to e_goals. No real penalty-frequency/conversion data is reconciled anywhere in
-    this project (same honest gap expected_points.py's own module docstring already names for
-    GK penalty saves: "left at 0 rather than guessed") -- the uplift magnitude is therefore an
-    invented v1 default, same status as every other unpinned constant here, not a derived
-    number, flagged for M7 recalibration once real per-penalty-taker outcome data exists to fit
-    it against."""
+def _set_piece_duty_evidence(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, duty_keywords: tuple[str, ...],
+    decay_params_version: int, fact_multiplier_params_version: int,
+) -> tuple[float, float]:
+    """Sums effective_weight() per order ('primary'/'secondary') across asof-visible
+    set_piece_order_override claims whose duty string contains ANY of duty_keywords -- checked
+    as a single any-of match (not one pass per keyword) specifically because the real data
+    contains combined duty strings like "corners/free-kicks", which a per-keyword-summed loop
+    would double-count."""
     claims = snapshot_mod.get_claims_asof(
         con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="set_piece_order_override",
     ).to_dict("records")
+    primary_weight = secondary_weight = 0.0
     for c in claims:
         if not c["claim_value"]:
             continue
         payload = json.loads(c["claim_value"])
-        duty = (payload.get("duty") or "")
-        if payload.get("order") == "primary" and "penalt" in duty.lower():
+        duty = (payload.get("duty") or "").lower()
+        if not any(kw in duty for kw in duty_keywords):
+            continue
+        w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
+        order = payload.get("order")
+        if order == "primary":
+            primary_weight += w
+        elif order == "secondary":
+            secondary_weight += w
+    return primary_weight, secondary_weight
+
+
+def _set_piece_goal_uplift_multiplier(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
+    decay_params_version: int = 1, fact_multiplier_params_version: int = 1,
+) -> float:
+    """1.0 (no-op) unless asof-visible set_piece_order_override evidence, weighed by
+    effective_weight, favors PRIMARY or SECONDARY penalty duty for this player -- a versioned
+    multiplicative uplift (primary) or demotion (secondary) applied to e_goals. decay/fact-
+    multiplier params default to v1 (the standard "no confirmed recalibration yet" fallback
+    used throughout this project) so every pre-existing caller keeps working unchanged while
+    still genuinely routing through real evidence weighting, not a flat on/off switch."""
+    primary_w, secondary_w = _set_piece_duty_evidence(
+        con, player_uid, asof, ("penalt",), decay_params_version, fact_multiplier_params_version,
+    )
+    if primary_w > secondary_w and primary_w > 0.0:
+        multiplier, _ = params_mod.resolve_param(
+            con, "set_piece_evidence_params", "penalty_taker_goal_rate_multiplier", set_piece_params_version,
+        )
+        return multiplier
+    if secondary_w > primary_w and secondary_w > 0.0:
+        try:
             multiplier, _ = params_mod.resolve_param(
-                con, "set_piece_evidence_params", "penalty_taker_goal_rate_multiplier", set_piece_params_version,
+                con, "set_piece_evidence_params", "secondary_penalty_taker_goal_rate_multiplier", set_piece_params_version,
             )
-            return multiplier
+        except params_mod.ParamNotFoundError:
+            return 1.0
+        return multiplier
+    return 1.0  # no evidence either way, or a genuine tie -- don't guess a direction
+
+
+def _set_piece_assist_uplift_multiplier(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
+    decay_params_version: int = 1, fact_multiplier_params_version: int = 1,
+) -> float:
+    """Same evidence-strength-decided shape as _set_piece_goal_uplift_multiplier above, but for
+    free-kick/corner delivery duty and applied to e_assists, not e_goals -- new capability, this
+    duty was previously ingested and read into `duty` but never consumed by anything."""
+    primary_w, secondary_w = _set_piece_duty_evidence(
+        con, player_uid, asof, ("free-kick", "corner"), decay_params_version, fact_multiplier_params_version,
+    )
+    if primary_w > secondary_w and primary_w > 0.0:
+        try:
+            multiplier, _ = params_mod.resolve_param(
+                con, "set_piece_evidence_params", "set_piece_deliverer_assist_rate_multiplier", set_piece_params_version,
+            )
+        except params_mod.ParamNotFoundError:
+            return 1.0
+        return multiplier
+    if secondary_w > primary_w and secondary_w > 0.0:
+        try:
+            multiplier, _ = params_mod.resolve_param(
+                con, "set_piece_evidence_params", "secondary_set_piece_deliverer_assist_rate_multiplier", set_piece_params_version,
+            )
+        except params_mod.ParamNotFoundError:
+            return 1.0
+        return multiplier
     return 1.0
 
 
@@ -478,7 +566,10 @@ def compute_player_fixture_components(
     e_goals = rates["expected_goals_per_90"] * e_min_played / 90.0 * p_played
     e_assists = rates["expected_assists_per_90"] * e_min_played / 90.0 * p_played
     if asof is not None and set_piece_params_version is not None:
-        e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
+        _sp_decay_v = decay_params_version if decay_params_version is not None else 1
+        _sp_fact_v = fact_multiplier_params_version if fact_multiplier_params_version is not None else 1
+        e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version, _sp_decay_v, _sp_fact_v)
+        e_assists *= _set_piece_assist_uplift_multiplier(con, player_uid, asof, set_piece_params_version, _sp_decay_v, _sp_fact_v)
     if (
         asof is not None and decay_params_version is not None
         and fact_multiplier_params_version is not None and role_shift_params_version is not None
@@ -696,6 +787,12 @@ NON_DOUBLE_COUNTING_AUDIT = [
     {"raw_stat": "predicted_xi claim: claim_value['exp_position']", "feeds": ["e_goals (role-shift multiplier)", "e_assists (role-shift multiplier)", "expected_bps (via e_goals/e_assists)"],
      "intentional_dual_use": True,
      "note": "A2: a genuinely different question (what ROLE a starting player plays) than the same claim's numeric start_conf (WHETHER they start, consumed only by minutes_model -- row above). Registered position, not exp_position, still decides every points-category bucket (clean_sheet_points, defcon_threshold, ...) -- this only shades the attacking-rate magnitude, bounded and capped by role_shift_params."},
+    {"raw_stat": "set_piece_order_override claim (penalty duty)", "feeds": ["ep_goals (via e_goals multiplier)", "expected_bps (via e_goals)"],
+     "intentional_dual_use": True,
+     "note": "goal points and goal BPS are separate real FPL mechanisms off the same (evidence-adjusted) e_goals -- same reasoning as the plain expected_goals_per_90 row above, just with an evidence multiplier applied first."},
+    {"raw_stat": "set_piece_order_override claim (free-kick/corner duty)", "feeds": ["ep_assists (via e_assists multiplier)", "expected_bps (via e_assists)"],
+     "intentional_dual_use": True,
+     "note": "A3: same shape as the penalty-duty row above but for e_assists -- delivering a set piece is an assist-creation signal, deliberately never applied to e_goals."},
 ]
 
 _NOT_MODELED_FOR_LACK_OF_RECONCILED_DATA = [

@@ -99,28 +99,32 @@ def test_non_double_counting_audit_covers_cbi_per_spec_example():
 
 
 # ============================================================
-# _set_piece_goal_uplift_multiplier / e_goals uplift -- SetPieceTakers evidence, previously
-# ingested (ingest_research_pull.ingest_set_piece_takers()) but confirmed unused anywhere
-# (grepped the whole src/ tree before wiring this in).
+# _set_piece_goal_uplift_multiplier / _set_piece_assist_uplift_multiplier -- SetPieceTakers
+# evidence, previously ingested (ingest_research_pull.ingest_set_piece_takers()) but confirmed
+# unused anywhere (grepped the whole src/ tree before first wiring the primary-penalty case
+# in). A3 extends both directions (secondary demotion) and duties (free-kick/corner -> assists).
 # ============================================================
 
 from datetime import date, datetime, timezone  # noqa: E402
 
 
-def _seed_source_and_claim(con, player_uid, duty, order, observed_date=date(2026, 8, 1)):
+def _seed_source_and_claim(con, player_uid, duty, order, observed_date=date(2026, 8, 1),
+                            claim_id=None, source_id="src1", reliability=0.9, confidence=0.9):
     con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward') ON CONFLICT DO NOTHING", [player_uid, player_uid])
     con.execute(
         "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
-        "VALUES ('src1', 'Test Source', 'official', 0.9) ON CONFLICT DO NOTHING"
+        "VALUES (?, ?, 'official', ?) ON CONFLICT DO NOTHING",
+        [source_id, f"Test Source ({source_id})", reliability],
     )
     con.execute(
         "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
         "claim_value, information_type, source_id, source_reliability_score, confidence, "
         "observed_date, ingested_date, tab_origin, row_origin) "
-        "VALUES (?, 'player', ?, 'set_piece_order_override', ?, 'FACT', 'src1', 0.9, 0.9, ?, ?, "
+        "VALUES (?, 'player', ?, 'set_piece_order_override', ?, 'FACT', ?, ?, ?, ?, ?, "
         "'research_pull:SetPieceTakers', 1)",
-        [f"claim_{player_uid}", player_uid, __import__("json").dumps({"club": "A", "duty": duty, "order": order}),
-         observed_date, datetime(2026, 8, 1, tzinfo=timezone.utc)],
+        [claim_id or f"claim_{player_uid}_{source_id}_{order}", player_uid,
+         __import__("json").dumps({"club": "A", "duty": duty, "order": order}),
+         source_id, reliability, confidence, observed_date, datetime(2026, 8, 1, tzinfo=timezone.utc)],
     )
 
 
@@ -132,21 +136,94 @@ def test_set_piece_goal_uplift_applies_for_confirmed_primary_penalty_taker(con):
     assert multiplier == pytest.approx(1.15)
 
 
-def test_set_piece_goal_uplift_no_op_for_secondary_penalty_taker(con):
+def test_set_piece_goal_uplift_demotes_for_confirmed_secondary_penalty_taker(con):
+    """A3: previously a no-op (secondary-order claims were read then silently ignored) -- now a
+    genuine, bounded demotion, since a confirmed secondary taker is real evidence of reduced
+    personal conversion likelihood, not the mere absence of a boost."""
     ep.seed_v1_params(con)
     _seed_source_and_claim(con, "p1", duty="Penalties", order="secondary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(0.90)
+
+
+def test_set_piece_goal_uplift_no_op_for_non_penalty_duty(con):
+    """Free-kick/corner duty affects _set_piece_assist_uplift_multiplier (see below), not this
+    goal-side function -- confirmed primary FK/corner duty must stay a no-op here."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Free-kicks", order="primary")
     asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
     multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
     assert multiplier == pytest.approx(1.0)
 
 
-def test_set_piece_goal_uplift_no_op_for_non_penalty_duty(con):
-    """Free-kick/corner duty is deliberately out of scope for this v1 uplift -- only
-    confirmed primary PENALTY duty gets it."""
+def test_set_piece_goal_uplift_strongest_evidence_wins_on_conflicting_claims(con):
+    """Two sources disagree on penalty duty (primary vs secondary) -- the higher-reliability,
+    higher-confidence source's effective_weight must decide the direction, not claim insertion
+    order (the real bug this function's previous "first match wins" shape was exposed to)."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="secondary",
+                            source_id="src_weak", reliability=0.2, confidence=0.3)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary",
+                            source_id="src_strong", reliability=0.9, confidence=0.9)
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.15)  # strong "primary" evidence outweighs weak "secondary"
+
+
+def test_set_piece_goal_uplift_no_op_on_genuine_tie(con):
+    """Equal-weight conflicting evidence must not guess a direction."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="secondary",
+                            source_id="src_a", reliability=0.5, confidence=0.5)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary",
+                            source_id="src_b", reliability=0.5, confidence=0.5)
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.0)
+
+
+def test_set_piece_assist_uplift_applies_for_confirmed_primary_corner_duty(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Corners", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.12)
+
+
+def test_set_piece_assist_uplift_applies_for_confirmed_primary_free_kick_duty(con):
     ep.seed_v1_params(con)
     _seed_source_and_claim(con, "p1", duty="Free-kicks", order="primary")
     asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
-    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.12)
+
+
+def test_set_piece_assist_uplift_combined_duty_string_not_double_counted(con):
+    """Real workbook data contains combined duty strings like "corners/free-kicks" -- a single
+    claim matching both keywords must contribute its effective_weight once, not twice."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="corners/free-kicks", order="secondary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    # if double-counted, secondary_weight would still just be 2x a single claim's weight -- same
+    # sign either way here, so assert the exact demotion value, not just direction, to catch it
+    assert multiplier == pytest.approx(0.92)
+
+
+def test_set_piece_assist_uplift_demotes_for_confirmed_secondary_duty(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Corners", order="secondary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(0.92)
+
+
+def test_set_piece_assist_uplift_no_op_for_penalty_only_duty(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
     assert multiplier == pytest.approx(1.0)
 
 
