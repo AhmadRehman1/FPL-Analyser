@@ -90,6 +90,50 @@ def test_captain_points_double_counted_in_objective():
     assert result["objective"] == pytest.approx(expected)
 
 
+def test_solve_returns_identical_output_across_repeated_calls():
+    """Priority 0 regression test: a real squad recommendation once flip-flopped between
+    formations/captains across repeated runs against IDENTICAL underlying data. solve() must
+    be a pure function of its (candidates, sigma_pairs, lam, guardrail_cap) inputs -- calling
+    it 10 times with the exact same arguments must return the exact same squad/xi/captain/
+    vice/objective every time, not merely "an" optimal solution each time."""
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 2.0, ("mid0", "mid1"): 1.5}
+    results = [so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3) for _ in range(10)]
+    first = results[0]
+    for r in results[1:]:
+        assert r["squad"] == first["squad"]
+        assert r["xi"] == first["xi"]
+        assert r["captain"] == first["captain"]
+        assert r["vice"] == first["vice"]
+        assert r["objective"] == pytest.approx(first["objective"])
+
+
+def test_solve_is_invariant_to_candidate_list_ordering():
+    """The actual root cause of the flip-flopping bug (see squad_optimizer.solve()'s own
+    docstring comment): the candidate pool arrived from an ORDER-BY-less SQL join, whose row
+    order is not guaranteed stable across runs -- and whenever the true optimum admits more
+    than one exactly-tied solution (this fixture's sigma_pairs is deliberately chosen so a
+    genuine tie exists, mirroring the real incident), which tied optimum SCIP's branch-and-
+    bound returns depended on that arrival order. Shuffling the candidate list (simulating a
+    different SQL/thread-scheduling order on a re-run against the same data) must not change
+    the result once solve() is a pure function of its logical inputs."""
+    import random
+
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 2.0, ("mid0", "mid1"): 1.5}
+    baseline = so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3)
+
+    rng = random.Random(1234)
+    for _ in range(10):
+        shuffled = pool[:]
+        rng.shuffle(shuffled)
+        result = so.solve(shuffled, sigma_pairs, lam=0.15, guardrail_cap=3)
+        assert result["xi"] == baseline["xi"]
+        assert result["captain"] == baseline["captain"]
+        assert result["vice"] == baseline["vice"]
+        assert result["objective"] == pytest.approx(baseline["objective"])
+
+
 def test_higher_lambda_reduces_or_holds_objective_with_real_variance():
     pool = _synthetic_pool()
     sigma_pairs = {("def0", "def1"): 2.0, ("mid0", "mid1"): 1.5}

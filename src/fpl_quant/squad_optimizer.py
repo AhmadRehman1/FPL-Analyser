@@ -79,6 +79,7 @@ def fetch_candidate_pool(
             AND u.model_version = ?
         JOIN team_of t ON t.player_uid = o.player_uid
         WHERE o.model_version = ?
+        ORDER BY o.player_uid
         """,
         [target_season, uncertainty_model_version, ep_model_version],
     ).fetchall()
@@ -130,9 +131,30 @@ def fetch_sigma_pairs(con: duckdb.DuckDBPyConnection, uncertainty_model_version:
 # ============================================================
 
 def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: float) -> dict:
+    # Root-caused determinism bug: a squad recommendation once
+    # flip-flopped between formations/captains across repeated runs against IDENTICAL
+    # underlying data. Neither of the two initially-suspected causes held up -- the budget
+    # constraint below already sums price*squad[] over every one of the 15 squad slots (not
+    # just the XI), and run() already raises loudly whenever the real-lambda solve doesn't
+    # reach "optimal" (a timelimit/gap-limited return can never ship silently). The real cause:
+    # whenever the true optimum admits more than one exactly-tied solution (an expected,
+    # unavoidable occurrence -- e.g. two near-identical players at the bench cut line, or two
+    # captain candidates with equal projected points), WHICH tied optimum SCIP's branch-and-
+    # bound returns depends on the order variables/constraints were built in. Candidate order
+    # previously came straight from fetch_candidate_pool's ORDER-BY-less SQL join (not
+    # guaranteed stable across runs when DuckDB executes it across multiple threads), so
+    # solve() was not a pure function of its logical inputs. Sorting here makes it one --
+    # verified empirically that this, not the two originally-suspected causes, was what made
+    # the captain/XI choice order-sensitive.
+    candidates = sorted(candidates, key=lambda c: c["player_uid"])
     m = scip.Model()
     m.hideOutput()
     m.setParam("limits/time", 300)
+    # Belt-and-braces alongside the candidate sort above: SCIP's own tie-breaking is itself
+    # deterministic given a fixed random seed, but leaving it unset relies on pyscipopt's
+    # default rather than pinning it explicitly -- pin it so a future pyscipopt/SCIP upgrade
+    # changing that default can't silently reintroduce order-sensitivity.
+    m.setParam("randomization/randomseedshift", 0)
 
     squad = {c["player_uid"]: m.addVar(vtype="B", name=f"squad_{i}") for i, c in enumerate(candidates)}
     xi = {c["player_uid"]: m.addVar(vtype="B", name=f"xi_{i}") for i, c in enumerate(candidates)}
@@ -144,7 +166,13 @@ def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: 
         m.addCons(scip.quicksum(squad[c["player_uid"]] for c in candidates if c["position"] == pos) == quota)
     m.addCons(scip.quicksum(c["price"] * squad[c["player_uid"]] for c in candidates) <= BUDGET)
 
-    clubs = {c["club"] for c in candidates}
+    # sorted(), not a raw set iteration: Python's set iteration order for strings is
+    # hash-randomized per-process by default (PYTHONHASHSEED), so two separate runs of this
+    # module against identical data could add the per-club constraints below in a different
+    # order -- another input to the same order-sensitive tie-breaking documented on solve()'s
+    # own candidate sort above. Belt-and-braces given that sort already fixes variable order;
+    # this fixes constraint order too.
+    clubs = sorted({c["club"] for c in candidates})
     for club in clubs:
         m.addCons(scip.quicksum(squad[c["player_uid"]] for c in candidates if c["club"] == club) <= 3)
 
