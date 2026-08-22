@@ -104,6 +104,31 @@ def blend_numeric(
     return total_wv / total_w
 
 
+def aggregate_evidence_weight(
+    con: duckdb.DuckDBPyConnection, subject_entity_type: str, subject_entity_id: str,
+    claim_types: list[str], asof: datetime, decay_params_version: int, fact_multiplier_params_version: int,
+) -> float:
+    """Priority 2 addition: the sum of effective_weight() across every active claim of the
+    given claim_types for this subject -- a coarse "how much genuine, reliability/decay-
+    weighted evidence exists" signal, not a sentiment-direction-aware one.
+
+    community_sentiment/analyst_debate/youtube_evidence rows never carry a
+    claim_value_numeric (checked: every ingest_workbook.py call site for these three types
+    passes claim_value_numeric=None, their substance lives entirely in the free-text
+    claim_value JSON), so blend_numeric() above always returns None for them -- there is no
+    real per-player "consensus score" anywhere in this project to blend. Full NLP extraction
+    of what these claims actually SAY (positive/negative, how strongly) is explicitly out of
+    scope for the MVP consensus-divergence check this feeds (consensus_check.py) -- this
+    returns 0.0 (not None) when there's no evidence at all, since "no evidence found" is a
+    real, meaningful value here (unlike blend_numeric's None, which distinguishes "no
+    evidence" from "evidence exists but isn't numeric" -- that distinction doesn't apply to a
+    sum, where an empty sum is legitimately 0)."""
+    claims = []
+    for claim_type in claim_types:
+        claims.extend(_active_claims(con, subject_entity_type, subject_entity_id, claim_type, asof))
+    return sum(effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version) for c in claims)
+
+
 def blend_categorical(
     con: duckdb.DuckDBPyConnection, subject_entity_type: str, subject_entity_id: str,
     claim_type: str, category_key: str, asof: datetime,

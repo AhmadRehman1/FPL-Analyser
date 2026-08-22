@@ -20,6 +20,8 @@ from datetime import date, datetime, timezone
 import duckdb
 import pyscipopt as scip
 
+from . import field_covariance as field_covariance_mod
+from . import ownership as ownership_mod
 from . import params as params_mod
 
 POSITIONS = ["Goalkeeper", "Defender", "Midfielder", "Forward"]
@@ -53,6 +55,34 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # constant in this project, flagged for M7 recalibration once real backtest evidence exists
     # for how much objective value a real differential swing is actually worth.
     params_mod.write_param(con, "captain_differential_params", 1, "2026-08-10", "tiebreak_epsilon", value_numeric=0.05)
+
+    # Priority 1 -- ownership/EO. captaincy_concentration is an invented v1 default (same
+    # invented-default status as every other unpinned constant in this project): how sharply
+    # captaincy is modeled as concentrating on the single highest-EP player in a position
+    # group (see ownership.estimate_captaincy_rate's own docstring for the reasoning), not a
+    # measured quantity -- flagged for M7 recalibration once real backtest evidence exists.
+    params_mod.write_param(con, "ownership_params", 1, "2026-08-10", "captaincy_concentration", value_numeric=0.3)
+    # posture defaults to "protect" (favor stability over differentiation) as the more
+    # conservative starting posture; eo_weight_kappa=0.02 is sized so the EO term can only
+    # ever tip a genuinely close EP contest (typical EO values run 0-100+, so the max per-
+    # player nudge is ~2 EP-equivalent points), never override a real, larger EP edge --
+    # same invented-magnitude status as risk_aversion_params' own lambda before it was pinned
+    # by spec, flagged the same way for M7.
+    params_mod.write_param(con, "risk_posture_params", 1, "2026-08-10", "posture", value_text="protect")
+    params_mod.write_param(con, "risk_posture_params", 1, "2026-08-10", "eo_weight_kappa", value_numeric=0.02)
+    # field_covariance_params.kappa: Cov(player, field) values are on a much larger absolute
+    # scale than EO (tens to low hundreds in early testing, vs. EO's 0-100 range) since they're
+    # products of point totals, not percentages -- kappa is scaled down accordingly so this
+    # term plays the same "gentle nudge" role eo_weight_kappa does, not a claim that this ratio
+    # is itself calibrated against real data yet.
+    params_mod.write_param(con, "field_covariance_params", 1, "2026-08-10", "kappa", value_numeric=0.001)
+    # Priority 2 -- bench-quality floor: 0.25 is the spec's own agreed default ("conservative
+    # for thin early-season data"), not an invented literal here.
+    params_mod.write_param(con, "bench_quality_params", 1, "2026-08-10", "min_bench_p_start_probability", value_numeric=0.25)
+    # Priority 2 -- team-concentration risk: 0.0 is the spec's own agreed default (exact
+    # no-op) -- the <=3-per-club legality cap stays the only hard constraint at v1; this lever
+    # exists for a future, more risk-averse posture without touching the legality cap itself.
+    params_mod.write_param(con, "concentration_risk_params", 1, "2026-08-10", "kappa", value_numeric=0.0)
 
 
 # ============================================================
@@ -105,6 +135,25 @@ def fetch_candidate_pool(
         [target_season],
     ).fetchall())
 
+    # p_start_final, for Priority 2's bench-quality floor (see solve()'s own
+    # min_bench_p_start_probability handling) -- derived from uncertainty_model_version the
+    # same way reporting.build_report already derives it, so this candidate pool can never
+    # disagree with the rest of the pipeline about which minutes_model_version is "the" one
+    # for this run. A run whose uncertainty_model_version has no matching minutes model (only
+    # possible with a malformed/test fixture) gets an empty p_start map -- every candidate's
+    # p_start_final is then None, which solve() already treats as "no bench-floor information,
+    # don't gate this player" rather than a crash.
+    mm_version_row = con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?",
+        [uncertainty_model_version],
+    ).fetchone()
+    p_start = {}
+    if mm_version_row is not None:
+        p_start = dict(con.execute(
+            "SELECT player_uid, p_start_final FROM minutes_model_outputs WHERE model_version = ?",
+            [mm_version_row[0]],
+        ).fetchall())
+
     candidates = []
     for player_uid, position, name, mu, var, team_code in rows:
         price = prices.get(player_uid)
@@ -114,6 +163,7 @@ def fetch_candidate_pool(
             "player_uid": player_uid, "position": position, "name": name,
             "mu": mu, "var": var, "club": team_code, "price": price,
             "selected_by_percent": ownership.get(player_uid),
+            "p_start_final": p_start.get(player_uid),
         })
     return candidates
 
@@ -130,7 +180,26 @@ def fetch_sigma_pairs(con: duckdb.DuckDBPyConnection, uncertainty_model_version:
 # MIQP solve (one lambda value)
 # ============================================================
 
-def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: float) -> dict:
+def solve(
+    candidates: list[dict],
+    sigma_pairs: dict,
+    lam: float,
+    guardrail_cap: float,
+    *,
+    eo_by_uid: dict[str, float | None] | None = None,
+    posture: str | None = None,
+    eo_weight_kappa: float = 0.0,
+    field_cov_by_uid: dict[str, float] | None = None,
+    field_cov_kappa: float = 0.0,
+    p_start_by_uid: dict[str, float | None] | None = None,
+    min_bench_p_start_probability: float | None = None,
+    concentration_kappa: float = 0.0,
+) -> dict:
+    """Every keyword-only argument here defaults to an exact no-op (None / 0.0) -- an
+    existing caller that only ever passes the original four positional arguments gets
+    byte-identical behavior to before Priority 1/2 existed. Each feature below is documented
+    at its own point of use, not here, matching this module's existing per-guardrail comment
+    style rather than a single upfront summary that would drift out of sync with the code."""
     # Root-caused determinism bug: a squad recommendation once
     # flip-flopped between formations/captains across repeated runs against IDENTICAL
     # underlying data. Neither of the two initially-suspected causes held up -- the budget
@@ -205,6 +274,24 @@ def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: 
     for club in clubs:
         m.addCons(scip.quicksum(xi[c["player_uid"]] for c in candidates if c["club"] == club) <= guardrail_cap)
 
+    # Priority 2 -- bench-quality floor: a candidate whose real p_start_final sits below
+    # min_bench_p_start_probability is thin, early-season-data-driven rotation risk that
+    # nobody should be carrying purely as a bench option (their whole value proposition on
+    # the bench -- covering a blank/doubtful starter -- assumes they're likely to actually
+    # play if called on). squad[uid] - xi[uid] <= 0, combined with xi[uid] <= squad[uid]
+    # already enforced above, forces squad[uid] == xi[uid]: this candidate is either not
+    # selected at all, or selected AND started -- never benched. Missing p_start data (None)
+    # never gates a player -- absence of minutes-model coverage isn't evidence of rotation
+    # risk, and this constraint set must stay exactly the same shape (no-op) when the caller
+    # doesn't opt in (min_bench_p_start_probability is None).
+    if min_bench_p_start_probability is not None:
+        p_start_map = p_start_by_uid or {}
+        for c in candidates:
+            uid = c["player_uid"]
+            p_start = p_start_map.get(uid)
+            if p_start is not None and p_start < min_bench_p_start_probability:
+                m.addCons(squad[uid] - xi[uid] <= 0)
+
     linear_ep = scip.quicksum(xi[c["player_uid"]] * c["mu"] for c in candidates)
     linear_ep += scip.quicksum(captain[c["player_uid"]] * c["mu"] for c in candidates)
 
@@ -228,20 +315,93 @@ def solve(candidates: list[dict], sigma_pairs: dict, lam: float, guardrail_cap: 
             risk_expr += 2 * cov * (xi[a] * xi[b] + xi[a] * captain[b] + captain[a] * xi[b])
         t = m.addVar(vtype="C", lb=0, name="risk")
         m.addCons(t >= risk_expr)
-        m.setObjective(linear_ep - lam * t, sense="maximize")
+        objective_expr = linear_ep - lam * t
     else:
-        m.setObjective(linear_ep, sense="maximize")
+        objective_expr = linear_ep
+
+    # Priority 1 -- risk-posture (EO) and field-covariance terms. Both are governed by the
+    # SAME posture sign: "protect" rewards higher EO / higher Cov(player, field) (players who
+    # move WITH the field protect rank -- a captained haul the field also has barely moves
+    # your relative position, but so does a blank), "chase" rewards the opposite
+    # (differentiation -- a low-EO, low-field-correlation pick swings rank sharply either
+    # way, which is exactly the upside a manager trying to climb the table wants). This is
+    # the standard rank-relative-variance argument: Var(you - field) = Var(you) + Var(field)
+    # - 2*Cov(you, field), so maximizing Cov(you, field) minimizes rank-relative variance
+    # (protect) and minimizing it maximizes rank-relative variance (chase) -- not an
+    # arbitrarily-chosen sign convention. Each term's own kappa controls how much it can ever
+    # move a decision; a real, larger EP edge between two candidates still wins regardless of
+    # kappa, exactly as lam already works for the risk term above -- these are additional
+    # linear terms in the SAME objective, not a separate epsilon-window mechanism.
+    if posture is not None and posture not in ("protect", "chase"):
+        raise ValueError(f"posture must be 'protect' or 'chase', got {posture!r}")
+    posture_sign = {"protect": 1.0, "chase": -1.0}.get(posture, 0.0)
+
+    if eo_weight_kappa > 0:
+        if posture is None:
+            raise ValueError("eo_weight_kappa > 0 requires posture to be set ('protect' or 'chase')")
+        if eo_by_uid is None:
+            raise ValueError("eo_weight_kappa > 0 requires eo_by_uid to be provided")
+        eo_terms = [
+            xi[c["player_uid"]] * eo_by_uid[c["player_uid"]]
+            for c in candidates if eo_by_uid.get(c["player_uid"]) is not None
+        ]
+        if eo_terms:
+            objective_expr += posture_sign * eo_weight_kappa * scip.quicksum(eo_terms)
+
+    if field_cov_kappa > 0:
+        if posture is None:
+            raise ValueError("field_cov_kappa > 0 requires posture to be set ('protect' or 'chase')")
+        if field_cov_by_uid is None:
+            raise ValueError("field_cov_kappa > 0 requires field_cov_by_uid to be provided")
+        field_cov_terms = [
+            xi[c["player_uid"]] * field_cov_by_uid[c["player_uid"]]
+            for c in candidates if c["player_uid"] in field_cov_by_uid
+        ]
+        if field_cov_terms:
+            objective_expr += posture_sign * field_cov_kappa * scip.quicksum(field_cov_terms)
+
+    # Priority 2 -- team-concentration risk: reuses sigma_pairs (real Sigma from M4/M6, not an
+    # invented "concentration score"), restricted to same-club pairs -- a genuine principal
+    # submatrix of the real, PSD Sigma restricted to one club's players is itself PSD, and the
+    # union across clubs (cross-club terms zeroed) is block-diagonal-by-club, hence still PSD
+    # -- so t_conc >= concentration_expr below is a valid convex epigraph constraint, the same
+    # trick the main risk term above already relies on. Weighted by squad membership (not
+    # just xi) per spec, so bench stacking of same-club players is priced too, not just XI
+    # stacking (the guardrail cap above only ever bounds XI-level club concentration).
+    if concentration_kappa > 0:
+        club_by_uid = {c["player_uid"]: c["club"] for c in candidates}
+        same_club_pairs = {
+            (a, b): cov for (a, b), cov in sigma_pairs.items()
+            if club_by_uid.get(a) is not None and club_by_uid.get(a) == club_by_uid.get(b)
+        }
+        if same_club_pairs:
+            concentration_expr = scip.quicksum(2 * cov * squad[a] * squad[b] for (a, b), cov in same_club_pairs.items())
+            t_conc = m.addVar(vtype="C", lb=0, name="concentration_risk")
+            m.addCons(t_conc >= concentration_expr)
+            objective_expr -= concentration_kappa * t_conc
+
+    m.setObjective(objective_expr, sense="maximize")
 
     m.optimize()
     status = m.getStatus()
     if status not in ("optimal", "timelimit") or m.getNSols() == 0:
-        return {"status": status, "squad": frozenset(), "xi": frozenset(), "captain": None, "vice": None, "objective": None}
+        return {
+            "status": status, "squad": frozenset(), "xi": frozenset(), "captain": None, "vice": None,
+            "objective": None, "mip_gap": None,
+        }
 
     squad_set = frozenset(uid for uid, v in squad.items() if m.getVal(v) > 0.5)
     xi_set = frozenset(uid for uid, v in xi.items() if m.getVal(v) > 0.5)
     captain_uid = next((uid for uid, v in captain.items() if m.getVal(v) > 0.5), None)
     vice_uid = next((uid for uid, v in vice.items() if m.getVal(v) > 0.5), None)
-    return {"status": status, "squad": squad_set, "xi": xi_set, "captain": captain_uid, "vice": vice_uid, "objective": m.getObjVal()}
+    # Priority 2 -- solve-quality transparency: SCIP's own proven relative gap at termination.
+    # 0.0 iff the returned solution is proven globally optimal (matching status == "optimal");
+    # a nonzero value on a "timelimit" status shows exactly how far from proven optimal the
+    # returned incumbent actually is, rather than leaving that invisible.
+    return {
+        "status": status, "squad": squad_set, "xi": xi_set, "captain": captain_uid, "vice": vice_uid,
+        "objective": m.getObjVal(), "mip_gap": m.getGap(),
+    }
 
 
 # ============================================================
@@ -257,7 +417,24 @@ def run(
     uncertainty_model_version: int,
     lambda_params_version: int,
     guardrail_params_version: int,
+    *,
+    ownership_params_version: int | None = None,
+    risk_posture_params_version: int | None = None,
+    field_covariance_params_version: int | None = None,
+    bench_quality_params_version: int | None = None,
+    concentration_risk_params_version: int | None = None,
 ) -> int:
+    """The five new keyword-only *_params_version arguments are all independently optional
+    and all default to an exact no-op (matching solve()'s own default-off convention) -- an
+    existing caller passing only the original eight positional arguments gets byte-identical
+    behavior to before Priority 1/2 existed. ownership_params_version and
+    risk_posture_params_version must be provided TOGETHER (EO computation and the posture
+    term that consumes it are two independently-versioned dimensions, but activating one
+    without the other is always a caller mistake, not a valid partial configuration) --
+    resolve_param's own "fail loud on a missing lookup" discipline extends here rather than
+    silently defaulting one and not the other. field_covariance_params_version additionally
+    requires both of those (the field-covariance term needs real EO weights to build its
+    synthetic field portfolio -- see field_covariance.compute_field_covariance)."""
     lam, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", lambda_params_version)
     guardrail_cap, _ = params_mod.resolve_param(
         con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", guardrail_params_version
@@ -269,12 +446,70 @@ def run(
     player_uids = {c["player_uid"] for c in candidates}
     sigma_pairs = fetch_sigma_pairs(con, uncertainty_model_version, player_uids)
 
+    if (ownership_params_version is None) != (risk_posture_params_version is None):
+        raise ValueError(
+            "ownership_params_version and risk_posture_params_version must both be set together, "
+            "or both left unset -- EO computation and the posture term that consumes it are not "
+            "independently activatable"
+        )
+
+    eo_by_uid, posture, eo_weight_kappa = None, None, 0.0
+    if ownership_params_version is not None:
+        captaincy_concentration, _ = params_mod.resolve_param(
+            con, "ownership_params", "captaincy_concentration", ownership_params_version
+        )
+        eo_by_uid = ownership_mod.compute_eo_for_pool(candidates, captaincy_concentration)
+        _, posture = params_mod.resolve_param(con, "risk_posture_params", "posture", risk_posture_params_version)
+        eo_weight_kappa, _ = params_mod.resolve_param(con, "risk_posture_params", "eo_weight_kappa", risk_posture_params_version)
+
+    field_cov_by_uid, field_cov_kappa = None, 0.0
+    if field_covariance_params_version is not None:
+        if eo_by_uid is None:
+            raise ValueError(
+                "field_covariance_params_version requires ownership_params_version/"
+                "risk_posture_params_version to also be set -- the field-covariance term needs "
+                "real EO weights to build its synthetic field portfolio"
+            )
+        field_cov_kappa, _ = params_mod.resolve_param(con, "field_covariance_params", "kappa", field_covariance_params_version)
+        scoring_params_version = con.execute(
+            "SELECT scoring_matrix_params_version FROM ep_model_versions WHERE model_version = ?", [ep_model_version]
+        ).fetchone()[0]
+        rho_residual_params_version = con.execute(
+            "SELECT rho_residual_params_version FROM uncertainty_model_versions WHERE model_version = ?",
+            [uncertainty_model_version],
+        ).fetchone()[0]
+        field_cov_by_uid = field_covariance_mod.compute_field_covariance(
+            con, candidates, target_season, target_gameweek, ep_model_version, scoring_params_version,
+            rho_residual_params_version, eo_by_uid, calibration_asof_date,
+        )
+
+    p_start_by_uid, min_bench_p_start_probability = None, None
+    if bench_quality_params_version is not None:
+        min_bench_p_start_probability, _ = params_mod.resolve_param(
+            con, "bench_quality_params", "min_bench_p_start_probability", bench_quality_params_version
+        )
+        p_start_by_uid = {c["player_uid"]: c["p_start_final"] for c in candidates}
+
+    concentration_kappa = 0.0
+    if concentration_risk_params_version is not None:
+        concentration_kappa, _ = params_mod.resolve_param(con, "concentration_risk_params", "kappa", concentration_risk_params_version)
+
+    solve_kwargs = dict(
+        eo_by_uid=eo_by_uid, posture=posture, eo_weight_kappa=eo_weight_kappa,
+        field_cov_by_uid=field_cov_by_uid, field_cov_kappa=field_cov_kappa,
+        p_start_by_uid=p_start_by_uid, min_bench_p_start_probability=min_bench_p_start_probability,
+        concentration_kappa=concentration_kappa,
+    )
+
     # REQUIRED FIRST, before anything else from this optimizer is trusted: solve the same
     # candidate pool once at lambda=0 and once at the frozen lambda. If the two squads are
     # identical, the quadratic risk term is provably not affecting the solve -- carried
-    # forward verbatim from LESSONS_LEARNED.md rather than left as unwritten folklore.
-    result_zero = solve(candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap)
-    result_real = solve(candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap)
+    # forward verbatim from LESSONS_LEARNED.md rather than left as unwritten folklore. Any
+    # Priority 1/2 terms above are held IDENTICAL across both solves (same solve_kwargs), so
+    # this remains a clean measurement of the risk (Sigma) term's own marginal effect,
+    # uncontaminated by whatever else additionally sits in the objective.
+    result_zero = solve(candidates, sigma_pairs, lam=0.0, guardrail_cap=guardrail_cap, **solve_kwargs)
+    result_real = solve(candidates, sigma_pairs, lam=lam, guardrail_cap=guardrail_cap, **solve_kwargs)
 
     # The baseline (lambda=0) solve must itself have actually reached optimality -- a
     # "timelimit" status there is silently accepted identically to "optimal" further down,
@@ -313,13 +548,17 @@ def run(
         INSERT INTO squad_optimizer_runs
             (calibration_asof_date, target_season, target_gameweek, ep_model_version,
              uncertainty_model_version, lambda_params_version, lambda_value, guardrail_params_version,
-             divergence_check_passed, divergence_check_note, solver_status, objective_value)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             divergence_check_passed, divergence_check_note, solver_status, objective_value,
+             ownership_params_version, risk_posture_params_version, field_covariance_params_version,
+             bench_quality_params_version, concentration_risk_params_version, mip_gap)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING run_id
         """,
         [calibration_asof_date, target_season, target_gameweek, ep_model_version, uncertainty_model_version,
          lambda_params_version, lam, guardrail_params_version, divergence_passed, note,
-         result_real["status"], result_real["objective"]],
+         result_real["status"], result_real["objective"],
+         ownership_params_version, risk_posture_params_version, field_covariance_params_version,
+         bench_quality_params_version, concentration_risk_params_version, result_real["mip_gap"]],
     ).fetchone()[0]
 
     if not divergence_passed:
@@ -357,12 +596,13 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
     """
     run_row = con.execute(
         "SELECT target_season, divergence_check_passed, divergence_check_note, "
-        "guardrail_params_version, lambda_value, is_manager_snapshot "
+        "guardrail_params_version, lambda_value, is_manager_snapshot, solver_status, mip_gap "
         "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
     ).fetchone()
     if not run_row:
         raise ValueError(f"no squad_optimizer_runs row for run_id={run_id}")
-    target_season, divergence_passed, divergence_note, guardrail_params_version, lambda_value, is_snapshot = run_row
+    (target_season, divergence_passed, divergence_note, guardrail_params_version, lambda_value,
+     is_snapshot, solver_status, mip_gap) = run_row
 
     xi_cap = None
     if guardrail_params_version:
@@ -421,6 +661,12 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
         "clubs_at_squad_cap": clubs_at_squad_cap, "clubs_at_xi_cap": clubs_at_xi_cap,
         "captain_uid": captain_uid, "captain_position": captain_position,
         "captain_is_goalkeeper": captain_position == "Goalkeeper",
+        # Priority 2 -- solve-quality transparency: proved_optimal is derived from
+        # solver_status (SCIP only ever reports "optimal" for a proven 0%-gap solution) rather
+        # than re-deriving it from mip_gap's own value, since mip_gap can be NULL for a run
+        # stored before this column existed -- solver_status is the one field that has always
+        # been recorded, so it's the more reliable source of truth for this flag.
+        "solver_status": solver_status, "mip_gap": mip_gap, "solve_proved_optimal": solver_status == "optimal",
     }
 
 
