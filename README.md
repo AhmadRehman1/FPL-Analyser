@@ -1049,12 +1049,17 @@ for the existing (real-data) `lambda_value` finding above.
   cron slots (Friday 17:30 UTC, Saturday 10:00 UTC) are a documented approximation of "most
   gameweeks' deadline window," not a precise per-gameweek tracker -- nothing in this pipeline
   queries the FPL API for the real next deadline yet, a flagged follow-up.
-  `data/external/`'s two private evidence workbooks are provisioned via base64-encoded repo
-  secrets (`FPL_MASTER_EVIDENCE_DATABASE_XLSX_B64`, `FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64`)
-  -- GitHub Actions secrets cap at 64KB each, so this breaks silently (an empty/truncated file,
-  not a failure) if either workbook exceeds that; verify the decoded file size the first time
-  this runs for real. FPL-Core-Insights' own repo layout (`data/<season>/*.csv`) was verified
-  against a real clone before writing the fetch step, not assumed. `scripts/
+  `data/external/`'s two private evidence workbooks are provisioned two different ways,
+  chosen by size: the ~15KB research-pull workbook fits under GitHub Actions' 64KB-per-secret
+  cap, so it's a base64-encoded repo secret (`FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64`);
+  the ~700KB master evidence database doesn't fit a secret at all, so it's fetched instead
+  from a Google Drive file set to "Anyone with the link" (an accepted unguessable-link
+  trade-off, chosen over committing it to this *public* repo or a public Release asset, both
+  of which would be strictly more discoverable). FPL-Core-Insights' own repo layout
+  (`data/<season>/*.csv`) was verified against a real clone before writing the fetch step, not
+  assumed; the Drive `uc?export=download` fetch was not -- this sandbox's network policy
+  blocks drive.google.com too, same restriction as understat.com/fantasy.premierleague.com
+  elsewhere in this pipeline -- verify the first real run. `scripts/
   check_deadline_alerts.py` opens a GitHub Issue only when a nailed starter's sanity flag
   flips from passing to failing week-over-week (Priority 8b's own exact wording) -- ordinary
   squad/captain churn is expected and already visible in the diff report itself, not
