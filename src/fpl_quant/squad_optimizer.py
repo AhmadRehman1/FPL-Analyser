@@ -784,3 +784,47 @@ def recommend_captain_with_differential(
         con, "captain_differential_params", "tiebreak_epsilon", differential_tiebreak_params_version
     )
     return {"run_id": run_id, **captain_choice_with_differential(xi_candidates, sigma_pairs, lam, base_captain_uid, epsilon)}
+
+
+# ============================================================
+# Priority 1 -- EO-adjusted captain-risk, surfaced as its own explicit decision distinct
+# from squad selection. Same M9-adapter-style read-only wrapper pattern as
+# recommend_captain_with_differential immediately above (re-derives the candidate pool a
+# stored run was solved against, delegates the actual computation to ownership.py). Lives
+# here rather than in ownership.py itself to avoid a circular import -- squad_optimizer.py
+# already imports ownership_mod for solve()'s own risk-posture term, so ownership.py cannot
+# import squad_optimizer back.
+# ============================================================
+
+def explain_captain_risk_eo(con: duckdb.DuckDBPyConnection, run_id: int, ownership_params_version: int) -> dict:
+    """Never mutates squad_optimizer_selections -- purely a reporting overlay on the captain
+    solve() already chose, same "diagnostics separate from the frozen source of truth"
+    pattern recommend_captain_with_differential above already establishes."""
+    run_row = con.execute(
+        "SELECT ep_model_version, uncertainty_model_version, target_season FROM squad_optimizer_runs WHERE run_id = ?",
+        [run_id],
+    ).fetchone()
+    if not run_row:
+        raise ValueError(f"no squad_optimizer_runs row for run_id={run_id}")
+    ep_model_version, uncertainty_model_version, target_season = run_row
+
+    xi_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_xi", [run_id]
+        ).fetchall()
+    }
+    captain_row = con.execute(
+        "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND is_captain", [run_id]
+    ).fetchone()
+    if not xi_uids or not captain_row:
+        raise ValueError(f"run_id={run_id} has no stored XI/captain -- was the divergence check ever passed for it?")
+    captain_uid = captain_row[0]
+
+    candidates = fetch_candidate_pool(con, ep_model_version, uncertainty_model_version, target_season)
+    xi_candidates = [c for c in candidates if c["player_uid"] in xi_uids]
+
+    captaincy_concentration, _ = params_mod.resolve_param(
+        con, "ownership_params", "captaincy_concentration", ownership_params_version
+    )
+    eo_by_uid = ownership_mod.compute_eo_for_pool(candidates, captaincy_concentration)
+    return {"run_id": run_id, **ownership_mod.captain_risk_report(xi_candidates, eo_by_uid, captain_uid)}

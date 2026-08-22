@@ -206,3 +206,46 @@ def test_render_report_text_includes_every_top_level_section(con):
 def test_build_report_raises_on_unknown_run_id(con):
     with pytest.raises(ValueError):
         reporting.build_report(con, 999)
+
+
+# ============================================================
+# Priority 1 -- captain_risk_eo section
+# ============================================================
+
+def test_build_report_captain_risk_eo_section_when_requested(con):
+    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    for uid, price, ownership in (("p1", 5.0, 60.0), ("p2", 6.0, 10.0)):
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, "
+            "_ingested_at) VALUES (?, '2026-2027', 1, ?, ?, current_timestamp)", [uid, price, ownership],
+        )
+    params.write_param(con, "ownership_params", 1, "2026-08-10", "captaincy_concentration", value_numeric=0.3)
+
+    report = reporting.build_report(con, run_id, ownership_params_version=1)
+    cr = report["captain_risk_eo"]
+    assert cr is not None
+    assert cr["captain_uid"] == "p1"
+    assert cr["captain_eo"] is not None
+    assert cr["posture_label"] in ("template", "differential", "unknown")
+
+
+def test_build_report_captain_risk_eo_section_absent_by_default(con):
+    """Absence is recorded plainly (a None section), never silently dropped -- same
+    convention already established for transfer_chip_rationale/backtest_summary above."""
+    run_id, *_ = _seed_full_squad_scenario(con)
+    report = reporting.build_report(con, run_id)
+    assert report["captain_risk_eo"] is None
+    assert "captain_risk_eo" in report
+
+
+def test_render_report_text_includes_captain_risk_eo_when_present(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    for uid, price, ownership in (("p1", 5.0, 60.0), ("p2", 6.0, 10.0)):
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, "
+            "_ingested_at) VALUES (?, '2026-2027', 1, ?, ?, current_timestamp)", [uid, price, ownership],
+        )
+    params.write_param(con, "ownership_params", 1, "2026-08-10", "captaincy_concentration", value_numeric=0.3)
+    report = reporting.build_report(con, run_id, ownership_params_version=1)
+    text = reporting.render_report_text(report)
+    assert "Captain rank-risk" in text

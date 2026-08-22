@@ -77,13 +77,15 @@ def build_report(
     transfer_plan_run_id: int | None = None,
     backtest_run_id: int | None = None,
     active_param_versions: dict[str, int] | None = None,
+    ownership_params_version: int | None = None,
 ) -> dict:
     """The minimal headline is always present; every other section is a dict key a caller can
     choose to render or not -- that choice is the "expandable on demand" the spec asks for,
-    made at the display layer this module doesn't own. transfer_plan_run_id/backtest_run_id
-    are optional because not every report has an existing squad to plan transfers from, or a
-    backtest run to cite -- absence is recorded plainly (a `None` section), never silently
-    dropped from the report's shape.
+    made at the display layer this module doesn't own. transfer_plan_run_id/backtest_run_id/
+    ownership_params_version are optional because not every report has an existing squad to
+    plan transfers from, a backtest run to cite, or an ownership-params version pinned for the
+    EO computation -- absence is recorded plainly (a `None` section), never silently dropped
+    from the report's shape.
     """
     run_row = con.execute(
         "SELECT target_season, target_gameweek, ep_model_version, uncertainty_model_version "
@@ -166,6 +168,13 @@ def build_report(
         "backtest_summary": bt.explain_backtest_summary(con, backtest_run_id) if backtest_run_id is not None else None,
         "transfer_chip_rationale": tp.explain_plan(con, transfer_plan_run_id) if transfer_plan_run_id is not None else None,
         "automated_flags": automated_flags,
+        # Priority 1 -- EO-adjusted captain-risk, its own explicit decision distinct from
+        # squad selection itself (per Priority 1's own framing) -- never changes which player
+        # is captained, only reports on the rank-risk profile of the choice already made.
+        "captain_risk_eo": (
+            squad_optimizer.explain_captain_risk_eo(con, squad_optimizer_run_id, ownership_params_version)
+            if ownership_params_version is not None else None
+        ),
         "human_prompt": HUMAN_PROMPT,
     }
 
@@ -213,6 +222,12 @@ def render_report_text(report: dict) -> str:
             lines.append(f"  {chip_type}: recommended={c['recommended']} score={c['score_or_gain']}")
         if tr["gw19_deadline"]["urgent"]:
             lines.append(f"  GW19 URGENT: unused chips {tr['gw19_deadline']['unused_set1_chips']}")
+
+    if report["captain_risk_eo"]:
+        cr = report["captain_risk_eo"]
+        lines.append("")
+        eo_str = f"{cr['captain_eo']:.1f}%" if cr["captain_eo"] is not None else "unknown"
+        lines.append(f"--- Captain rank-risk (EO-adjusted): {cr['posture_label']} (captain EO {eo_str}) ---")
 
     if report["parameter_transparency"]:
         n_invented = sum(1 for row in report["parameter_transparency"] if not row["backtested_via_m7"])
