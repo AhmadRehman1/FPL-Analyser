@@ -390,7 +390,11 @@ scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for rec
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
 scripts/run_transfer_planner_for_real_squad.py -- M8: same, but bootstrapped from a real
                                      manager's actual live FPL squad (fetched by entry ID),
-                                     not this project's own from-scratch GW1 pick
+                                     not this project's own from-scratch GW1 pick. Runnable
+                                     via the scheduled workflow's real_squad_entry_id
+                                     workflow_dispatch input (needs the same freshly-ingested
+                                     database run_ingestion.py just built in that same run --
+                                     see the workflow file's own comment on that step)
 scripts/run_season_simulation.py   -- M7/M8: one real season simulation + a real lambda/
                                      concentration-cap sensitivity sweep against the real DB
 scripts/run_report.py              -- M9: build + print a real squad report from the project
