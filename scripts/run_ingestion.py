@@ -59,6 +59,15 @@ def main() -> None:
     # M1: Dixon & Coles (1997) pinned defaults.
     params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
     params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    # M7's real 76-gameweek walk-forward backtest confirmed xi=0.005 (fit NLL nearly halves,
+    # 1302->677 -- see README's own Status section) via scripts/review_recalibration.py. That
+    # confirmed result only ever lived in the local db/fpl_quant_v2.duckdb this project
+    # developed against (correctly gitignored as a build artifact, never committed) -- a fresh
+    # database (every scheduled CI run; db/*.duckdb doesn't persist between them) has to
+    # re-materialize it explicitly rather than resolve a version that was never written here.
+    # Re-recorded as its own immutable v2 row, matching this project's own real activation
+    # commit (7bf7604), not re-derived or guessed.
+    params.write_param(con, "model_decay_params", 2, "2026-08-12", "xi", value_numeric=0.005)
     # M2 v1 defaults, adapted to the real injury-status vocabulary this workbook actually
     # uses (Out/Doubt/Doubt (improving)/Doubt (minutes)), not the spec's illustrative
     # Out/Doubtful/Minor-knock/Fit strings -- see README for the mapping rationale.
@@ -91,6 +100,11 @@ def main() -> None:
     transfer_planner.seed_v1_params(con)
     reporting.seed_v1_params(con)
     decay.seed_v1_params(con)
+    # Same re-materialization as model_decay_params.xi above: M7's real backtest confirmed
+    # rho_residual=0.0 (independent -- see README's own Status section), activated for real via
+    # commit 7bf7604, but that confirmed param_versions row only ever existed in the since-lost
+    # local db/fpl_quant_v2.duckdb. Re-recorded here as its own immutable v2 row.
+    params.write_param(con, "correlation_params", 2, "2026-08-12", "rho_residual", value_numeric=0.0)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "
@@ -137,10 +151,19 @@ def main() -> None:
 
     t0 = time.time()
     n_preseason_claims = minutes_model.log_preseason_involvement_claims(con, TARGET_SEASON)
+    # shrinkage_params_version/fact_multiplier_params_version pinned at v1 (the honest,
+    # freshly-reproducible baseline), NOT the real v10/v8 winners commit 1f0dc7b activated.
+    # Unlike xi/rho_residual above, those two versions' actual winning numeric values were
+    # never recorded anywhere durable (README documents xi/rho_residual's before->after
+    # numbers explicitly, but not these two) -- they only existed as intermediate
+    # param_versions rows inside refit_minutes_and_evidence_params()'s multi-round block
+    # coordinate descent, written directly to the same since-lost local db/fpl_quant_v2.duckdb.
+    # Re-establishing the real v8/v10 values needs an actual re-run of that search (a real,
+    # flagged follow-up -- see README's Design notes), not a guess at plausible-looking numbers.
     mm_model_version = minutes_model.run(
         con, CALIBRATION_ASOF_DATE, TARGET_SEASON,
         decay_params_version=1, adjustment_params_version=1,
-        shrinkage_params_version=10, fact_multiplier_params_version=8,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]
