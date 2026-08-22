@@ -231,6 +231,50 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   momentum signal's real-data assumption was checked as far as this environment allows and its
   docstring corrected to say so honestly. See "Season-long objective: design notes" below for
   all three, with real evidence.
+- **FPL Quant v2 roadmap, Priorities 0-10: done** (Priority 7d deliberately skipped, Priority
+  10 is design-only — see below). A second, later build phase on top of the frozen M0-M9
+  spec, merged in stages (PR #4: Priorities 0-4; PR #5: Priorities 5-6; PR #6: the rest).
+  - **Priority 0 (blocking):** root-caused and fixed `squad_optimizer`'s cross-run
+    nondeterminism (order-dependent tie-breaking during the MIQP solve, not either of the two
+    hypotheses the roadmap itself suggested — a real repro script found the actual cause).
+  - **Priorities 1-2:** effective-ownership (EO) estimation and EO-adjusted captain-risk
+    reporting, a risk-posture objective and field-covariance term reusing M6's own Z_fixture
+    machinery, a bench-quality floor, sanity-check flags, an MVP consensus-divergence check,
+    and an adversarial self-check pass.
+  - **Priorities 3-4:** bounded 2-for-2 multi-transfer search, a hold-vs-transfer-now
+    recommendation, and a forward-looking price-change-timing signal.
+  - **Priority 5:** chip-combo sequencing (Wildcard+Bench Boost, Free Hit+Triple Captain) and
+    a field-crowding chip-timing proxy.
+  - **Priority 6:** a 90% confidence range on the headline projection, a per-player
+    confidence score, and making consensus-divergence/adversarial-review genuinely standing
+    report sections rather than one-off opt-ins.
+  - **Priority 7 (data depth):** set-piece hierarchy extended from penalties-only to
+    free-kicks and corners; real claim-type evidence decay implemented for the first time
+    (`claim_type_decay_params` had never actually been populated anywhere in this project —
+    every claim type had been silently decaying at a flat 1.0 this whole time); a second,
+    informational-only xG/xA/xGChain source via Understat. Opponent-matchup style-clash
+    modeling (7d) was deliberately **not** built — no real playing-style data exists anywhere
+    in this project, and fabricating a "style clash" score from data that doesn't measure
+    style would violate this project's own evidence discipline.
+  - **Priority 8 (automation):** a GitHub Actions scheduled workflow (this sandbox's own
+    network policy blocks the sites the pipeline needs, so the scheduler has to live on a
+    runner with open internet, not as a Claude Code Remote Routine), GitHub-Issue deadline
+    alerting on newly-doubtful nailed starters, and a week-over-week diff report persisted as
+    small committed JSON snapshots (`data/report_history/`).
+  - **Priority 9 (backtesting rigor):** segment-tiered backtest metrics (promoted teams, new
+    signings, confirmed set-piece takers) and a synthetic "beats the ownership-weighted
+    average manager" benchmark, reusing Priority 1's own EO mechanism. Deeper multi-season
+    backtesting was deliberately deferred — the two loaded seasons are hardcoded in
+    `tier_for()`, and inventing tier boundaries for hypothetical seasons with no real data to
+    check them against would be premature.
+  - **Priority 10 (field simulator):** a design doc, not code, per the roadmap's own explicit
+    instruction (`docs/priority10_field_simulator_design.md`). Its key finding: unlike every
+    other rival/field signal in this project, the public FPL API exposes real individual
+    managers' picks directly — Phase A (`ingest_fpl_entry_picks.py`) samples a real, bounded,
+    minimal-fields set of rival squads from it. The joint-simulation engine and rank-
+    distribution output (Phases B/C) remain undesigned-in-detail, explicitly gated on
+    real product decisions (which field to sample, how much rival-squad data is comfortable
+    to collect) rather than built speculatively.
 
 ## Quick start
 
@@ -242,8 +286,19 @@ python -m venv .venv
 # (see data/external/ layout below), then:
 .venv\Scripts\python scripts\run_ingestion.py
 
+# Build and print a real squad report (headline, risk ranges, confidence scores, week-over-
+# week diff against the last saved snapshot in data/report_history/):
+.venv\Scripts\python scripts\run_report.py
+
 .venv\Scripts\python -m pytest tests/ -v
 ```
+
+Optional, separate from the above (its own network-request-volume/rate-limit concern -- see
+that script's own docstring): `scripts\run_rival_sample_ingestion.py` samples a real, bounded
+set of rival squads from FPL's own public API (Priority 10 Phase A). The scheduled GitHub
+Actions workflow (`.github/workflows/scheduled_pipeline.yml`, Priority 8a/8b) runs the
+ingestion+report steps above automatically -- see its own comments for the two repo secrets
+it needs before it can actually run.
 
 ## Layout
 
@@ -259,6 +314,15 @@ schema/0007_m6_monte_carlo.sql -- DDL: monte_carlo_run_versions/player_totals/pl
 schema/0008_m7_backtest.sql -- DDL: backtest_runs/gameweek_steps/metrics, recalibration_proposals
 schema/0009_m8_transfer_planner.sql -- DDL: manager_state_versions/squad_holdings, transfer_plan_runs/recommendations, chip_evaluations
 schema/0010_m8_manager_snapshot_flag.sql -- squad_optimizer_runs.is_manager_snapshot (additive; see Design notes)
+schema/0011_m8_bank_tracking.sql                -- M8: manager_state_versions bank tracking
+schema/0012_priority1_priority2_squad_optimizer_extensions.sql -- Priority 1/2: ownership/risk-posture/
+                                 field-covariance/bench-quality/concentration-risk param versions on
+                                 squad_optimizer_runs, mip_gap
+schema/0013_priority3_multi_transfer_hold.sql   -- Priority 3: multi_transfer_recommendations, hold_recommendations
+schema/0014_priority4_transfer_momentum.sql     -- Priority 4: fact_player_season_stats.transfers_in_event/out_event
+schema/0015_priority5_chip_combos.sql           -- Priority 5: chip_combo_evaluations
+schema/0016_priority7a_understat_xg.sql         -- Priority 7a: fact_understat_player_season
+schema/0017_priority10_phaseA_rival_squad_sample.sql -- Priority 10 Phase A: fact_rival_squad_sample
 src/fpl_quant/
     db.py                     -- DuckDB connection + schema application
     ingest_csv.py             -- generic fact_raw ingestion: one table per (season, relpath),
@@ -267,43 +331,84 @@ src/fpl_quant/
     reconcile.py              -- fact_raw -> fact_reconciled: entity resolution, match_id
                                   dedup, column-semantics tagging
     params.py                 -- generic versioned-parameter read/write (immutable versions)
-    decay.py                  -- pinned exponential evidence-decay formula
+    decay.py                  -- pinned exponential evidence-decay formula; seed_v1_params()
+                                  (Priority 7c) is the first real claim_type_decay_params config
+                                  this project has ever had -- every claim type silently decayed
+                                  at a flat 1.0 (no decay) before this
     snapshot.py                -- data_asof query helpers (look-ahead prevention)
     ingest_workbook.py         -- evidence workbook -> evidence_claims, deprecation allowlist
     ingest_research_pull.py    -- second (flat-columns) evidence source -> evidence_claims
+    ingest_understat.py         -- Priority 7a: second, independent xG/xA/xGChain/xGBuildup
+                                    source via a live Understat fetch, informational only
+    ingest_fpl_entry_picks.py    -- Priority 10 Phase A: a real, bounded sample of rival squads
+                                    from FPL's own public API, minimal fields only
     evidence_blend.py          -- M1b: effective-weight formula + conflict-resolution blending
     team_strength.py           -- M1: Dixon-Coles MLE fit, Elo-regression prior, shrinkage
     minutes_model.py           -- M2: historical fit, evidence adjustment, three-state output
-    expected_points.py         -- M3: per-category sub-models, Plackett-Luce bonus, EP total
+    expected_points.py         -- M3: per-category sub-models, Plackett-Luce bonus, EP total;
+                                    Priority 7b's free-kick/corner set-piece uplift lives here too
     uncertainty.py             -- M4: variance, within/cross-player covariance, Cornish-Fisher
     squad_optimizer.py         -- M5: MIQP via SCIP, lambda=0-vs-real divergence check,
-                                    optional captain-differential tie-break (ownership proxy)
+                                    optional captain-differential tie-break (ownership proxy);
+                                    Priority 1's risk-posture/field-covariance/bench-quality/
+                                    concentration-risk terms extend solve() here
+    ownership.py                 -- Priority 1: effective-ownership (EO) estimation, EO-adjusted
+                                    captain-risk reporting
+    field_covariance.py           -- Priority 1: synthetic EO-weighted portfolio field-risk term,
+                                    reusing M6's own Z_fixture machinery
+    consensus_check.py             -- Priority 2: MVP consensus-divergence check
+    adversarial_check.py            -- Priority 2: adversarial self-check pass (always returns
+                                    all 5 findings, triggered or not)
     monte_carlo.py              -- M6: Z_fixture Gamma-Poisson mixture, antithetic-variate
                                     gameweek simulation, empirical Sigma vs M4
+    fixture_swing.py              -- M8: rolling multi-gameweek fixture-difficulty ("swing")
+                                    signal, reusing M1/M3's own team-strength/lambda formula
     backtest.py                  -- M7: asof_scope() TEMP TABLE shadowing (now with an optional
                                      multi-gameweek schedule_horizon_gameweeks window),
                                      walk-forward loop + tiered scoring, per-family recalibration
                                      + proposal gate, and run_season_simulation() -- a real
                                      evolving-manager simulation with season_cumulative_metrics()
                                      (Sharpe + max drawdown) and report_season_simulation_
-                                     sensitivity() for lambda/concentration-cap evidence
+                                     sensitivity() for lambda/concentration-cap evidence;
+                                     Priority 9's segment-tiered metrics and beats-the-crowd
+                                     benchmark extend score_gameweek() here
     transfer_planner.py           -- M8: horizon EP, transfer search (with optional price/
                                      ownership momentum, informational only), Wildcard/Free Hit/
                                      Triple Captain/Bench Boost evaluation, manager-state
-                                     evolution (bank tracking included)
+                                     evolution (bank tracking included); Priorities 3-5 (multi-
+                                     transfer search, hold-vs-transfer-now, price-change timing,
+                                     chip-combo sequencing) all extend this module
     reporting.py                   -- M9: automated sanity-check flags + report assembly/
-                                     rendering, calling every other module's explain() adapter
+                                     rendering, calling every other module's explain() adapter;
+                                     Priority 6's confidence intervals/scores and Priority 8c's
+                                     week-over-week diff report (snapshot_for_diff/diff_reports)
+                                     live here too
 scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live gameweek)
 scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
 scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
 scripts/run_season_simulation.py   -- M7/M8: one real season simulation + a real lambda/
                                      concentration-cap sensitivity sweep against the real DB
-scripts/run_report.py              -- M9: build + print a real squad report from the project database
+scripts/run_report.py              -- M9: build + print a real squad report from the project
+                                     database; Priority 8c's diff-against-last-week + snapshot
+                                     save now run here too
+scripts/check_deadline_alerts.py    -- Priority 8b: reads run_report.py's latest_diff.json,
+                                     decides whether a newly-doubtful-starter alert is warranted
+scripts/run_rival_sample_ingestion.py -- Priority 10 Phase A: samples real rival squads from the
+                                     FPL API; deliberately separate from run_ingestion.py's
+                                     default flow (its own request-volume/rate-limit concern)
+.github/workflows/scheduled_pipeline.yml -- Priority 8a: the real scheduled-job runner (GitHub
+                                     Actions, not a Claude Code Remote Routine -- this sandbox's
+                                     own network policy blocks the sites the pipeline needs)
+docs/priority10_field_simulator_design.md -- Priority 10: the design doc for the full rival-
+                                     squad-distribution field simulator (Phase A implemented,
+                                     Phases B/C/D design-only)
 tests/                         -- pytest, one file per module concern
 data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
                                    FPL_202627_Master_Evidence_Database.xlsx, and
                                    FPL_Evidence_Claims_Research_Pull.xlsx go here
+data/report_history/           -- Priority 8c: small, committed per-gameweek report snapshots
+                                   (JSON) -- NOT gitignored, this is the point of persisting them
 db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.py
 ```
 
