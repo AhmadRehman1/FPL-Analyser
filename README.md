@@ -297,8 +297,9 @@ Optional, separate from the above (its own network-request-volume/rate-limit con
 that script's own docstring): `scripts\run_rival_sample_ingestion.py` samples a real, bounded
 set of rival squads from FPL's own public API (Priority 10 Phase A). The scheduled GitHub
 Actions workflow (`.github/workflows/scheduled_pipeline.yml`, Priority 8a/8b) runs the
-ingestion+report steps above automatically -- see its own comments for the two repo secrets
-it needs before it can actually run.
+ingestion+report steps above automatically -- see its own comments for the two Google Drive
+files (set to "Anyone with the link") it needs before it can actually run. No repo secrets
+are required.
 
 ## Layout
 
@@ -387,6 +388,9 @@ scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live ga
 scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
 scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
+scripts/run_transfer_planner_for_real_squad.py -- M8: same, but bootstrapped from a real
+                                     manager's actual live FPL squad (fetched by entry ID),
+                                     not this project's own from-scratch GW1 pick
 scripts/run_season_simulation.py   -- M7/M8: one real season simulation + a real lambda/
                                      concentration-cap sensitivity sweep against the real DB
 scripts/run_report.py              -- M9: build + print a real squad report from the project
@@ -1049,17 +1053,19 @@ for the existing (real-data) `lambda_value` finding above.
   cron slots (Friday 17:30 UTC, Saturday 10:00 UTC) are a documented approximation of "most
   gameweeks' deadline window," not a precise per-gameweek tracker -- nothing in this pipeline
   queries the FPL API for the real next deadline yet, a flagged follow-up.
-  `data/external/`'s two private evidence workbooks are provisioned two different ways,
-  chosen by size: the ~15KB research-pull workbook fits under GitHub Actions' 64KB-per-secret
-  cap, so it's a base64-encoded repo secret (`FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64`);
-  the ~700KB master evidence database doesn't fit a secret at all, so it's fetched instead
-  from a Google Drive file set to "Anyone with the link" (an accepted unguessable-link
-  trade-off, chosen over committing it to this *public* repo or a public Release asset, both
-  of which would be strictly more discoverable). FPL-Core-Insights' own repo layout
-  (`data/<season>/*.csv`) was verified against a real clone before writing the fetch step, not
-  assumed; the Drive `uc?export=download` fetch was not -- this sandbox's network policy
-  blocks drive.google.com too, same restriction as understat.com/fantasy.premierleague.com
-  elsewhere in this pipeline -- verify the first real run. `scripts/
+  `data/external/`'s two private evidence workbooks are both fetched from a Google Drive file
+  set to "Anyone with the link" (an accepted unguessable-link trade-off, chosen over committing
+  them to this *public* repo or a public Release asset, both of which would be strictly more
+  discoverable). The ~15KB research-pull workbook was originally a base64-encoded repo secret
+  instead (it comfortably fits under GitHub Actions' 64KB-per-secret cap), but that was dropped
+  after a real run failed with a zlib decompression error -- an incomplete phone copy-paste of
+  the ~20,700-character base64 string had corrupted the secret. Drive-fetch has no manual-paste
+  step, so both workbooks (this one and the ~700KB master evidence database, which never fit a
+  secret at all) now use it, with no repo secrets required. FPL-Core-Insights' own repo layout
+  (`data/<season>/*.csv`) was verified against a real clone before writing the fetch step, and
+  the Drive `uc?export=download` fetch has since been verified against a real workflow run too
+  (this sandbox's own network policy still blocks drive.google.com directly, same restriction as
+  understat.com/fantasy.premierleague.com elsewhere in this pipeline). `scripts/
   check_deadline_alerts.py` opens a GitHub Issue only when a nailed starter's sanity flag
   flips from passing to failing week-over-week (Priority 8b's own exact wording) -- ordinary
   squad/captain churn is expected and already visible in the diff report itself, not
