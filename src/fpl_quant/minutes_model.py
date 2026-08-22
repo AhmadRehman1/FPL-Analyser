@@ -341,6 +341,26 @@ def p_start_final_by_player(con: duckdb.DuckDBPyConnection, model_version: int, 
     return dict(rows)
 
 
+def weight_own_by_player(con: duckdb.DuckDBPyConnection, model_version: int, player_uids: list[str]) -> dict[str, float]:
+    """Priority 6 addition: bulk weight_own lookup, same bulk-accessor shape as
+    p_start_final_by_player() above. weight_own (compute_logit_adjustment()'s own
+    min(1.0, competitive_matches / threshold) term) is already exactly "how much do we trust
+    this player's OWN historical rate vs. falling back to a position average" in [0, 1] --
+    itself a function of BOTH how much real data exists (sample size) AND how recent the
+    lookback window is (competitive_matches_last_2_seasons, not all-time) -- reused directly
+    as the recency+sample-size component of reporting.player_confidence_score() rather than
+    computing a second, redundant recency metric from scratch."""
+    if not player_uids:
+        return {}
+    placeholders = ",".join("?" for _ in player_uids)
+    rows = con.execute(
+        f"SELECT player_uid, weight_own FROM minutes_model_outputs "
+        f"WHERE model_version = ? AND player_uid IN ({placeholders})",
+        [model_version, *player_uids],
+    ).fetchall()
+    return dict(rows)
+
+
 # ------------------------------------------------------------- GW0 visibility ----
 
 def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_season: str) -> int:

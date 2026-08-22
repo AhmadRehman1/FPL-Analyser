@@ -125,6 +125,14 @@ def test_nailed_on_starter_has_low_p0_fringe_player_has_high_p0(con):
     assert rows.loc["p1", "weight_own"] == 1.0  # 20 competitive matches >> threshold of 10
     assert rows.loc["p1", "competitive_matches_last_2_seasons"] == 20
 
+    # Priority 6's bulk accessor must agree with a direct column read, and must not include
+    # uids that weren't asked for.
+    weight_own_by_uid = mm.weight_own_by_player(con, model_version, ["p1", "p2"])
+    assert weight_own_by_uid["p1"] == pytest.approx(rows.loc["p1", "weight_own"])
+    assert weight_own_by_uid["p2"] == pytest.approx(rows.loc["p2", "weight_own"])
+    assert mm.weight_own_by_player(con, model_version, []) == {}
+    assert mm.weight_own_by_player(con, model_version, ["p1"]) == {"p1": weight_own_by_uid["p1"]}
+
 
 def test_zero_history_player_gets_pure_position_average(con):
     con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
