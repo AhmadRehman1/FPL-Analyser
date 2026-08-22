@@ -1,6 +1,9 @@
 # Priority 10 — Full Rival-Squad-Distribution Field Simulator: Design Doc
 
-Status: **design only, no implementation**. Per the roadmap's own explicit instruction:
+Status: **Phase A implemented** (`ingest_fpl_entry_picks.py`, `fact_rival_squad_sample`,
+`scripts/run_rival_sample_ingestion.py`) with conservative defaults (FPL's Overall league,
+n_entries=200, minimal fields — no manager/team names stored). Phases B/C/D below are still
+**design only, not implemented**. Per the roadmap's own explicit instruction:
 "this is a serious standalone project — do not start it until Priorities 0-6 are solid, and
 scope it as its own multi-PR effort with its own design doc reviewed... before
 implementation, not a single PR." Priorities 0-9 (excluding 7d, deliberately skipped — see
@@ -71,12 +74,16 @@ rival-squad distribution and a joint (not independent) simulation against it:
 Each phase is independently reviewable and independently valuable — none blocks shipping the
 others' groundwork, though C depends on A and B.
 
-- **Phase A — `ingest_fpl_entry_picks.py`** (data). Fetches a real, bounded sample of rival
-  squads for a target gameweek from the public FPL API. New table
-  `fact_rival_squad_sample` (player_uid × entry × gw, captain flag). Rate-limited and capped
-  to a modest sample size (see §5) — this is the one phase genuinely blocked on a decision
-  only the user can make (whose squads to sample, how many, how the sampling source is
-  chosen), so it should not start without that answered.
+- **Phase A — `ingest_fpl_entry_picks.py`** (data) — **implemented**. Fetches a real,
+  bounded sample of rival squads for a target gameweek from the public FPL API (Overall
+  league by default, `n_entries=200`). New table `fact_rival_squad_sample` (player_uid ×
+  entry × gw, captain flag, multiplier, public league rank — deliberately no manager/team
+  name). Idempotent per (season, event). Same network-blocked-in-this-sandbox caveat as
+  Understat (Priority 7a): the real API response shapes are taken from FPL's own extensive
+  public documentation, not independently verified against a live fetch here —
+  `_fetch_json()` is isolated for a one-line swap once verified. Deliberately a **separate**
+  script (`scripts/run_rival_sample_ingestion.py`), not wired into `run_ingestion.py`'s
+  default flow, so its own request volume doesn't ride along on every routine ingestion run.
 - **Phase B — joint simulation engine.** Extends `monte_carlo.py` to simulate the manager's
   candidate squad *and* every sampled rival squad against shared per-fixture `Z_fixture`
   draws in one pass, not independent per-squad runs. This is the real technical core of "true"
