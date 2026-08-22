@@ -20,9 +20,10 @@ Depends on scripts/run_ingestion.py having already run for real (needs the same 
 ts_model_version=1/mm_model_version=1/etc. this project's other real-run scripts assume).
 """
 
+import json
 import sys
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from fpl_quant import db, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
+DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 
 
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
@@ -50,9 +52,10 @@ def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event>")
+    if len(sys.argv) not in (3, 4):
+        raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label]")
     entry_id, current_event = int(sys.argv[1]), int(sys.argv[2])
+    label = sys.argv[3] if len(sys.argv) == 4 else str(entry_id)
     plan_for_gameweek = current_event + 1
 
     con = db.connect()
@@ -101,25 +104,54 @@ def main() -> None:
         "SELECT rank, player_out, player_in, horizon_value_gain, transfer_cost, net_value "
         "FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 5", [run_id],
     ).fetchall()
+    recs_out = []
     for rank, out_uid, in_uid, gain, cost, net in recs:
         out_name = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [out_uid]).fetchone()[0]
         in_name = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [in_uid]).fetchone()[0]
         print(f"  #{rank}: OUT {out_name} -> IN {in_name} | gain={gain:.2f} cost={cost} net={net:.2f}")
+        recs_out.append({
+            "rank": rank, "player_out": out_name, "player_in": in_name,
+            "gain": round(gain, 2), "cost": cost, "net": round(net, 2),
+        })
 
     hold_rec = con.execute(
         "SELECT recommended_action, transfer_now_value, hold_value FROM hold_recommendations WHERE run_id = ?", [run_id],
     ).fetchone()
+    hold_out = None
     if hold_rec:
         print(f"\n--- hold vs transfer now ---\n  {hold_rec[0]} (transfer_now={hold_rec[1]:.2f}, hold={hold_rec[2]:.2f})")
+        hold_out = {
+            "recommended_action": hold_rec[0],
+            "transfer_now_value": round(hold_rec[1], 2),
+            "hold_value": round(hold_rec[2], 2),
+        }
 
     print("\n--- chip evaluations ---")
     chips = con.execute(
         "SELECT chip_type, recommended, score_or_gain FROM chip_evaluations WHERE run_id = ?", [run_id],
     ).fetchall()
+    chips_out = []
     for chip_type, recommended, score in chips:
         print(f"  {chip_type}: recommended={recommended} score={score}")
+        chips_out.append({"chip_type": chip_type, "recommended": bool(recommended), "score": round(score, 3) if score is not None else None})
 
     con.close()
+
+    DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "entry_id": entry_id,
+        "label": label,
+        "target_season": TARGET_SEASON,
+        "current_gameweek": current_event,
+        "plan_for_gameweek": plan_for_gameweek,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "transfer_recommendations": recs_out,
+        "hold_vs_transfer_now": hold_out,
+        "chip_evaluations": chips_out,
+    }
+    out_path = DASHBOARD_DIR / f"real_squad_{entry_id}.json"
+    out_path.write_text(json.dumps(snapshot, indent=2))
+    print(f"\n[dashboard] snapshot written to {out_path}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FPL Quant</title>
+<meta name="description" content="Real, model-computed FPL transfer and chip-timing recommendations for two real accounts.">
+
+<!-- iOS "Add to Home Screen": opens standalone (no Safari chrome) when launched from the icon -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FPL Quant">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0f14">
+
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #14181d;
+    --text-dim: #5b6470;
+    --border: #e2e6ea;
+    --accent: #2f6fed;
+    --good: #1f9d55;
+    --bad: #d64545;
+    --neutral: #8a93a0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b0f14;
+      --card: #141a21;
+      --text: #eef1f4;
+      --text-dim: #97a1ac;
+      --border: #232b34;
+      --accent: #5b8dfd;
+      --good: #3ecb75;
+      --bad: #ec6363;
+      --neutral: #6b7480;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    padding: calc(env(safe-area-inset-top) + 20px) 20px 16px;
+    text-align: center;
+  }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  header p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 8px 16px 40px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    margin: 0 0 14px;
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .card h2 .gw-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 9px;
+  }
+  .verdict {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    margin-bottom: 14px;
+  }
+  .verdict.hold { background: color-mix(in srgb, var(--good) 14%, transparent); }
+  .verdict.transfer_now { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .verdict .label {
+    font-size: 15px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .verdict.hold .label { color: var(--good); }
+  .verdict.transfer_now .label { color: var(--accent); }
+  .verdict .detail { font-size: 12px; color: var(--text-dim); }
+
+  .rec-list { list-style: none; margin: 0 0 4px; padding: 0; }
+  .rec-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 0;
+    border-top: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .rec-list li:first-child { border-top: none; }
+  .rec-list .players { color: var(--text); }
+  .rec-list .players b { font-weight: 600; }
+  .rec-list .players .arrow { color: var(--text-dim); margin: 0 4px; }
+  .rec-list .net { font-weight: 700; color: var(--good); font-variant-numeric: tabular-nums; }
+
+  .chip-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 14px;
+  }
+  .chip {
+    text-align: center;
+    padding: 8px 4px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .chip .name { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+  .chip .score { font-size: 13px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+  .swing-wrap { margin-top: 4px; }
+  .swing-row { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+  .swing-row .gw-label { width: 34px; font-size: 10.5px; color: var(--text-dim); flex-shrink: 0; text-align: right; }
+  .swing-track { flex: 1; height: 12px; background: var(--bg); border-radius: 6px; position: relative; overflow: hidden; }
+  .swing-fill { position: absolute; top: 0; bottom: 0; border-radius: 6px; }
+  .swing-mid { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--border); }
+
+  .callout {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--bg);
+    margin-top: 12px;
+  }
+  .callout div { flex: 1; }
+  .callout .k { color: var(--text-dim); }
+  .callout .v { font-weight: 700; margin-top: 2px; }
+  .callout .v.good { color: var(--good); }
+  .callout .v.bad { color: var(--bad); }
+
+  .clubs { font-size: 11px; color: var(--text-dim); margin-top: 10px; line-height: 1.5; }
+
+  .caveat {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--card);
+    border: 1px solid var(--border);
+  }
+  .caveat b { color: var(--text); }
+
+  footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 8px 20px 24px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  .skeleton { color: var(--text-dim); font-size: 13px; padding: 20px; text-align: center; }
+  .error { color: var(--bad); font-size: 13px; padding: 16px; text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FPL Quant</h1>
+  <p id="updated-at">loading real data&hellip;</p>
+</header>
+
+<main id="app">
+  <div class="skeleton">Fetching the latest committed run&hellip;</div>
+</main>
+
+<footer>
+  Data is fetched live from <a href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">github.com/AhmadRehman1/FPL-Analyser</a>,
+  refreshed automatically before every real gameweek deadline.
+</footer>
+
+<script>
+const REPO_RAW = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
+
+async function fetchJSON(path) {
+  const res = await fetch(`${REPO_RAW}/${path}?t=${Date.now()}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return res.json();
+}
+
+function fmtTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function verdictBlock(hold) {
+  if (!hold) return "";
+  const isHold = hold.recommended_action === "hold";
+  return `
+    <div class="verdict ${isHold ? "hold" : "transfer_now"}">
+      <span class="label">${isHold ? "Hold this week" : "Use transfer now"}</span>
+      <span class="detail">hold value ${hold.hold_value.toFixed(1)} vs. transfer-now ${hold.transfer_now_value.toFixed(1)}</span>
+    </div>`;
+}
+
+function recListBlock(recs) {
+  if (!recs || !recs.length) return `<p style="color:var(--text-dim);font-size:13px;">No transfer recommendations available.</p>`;
+  return `<ul class="rec-list">` + recs.slice(0, 3).map(r => `
+    <li>
+      <span class="players"><b>OUT</b> ${r.player_out} <span class="arrow">&rarr;</span> <b>IN</b> ${r.player_in}</span>
+      <span class="net">+${r.net.toFixed(1)}</span>
+    </li>`).join("") + `</ul>`;
+}
+
+function chipRowBlock(chips) {
+  if (!chips || !chips.length) return "";
+  const short = { wildcard: "WC", free_hit: "FH", triple_captain: "TC", bench_boost: "BB" };
+  return `<div class="chip-row">` + chips.map(c => `
+    <div class="chip">
+      <div class="name">${short[c.chip_type] || c.chip_type}</div>
+      <div class="score">${c.score != null ? c.score.toFixed(1) : "&mdash;"}</div>
+    </div>`).join("") + `</div>`;
+}
+
+function accountCard(squad) {
+  return `
+    <div class="card">
+      <h2>${squad.label} <span class="gw-tag">GW${squad.plan_for_gameweek}</span></h2>
+      ${verdictBlock(squad.hold_vs_transfer_now)}
+      ${recListBlock(squad.transfer_recommendations)}
+      ${chipRowBlock(squad.chip_evaluations)}
+    </div>`;
+}
+
+function swingColor(v) {
+  // negative = easier run (good, green); positive = harder run (bad, red)
+  if (v == null) return "var(--neutral)";
+  return v < 0 ? "var(--good)" : "var(--bad)";
+}
+
+function swingRoadmapCard(account, maxAbs) {
+  const rows = account.weekly_swing.map(w => {
+    const v = w.avg_squad_swing;
+    const pct = v == null ? 0 : Math.min(48, Math.abs(v) / maxAbs * 48);
+    const side = v == null ? "" : (v < 0
+      ? `left:50%; width:${pct}%;`
+      : `right:50%; width:${pct}%;`);
+    return `
+      <div class="swing-row">
+        <span class="gw-label">GW${w.gameweek}</span>
+        <div class="swing-track">
+          <div class="swing-mid"></div>
+          <div class="swing-fill" style="${side} background:${swingColor(v)};"></div>
+        </div>
+      </div>`;
+  }).join("");
+
+  const best = account.best_bench_boost_triple_captain_window;
+  const worst = account.toughest_window_wildcard_candidate;
+
+  return `
+    <div class="card">
+      <h2>${account.label} &mdash; first-half fixture swing</h2>
+      <div class="swing-wrap">${rows}</div>
+      <div class="callout">
+        <div><div class="k">Easiest run (Bench Boost / Triple Captain window)</div><div class="v good">${best ? `GW${best.gameweek}` : "&mdash;"}</div></div>
+        <div><div class="k">Toughest run (Wildcard to consider before)</div><div class="v bad">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div></div>
+      </div>
+      <div class="clubs">Squad clubs used for this signal: ${account.squad_clubs.join(", ")}</div>
+    </div>`;
+}
+
+async function render() {
+  const app = document.getElementById("app");
+  try {
+    const [chatgpt, main, roadmap] = await Promise.all([
+      fetchJSON("data/dashboard/real_squad_7139944.json"),
+      fetchJSON("data/dashboard/real_squad_1305242.json"),
+      fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
+    ]);
+
+    document.getElementById("updated-at").textContent =
+      `Last real run: ${fmtTime(chatgpt.generated_at)}`;
+
+    let html = accountCard(chatgpt) + accountCard(main);
+
+    if (roadmap) {
+      const allSwings = roadmap.accounts.flatMap(a => a.weekly_swing.map(w => w.avg_squad_swing)).filter(v => v != null);
+      const maxAbs = Math.max(0.05, ...allSwings.map(Math.abs));
+      html += roadmap.accounts.map(a => swingRoadmapCard(a, maxAbs)).join("");
+    }
+
+    html += `
+      <div class="caveat">
+        <b>Real, but not tuned yet:</b> every model parameter behind these numbers is still an
+        un-recalibrated v1 default (not yet backtested against real results). The fixture-swing
+        roadmap reflects <b>today's</b> squad composition &mdash; transfers made along the way will
+        change which teams it's actually tracking by the time later gameweeks arrive. Chip scores
+        are each chip clearing its own value bar in isolation, not a signal to fire multiple at
+        once.
+      </div>`;
+
+    app.innerHTML = html;
+  } catch (err) {
+    app.innerHTML = `<div class="error">Couldn't load live data (${err.message}). The scheduled pipeline may not have run yet, or GitHub's raw-content cache hasn't caught up &mdash; try again shortly.</div>`;
+  }
+}
+
+render();
+</script>
+
+</body>
+</html>

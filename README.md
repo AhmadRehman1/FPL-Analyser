@@ -390,11 +390,17 @@ scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for rec
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
 scripts/run_transfer_planner_for_real_squad.py -- M8: same, but bootstrapped from a real
                                      manager's actual live FPL squad (fetched by entry ID),
-                                     not this project's own from-scratch GW1 pick. Runnable
-                                     via the scheduled workflow's real_squad_entry_id
-                                     workflow_dispatch input (needs the same freshly-ingested
-                                     database run_ingestion.py just built in that same run --
-                                     see the workflow file's own comment on that step)
+                                     not this project's own from-scratch GW1 pick. Runs
+                                     automatically every scheduled run for both real accounts
+                                     this project tracks (plus an ad-hoc third via the
+                                     workflow's real_squad_entry_id workflow_dispatch input) --
+                                     needs the same freshly-ingested database run_ingestion.py
+                                     just built in that same run. Writes its result to
+                                     data/dashboard/real_squad_<entry_id>.json for index.html
+scripts/print_chip_timing_roadmap.py -- first-half-of-season chip-timing signal for both real
+                                     accounts, from fixture_swing.py's real rolling swing
+                                     scores against each account's actual current squad.
+                                     Writes data/dashboard/chip_timing_roadmap.json
 scripts/run_season_simulation.py   -- M7/M8: one real season simulation + a real lambda/
                                      concentration-cap sensitivity sweep against the real DB
 scripts/run_report.py              -- M9: build + print a real squad report from the project
@@ -425,6 +431,19 @@ data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
                                    FPL_Evidence_Claims_Research_Pull.xlsx go here
 data/report_history/           -- Priority 8c: small, committed per-gameweek report snapshots
                                    (JSON) -- NOT gitignored, this is the point of persisting them
+data/dashboard/                 -- committed JSON the live dashboard (index.html) fetches:
+                                   real_squad_<entry_id>.json (both real accounts' current
+                                   transfer/hold/chip verdict) and chip_timing_roadmap.json
+                                   (first-half fixture-swing signal) -- written by the
+                                   scheduled workflow's real-squad and chip-timing steps
+index.html                      -- the live mobile dashboard itself, served via GitHub Pages
+                                   (Settings -> Pages -> Deploy from a branch -> master -> / root).
+                                   Self-contained (no build step, no external dependencies),
+                                   fetches data/dashboard/*.json live from this repo's raw
+                                   GitHub content on every page load -- always shows whatever
+                                   the scheduled workflow most recently committed, no redeploy
+                                   needed. iOS "Add to Home Screen" launches it standalone (no
+                                   Safari chrome).
 db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.py
 ```
 

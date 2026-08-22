@@ -131,11 +131,30 @@ jobs:
       - name: Run ingestion (M0-M6)
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
-      # Opt-in (real_squad_entry_id workflow_dispatch input only) -- see that input's own
-      # description above for why this has to run in THIS job, right after ingestion, rather
-      # than as a separately-triggerable workflow: it needs the same ephemeral database
-      # run_ingestion.py just populated in this same runner.
-      - name: Plan transfers for a real manager's squad (manual dispatch only)
+      # Runs for real on every scheduled run (not manual-dispatch-only anymore) for both real
+      # FPL accounts this project tracks -- has to live in THIS job, right after ingestion,
+      # since it needs the same ephemeral database run_ingestion.py just populated in this same
+      # runner (see run_transfer_planner_for_real_squad.py's own module docstring). Sequential,
+      # not two separate workflow runs -- avoids ever needing the git-push race-retry logic
+      # below for this step's own output, since both write their JSON snapshot within the same
+      # job/checkout. real_squad_event is hardcoded to "1" here (both accounts' GW1 picks);
+      # bump this once the season moves past needing GW1 as the read-from gameweek.
+      - name: Plan transfers for both real managers' squads
+        run: |
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 1 "ChatGPT template team"
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 1 "Main account"
+
+      # Real, computed (not invented) fixture-swing signal for both accounts' current squads,
+      # covering GW3-19 -- see the script's own docstring for what "swing" means and its real
+      # caveat (squad composition will change via transfers before most of these gameweeks
+      # arrive, so this is a live-refreshed signal, not a locked-in plan).
+      - name: Print first-half chip-timing roadmap
+        run: PYTHONPATH=src python scripts/print_chip_timing_roadmap.py
+
+      # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
+      # a one-off re-check) without needing a code change -- the two real accounts above always
+      # run regardless of this input.
+      - name: Plan transfers for an ad-hoc real manager's squad (manual dispatch only)
         if: github.event.inputs.real_squad_entry_id != ''
         run: |
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
@@ -162,19 +181,19 @@ jobs:
               labels: ["deadline-alert"],
             });
 
-      # Priority 8c's snapshots are the point of persisting anything here -- everything else
-      # (the DuckDB file itself) is gitignored and rebuilt fresh next run. A real, observed
-      # failure mode (not hypothesized): two workflow_dispatch runs (e.g. one per real FPL
-      # account, see real_squad_entry_id above) finishing close together both try to push this
-      # commit -- the second's bare `git push` gets rejected outright ("fetch first"), even
-      # though its own report_history content is perfectly valid and just needs to land on top
-      # of the first's. Retry with a rebase (never force-push -- this is master) a few times
-      # rather than crashing the whole run over a benign race between two legitimate pushes.
-      - name: Commit report_history snapshots
+      # Priority 8c's snapshots (+ the real-squad dashboard snapshots above) are the point of
+      # persisting anything here -- everything else (the DuckDB file itself) is gitignored and
+      # rebuilt fresh next run. A real, observed failure mode (not hypothesized): two
+      # workflow_dispatch runs finishing close together both tried to push this commit -- the
+      # second's bare `git push` got rejected outright ("fetch first"), even though its own
+      # content was perfectly valid and just needed to land on top of the first's. Retry with a
+      # rebase (never force-push -- this is master) a few times rather than crashing the whole
+      # run over a benign race between two legitimate pushes.
+      - name: Commit report_history + dashboard snapshots
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/report_history/
+          git add data/report_history/ data/dashboard/
           git diff --cached --quiet && exit 0
           git commit -m "chore: update report_history snapshot [skip ci]"
           for attempt in 1 2 3 4 5; do
