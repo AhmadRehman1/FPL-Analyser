@@ -163,6 +163,53 @@ def test_compute_automated_flags_catches_club_at_cap(con):
     assert by_name["club_concentration"]["passed"] is False
 
 
+def test_compute_automated_flags_sanity_checks_are_opt_in(con):
+    """Without sanity_check_params_version, the two new Priority 2 flags must not appear at
+    all -- backward compatible for every existing caller that doesn't pass it."""
+    run_id, *_ = _seed_full_squad_scenario(con)
+    flags = reporting.compute_automated_flags(con, run_id)
+    names = {f["name"] for f in flags}
+    assert "nailed_attacking_return" not in names
+    assert "rotation_risk_def_mid" not in names
+
+
+def test_compute_automated_flags_catches_no_nailed_attacking_return(con):
+    """_seed_full_squad_scenario's p2 (Forward) has p_start_final=0.7, below the spec's own
+    0.75 threshold -- with only one attacking-position player in the XI, the flag must fire."""
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "nailed_p_start_threshold", value_numeric=0.75)
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "rotation_risk_p_start_threshold", value_numeric=0.55)
+    flags = reporting.compute_automated_flags(con, run_id, sanity_check_params_version=1)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["nailed_attacking_return"]["passed"] is False
+
+
+def test_compute_automated_flags_passes_when_a_mid_fwd_is_clearly_nailed(con):
+    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    mm_mv = con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [un_mv]
+    ).fetchone()[0]
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.95 WHERE model_version = ? AND player_uid = 'p2'", [mm_mv])
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "nailed_p_start_threshold", value_numeric=0.75)
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "rotation_risk_p_start_threshold", value_numeric=0.55)
+    flags = reporting.compute_automated_flags(con, run_id, sanity_check_params_version=1)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["nailed_attacking_return"]["passed"] is True
+
+
+def test_compute_automated_flags_catches_rotation_risk_when_all_def_mid_below_threshold(con):
+    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    mm_mv = con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [un_mv]
+    ).fetchone()[0]
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.3 WHERE model_version = ? AND player_uid = 'p1'", [mm_mv])
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "nailed_p_start_threshold", value_numeric=0.75)
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "rotation_risk_p_start_threshold", value_numeric=0.55)
+    flags = reporting.compute_automated_flags(con, run_id, sanity_check_params_version=1)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["rotation_risk_def_mid"]["passed"] is False
+
+
 # ============================================================
 # build_report / render_report_text
 # ============================================================
@@ -236,6 +283,40 @@ def test_build_report_captain_risk_eo_section_absent_by_default(con):
     report = reporting.build_report(con, run_id)
     assert report["captain_risk_eo"] is None
     assert "captain_risk_eo" in report
+
+
+# ============================================================
+# Priority 2 -- consensus_divergence / adversarial_review sections
+# ============================================================
+
+def test_build_report_consensus_and_adversarial_sections_absent_by_default(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    report = reporting.build_report(con, run_id)
+    assert report["consensus_divergence"] is None
+    assert report["adversarial_review"] is None
+
+
+def test_build_report_consensus_and_adversarial_sections_when_requested(con):
+    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    for uid, price in (("p1", 5.0), ("p2", 6.0)):
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, '2026-2027', 1, ?, current_timestamp)", [uid, price],
+        )
+    reporting.seed_v1_params(con)
+    params.write_param(con, "bench_quality_params", 1, "2026-08-10", "min_bench_p_start_probability", value_numeric=0.25)
+
+    report = reporting.build_report(
+        con, run_id,
+        consensus_check_params_version=1, evidence_decay_params_version=1,
+        evidence_fact_multiplier_params_version=1, bench_quality_params_version=1,
+        report_asof=datetime(2026, 8, 10),
+    )
+    assert report["consensus_divergence"] is not None  # a real list (possibly empty), not None
+    assert isinstance(report["consensus_divergence"], list)
+    assert report["adversarial_review"] is not None
+    checks = {f["check"] for f in report["adversarial_review"]}
+    assert "budget_legality" in checks and "squad_completeness" in checks
 
 
 def test_render_report_text_includes_captain_risk_eo_when_present(con):
