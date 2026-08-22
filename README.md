@@ -1061,10 +1061,13 @@ for the existing (real-data) `lambda_value` finding above.
   project needed doesn't live in the sandbox that built it.** This project's own network
   policy blocks understat.com and similar third-party hosts entirely (see the Priority 7a note
   above), so a scheduled job has to run somewhere with open internet -- a GitHub Actions
-  runner, not a Claude Code Remote Routine (which would inherit the same restriction). The two
-  cron slots (Friday 17:30 UTC, Saturday 10:00 UTC) are a documented approximation of "most
-  gameweeks' deadline window," not a precise per-gameweek tracker -- nothing in this pipeline
-  queries the FPL API for the real next deadline yet, a flagged follow-up.
+  runner, not a Claude Code Remote Routine (which would inherit the same restriction). The cron
+  list is one real entry per real 2026-27 gameweek deadline (minus 1 day), generated from FPL's
+  own `bootstrap-static` via `scripts/print_fpl_deadlines.py` -- not a fixed weekly
+  approximation anymore. GitHub Actions cron can't be dynamically rescheduled from inside a
+  run, so this needs a manual re-sync (re-run `print_deadlines.yml`, paste in the new cron
+  column) whenever the real season schedule changes -- a real, disclosed limitation, not
+  dynamic self-scheduling.
   `data/external/`'s two private evidence workbooks are both fetched from a Google Drive file
   set to "Anyone with the link" (an accepted unguessable-link trade-off, chosen over committing
   them to this *public* repo or a public Release asset, both of which would be strictly more
