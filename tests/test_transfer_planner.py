@@ -699,6 +699,228 @@ def test_evaluate_transfers_fixture_swing_none_without_ts_model_version(con):
     assert "fixture_swing_in" not in results[0]
 
 
+# ============================================================
+# Priority 5 -- crowded_chip_week_score / chip-combo sequencing
+# ============================================================
+
+def _seed_crowded_week_scenario(con, target_season="2026-2027", favored_team_ownership=80.0, other_team_ownership=5.0):
+    """Two teams, real team_strength_snapshots (team_a strong attack/weak defence vs.
+    team_b's own), a fixture at gw2 and a further one at gw3 (so rolling_swing_score() has a
+    real short/long window to average over), and real selected_by_percent so the
+    ownership-weighting in crowded_chip_week_score() has genuine data to work with -- the
+    fixture the roadmap itself names: a heavily-owned team's own favorable run should read as
+    a broadly template-friendly (crowded) week."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'TeamA'), ('team_b', 'TeamB')")
+    _seed_raw_teams_csv(con, target_season, [("1", "TeamA"), ("2", "TeamB")])
+    con.execute(
+        "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES "
+        "('TeamA', ?, 'team_a', 't'), ('TeamB', ?, 'team_b', 't')", [target_season, target_season],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    for team_uid, attack, defence in (("team_a", 0.5, -0.3), ("team_b", -0.3, 0.3)):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)",
+            [ts_mv, team_uid, attack, defence],
+        )
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES "
+        "('m2', ?, 2, 'team_a', 'team_b', FALSE, 'Premier League', '2026-08-24', current_timestamp), "
+        "('m3', ?, 3, 'team_a', 'team_b', FALSE, 'Premier League', '2026-08-31', current_timestamp)",
+        [target_season, target_season],
+    )
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p_a', 'p_a', 'Midfielder'), ('p_b', 'p_b', 'Midfielder')")
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES "
+        "('p_a', 'p_a', '1', ?, 'p_a'), ('p_b', 'p_b', '2', ?, 'p_b')", [target_season, target_season],
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+        "VALUES ('p_a', ?, 1, 5.0, ?, current_timestamp), ('p_b', ?, 1, 5.0, ?, current_timestamp)",
+        [target_season, favored_team_ownership, target_season, other_team_ownership],
+    )
+    return ts_mv
+
+
+def test_crowded_chip_week_score_reflects_ownership_weighted_swing(con):
+    ts_mv = _seed_crowded_week_scenario(con, favored_team_ownership=80.0, other_team_ownership=5.0)
+    result = tp.crowded_chip_week_score(con, "2026-2027", 2, ts_mv)
+    assert result["crowded_score"] is not None
+
+    # confirm it's a genuine ownership-weighted average, not coincidentally equal to a flat
+    # average, by recomputing it independently against the same real swing scores.
+    swing_a = fixture_swing.rolling_swing_score(con, "team_a", "2026-2027", as_of_gameweek=2, ts_model_version=ts_mv)
+    swing_b = fixture_swing.rolling_swing_score(con, "team_b", "2026-2027", as_of_gameweek=2, ts_model_version=ts_mv)
+    expected = (80.0 * swing_a.swing_score + 5.0 * swing_b.swing_score) / (80.0 + 5.0)
+    assert result["crowded_score"] == pytest.approx(expected)
+
+
+def test_crowded_chip_week_score_none_when_no_ownership_data(con):
+    ts_mv = _seed_crowded_week_scenario(con)
+    con.execute("UPDATE fact_player_season_stats SET selected_by_percent = NULL")
+    result = tp.crowded_chip_week_score(con, "2026-2027", 2, ts_mv)
+    assert result["crowded_score"] is None
+    assert "caveat" in result
+
+
+def test_evaluate_bench_boost_attaches_crowded_chip_week_when_opted_in(con):
+    ts_mv = _seed_crowded_week_scenario(con)
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]') RETURNING model_version"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1) RETURNING model_version", [ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+        "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+        "ep_total, expected_bps) VALUES (?, 'p_a', 'm2', 0,0,0,0,0,0,0,0,0,0,0, 3.0, 5.0)", [ep_mv],
+    )
+    horizon_ep_versions = {2: (ep_mv, 1)}
+
+    without = tp.evaluate_bench_boost(con, horizon_ep_versions, squad_uids={"p_a", "p_b"}, xi_uids={"p_b"})
+    assert "crowded_chip_week" not in without
+
+    with_crowded = tp.evaluate_bench_boost(
+        con, horizon_ep_versions, squad_uids={"p_a", "p_b"}, xi_uids={"p_b"},
+        target_season="2026-2027", ts_model_version=ts_mv,
+    )
+    assert with_crowded["target_gameweek"] == without["target_gameweek"]  # never changes WHICH gw is picked
+    assert with_crowded["bench_ep_sum"] == without["bench_ep_sum"]
+    assert "crowded_chip_week" in with_crowded
+    assert with_crowded["crowded_chip_week"]["crowded_score"] is not None
+
+
+def test_evaluate_wildcard_bench_boost_combo_computes_synergy(con):
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)
+
+    wildcard_result = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", 2, current_squad_horizon_value=10.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    squad_uids = {h["player_uid"] for h in holdings}
+    xi_uids = {h["player_uid"] for h in holdings if h["in_xi"]}
+    bench_boost_result = tp.evaluate_bench_boost(con, horizon_ep_versions, squad_uids, xi_uids)
+
+    combo = tp.evaluate_wildcard_bench_boost_combo(con, wildcard_result, bench_boost_result, "2026-2027", 2, horizon_ep_versions)
+    assert isinstance(combo["recommended_combo"], bool)
+    assert combo["combo_value"] == pytest.approx(combo["wildcard_gain_alone"] + combo["fresh_squad_bench_ep_at_target_gw"])
+    assert combo["synergy_gain"] == pytest.approx(combo["combo_value"] - combo["naive_independent_sum"])
+    # the fresh (post-Wildcard) squad's own bench EP at target_gameweek must be a real,
+    # non-negative number derived from a real solved squad -- not a placeholder.
+    assert combo["fresh_squad_bench_ep_at_target_gw"] >= 0.0
+
+
+def test_evaluate_wildcard_bench_boost_combo_no_action_when_wildcard_infeasible(con):
+    result = tp.evaluate_wildcard_bench_boost_combo(
+        con, {"recommended": False, "reason": "no fixtures"}, {"recommended": False}, "2026-2027", 2, {},
+    )
+    assert result["recommended_combo"] is False
+    assert "reason" in result
+
+
+def test_evaluate_free_hit_triple_captain_combo_uses_a_real_simulation(con):
+    from fpl_quant import expected_points as ep_mod
+    from fpl_quant import uncertainty as un_mod
+
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    # monte_carlo.run()'s own team resolution (_team_of_for_fixture) needs the SAME raw-
+    # teams.csv -> team_alias -> dim_team chain squad_optimizer.explain_run()'s club audit
+    # and fixture_swing's team_uid_by_player() both already use --
+    # _seed_real_squad_optimizer_candidate_pool doesn't provide it (evaluate_wildcard()/
+    # evaluate_free_hit() never needed it, only fetch_candidate_pool() does), so a REAL
+    # simulation test has to add it explicitly or every squad player's team_uid resolves to
+    # None and gets silently skipped (see simulate_fixture()'s own "can't resolve team side,
+    # skip rather than guess" comment).
+    clubs = ["clubA", "clubB", "clubC", "clubD", "clubE", "clubF"]
+    _seed_raw_teams_csv(con, "2026-2027", [(c, c) for c in clubs])
+    for c in clubs:
+        con.execute(
+            "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES (?, '2026-2027', ?, 't')",
+            [c, c],
+        )
+    so.seed_v1_params(con)
+    ts_mv_for_snapshots = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    # expected_points._fixture_lambdas() (called inside monte_carlo.simulate_fixture()) needs
+    # a real team_strength_snapshots row for BOTH sides of fixture 'm1' (clubA vs clubB, per
+    # _seed_real_squad_optimizer_candidate_pool's own single fixture) -- not seeded by that
+    # helper either, since evaluate_wildcard()/evaluate_free_hit() never simulate a fixture
+    # directly.
+    for c in ("clubA", "clubB"):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, 0.1, 0.0, 2, 1.0)",
+            [ts_mv_for_snapshots, c],
+        )
+    # monte_carlo.simulate_fixture() resolves model_decay_params.rho for the Dixon-Coles
+    # bivariate Poisson grid -- team_strength.py has no seed_v1_params of its own (confirmed by
+    # grep); every other test needing this writes it directly.
+    tp.params_mod.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    ep_mod.seed_v1_params(con)
+    un_mod.seed_v1_params(con)
+    tp.params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
+    tp.params_mod.write_param(con, "tc_risk_aversion_params", 1, "2026-08-12", "kappa_tc", value_numeric=0.15)
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv, un_mv = horizon_ep_versions[2]
+
+    # monte_carlo.simulate_fixture()'s own roster query INNER JOINs ep_outputs against
+    # minutes_model_outputs (p_0min/p_1_59min/p_60plus_min) -- _seed_real_squad_optimizer_
+    # candidate_pool doesn't seed this either (same reason as the team-alias chain above), so
+    # without it the roster join comes back empty and nothing gets simulated at all.
+    all_uids = [r[0] for r in con.execute("SELECT DISTINCT player_uid FROM ep_outputs WHERE model_version = ?", [ep_mv]).fetchall()]
+    for uid in all_uids:
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_position_avg, "
+            "weight_own, p_start_historical_final, logit_adjustment_total, p_start_final, "
+            "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+            "VALUES (?, ?, 'Midfielder', 0.8, 1.0, 0.8, 0.0, 0.8, 0.0, 0.1, 0.1, 0.8, 20)",
+            [mm_mv, uid],
+        )
+
+    free_hit_result = tp.evaluate_free_hit(
+        con, date(2026, 8, 24), "2026-2027", 2, holdings, horizon_ep_versions,
+        lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    current_tc_result = {"recommended": False}  # no current-squad simulation needed for this test
+
+    combo = tp.evaluate_free_hit_triple_captain_combo(
+        con, date(2026, 8, 24), free_hit_result, current_tc_result, ep_mv, mm_mv, ts_mv, un_mv,
+        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=1, kappa_tc_params_version=1,
+        n_antithetic_pairs=200,
+    )
+    assert combo["combo_tc_score"] is not None
+    assert combo["combo_captain_candidate"] is not None
+    assert combo["recommended_combo"] is True  # beats current_tc_result's None (no current TC option available)
+    # a real monte_carlo_run_versions row must actually exist -- proves this ran a genuine
+    # simulation, not a stub.
+    mc_row = con.execute(
+        "SELECT count(*) FROM monte_carlo_run_versions WHERE model_version = ?", [combo["combo_mc_model_version"]]
+    ).fetchone()[0]
+    assert mc_row == 1
+
+
+def test_evaluate_free_hit_triple_captain_combo_no_action_when_free_hit_infeasible(con):
+    result = tp.evaluate_free_hit_triple_captain_combo(
+        con, date(2026, 8, 24), {"recommended": False}, {"recommended": False}, 1, 1, 1, 1, 1, 1, 1, 1,
+    )
+    assert result["recommended_combo"] is False
+    assert "reason" in result
+
+
 def test_evaluate_transfers_sufficient_bank_legalizes_an_otherwise_too_expensive_transfer(con):
     """Regression test for the transfer planner's real bug: with bank=0.0 (the old, only
     behavior), p_in_too_expensive (price 9.0 vs p_out's 8.0) is illegal -- no single outgoing
@@ -1076,6 +1298,76 @@ def test_run_skips_multi_transfer_and_hold_by_default(con, monkeypatch):
     plan = tp.explain_plan(con, run_id)
     assert plan["top_multi_transfers"] == []
     assert plan["hold_recommendation"] is None
+
+
+def test_run_wires_chip_combos_when_opted_in(con, monkeypatch):
+    """evaluate_chip_combos defaults to False (see run()'s own docstring -- the Free-Hit x
+    Triple-Captain combo needs a genuinely new Monte Carlo simulation, the same cost class as
+    multi_transfer_pool_limit_per_position). True computes and persists both combo
+    evaluations, and explain_plan() must surface them."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+
+    # evaluate_free_hit_triple_captain_combo()'s own real Monte Carlo simulation needs the
+    # team-resolution and roster chains _seed_real_squad_optimizer_candidate_pool doesn't
+    # provide (see test_evaluate_free_hit_triple_captain_combo_uses_a_real_simulation's own
+    # comments above for exactly why each piece here is needed).
+    clubs = ["clubA", "clubB", "clubC", "clubD", "clubE", "clubF"]
+    _seed_raw_teams_csv(con, "2026-2027", [(c, c) for c in clubs])
+    for c in clubs:
+        con.execute(
+            "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES (?, '2026-2027', ?, 't')",
+            [c, c],
+        )
+    for c in ("clubA", "clubB"):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, 0.1, 0.0, 2, 1.0)",
+            [ts_mv, c],
+        )
+    tp.params_mod.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    ep_mv, _un_mv = horizon_ep_versions[2]
+    all_uids = [r[0] for r in con.execute("SELECT DISTINCT player_uid FROM ep_outputs WHERE model_version = ?", [ep_mv]).fetchall()]
+    for uid in all_uids:
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_position_avg, "
+            "weight_own, p_start_historical_final, logit_adjustment_total, p_start_final, "
+            "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+            "VALUES (?, ?, 'Midfielder', 0.8, 1.0, 0.8, 0.0, 0.8, 0.0, 0.1, 0.1, 0.8, 20)",
+            [mm_mv, uid],
+        )
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        evaluate_chip_combos=True,
+    )
+
+    combo_rows = con.execute(
+        "SELECT combo_type, recommended_combo FROM chip_combo_evaluations WHERE run_id = ? ORDER BY combo_type", [run_id]
+    ).fetchall()
+    assert {r[0] for r in combo_rows} == {"wildcard_bench_boost", "free_hit_triple_captain"}
+
+    plan = tp.explain_plan(con, run_id)
+    assert plan["chip_combos"] is not None
+    assert set(plan["chip_combos"]) == {"wildcard_bench_boost", "free_hit_triple_captain"}
+    assert plan["chip_combos"]["wildcard_bench_boost"]["recommended_combo"] == dict(combo_rows)["wildcard_bench_boost"]
+
+
+def test_run_skips_chip_combos_by_default(con, monkeypatch):
+    """Backward compatibility: the original run() call shape must leave chip_combo_evaluations
+    empty, and explain_plan()'s chip_combos section None."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    )
+    combo_rows = con.execute("SELECT count(*) FROM chip_combo_evaluations WHERE run_id = ?", [run_id]).fetchone()[0]
+    assert combo_rows == 0
+
+    plan = tp.explain_plan(con, run_id)
+    assert plan["chip_combos"] is None
 
 
 def test_evaluate_hold_recommendation_no_action_available_when_no_legal_candidate_exists(con):

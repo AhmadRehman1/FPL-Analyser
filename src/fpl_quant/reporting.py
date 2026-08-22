@@ -358,6 +358,9 @@ def render_report_text(report: dict) -> str:
             )
         for chip_type, c in tr["chips"].items():
             lines.append(f"  {chip_type}: recommended={c['recommended']} score={c['score_or_gain']}")
+        if tr["chip_combos"]:
+            for combo_type, c in tr["chip_combos"].items():
+                lines.append(f"  combo[{combo_type}]: recommended={c['recommended_combo']}")
         if tr["gw19_deadline"]["urgent"]:
             lines.append(f"  GW19 URGENT: unused chips {tr['gw19_deadline']['unused_set1_chips']}")
 

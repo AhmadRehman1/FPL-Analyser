@@ -738,6 +738,74 @@ def evaluate_hold_recommendation(
 
 
 # ============================================================
+# Priority 5 -- chip timing relative to the field, not just fixtures. Real rival-manager chip
+# usage is NOT tracked anywhere in this project (same conclusion squad_optimizer.
+# captain_choice_with_differential's own caveat already reached for rival-manager data
+# generally) -- this is a proxy inference from real ownership+fixture data, named plainly as
+# such, never oversold as measured chip-timing data. If mini-league opponent squads are ever
+# tracked (not currently, and not planned here -- a genuinely new, currently-nonexistent data
+# source), chip timing against a SPECIFIC rival's likely chip usage would be the natural
+# extension of this; flagged as a documented future direction, not something to half-build
+# speculatively against data that doesn't exist yet.
+# ============================================================
+
+def crowded_chip_week_score(
+    con: duckdb.DuckDBPyConnection, target_season: str, target_gameweek: int, ts_model_version: int,
+    swing_short_window: int = 3, swing_long_window: int = 6,
+) -> dict:
+    """Ownership-weighted average fixture-swing score across the league as of
+    target_gameweek -- reuses fixture_swing's own team-level swing-score plumbing (see
+    fixture_swing.swing_scores_by_team()) rather than inventing a second fixture-favorability
+    mechanism. A negative swing_score means a team's near-term run is EASIER than its fuller
+    window (see fixture_swing.rolling_swing_score()'s own docstring); weighting by
+    selected_by_percent means a broadly NEGATIVE (easier) result here reflects the teams the
+    FIELD disproportionately already owns having good upcoming fixtures -- exactly the kind
+    of week community chip-strategy wisdom already gravitates toward, so a plausible proxy
+    for "the field is more likely to time a chip here too," not a claim to know it.
+
+    crowded_score=None means genuinely insufficient data (no team has both a resolvable
+    swing score AND ownership data) -- never silently coerced to 0.0, matching this
+    project's "missing != a real neutral result" discipline throughout.
+    """
+    swing_by_team = fixture_swing.swing_scores_by_team(
+        con, target_season, target_gameweek, ts_model_version, swing_short_window, swing_long_window,
+    )
+    team_by_player = fixture_swing.team_uid_by_player(con, target_season)
+    ownership = dict(con.execute(
+        "SELECT player_uid, selected_by_percent FROM fact_player_season_stats "
+        "WHERE season = ? AND selected_by_percent IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [target_season],
+    ).fetchall())
+
+    total_weight, weighted_sum = 0.0, 0.0
+    for player_uid, team_uid in team_by_player.items():
+        own = ownership.get(player_uid)
+        swing = swing_by_team.get(team_uid)
+        if own is None or swing is None or swing.swing_score is None:
+            continue
+        weighted_sum += own * swing.swing_score
+        total_weight += own
+
+    if total_weight == 0:
+        return {
+            "crowded_score": None,
+            "caveat": (
+                "insufficient ownership/fixture-swing data to infer field-wide chip timing -- "
+                "a proxy inference from real ownership+fixture data, not measured rival-manager "
+                "chip usage, which is not tracked anywhere in this project"
+            ),
+        }
+    return {
+        "crowded_score": weighted_sum / total_weight,
+        "caveat": (
+            "an ownership+fixture-swing-based PROXY for field-wide chip timing, not measured "
+            "rival-manager chip usage -- no such data is ingested anywhere in this project"
+        ),
+    }
+
+
+# ============================================================
 # chip evaluation
 # ============================================================
 
@@ -804,9 +872,21 @@ def evaluate_triple_captain(
     }
 
 
-def evaluate_bench_boost(con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str]) -> dict:
+def evaluate_bench_boost(
+    con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str],
+    target_season: str | None = None, ts_model_version: int | None = None,
+) -> dict:
     """Compares projected bench EP sum (M3's ep_total, not a simulation) across horizon
-    gameweeks, recommends the gameweek maximizing it. Bench = squad minus XI."""
+    gameweeks, recommends the gameweek maximizing it. Bench = squad minus XI.
+
+    target_season/ts_model_version (Priority 5, optional, default None -- prior behavior, no
+    crowded_chip_week key on the result): when BOTH given, attaches crowded_chip_week_score()
+    for the recommended gameweek -- informational only, same convention as
+    evaluate_transfers()'s own momentum/swing/price-change-risk attachments: it never changes
+    WHICH gameweek is recommended (still the raw EP-maximizing one), only adds context a human
+    should weigh about how much of that raw score is likely to translate into RELATIVE rank
+    gain if the whole field also picks a good week here.
+    """
     bench_uids = squad_uids - xi_uids
     if not bench_uids:
         return {"recommended": False, "reason": "no bench players (XI equals full squad?)"}
@@ -821,7 +901,10 @@ def evaluate_bench_boost(con: duckdb.DuckDBPyConnection, horizon_ep_versions: di
     if not by_gw:
         return {"recommended": False, "reason": "no horizon gameweeks with fixtures"}
     best_gw = max(by_gw, key=by_gw.get)
-    return {"recommended": True, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw}
+    result = {"recommended": True, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw}
+    if target_season is not None and ts_model_version is not None:
+        result["crowded_chip_week"] = crowded_chip_week_score(con, target_season, best_gw, ts_model_version)
+    return result
 
 
 def evaluate_wildcard(
@@ -879,6 +962,65 @@ def evaluate_wildcard(
     }
 
 
+def evaluate_wildcard_bench_boost_combo(
+    con: duckdb.DuckDBPyConnection, wildcard_result: dict, bench_boost_result: dict,
+    target_season: str, target_gameweek: int, horizon_ep_versions: dict[int, tuple[int, int]],
+) -> dict:
+    """Priority 5 -- chip-combo sequencing: Wildcard rebuilds the WHOLE squad, bench included,
+    so a Wildcard aimed partly at strengthening the bench and Bench-Boosted soon after can be
+    worth more than either chip's own independent evaluation suggests. Compares three real
+    numbers, not a guess: (1) Wildcard's own gain alone (wildcard_result["gain"], already a
+    real M5 solve), (2) Bench Boost's own value alone on the CURRENT squad's bench
+    (bench_boost_result["bench_ep_sum"]), (3) the COMBO -- Wildcard's gain plus what the FRESH
+    (post-Wildcard) squad's OWN bench would score if Bench-Boosted at target_gameweek,
+    re-derived from wildcard_result["fresh_run_id"] (a real, already-solved squad_optimizer_runs
+    row) rather than re-solving anything. synergy_gain = combo_value - naive_independent_sum
+    isolates whether sequencing them together beats just adding the two chips' independent
+    values -- positive means the fresh squad's bench is a genuinely BETTER Bench-Boost target
+    than the current squad's own bench (Wildcard was partly "worth it" for the bench itself),
+    not merely coincidentally overlapping with it.
+
+    Requires wildcard_result to carry a real fresh_run_id (i.e. target_gameweek had fixtures --
+    see evaluate_wildcard()'s own "no fixtures" early-return) and target_gameweek to be a real
+    horizon gameweek; returns recommended_combo=False with a reason otherwise, never crashes
+    on an already-negative/unavailable chip evaluation.
+    """
+    fresh_run_id = wildcard_result.get("fresh_run_id")
+    if fresh_run_id is None or target_gameweek not in horizon_ep_versions:
+        return {"recommended_combo": False, "reason": "wildcard has no fresh squad to evaluate a bench-boost combo against"}
+
+    fresh_squad_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [fresh_run_id]
+        ).fetchall()
+    }
+    fresh_xi_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_xi", [fresh_run_id]
+        ).fetchall()
+    }
+    fresh_bench_uids = fresh_squad_uids - fresh_xi_uids
+    ep_mv, _un_mv = horizon_ep_versions[target_gameweek]
+    fresh_bench_ep_at_target_gw = 0.0
+    if fresh_bench_uids:
+        placeholders = ",".join("?" * len(fresh_bench_uids))
+        fresh_bench_ep_at_target_gw = con.execute(
+            f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+            [ep_mv, *fresh_bench_uids],
+        ).fetchone()[0]
+
+    wc_alone_gain = wildcard_result.get("gain", 0.0)
+    bb_alone_value = bench_boost_result.get("bench_ep_sum", 0.0) if bench_boost_result.get("recommended") else 0.0
+    combo_value = wc_alone_gain + fresh_bench_ep_at_target_gw
+    naive_independent_sum = wc_alone_gain + bb_alone_value
+    return {
+        "recommended_combo": combo_value > max(wc_alone_gain, bb_alone_value),
+        "wildcard_gain_alone": wc_alone_gain, "bench_boost_value_alone": bb_alone_value,
+        "fresh_squad_bench_ep_at_target_gw": fresh_bench_ep_at_target_gw, "combo_value": combo_value,
+        "naive_independent_sum": naive_independent_sum, "synergy_gain": combo_value - naive_independent_sum,
+    }
+
+
 def evaluate_free_hit(
     con: duckdb.DuckDBPyConnection, calibration_asof_date: date, target_season: str, target_gameweek: int,
     current_holdings: list[dict], horizon_ep_versions: dict[int, tuple[int, int]],
@@ -927,6 +1069,55 @@ def evaluate_free_hit(
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_gw_value": fresh_gw_value, "current_gw_value": current_gw_value, "gain": gain,
         "current_xi_value_per_gw": current_xi_value_per_gw,
+    }
+
+
+def evaluate_free_hit_triple_captain_combo(
+    con: duckdb.DuckDBPyConnection, calibration_asof_date: date, free_hit_result: dict, current_tc_result: dict,
+    ep_model_version: int, mm_model_version: int, ts_model_version: int, uncertainty_model_version: int,
+    scoring_params_version: int, tau_params_version: int, rho_residual_params_version: int,
+    kappa_tc_params_version: int, n_antithetic_pairs: int = 5000,
+) -> dict:
+    """Priority 5 -- chip-combo sequencing: Free Hit rebuilds the squad for exactly one
+    gameweek, potentially reaching a premium captain option normal transfers couldn't afford
+    -- Triple-Captaining THAT player the same gameweek is the real combo play. Unlike the
+    Wildcard/Bench-Boost combo above (a cheap arithmetic re-derivation from an already-solved
+    squad), this genuinely needs its own real Monte Carlo simulation: Free Hit's fresh squad
+    is itself a real squad_optimizer_runs row (free_hit_result["fresh_run_id"]), so
+    monte_carlo.run() is called directly against it -- no manager-snapshot workaround needed
+    (that machinery, see ensure_squad_simulation(), exists only because the manager's ACTUAL
+    holdings were never a real M5 solve; Free Hit's fresh squad already is one).
+
+    Compares the resulting fresh squad's own best TC candidate (evaluate_triple_captain() on
+    the SAME real mechanics M8 already uses) against current_tc_result (the CURRENT squad's
+    own independently-computed best TC candidate) -- recommended_combo=True means Free Hit
+    genuinely unlocks a BETTER Triple Captain target than what's reachable without it, not
+    merely that Free Hit or TC would each individually clear their own bar.
+    """
+    fresh_run_id = free_hit_result.get("fresh_run_id")
+    if fresh_run_id is None:
+        return {"recommended_combo": False, "reason": "free hit has no fresh squad to evaluate a triple-captain combo against"}
+
+    fresh_xi_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_xi", [fresh_run_id]
+        ).fetchall()
+    }
+    mc_model_version = monte_carlo.run(
+        con, calibration_asof_date, fresh_run_id, ep_model_version, mm_model_version, ts_model_version,
+        uncertainty_model_version, scoring_params_version, tau_params_version, rho_residual_params_version,
+        n_antithetic_pairs=n_antithetic_pairs,
+    )
+    combo_tc_result = evaluate_triple_captain(con, mc_model_version, fresh_xi_uids, kappa_tc_params_version)
+
+    combo_tc_score = combo_tc_result.get("tc_score") if combo_tc_result.get("recommended") else None
+    current_tc_score = current_tc_result.get("tc_score") if current_tc_result.get("recommended") else None
+    return {
+        "recommended_combo": combo_tc_score is not None and (current_tc_score is None or combo_tc_score > current_tc_score),
+        "combo_tc_score": combo_tc_score, "current_tc_score": current_tc_score,
+        "combo_captain_candidate": combo_tc_result.get("captain_candidate"),
+        "current_captain_candidate": current_tc_result.get("captain_candidate"),
+        "combo_mc_model_version": mc_model_version,
     }
 
 
@@ -986,6 +1177,7 @@ def run(
     *,
     multi_transfer_pool_limit_per_position: int | None = None,
     price_change_timing_params_version: int | None = None,
+    evaluate_chip_combos: bool = False,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1007,7 +1199,17 @@ def run(
     multi_transfer_pool_limit_per_position this isn't a performance concern (a single cheap
     query), but the underlying transfers_in_event/transfers_out_event data was never verified
     against real ingested data in this session (see price_change_risk_by_player()'s own
-    docstring), so this stays opt-in rather than silently active for every caller."""
+    docstring), so this stays opt-in rather than silently active for every caller.
+
+    evaluate_chip_combos (Priority 5, opt-in, default False): computes
+    evaluate_wildcard_bench_boost_combo() (cheap -- a re-derivation from Wildcard's own
+    already-solved fresh squad, no new solve) and evaluate_free_hit_triple_captain_combo()
+    (genuinely expensive -- a full new Monte Carlo simulation against Free Hit's fresh squad,
+    the same cost class as multi_transfer_pool_limit_per_position above) when True. Bench
+    Boost's own crowded_chip_week_score() attachment is cheap (a single aggregation query,
+    the same cost class as evaluate_transfers()'s existing momentum/swing attachments) and
+    stays unconditionally on, matching that established convention rather than adding yet
+    another flag for a signal this inexpensive."""
     state_row = con.execute(
         "SELECT season, free_transfers_available, chips_used_set1, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
@@ -1078,7 +1280,27 @@ def run(
         tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map)
     else:
         tc_result = {"recommended": False, "reason": "no fixtures this gameweek"}
-    bb_result = evaluate_bench_boost(con, horizon_ep_versions, squad_uids, xi_uids)
+    # crowded_chip_week_score() attachment is unconditional -- see run()'s own docstring on
+    # evaluate_chip_combos for why this one signal (cheap) differs from the combo evaluators
+    # (expensive, opt-in) below.
+    bb_result = evaluate_bench_boost(con, horizon_ep_versions, squad_uids, xi_uids, target_season=target_season, ts_model_version=ts_model_version)
+
+    # Priority 5 -- chip-combo sequencing, opt-in (see run()'s own docstring).
+    wildcard_bb_combo, free_hit_tc_combo = None, None
+    if evaluate_chip_combos:
+        wildcard_bb_combo = evaluate_wildcard_bench_boost_combo(
+            con, wildcard_result, bb_result, target_season, target_gameweek, horizon_ep_versions,
+        )
+        target_gw_versions = horizon_ep_versions.get(target_gameweek)
+        if target_gw_versions is None:
+            free_hit_tc_combo = {"recommended_combo": False, "reason": "no fixtures this gameweek"}
+        else:
+            combo_ep_mv, combo_un_mv = target_gw_versions
+            free_hit_tc_combo = evaluate_free_hit_triple_captain_combo(
+                con, calibration_asof_date, free_hit_result, tc_result, combo_ep_mv, mm_model_version,
+                ts_model_version, combo_un_mv, scoring_params_version, tau_params_version,
+                rho_residual_params_version, kappa_tc_params_version,
+            )
 
     gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
 
@@ -1132,6 +1354,15 @@ def run(
             [run_id, chip_type, bool(result.get("recommended", False)), score, json.dumps(result, default=str),
              gw19["urgent"] and chip_type in gw19["unused_set1_chips"]],
         )
+
+    for combo_type, combo_result in (
+        ("wildcard_bench_boost", wildcard_bb_combo), ("free_hit_triple_captain", free_hit_tc_combo),
+    ):
+        if combo_result is not None:
+            con.execute(
+                "INSERT INTO chip_combo_evaluations (run_id, combo_type, recommended_combo, detail) VALUES (?, ?, ?, ?)",
+                [run_id, combo_type, bool(combo_result.get("recommended_combo", False)), json.dumps(combo_result, default=str)],
+            )
 
     return run_id
 
@@ -1324,6 +1555,16 @@ def explain_plan(con: duckdb.DuckDBPyConnection, run_id: int, top_n: int = 5) ->
         for chip_type, recommended, score, urgent, detail in chip_rows
     }
 
+    # Priority 5 -- chip-combo sequencing, same "absent = None, not an empty dict" convention
+    # every other optional section in this project already uses.
+    combo_rows = con.execute(
+        "SELECT combo_type, recommended_combo, detail FROM chip_combo_evaluations WHERE run_id = ?", [run_id]
+    ).fetchall()
+    chip_combos = {
+        combo_type: {"recommended_combo": bool(recommended_combo), "detail": json.loads(detail)}
+        for combo_type, recommended_combo, detail in combo_rows
+    } or None
+
     state_row = con.execute(
         "SELECT chips_used_set1 FROM manager_state_versions WHERE state_version = "
         "(SELECT input_state_version FROM transfer_plan_runs WHERE run_id = ?)", [run_id],
@@ -1334,5 +1575,6 @@ def explain_plan(con: duckdb.DuckDBPyConnection, run_id: int, top_n: int = 5) ->
     return {
         "run_id": run_id, "target_season": target_season, "target_gameweek": target_gameweek,
         "top_transfers": top_transfers, "top_multi_transfers": top_multi_transfers,
-        "hold_recommendation": hold_recommendation, "chips": chips, "gw19_deadline": gw19,
+        "hold_recommendation": hold_recommendation, "chips": chips, "chip_combos": chip_combos,
+        "gw19_deadline": gw19,
     }
