@@ -108,6 +108,22 @@ def test_null_confidence_via_dataframe_round_trip_defaults_to_1_not_nan(con):
     assert w == w  # not NaN (NaN != NaN)
 
 
+def test_null_observed_date_via_dataframe_round_trip_skips_decay_not_crashes(con):
+    """Regression test for a real bug a live scheduled-workflow run actually hit: a SQL NULL
+    observed_date comes back from snapshot.get_claims_asof (a pandas DataFrame) as pd.NaT, not
+    Python None and not float NaN -- the old `isinstance(x, float) and pd.isna(x)` guard in
+    _to_date() caught neither, so NaT fell through to pd.Timestamp(x).date(), which just
+    returns NaT right back, and decay()'s date subtraction then raised
+    TypeError: unsupported operand type(s) for -: 'datetime.date' and 'NaTType'."""
+    _seed_player_and_sources(con)
+    _insert_claim(con, "c1", "s_official", reliability=1.0, confidence=1.0, numeric=0.9, observed_date=None)
+    claims = snapshot.get_claims_asof(con, datetime(2026, 8, 10), subject_entity_type="player", subject_entity_id="p1")
+    assert len(claims) == 1
+    claim_row = claims.to_dict("records")[0]
+    w = eb.effective_weight(con, claim_row, datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1)
+    assert w == 1.0  # reliability(1.0) * confidence(1.0) * decay defaulted to 1.0 (no observed_date)
+
+
 def _insert_claim_typed(con, claim_id, claim_type, source_id, reliability, confidence, observed_date="2026-08-01"):
     con.execute(
         "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "

@@ -31,7 +31,17 @@ HIGH_TIER_SOURCE_TYPES = {"official", "journalist"}
 
 
 def _to_date(x) -> date | None:
-    if x is None or (isinstance(x, float) and pd.isna(x)):
+    # A real, live-CI-observed gap in the prior check: pandas' own null-date sentinel,
+    # pd.NaT, is neither `None` nor a `float` (it's its own NaTType), so the old
+    # `isinstance(x, float) and pd.isna(x)` guard never caught it -- it fell through every
+    # branch to pd.Timestamp(x).date(), which for NaT input just returns NaT right back
+    # (not a real date, and not caught as falsy either), silently poisoning decay()'s date
+    # subtraction downstream with a TypeError instead of being treated as "no observed date."
+    # pd.isna() alone correctly recognizes None/NaN/NaT (it's only unsafe on array-likes,
+    # never the case for a single claim's scalar value here), so check it first and directly.
+    if x is None:
+        return None
+    if pd.isna(x):
         return None
     if isinstance(x, pd.Timestamp):
         return x.date()
