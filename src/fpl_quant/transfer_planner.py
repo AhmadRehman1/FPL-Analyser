@@ -33,6 +33,7 @@ whatever variance M4 actually produces per horizon gameweek, undecorated.
 
 import json
 from datetime import date
+from itertools import combinations
 
 import duckdb
 
@@ -417,6 +418,219 @@ def evaluate_transfers(
 
 
 # ============================================================
+# Priority 3 -- bounded 2-for-2 combinatorial multi-transfer search
+# ============================================================
+
+def _bounded_incoming_pool(horizon_ep: dict, current_uid_set: set, candidate_pool_limit_per_position: int) -> list[dict]:
+    """See evaluate_multi_transfers()'s own docstring for why this bound exists. Top-K
+    candidates PER POSITION by total_ep (the horizon-summed mu), among players not already
+    held -- the incoming side of a multi-transfer combo search."""
+    by_position: dict[str, list] = {}
+    for uid, info in horizon_ep.items():
+        if uid in current_uid_set:
+            continue
+        by_position.setdefault(info["position"], []).append({"player_uid": uid, **info})
+    bounded = []
+    for candidates in by_position.values():
+        candidates.sort(key=lambda c: c["total_ep"], reverse=True)
+        bounded.extend(candidates[:candidate_pool_limit_per_position])
+    return bounded
+
+
+def evaluate_multi_transfers(
+    con: duckdb.DuckDBPyConnection,
+    current_holdings: list[dict],
+    target_season: str,
+    horizon_ep_versions: dict[int, tuple[int, int]],
+    free_transfers_available: int,
+    points_per_hit: float,
+    max_club_count: int = 3,
+    bank: float = 0.0,
+    candidate_pool_limit_per_position: int = 20,
+    top_n: int = 10,
+) -> list[dict]:
+    """Bounded 2-for-2 combinatorial multi-transfer search: sell any 2 currently-held
+    players, buy any 2 real candidates whose combined POSITION MULTISET exactly matches the
+    two sold (squad position quotas are fixed -- 2 GK/5 DEF/5 MID/3 FWD -- so a legal swap's
+    incoming positions must balance the outgoing ones as a set, not player-for-player by a
+    specific pairing), ranked by combined net value over the horizon -- points-per-hit
+    weighed against horizon gain for the COMBINATION, not each swap independently, per spec.
+
+    Bound, a genuine tractability decision documented here rather than silently picked: full
+    combinatorial explosion at 15 held players x the ~577-candidate full pool is
+    C(15,2)*C(577,2) ~= 17.4 MILLION 2-for-2 outgoing/incoming pairings before even checking
+    position/budget/club-cap feasibility -- real, but far too slow for a live planner call
+    doing pure in-memory arithmetic. This bounds the INCOMING side to the top
+    candidate_pool_limit_per_position candidates by horizon-EP within EACH position (see
+    _bounded_incoming_pool()) -- a genuinely low-EP candidate essentially never appears in an
+    EP-maximizing combo; the one real gap this bound accepts (not a silently picked
+    shortcut): a specifically CHEAP, low-EP player occasionally being the only way to afford
+    another leg of the same combo within budget, which a pure EP-ranked top-K could exclude.
+    Reduces the incoming pool to ~4*K candidates, making the search a tractable
+    C(15,2) x C(~4K,2) combinations (a few hundred thousand at the K=20 default, sub-second
+    in pure Python).
+
+    Stopped at 2-for-2, not extended to 3-for-3 and beyond: C(15,3)*C(4K,3) already runs into
+    the billions even after this same per-position pruning at a realistic K, and real FPL
+    play essentially never makes 3+ simultaneous incremental transfers outside a Wildcard/
+    Free Hit (which M8 already covers as a full-squad rebuild, not an incremental combo).
+    2-for-2 covers the realistic "double up" case (e.g. funding one premium upgrade by
+    selling two mid-price players) that 1-for-1 search structurally cannot reach.
+    """
+    horizon_ep = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
+    current_uids = [h["player_uid"] for h in current_holdings]
+    current_uid_set = set(current_uids)
+    club_counts: dict[str, int] = {}
+    for uid in current_uids:
+        info = horizon_ep.get(uid)
+        if info:
+            club_counts[info["club"]] = club_counts.get(info["club"], 0) + 1
+
+    incoming_pool = _bounded_incoming_pool(horizon_ep, current_uid_set, candidate_pool_limit_per_position)
+    incoming_by_position: dict[str, list] = {}
+    for c in incoming_pool:
+        incoming_by_position.setdefault(c["position"], []).append(c)
+
+    # A 2-transfer combo consumes exactly 2 transfers; a hit is charged only for the transfers
+    # beyond whatever's currently free -- same max(0, n - free) rule evaluate_transfers()'s own
+    # single-transfer branch already applies at n=1, generalized here to n=2.
+    n_hits = max(0, 2 - free_transfers_available)
+    transfer_cost = n_hits * points_per_hit
+
+    results = []
+    held_infos = [(uid, horizon_ep[uid]) for uid in current_uids if uid in horizon_ep]
+    for (out_a_uid, out_a), (out_b_uid, out_b) in combinations(held_infos, 2):
+        combined_price_out = out_a["price"] + out_b["price"]
+        combined_ep_out = out_a["total_ep"] + out_b["total_ep"]
+        pos_a, pos_b = sorted((out_a["position"], out_b["position"]))
+
+        if pos_a == pos_b:
+            in_pairs = combinations(incoming_by_position.get(pos_a, []), 2)
+        else:
+            in_pairs = (
+                (x, y) for x in incoming_by_position.get(pos_a, []) for y in incoming_by_position.get(pos_b, [])
+            )
+
+        for in_x, in_y in in_pairs:
+            combined_price_in = in_x["price"] + in_y["price"]
+            if combined_price_in > combined_price_out + bank:
+                continue
+
+            deltas: dict[str, int] = {}
+            for out_info in (out_a, out_b):
+                deltas[out_info["club"]] = deltas.get(out_info["club"], 0) - 1
+            for in_info in (in_x, in_y):
+                deltas[in_info["club"]] = deltas.get(in_info["club"], 0) + 1
+            if any(club_counts.get(club, 0) + delta > max_club_count for club, delta in deltas.items()):
+                continue
+
+            combined_ep_in = in_x["total_ep"] + in_y["total_ep"]
+            horizon_value_gain = combined_ep_in - combined_ep_out
+            results.append({
+                "players_out": sorted([out_a_uid, out_b_uid]),
+                "players_in": sorted([in_x["player_uid"], in_y["player_uid"]]),
+                "combined_price_out": combined_price_out, "combined_price_in": combined_price_in,
+                "horizon_value_gain": horizon_value_gain, "transfer_cost": transfer_cost,
+                "net_value": horizon_value_gain - transfer_cost,
+            })
+
+    results.sort(key=lambda r: r["net_value"], reverse=True)
+    for rank, r in enumerate(results, start=1):
+        r["rank"] = rank
+    return results[:top_n]
+
+
+# ============================================================
+# Priority 3 -- "hold this transfer" recommendation: compare making the best move THIS
+# gameweek against making no move now and re-evaluating with an extra banked free transfer
+# next gameweek, using the horizon EP framework already in place (not a new one).
+# ============================================================
+
+def evaluate_hold_recommendation(
+    con: duckdb.DuckDBPyConnection,
+    current_holdings: list[dict],
+    target_season: str,
+    horizon_ep_versions: dict[int, tuple[int, int]],
+    free_transfers_available: int,
+    points_per_hit: float,
+    target_gameweek: int,
+    max_club_count: int = 3,
+    bank: float = 0.0,
+    candidate_pool_limit_per_position: int = 20,
+) -> dict:
+    """Real optimal play sometimes means deliberately making NO transfer this gameweek
+    specifically to bank it for a double move later (per spec) -- this compares two concrete
+    strategies rather than always taking the best available move now:
+
+    (A) 'transfer_now': the single best transfer available this gameweek
+        (evaluate_transfers()'s own #1 result), over the FULL horizon starting this gameweek.
+    (B) 'hold': make no transfer this gameweek (the free transfer banks, growing
+        free_transfers_available by 1 for next gameweek -- the real FPL banking rule already
+        implemented in apply_recommendation()), then take the better of (i) next gameweek's
+        own single-best transfer, or (ii) if 2+ free transfers would be available next
+        gameweek, next gameweek's best 2-for-2 COMBO (evaluate_multi_transfers()) -- the
+        concrete "double move" case named above, reachable ONLY by holding this week's
+        transfer rather than spending it. Both evaluated over the horizon starting NEXT
+        gameweek -- holding forfeits exactly this gameweek's own worth of gain by
+        construction (the SAME transfer made a week later never earns points for the
+        gameweek that already passed).
+
+    bank is held constant across both branches -- a real refinement would recompute it
+    post-transfer for option (A) before evaluating option (B)'s affordability, but that
+    couples two independent questions (this comparison is about TIMING, not about what a
+    specific accepted transfer's own follow-on budget effects would be) for no clear gain in
+    what this comparison needs to answer; documented here as a genuine simplification, not a
+    silently accepted inaccuracy.
+
+    Recommends 'hold' only when its value strictly beats 'transfer_now's -- a tie, or an
+    empty candidate set on the hold side, resolves toward acting now: a real, available gain
+    today is never deferred for a merely-equal-or-worse hypothetical later one.
+    """
+    now_results = evaluate_transfers(
+        con, current_holdings, target_season, horizon_ep_versions, free_transfers_available,
+        points_per_hit, max_club_count=max_club_count, bank=bank,
+    )
+    transfer_now_value = now_results[0]["net_value"] if now_results else None
+
+    next_week_horizon = {gw: v for gw, v in horizon_ep_versions.items() if gw > target_gameweek}
+    held_free_transfers = min(5, free_transfers_available + 1)
+
+    hold_single = evaluate_transfers(
+        con, current_holdings, target_season, next_week_horizon, held_free_transfers,
+        points_per_hit, max_club_count=max_club_count, bank=bank,
+    )
+    hold_single_value = hold_single[0]["net_value"] if hold_single else None
+
+    hold_multi = []
+    hold_multi_value = None
+    if held_free_transfers >= 2:
+        hold_multi = evaluate_multi_transfers(
+            con, current_holdings, target_season, next_week_horizon, held_free_transfers,
+            points_per_hit, max_club_count=max_club_count, bank=bank,
+            candidate_pool_limit_per_position=candidate_pool_limit_per_position,
+        )
+        hold_multi_value = hold_multi[0]["net_value"] if hold_multi else None
+
+    hold_candidates = [v for v in (hold_single_value, hold_multi_value) if v is not None]
+    hold_value = max(hold_candidates) if hold_candidates else None
+
+    if transfer_now_value is None and hold_value is None:
+        return {
+            "recommended_action": "no_action_available", "transfer_now_value": None, "hold_value": None,
+            "best_transfer_now": None, "best_hold_single_next_week": None, "best_hold_multi_next_week": None,
+        }
+
+    recommend_hold = hold_value is not None and (transfer_now_value is None or hold_value > transfer_now_value)
+    return {
+        "recommended_action": "hold" if recommend_hold else "transfer_now",
+        "transfer_now_value": transfer_now_value, "hold_value": hold_value,
+        "best_transfer_now": now_results[0] if now_results else None,
+        "best_hold_single_next_week": hold_single[0] if hold_single else None,
+        "best_hold_multi_next_week": hold_multi[0] if hold_multi else None,
+    }
+
+
+# ============================================================
 # chip evaluation
 # ============================================================
 
@@ -662,12 +876,23 @@ def run(
     wildcard_threshold_params_version: int,
     free_hit_threshold_params_version: int,
     kappa_tc_params_version: int,
+    *,
+    multi_transfer_pool_limit_per_position: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
     transfer_plan_runs + transfer_recommendations + chip_evaluations, returns run_id. Proposes
     only -- does not advance manager_state_versions (see apply_recommendation()), mirroring
-    M7's propose-then-confirm gate."""
+    M7's propose-then-confirm gate.
+
+    multi_transfer_pool_limit_per_position (Priority 3, opt-in like every other Priority 1/2
+    addition this session): None (the default) skips evaluate_multi_transfers()/
+    evaluate_hold_recommendation() entirely -- both real, but genuinely expensive relative to
+    everything else run() does (a bounded combinatorial search, not a single query), and every
+    existing caller (a repeated-many-times season simulation in particular -- see
+    backtest.run_season_simulation()) should keep paying only what it already paid before this
+    feature existed unless it explicitly opts in. Passing an int (the candidate_pool_limit_
+    per_position bound both new evaluators take) computes and persists both."""
     state_row = con.execute(
         "SELECT season, free_transfers_available, chips_used_set1, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
@@ -696,6 +921,20 @@ def run(
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
     current_squad_horizon_value = sum(horizon_ep_map.get(h["player_uid"], {}).get("total_ep", 0.0) for h in current_holdings)
     best_transfer_net_value = transfer_results[0]["net_value"] if transfer_results else 0.0
+
+    # Priority 3 -- bounded 2-for-2 multi-transfer search and the hold-vs-transfer-now
+    # decision, same inputs evaluate_transfers() above already used. Opt-in -- see run()'s
+    # own docstring on multi_transfer_pool_limit_per_position.
+    multi_transfer_results, hold_result = [], None
+    if multi_transfer_pool_limit_per_position is not None:
+        multi_transfer_results = evaluate_multi_transfers(
+            con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
+            bank=bank or 0.0, candidate_pool_limit_per_position=multi_transfer_pool_limit_per_position,
+        )
+        hold_result = evaluate_hold_recommendation(
+            con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
+            target_gameweek, bank=bank or 0.0, candidate_pool_limit_per_position=multi_transfer_pool_limit_per_position,
+        )
 
     wildcard_result = evaluate_wildcard(
         con, calibration_asof_date, target_season, target_gameweek, current_squad_horizon_value,
@@ -743,6 +982,23 @@ def run(
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [run_id, r["rank"], r["player_out"], r["player_in"], r["price_out"], r["price_in"],
              r["horizon_value_gain"], r["transfer_cost"], r["net_value"]],
+        )
+
+    for r in multi_transfer_results[:10]:  # evaluate_multi_transfers() already caps at top_n=10 by default
+        con.execute(
+            "INSERT INTO multi_transfer_recommendations "
+            "(run_id, rank, players_out, players_in, combined_price_out, combined_price_in, "
+            "horizon_value_gain, transfer_cost, net_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [run_id, r["rank"], json.dumps(r["players_out"]), json.dumps(r["players_in"]),
+             r["combined_price_out"], r["combined_price_in"], r["horizon_value_gain"], r["transfer_cost"], r["net_value"]],
+        )
+
+    if hold_result is not None:
+        con.execute(
+            "INSERT INTO hold_recommendations (run_id, recommended_action, transfer_now_value, hold_value, detail) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [run_id, hold_result["recommended_action"], hold_result["transfer_now_value"], hold_result["hold_value"],
+             json.dumps(hold_result, default=str)],
         )
 
     for chip_type, result in (
@@ -914,6 +1170,31 @@ def explain_plan(con: duckdb.DuckDBPyConnection, run_id: int, top_n: int = 5) ->
         for r, out_uid, in_uid, gain, cost, net in recs
     ]
 
+    # Priority 3 -- multi-transfer combos, same top_n/ordering convention as top_transfers above.
+    multi_rows = con.execute(
+        "SELECT rank, players_out, players_in, combined_price_out, combined_price_in, "
+        "horizon_value_gain, transfer_cost, net_value FROM multi_transfer_recommendations "
+        "WHERE run_id = ? ORDER BY rank LIMIT ?", [run_id, top_n],
+    ).fetchall()
+    top_multi_transfers = [
+        {"rank": r, "players_out": json.loads(out_json), "players_in": json.loads(in_json),
+         "combined_price_out": price_out, "combined_price_in": price_in,
+         "horizon_value_gain": gain, "transfer_cost": cost, "net_value": net}
+        for r, out_json, in_json, price_out, price_in, gain, cost, net in multi_rows
+    ]
+
+    hold_row = con.execute(
+        "SELECT recommended_action, transfer_now_value, hold_value, detail FROM hold_recommendations WHERE run_id = ?",
+        [run_id],
+    ).fetchone()
+    hold_recommendation = None
+    if hold_row:
+        action, transfer_now_value, hold_value, detail = hold_row
+        hold_recommendation = {
+            "recommended_action": action, "transfer_now_value": transfer_now_value,
+            "hold_value": hold_value, "detail": json.loads(detail),
+        }
+
     chip_rows = con.execute(
         "SELECT chip_type, recommended, score_or_gain, gw19_urgent_flag, detail FROM chip_evaluations WHERE run_id = ?",
         [run_id],
@@ -932,5 +1213,6 @@ def explain_plan(con: duckdb.DuckDBPyConnection, run_id: int, top_n: int = 5) ->
 
     return {
         "run_id": run_id, "target_season": target_season, "target_gameweek": target_gameweek,
-        "top_transfers": top_transfers, "chips": chips, "gw19_deadline": gw19,
+        "top_transfers": top_transfers, "top_multi_transfers": top_multi_transfers,
+        "hold_recommendation": hold_recommendation, "chips": chips, "gw19_deadline": gw19,
     }

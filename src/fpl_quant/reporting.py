@@ -346,6 +346,16 @@ def render_report_text(report: dict) -> str:
         lines.append("--- Transfer & chip rationale ---")
         for t in tr["top_transfers"][:3]:
             lines.append(f"  #{t['rank']}: OUT {t['player_out']} -> IN {t['player_in']} (net {t['net_value']:.2f})")
+        for t in tr["top_multi_transfers"][:3]:
+            lines.append(
+                f"  #{t['rank']} (2-for-2): OUT {t['players_out']} -> IN {t['players_in']} (net {t['net_value']:.2f})"
+            )
+        if tr["hold_recommendation"]:
+            hr = tr["hold_recommendation"]
+            lines.append(
+                f"  Hold-vs-transfer-now: {hr['recommended_action']} "
+                f"(transfer_now={hr['transfer_now_value']}, hold={hr['hold_value']})"
+            )
         for chip_type, c in tr["chips"].items():
             lines.append(f"  {chip_type}: recommended={c['recommended']} score={c['score_or_gain']}")
         if tr["gw19_deadline"]["urgent"]:
