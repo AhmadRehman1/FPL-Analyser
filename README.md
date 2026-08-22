@@ -1116,6 +1116,21 @@ for the existing (real-data) `lambda_value` finding above.
   team's otherwise-real forecast, `calibrate()` now falls back such a team to the real,
   computed league-average attack/defence across every team that *does* have an MLE fit --
   logged loudly (`::warning::`) so it stays visible, not a silently-accepted default.
+- **A fourth real bug the same live run surfaced, one step further along the pipeline
+  (`run_report.py`, after `run_ingestion.py` finally completed end to end for the first
+  time): `evidence_blend._to_date()`'s null-date guard didn't actually catch pandas' own
+  null-date sentinel.** A claim with a SQL NULL `observed_date` comes back from
+  `snapshot.get_claims_asof` (a pandas DataFrame round-trip) as `pd.NaT`, not Python `None`
+  and not float `NaN` -- the old `isinstance(x, float) and pd.isna(x)` check catches neither
+  (`NaT` is its own distinct type), so it fell through every branch to
+  `pd.Timestamp(x).date()`, which for `NaT` input just returns `NaT` right back rather than
+  raising or being caught as falsy. That silently unconverted `NaT` then reached `decay()`'s
+  date subtraction several calls later and crashed with `TypeError: unsupported operand
+  type(s) for -: 'datetime.date' and 'NaTType'` -- a real gap in a helper whose whole job was
+  already "normalize every date-ish input, including nulls" (its neighboring
+  reliability/confidence handling already used the correct broad `pd.isna()` check; only the
+  date branch used a narrower one). Fixed by checking `pd.isna(x)` directly and first, which
+  correctly recognizes `None`/`NaN`/`NaT` alike.
 - **Price/ownership momentum: also already-available, wired in as strictly secondary.**
   `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
   `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --
