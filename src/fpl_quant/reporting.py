@@ -21,7 +21,9 @@ self-certification -- "the original lambda=0 bug passed whatever internal checks
 the time," per the spec's own stated reasoning for keeping them apart.
 """
 
+import json
 from datetime import datetime
+from pathlib import Path
 
 import duckdb
 
@@ -30,6 +32,7 @@ from . import backtest as bt
 from . import consensus_check as cc
 from . import evidence_blend as eb
 from . import expected_points as ep
+from . import ingest_understat as iu
 from . import minutes_model as mm
 from . import monte_carlo
 from . import params as params_mod
@@ -233,9 +236,16 @@ def build_report(
     ).fetchone()[0]
 
     total_ep = 0.0
-    category_breakdown, risk_analytic, risk_empirical, evidence_provenance = {}, {}, {}, {}
+    category_breakdown, risk_analytic, risk_empirical, evidence_provenance, understat_signal = {}, {}, {}, {}, {}
     for p in squad:
         uid = p["player_uid"]
+        # Priority 7a -- Understat's independent xG/xA second opinion + xGChain/xGBuildup, the
+        # ONLY point this module reads that data through (see ingest_understat.py's own M9
+        # adapter docstring). Always computed (a cheap SELECT, no extra params needed);
+        # informational only, per that function's own explicit non-blending contract.
+        signal = iu.explain_player_xg_signal(con, uid, target_season)
+        if signal:
+            understat_signal[uid] = signal
         breakdown = ep.explain_player_ep(con, ep_model_version, uid)
         if breakdown:
             category_breakdown[uid] = breakdown
@@ -314,6 +324,7 @@ def build_report(
         "risk": {"analytic": risk_analytic, "empirical": risk_empirical},
         "guardrail_audit": guardrail_audit,
         "evidence_provenance": evidence_provenance,
+        "understat_signal": understat_signal,
         "parameter_transparency": params_mod.transparency_panel(con, active_param_versions) if active_param_versions else None,
         "backtest_summary": bt.explain_backtest_summary(con, backtest_run_id) if backtest_run_id is not None else None,
         "transfer_chip_rationale": tp.explain_plan(con, transfer_plan_run_id) if transfer_plan_run_id is not None else None,
@@ -452,6 +463,117 @@ def player_confidence_score(weight_own: float | None, evidence_weight: float | N
 
 
 # ============================================================
+# Priority 8c -- week-over-week diff report. No persisted report history exists anywhere in
+# this project (the real DuckDB file itself is gitignored, never committed -- confirmed via
+# .gitignore), so there is nothing to diff against without SOME durable, inspectable store.
+# Small committed JSON snapshots (one per real gameweek report) fit this project's own
+# "everything versioned and inspectable via git history" ethos far better than trying to keep
+# a database alive across separate runs -- the snapshot is deliberately a SMALL subset of the
+# full report (squad, captain, headline EP, the two Priority 2 doubtful-starter sanity flags,
+# and weight_own per player), not the whole build_report() dict, so a diff stays legible
+# rather than becoming a second copy of the entire report.
+# ============================================================
+
+# The two Priority 2 sanity flags that most directly answer "is a starter newly doubtful,"
+# reused here rather than inventing a third, redundant doubtful-starter signal.
+_DOUBTFUL_STARTER_FLAG_NAMES = ("nailed_attacking_return", "rotation_risk_def_mid")
+
+
+def snapshot_for_diff(report: dict) -> dict:
+    """The small, JSON-serializable subset of a build_report() output that week-over-week
+    diffing actually needs. automated_flags/confidence_scores are opt-in sections of
+    build_report() itself (see its own docstring) -- when absent, this stores an empty dict
+    rather than failing, so a snapshot is always produced regardless of which optional params
+    the caller passed."""
+    h = report["headline"]
+    doubtful_flags = {
+        f["name"]: bool(f["passed"]) for f in report.get("automated_flags") or ()
+        if f["name"] in _DOUBTFUL_STARTER_FLAG_NAMES
+    }
+    weight_own_by_uid = {
+        uid: cs.get("weight_own") for uid, cs in (report.get("confidence_scores") or {}).items()
+        if cs.get("weight_own") is not None
+    }
+    return {
+        "target_season": h["target_season"], "target_gameweek": h["target_gameweek"],
+        "squad": [
+            {"player_uid": p["player_uid"], "name": p["name"], "in_xi": p["in_xi"], "is_captain": p["is_captain"]}
+            for p in h["squad"]
+        ],
+        "captain_uid": h["captain"]["player_uid"] if h["captain"] else None,
+        "captain_name": h["captain"]["name"] if h["captain"] else None,
+        "total_projected_ep": h["total_projected_ep"],
+        "doubtful_flags": doubtful_flags,
+        "weight_own_by_uid": weight_own_by_uid,
+    }
+
+
+def save_report_snapshot(report: dict, history_dir: Path | str) -> Path:
+    """One file per real gameweek report -- <season>_gw<gameweek>.json, safe to re-run (a
+    second save for the same gameweek just overwrites, matching the "latest run wins" shape
+    every other model-version table in this project already has for its own newest row)."""
+    history_dir = Path(history_dir)
+    history_dir.mkdir(parents=True, exist_ok=True)
+    snapshot = snapshot_for_diff(report)
+    out_path = history_dir / f"{snapshot['target_season']}_gw{snapshot['target_gameweek']}.json"
+    out_path.write_text(json.dumps(snapshot, indent=2))
+    return out_path
+
+
+def load_report_snapshot(season: str, gameweek: int, history_dir: Path | str) -> dict | None:
+    """None (not an exception) when no snapshot exists yet for this gameweek -- the first
+    real report of a season has genuinely nothing to diff against, not an error condition."""
+    path = Path(history_dir) / f"{season}_gw{gameweek}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+def diff_reports(previous_snapshot: dict | None, current_report: dict) -> dict:
+    """Compares a previously-saved snapshot (see save_report_snapshot()) against a freshly
+    built current report. previous_snapshot=None (no prior gameweek's snapshot found) returns
+    a plainly-flagged "nothing to diff against" result rather than fabricating a "no changes"
+    diff, which would be a real, misleading claim the first time this ever runs for a season."""
+    current = snapshot_for_diff(current_report)
+    if previous_snapshot is None:
+        return {
+            "has_previous": False, "previous_gameweek": None, "current_gameweek": current["target_gameweek"],
+            "squad_changes": None, "captain_changed": None, "total_projected_ep_delta": None,
+            "newly_doubtful_flags": None,
+        }
+
+    prev_uids = {p["player_uid"]: p["name"] for p in previous_snapshot["squad"]}
+    cur_uids = {p["player_uid"]: p["name"] for p in current["squad"]}
+    squad_in = [cur_uids[uid] for uid in cur_uids if uid not in prev_uids]
+    squad_out = [prev_uids[uid] for uid in prev_uids if uid not in cur_uids]
+
+    captain_changed = previous_snapshot["captain_uid"] != current["captain_uid"]
+
+    ep_delta = None
+    if previous_snapshot["total_projected_ep"] is not None and current["total_projected_ep"] is not None:
+        ep_delta = current["total_projected_ep"] - previous_snapshot["total_projected_ep"]
+
+    # A player currently in the squad whose doubtful-starter flag was OK last week and is now
+    # failing -- newly doubtful, not just "still doubtful" (that's not new information).
+    newly_doubtful = []
+    for flag_name in _DOUBTFUL_STARTER_FLAG_NAMES:
+        was_ok = previous_snapshot["doubtful_flags"].get(flag_name)
+        is_ok = current["doubtful_flags"].get(flag_name)
+        if was_ok is True and is_ok is False:
+            newly_doubtful.append(flag_name)
+
+    return {
+        "has_previous": True,
+        "previous_gameweek": previous_snapshot["target_gameweek"], "current_gameweek": current["target_gameweek"],
+        "squad_changes": {"in": squad_in, "out": squad_out},
+        "captain_changed": captain_changed,
+        "previous_captain": previous_snapshot["captain_name"], "current_captain": current["captain_name"],
+        "total_projected_ep_delta": ep_delta,
+        "newly_doubtful_flags": newly_doubtful,
+    }
+
+
+# ============================================================
 # text rendering -- no UI layer exists in this project; a console formatter matches the
 # established verification-via-console-output pattern every prior milestone already uses
 # ============================================================
@@ -480,6 +602,17 @@ def render_report_text(report: dict) -> str:
         score = cs.get("confidence_score")
         score_str = f"{score:.2f}" if score is not None else "n/a"
         lines.append(f"  {p['name']:30s} confidence={score_str}")
+
+    if report["understat_signal"]:
+        lines.append("")
+        lines.append("--- Understat xG second opinion (informational only) ---")
+        for p in sorted(h["squad"], key=lambda p: (not p["in_xi"], p["position"])):
+            s = report["understat_signal"].get(p["player_uid"])
+            if s:
+                u_xg = f"{s['understat_xg_per_90']:.2f}" if s["understat_xg_per_90"] is not None else "n/a"
+                fci_xg = f"{s['fpl_core_insights_xg_per_90']:.2f}" if s["fpl_core_insights_xg_per_90"] is not None else "n/a"
+                xgchain = f"{s['xgchain_per_90']:.2f}" if s["xgchain_per_90"] is not None else "n/a"
+                lines.append(f"  {p['name']:30s} understat_xg/90={u_xg} fci_xg/90={fci_xg} xGChain/90={xgchain}")
 
     lines.append("")
     lines.append("--- Automated flags ---")
@@ -551,4 +684,29 @@ def render_report_text(report: dict) -> str:
 
     lines.append("")
     lines.append(f">>> {report['human_prompt']}")
+    return "\n".join(lines)
+
+
+def render_diff_text(diff: dict) -> str:
+    if not diff["has_previous"]:
+        return f"=== GW{diff['current_gameweek']}: no prior gameweek snapshot to diff against ==="
+
+    lines = [f"=== Changes since GW{diff['previous_gameweek']} -> GW{diff['current_gameweek']} ==="]
+    sc = diff["squad_changes"]
+    if sc["in"] or sc["out"]:
+        lines.append(f"  Squad: IN {sc['in']} / OUT {sc['out']}")
+    else:
+        lines.append("  Squad: unchanged")
+
+    if diff["captain_changed"]:
+        lines.append(f"  Captain: {diff['previous_captain']} -> {diff['current_captain']}")
+    else:
+        lines.append(f"  Captain: unchanged ({diff['current_captain']})")
+
+    if diff["total_projected_ep_delta"] is not None:
+        lines.append(f"  Projected EP: {diff['total_projected_ep_delta']:+.1f}")
+
+    if diff["newly_doubtful_flags"]:
+        lines.append(f"  NEWLY DOUBTFUL: {diff['newly_doubtful_flags']}")
+
     return "\n".join(lines)

@@ -905,12 +905,55 @@ for the existing (real-data) `lambda_value` finding above.
   and the BPS `mu` term consistently, the existing "intentional dual use" pattern this module's
   own non-double-counting audit already documents) for confirmed *primary penalty takers*
   specifically -- the single highest-signal, best-understood case, and the one pure historical
-  xG genuinely can't reflect yet for a summer signing or an in-season duty change. Free-kick/
-  corner duty claims exist in the same source tab and are deliberately left alone -- a smaller,
-  separately-scoped extension, not silently folded in. Asof-safe (a claim only applies after its
-  own `observed_date`, verified directly). The uplift magnitude (1.15) is an invented v1
-  default, same status as every other unpinned constant here -- no reconciled penalty-frequency/
-  conversion data exists anywhere in this project to derive a real number from.
+  xG genuinely can't reflect yet for a summer signing or an in-season duty change. Asof-safe (a
+  claim only applies after its own `observed_date`, verified directly). The uplift magnitude
+  (1.15) is an invented v1 default, same status as every other unpinned constant here -- no
+  reconciled penalty-frequency/conversion data exists anywhere in this project to derive a real
+  number from.
+- **Priority 7b extends the same dormant claims to free-kick and corner duty.** A confirmed
+  primary free-kick taker gets a smaller `e_goals` uplift (1.05 -- real but far rarer than
+  penalty conversion); a confirmed primary corner *or* free-kick taker gets a new `e_assists`
+  uplift (1.20, one shared multiplier for both roles -- a "free kick taker" claim doesn't
+  distinguish direct-shot duty from out-swinging delivery duty in the source data, so it
+  legitimately contributes to both the goal and assist uplift, not a double-count of the same
+  thing). Both are invented v1 defaults, same status as the penalty multiplier. See
+  `expected_points._set_piece_goal_uplift_multiplier()` / `_set_piece_assist_uplift_multiplier()`.
+- **Priority 7a (`ingest_understat.py`): a real, working scraper whose target page structure
+  is NOT independently verified against a live fetch in the environment that built it.**
+  Understat has no official API; this fetches its real league season page and extracts the
+  `playersData` JSON its own frontend embeds, based on Understat's publicly documented,
+  years-stable format (the same approach the long-standing community `understat`/
+  `understatapi` packages use) -- but that build environment's own network policy blocks
+  understat.com entirely (confirmed via a direct connection attempt, not assumed), so the
+  parser is tested only against a hand-built fixture faithful to the documented structure, not
+  a real fetched page. `_fetch_understat_html()` is isolated specifically so verifying against
+  a real page (e.g. from a CI runner or locally, both of which have open internet) is a
+  one-line swap, not a rewrite -- do that before relying on this in production. Deliberately
+  season-cumulative (one request per season via the league page), not per-match scraping.
+  Surfaced only informationally via `explain_player_xg_signal()`/`reporting.build_report()`'s
+  `understat_signal` section -- never blended into `ep_goals`/`ep_assists` (two
+  independently-fitted xG estimates combined without a principled, backtested weighting rule
+  would be exactly the double-counting risk this project's conventions warn against
+  everywhere else). `xGChain`/`xGBuildup` have no existing analog anywhere in this project --
+  a genuinely new playmaking-involvement signal, also informational-only for now.
+- **Priority 8a/8b (`.github/workflows/scheduled_pipeline.yml`): the real scheduler this
+  project needed doesn't live in the sandbox that built it.** This project's own network
+  policy blocks understat.com and similar third-party hosts entirely (see the Priority 7a note
+  above), so a scheduled job has to run somewhere with open internet -- a GitHub Actions
+  runner, not a Claude Code Remote Routine (which would inherit the same restriction). The two
+  cron slots (Friday 17:30 UTC, Saturday 10:00 UTC) are a documented approximation of "most
+  gameweeks' deadline window," not a precise per-gameweek tracker -- nothing in this pipeline
+  queries the FPL API for the real next deadline yet, a flagged follow-up.
+  `data/external/`'s two private evidence workbooks are provisioned via base64-encoded repo
+  secrets (`FPL_MASTER_EVIDENCE_DATABASE_XLSX_B64`, `FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64`)
+  -- GitHub Actions secrets cap at 64KB each, so this breaks silently (an empty/truncated file,
+  not a failure) if either workbook exceeds that; verify the decoded file size the first time
+  this runs for real. FPL-Core-Insights' own repo layout (`data/<season>/*.csv`) was verified
+  against a real clone before writing the fetch step, not assumed. `scripts/
+  check_deadline_alerts.py` opens a GitHub Issue only when a nailed starter's sanity flag
+  flips from passing to failing week-over-week (Priority 8b's own exact wording) -- ordinary
+  squad/captain churn is expected and already visible in the diff report itself, not
+  alert-worthy on its own.
 - **Price/ownership momentum: also already-available, wired in as strictly secondary.**
   `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
   `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --

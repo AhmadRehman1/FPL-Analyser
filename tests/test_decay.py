@@ -39,3 +39,39 @@ def test_set_claim_type_uses_configured_half_life(con):
     )
     d = decay.decay_for_claim_type(con, "injury_status", date(2026, 1, 1), date(2026, 1, 8), params_version=1)
     assert abs(d - 0.5) < 1e-9
+
+
+# ============================================================
+# Priority 7c -- seed_v1_params(): claim_type_decay_params had never been populated anywhere
+# in this project before this (every claim type silently decayed at 1.0/no-decay via
+# decay_for_claim_type's own ParamNotFoundError fallback) -- this is the first real config.
+# ============================================================
+
+def test_seed_v1_params_covers_every_real_claim_type(con):
+    decay.seed_v1_params(con)
+    for claim_type in decay.CLAIM_TYPE_DECAY_HALF_LIFE_DAYS_V1:
+        half_life, _ = params.resolve_param(
+            con, "claim_type_decay_params", "decay_half_life_days", 1, dimensions={"claim_type": claim_type},
+        )
+        assert half_life > 0
+
+
+def test_seed_v1_params_makes_predicted_xi_decay_faster_than_manager_tendency(con):
+    """The direct Priority 7c ask: same-day team news must decay much faster than a durable
+    season-long tactical pattern."""
+    decay.seed_v1_params(con)
+    asof = date(2026, 1, 15)
+    observed = date(2026, 1, 8)  # one week old
+    xi_decay = decay.decay_for_claim_type(con, "predicted_xi", observed, asof, params_version=1)
+    tendency_decay = decay.decay_for_claim_type(con, "manager_tendency", observed, asof, params_version=1)
+    assert xi_decay < tendency_decay
+
+
+def test_seed_v1_params_predicted_xi_is_heavily_stale_after_a_week(con):
+    """Same-day team news (predicted_xi) at its configured half_life of 1.5 days: a claim from
+    a week ago should be down to a small fraction of its original weight, matching the
+    roadmap's own 'faster-decay for late team news' ask -- a week-old lineup prediction is
+    close to worthless by the next deadline."""
+    decay.seed_v1_params(con)
+    d = decay.decay_for_claim_type(con, "predicted_xi", date(2026, 1, 1), date(2026, 1, 8), params_version=1)
+    assert d < 0.05

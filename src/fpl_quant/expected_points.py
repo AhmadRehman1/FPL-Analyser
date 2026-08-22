@@ -95,6 +95,13 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # modest ~15% boost: enough to matter for a real early-season/new-signing case, deliberately
     # not large enough to swamp the real historical xG signal it's applied on top of.
     params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "penalty_taker_goal_rate_multiplier", value_numeric=1.15)
+    # Priority 7b: invented v1 defaults, same status/reasoning as the penalty multiplier above
+    # -- see _set_piece_goal_uplift_multiplier()/_set_piece_assist_uplift_multiplier(). A
+    # direct free-kick is real but far rarer/lower-probability than a penalty, so a more modest
+    # ~5% boost; a confirmed corner/free-kick delivery specialist's real value (many attempts
+    # per match, not an occasional penalty) is a genuinely larger ~20% boost to e_assists.
+    params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "free_kick_taker_goal_rate_multiplier", value_numeric=1.05)
+    params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "set_piece_deliverer_assist_rate_multiplier", value_numeric=1.20)
 
 
 def _sm(con, key, params_version, position=None):
@@ -353,25 +360,76 @@ def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
 # ingest_set_piece_takers() has written real claim_type="set_piece_order_override" claims
 # ({club, duty, order: primary/secondary}) into evidence_claims since the module existed, but
 # grepping the whole src/ tree turns up zero readers of that claim_type anywhere -- confirmed
-# ingested and dormant, not a hypothetical gap. Scoped narrowly to confirmed PRIMARY penalty
-# duty specifically (the single highest-signal, best-understood case: penalty conversion is
-# close to deterministic, and a summer transfer's new penalty duty won't yet show up in pure
+# ingested and dormant, not a hypothetical gap. Originally scoped narrowly to confirmed PRIMARY
+# penalty duty (the single highest-signal, best-understood case: penalty conversion is close
+# to deterministic, and a summer transfer's new penalty duty won't yet show up in pure
 # historical expected_goals_per_90, especially on a small early-season sample) -- free-kick/
-# corner duty claims exist in the same tab but are deliberately left alone here, a smaller,
-# separately-scoped extension if ever wanted, not silently folded in.
+# corner duty claims existed in the same tab but were deliberately left alone, a smaller,
+# separately-scoped extension "if ever wanted" per that original comment. Priority 7b is that
+# extension: free-kick duty gets its own (smaller) e_goals uplift alongside penalties -- a
+# direct free-kick is a real, if far rarer, scoring opportunity for the taker, same mechanism,
+# different invented magnitude -- and confirmed corner/free-kick DELIVERY duty gets a new
+# e_assists uplift below, since a set-piece deliverer's real value is chances created for
+# teammates, not goals for themselves.
+#
+# `duty` is free text lifted straight from a curated Excel tab (no fixed vocabulary enforced
+# anywhere upstream), so this matches by substring the same permissive way the original
+# penalty check already did ("penalt" in duty.lower()), not an exact-string enum.
 # ============================================================
 
 def _set_piece_goal_uplift_multiplier(
     con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
 ) -> float:
     """1.0 (no-op) unless an asof-visible set_piece_order_override claim confirms this player
-    as the PRIMARY penalty taker, in which case a small, versioned multiplicative uplift is
-    applied to e_goals. No real penalty-frequency/conversion data is reconciled anywhere in
-    this project (same honest gap expected_points.py's own module docstring already names for
-    GK penalty saves: "left at 0 rather than guessed") -- the uplift magnitude is therefore an
-    invented v1 default, same status as every other unpinned constant here, not a derived
-    number, flagged for M7 recalibration once real per-penalty-taker outcome data exists to fit
-    it against."""
+    as the PRIMARY penalty OR free-kick taker, in which case a small, versioned multiplicative
+    uplift is applied to e_goals (a different, smaller magnitude for free-kicks -- direct FK
+    conversion is real but much rarer than penalty conversion). No real set-piece-frequency/
+    conversion data is reconciled anywhere in this project (same honest gap expected_points.py's
+    own module docstring already names for GK penalty saves: "left at 0 rather than guessed")
+    -- both uplift magnitudes are therefore invented v1 defaults, same status as every other
+    unpinned constant here, flagged for M7 recalibration once real per-taker outcome data
+    exists to fit them against. Checks penalty duty first (the higher-signal, more-established
+    case) so a claim naming both somehow still resolves to the larger, more-defensible number."""
+    claims = snapshot_mod.get_claims_asof(
+        con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="set_piece_order_override",
+    ).to_dict("records")
+    penalty_claim, free_kick_claim = False, False
+    for c in claims:
+        if not c["claim_value"]:
+            continue
+        payload = json.loads(c["claim_value"])
+        duty = (payload.get("duty") or "").lower()
+        if payload.get("order") != "primary":
+            continue
+        if "penalt" in duty:
+            penalty_claim = True
+        elif "free kick" in duty or "free-kick" in duty or "freekick" in duty:
+            free_kick_claim = True
+    if penalty_claim:
+        multiplier, _ = params_mod.resolve_param(
+            con, "set_piece_evidence_params", "penalty_taker_goal_rate_multiplier", set_piece_params_version,
+        )
+        return multiplier
+    if free_kick_claim:
+        multiplier, _ = params_mod.resolve_param(
+            con, "set_piece_evidence_params", "free_kick_taker_goal_rate_multiplier", set_piece_params_version,
+        )
+        return multiplier
+    return 1.0
+
+
+def _set_piece_assist_uplift_multiplier(
+    con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
+) -> float:
+    """1.0 (no-op) unless an asof-visible claim confirms this player as the PRIMARY corner OR
+    free-kick DELIVERY taker, in which case a single versioned multiplicative uplift is applied
+    to e_assists. Corners and free-kicks are treated as the same delivered-set-piece assist
+    opportunity here, one shared multiplier rather than two separately-invented ones -- neither
+    is reconciled with enough real outcome data in this project to justify tuning them apart, a
+    genuine, disclosed simplification (a "free kick taker" claim doesn't distinguish direct-shot
+    duty from out-swinging delivery duty in the source data anyway, so a free-kick claim
+    legitimately contributes to BOTH this and the goal uplift above -- both are real possible
+    sources of extra value from that role, not double-counting the same one)."""
     claims = snapshot_mod.get_claims_asof(
         con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="set_piece_order_override",
     ).to_dict("records")
@@ -379,10 +437,12 @@ def _set_piece_goal_uplift_multiplier(
         if not c["claim_value"]:
             continue
         payload = json.loads(c["claim_value"])
-        duty = (payload.get("duty") or "")
-        if payload.get("order") == "primary" and "penalt" in duty.lower():
+        duty = (payload.get("duty") or "").lower()
+        if payload.get("order") != "primary":
+            continue
+        if "corner" in duty or "free kick" in duty or "free-kick" in duty or "freekick" in duty:
             multiplier, _ = params_mod.resolve_param(
-                con, "set_piece_evidence_params", "penalty_taker_goal_rate_multiplier", set_piece_params_version,
+                con, "set_piece_evidence_params", "set_piece_deliverer_assist_rate_multiplier", set_piece_params_version,
             )
             return multiplier
     return 1.0
@@ -413,6 +473,7 @@ def compute_player_fixture_components(
     e_assists = rates["expected_assists_per_90"] * e_min_played / 90.0 * p_played
     if asof is not None and set_piece_params_version is not None:
         e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
+        e_assists *= _set_piece_assist_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
     ep_goals = e_goals * _sm(con, "goal_points", scoring_params_version, position)
     ep_assists = e_assists * _sm(con, "assist_points", scoring_params_version)
 

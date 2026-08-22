@@ -1,0 +1,105 @@
+name: Scheduled FPL pipeline (Priority 8a/8b)
+
+# Priority 8a: "a scheduled job running the full pipeline automatically at price-lock time and
+# deadline time each gameweek, not manually triggered." Real FPL deadlines aren't a fixed
+# weekly time (postponements, double gameweeks, international breaks all shift them), and
+# nothing in this pipeline currently queries the FPL API for the actual next deadline -- the
+# two cron slots below are therefore a documented APPROXIMATION (most gameweeks' deadline
+# falls in a Friday-evening-to-Saturday-late-morning window UK time), not a precise per-
+# gameweek tracker. A more correct implementation would query bootstrap-static's own
+# events[].deadline_time and self-schedule closer to it -- a real, flagged follow-up, not
+# built here (same "scoped v1, flagged extension" pattern this whole roadmap already uses
+# elsewhere). workflow_dispatch exists for a manual/adjusted run any time.
+#
+# This runner has open internet (unlike the Claude Code Remote sandbox this pipeline was
+# originally built in, which blocks understat.com and similar third-party hosts by policy) --
+# that's specifically why the scheduling lives here, not as a Claude Code Remote Routine.
+on:
+  schedule:
+    - cron: "30 17 * * 5"   # Friday 17:30 UTC -- most gameweeks' final team-news window
+    - cron: "0 10 * * 6"    # Saturday 10:00 UTC -- most gameweeks' deadline window
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # data/external/ is gitignored (see README's own "Design notes" on why) -- provisioned
+      # fresh each run rather than committed, since the FPL-Core-Insights extract is large and
+      # the two evidence workbooks are private/curated. olbauday/FPL-Core-Insights' real
+      # layout (data/<season>/{players,playerstats,teams,...}.csv) was verified directly
+      # against a real clone before writing this step -- not assumed.
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+
+      # The two evidence workbooks are private/curated, not publicly fetchable -- stored as
+      # base64-encoded repo secrets (Settings -> Secrets and variables -> Actions) and
+      # materialized here. GitHub Actions secrets are capped at 64KB each: if either workbook
+      # exceeds that, base64-in-a-secret won't work and a different store (a private release
+      # asset, an artifact from a separate upload step, or object storage) is needed instead --
+      # this step will simply produce an empty/truncated file in that case, not fail loudly, so
+      # verify the decoded file size the first time this runs for real.
+      - name: Materialize evidence workbooks from secrets
+        env:
+          MASTER_EVIDENCE_DB_B64: ${{ secrets.FPL_MASTER_EVIDENCE_DATABASE_XLSX_B64 }}
+          RESEARCH_PULL_B64: ${{ secrets.FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64 }}
+        run: |
+          mkdir -p data/external
+          if [ -n "$MASTER_EVIDENCE_DB_B64" ]; then
+            echo "$MASTER_EVIDENCE_DB_B64" | base64 -d > "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+          else
+            echo "::warning::FPL_MASTER_EVIDENCE_DATABASE_XLSX_B64 secret not set -- ingestion will fail without it"
+          fi
+          if [ -n "$RESEARCH_PULL_B64" ]; then
+            echo "$RESEARCH_PULL_B64" | base64 -d > "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fi
+
+      - name: Run ingestion (M0-M6)
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Build report + diff
+        run: PYTHONPATH=src python scripts/run_report.py
+
+      - name: Check for deadline alerts
+        id: alerts
+        run: PYTHONPATH=src python scripts/check_deadline_alerts.py
+
+      - name: Open alert issue for newly-doubtful starters
+        if: steps.alerts.outputs.has_alert == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Deadline alert: newly doubtful starter(s) -- ${new Date().toISOString().slice(0, 10)}`,
+              body: `${{ steps.alerts.outputs.alert_body }}`,
+              labels: ["deadline-alert"],
+            });
+
+      # Priority 8c's snapshots are the point of persisting anything here -- everything else
+      # (the DuckDB file itself) is gitignored and rebuilt fresh next run.
+      - name: Commit report_history snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/report_history/
+          git diff --cached --quiet || git commit -m "chore: update report_history snapshot [skip ci]"
+          git push

@@ -8,14 +8,14 @@ import json
 import math
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import (  # noqa: E402
-    db, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
+    db, decay, expected_points, ingest_csv, ingest_research_pull, ingest_understat, ingest_workbook, minutes_model,
     monte_carlo, params, reconcile, reporting, squad_optimizer, team_strength, transfer_planner, uncertainty,
 )
 
@@ -90,6 +90,7 @@ def main() -> None:
     squad_optimizer.seed_v1_params(con)
     transfer_planner.seed_v1_params(con)
     reporting.seed_v1_params(con)
+    decay.seed_v1_params(con)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "
@@ -98,7 +99,7 @@ def main() -> None:
           "tc_risk_aversion_params, wildcard_gain_threshold_params, ownership_params, "
           "risk_posture_params, field_covariance_params, bench_quality_params, "
           "concentration_risk_params, sanity_check_params, consensus_check_params, "
-          "confidence_score_params v1 seeded")
+          "confidence_score_params, claim_type_decay_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
@@ -112,6 +113,20 @@ def main() -> None:
         t0 = time.time()
         research_pull_results = ingest_research_pull.ingest_all(con, str(RESEARCH_PULL_XLSX_PATH), source_tier_params_version=1)
         print(f"[research_pull] {time.time() - t0:.1f}s -> {json.dumps(research_pull_results)}")
+
+    # Priority 7a: informational only (see ingest_understat.py's own module docstring) --
+    # never blocks the real M1-M6 modeling pipeline below on a network hiccup. This
+    # environment's own network policy blocks understat.com entirely (confirmed), so this is
+    # expected to fail here and succeed wherever it actually has open internet (e.g. a CI
+    # runner) -- caught broadly and reported, not silently swallowed.
+    t0 = time.time()
+    try:
+        understat_results = ingest_understat.ingest_league_season(
+            con, TARGET_SEASON, int(TARGET_SEASON.split("-")[0]), datetime.now(),
+        )
+        print(f"[understat] {time.time() - t0:.1f}s -> {json.dumps(understat_results)}")
+    except Exception as e:
+        print(f"[understat] {time.time() - t0:.1f}s -> SKIPPED (fetch/parse failed: {e})")
 
     t0 = time.time()
     ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=2, rho_params_version=1)

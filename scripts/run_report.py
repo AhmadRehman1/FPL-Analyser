@@ -8,6 +8,7 @@ Uses the real GW1 2026-27 squad_optimizer_runs row, plus the real M7 backtest_ru
 transfer_plan_run_id already sitting in the database from earlier milestones' real runs.
 """
 
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,10 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from fpl_quant import db, reporting  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
+# Priority 8c: small, committed per-gameweek report snapshots -- see reporting.py's own
+# module docstring for why this lives as plain JSON in the repo rather than in the (gitignored,
+# never-persisted-across-runs) DuckDB file itself.
+REPORT_HISTORY_DIR = REPO_ROOT / "data" / "report_history"
 
 # Every param family currently seeded at v1 across M1-M8 (run_ingestion.py's own list).
 ACTIVE_PARAM_VERSIONS = {
@@ -33,13 +38,16 @@ ACTIVE_PARAM_VERSIONS = {
 def main() -> None:
     con = db.connect()
 
+    # Latest real (non-manager-snapshot) run for the season, not hardcoded to GW1 -- Priority
+    # 8c's week-over-week diff is only useful across an advancing season, and a scheduled
+    # weekly run (Priority 8a) needs this to naturally pick up each new gameweek's run.
     real_run_id = con.execute(
-        "SELECT run_id FROM squad_optimizer_runs WHERE target_season = ? AND target_gameweek = 1 "
-        "AND is_manager_snapshot = FALSE",
+        "SELECT run_id FROM squad_optimizer_runs WHERE target_season = ? AND is_manager_snapshot = FALSE "
+        "ORDER BY target_gameweek DESC LIMIT 1",
         [TARGET_SEASON],
     ).fetchone()
     if not real_run_id:
-        raise SystemExit(f"no real squad_optimizer_runs row for {TARGET_SEASON} GW1 -- run scripts/run_ingestion.py first")
+        raise SystemExit(f"no real squad_optimizer_runs row for {TARGET_SEASON} -- run scripts/run_ingestion.py first")
     real_run_id = real_run_id[0]
 
     backtest_run_id = con.execute("SELECT max(backtest_run_id) FROM backtest_runs").fetchone()[0]
@@ -65,6 +73,21 @@ def main() -> None:
         report_asof=datetime.now(),
     )
     print(reporting.render_report_text(report))
+
+    # Priority 8c: diff against last week's saved snapshot (if any), then save this week's.
+    previous_gw = report["headline"]["target_gameweek"] - 1
+    previous_snapshot = reporting.load_report_snapshot(TARGET_SEASON, previous_gw, REPORT_HISTORY_DIR)
+    diff = reporting.diff_reports(previous_snapshot, report)
+    print("\n" + reporting.render_diff_text(diff))
+    saved_path = reporting.save_report_snapshot(report, REPORT_HISTORY_DIR)
+    print(f"\n[report_history] snapshot saved to {saved_path}")
+
+    # Priority 8b: a small, always-overwritten machine-readable copy of the diff -- this is
+    # what scripts/check_deadline_alerts.py (and the scheduled workflow) read to decide
+    # whether a newly-doubtful-starter alert is warranted, without needing to re-derive it
+    # from the DB or scrape this script's own console output.
+    latest_diff_path = REPORT_HISTORY_DIR / "latest_diff.json"
+    latest_diff_path.write_text(json.dumps(diff, indent=2))
 
     print("\n--- section sizes (sanity check) ---")
     print(f"category_breakdown: {len(report['category_breakdown'])} players")

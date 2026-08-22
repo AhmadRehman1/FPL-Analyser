@@ -283,6 +283,378 @@ def test_has_fittable_history_true_once_prior_matches_exist(con):
 
 
 # ============================================================
+# Priority 9b -- segment classification (_previous_season / _is_newly_promoted_team /
+# _is_new_signing) and score_gameweek(compute_segments=True) wiring
+# ============================================================
+
+def test_previous_season_returns_the_prior_loaded_season(con):
+    _seed_two_gameweek_league(con)  # matches in both 2024-2025 and 2025-2026
+    assert bt._previous_season(con, "2025-2026") == "2024-2025"
+
+
+def test_previous_season_none_for_the_earliest_loaded_season(con):
+    _seed_two_gameweek_league(con)
+    assert bt._previous_season(con, "2024-2025") is None
+
+
+def test_previous_season_none_for_a_season_with_no_data_at_all(con):
+    _seed_two_gameweek_league(con)
+    assert bt._previous_season(con, "2026-2027") is None
+
+
+def _seed_promotion_scenario(con):
+    """team_a/team_b have real fixtures in BOTH 2024-2025 and 2025-2026 (not promoted);
+    team_c's only fixture is in 2025-2026 (promoted)."""
+    for uid, name in (("team_a", "A"), ("team_b", "B"), ("team_c", "C")):
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [uid, name])
+    now = datetime.now()
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "finished, competition, _ingested_at) VALUES ('prior', '2024-2025', 30, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
+        [datetime(2025, 3, 1, 15, 0), now],
+    )
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "finished, competition, _ingested_at) VALUES ('target', '2025-2026', 10, ?, 'team_a', 'team_c', TRUE, 'Premier League', ?)",
+        [datetime(2025, 11, 1, 15, 0), now],
+    )
+
+
+def test_is_newly_promoted_team_false_for_a_team_that_played_the_prior_season(con):
+    _seed_promotion_scenario(con)
+    assert bt._is_newly_promoted_team(con, "team_a", "2025-2026") is False
+
+
+def test_is_newly_promoted_team_true_for_a_team_absent_from_the_prior_season(con):
+    _seed_promotion_scenario(con)
+    assert bt._is_newly_promoted_team(con, "team_c", "2025-2026") is True
+
+
+def test_is_newly_promoted_team_none_when_theres_no_prior_season_to_compare(con):
+    _seed_promotion_scenario(con)
+    assert bt._is_newly_promoted_team(con, "team_a", "2024-2025") is None
+
+
+def _seed_signing_scenario(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Player One', 'Midfielder')")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Player Two', 'Forward')")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'Player Three', 'Forward')")
+    # p1: team_code '1' both seasons -- not a new signing
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P1', 'p1', '1', '2024-2025', 'p1')")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P1', 'p1', '1', '2025-2026', 'p1')")
+    # p2: team_code '1' in 2024-2025, '3' in 2025-2026 -- a real transfer, new signing
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P2', 'p2', '1', '2024-2025', 'p2')")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P2', 'p2', '3', '2025-2026', 'p2')")
+    # p3: two distinct team_codes WITHIN 2025-2026 itself (a genuine mid-season transfer) -- ambiguous
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P3a', 'p3a', '1', '2025-2026', 'p3')")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P3b', 'p3b', '2', '2025-2026', 'p3')")
+    # fact_match rows purely so _previous_season resolves 2025-2026 -> 2024-2025
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
+    now = datetime.now()
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "finished, competition, _ingested_at) VALUES ('prior', '2024-2025', 30, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
+        [datetime(2025, 3, 1, 15, 0), now],
+    )
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "finished, competition, _ingested_at) VALUES ('target', '2025-2026', 10, ?, 'team_a', 'team_b', TRUE, 'Premier League', ?)",
+        [datetime(2025, 11, 1, 15, 0), now],
+    )
+
+
+def test_is_new_signing_false_when_team_code_unchanged(con):
+    _seed_signing_scenario(con)
+    assert bt._is_new_signing(con, "p1", "2025-2026") is False
+
+
+def test_is_new_signing_true_when_team_code_changed(con):
+    _seed_signing_scenario(con)
+    assert bt._is_new_signing(con, "p2", "2025-2026") is True
+
+
+def test_is_new_signing_none_when_ambiguous_within_the_season(con):
+    _seed_signing_scenario(con)
+    assert bt._is_new_signing(con, "p3", "2025-2026") is None
+
+
+def test_is_new_signing_none_when_no_prior_season_to_compare(con):
+    _seed_signing_scenario(con)
+    assert bt._is_new_signing(con, "p1", "2024-2025") is None
+
+
+# ============================================================
+# score_gameweek(compute_segments=True) -- end-to-end wiring
+# ============================================================
+
+def _seed_score_gameweek_segment_scenario(con):
+    """p1/team_a: existed both seasons, no transfer -- no segments. p2/team_c: team_c is
+    brand new to 2025-2026 AND p2 transferred in from team_a -- both promoted_team and
+    new_signing. p3/team_a: confirmed primary penalty taker -- set_piece_taker. Full real
+    score_gameweek() dependency chain (team_strength_snapshots, ep_outputs, minutes_model_
+    outputs, fact_player_match_stats) hand-seeded, same pattern as this file's other
+    manually-seeded scenarios."""
+    for uid, name in (("team_a", "A"), ("team_b", "B"), ("team_c", "C")):
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [uid, name])
+    for uid, name, position in (("p1", "Player One", "Forward"), ("p2", "Player Two", "Forward"), ("p3", "Player Three", "Forward")):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, name, position])
+
+    now = datetime.now()
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "home_score, away_score, finished, competition, _ingested_at) VALUES "
+        "('prior', '2024-2025', 30, ?, 'team_a', 'team_b', 1, 0, TRUE, 'Premier League', ?)",
+        [datetime(2025, 3, 1, 15, 0), now],
+    )
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "home_score, away_score, finished, competition, _ingested_at) VALUES "
+        "('target', '2025-2026', 10, ?, 'team_a', 'team_c', 2, 1, TRUE, 'Premier League', ?)",
+        [datetime(2025, 11, 1, 15, 0), now],
+    )
+    for uid, goals, assists in (("p1", 0, 0), ("p2", 1, 0), ("p3", 1, 0)):
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+            "minutes_played, goals, assists, team_goals_conceded, _ingested_at) "
+            "VALUES (?, 'target', '2025-2026', 0, 90, 90, ?, ?, 1, ?)",
+            [uid, goals, assists, now],
+        )
+
+    # player_alias: p1 stays on team_a ('1') both seasons; p2 moves from team_a ('1') to
+    # team_c ('3'); p3 is on team_a ('1') in the target season only (no prior-season claim
+    # needed for the set-piece segment).
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P1', 'p1', '1', '2024-2025', 'p1')")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P1', 'p1', '1', '2025-2026', 'p1')")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P2', 'p2', '1', '2024-2025', 'p2')")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P2', 'p2', '3', '2025-2026', 'p2')")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) VALUES ('P3', 'p3', '1', '2025-2026', 'p3')")
+
+    # team_alias + raw teams.csv for the target season, needed by monte_carlo._team_of_for_fixture()
+    con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('A', '2025-2026', 'team_a', 't')")
+    con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('C', '2025-2026', 'team_c', 't')")
+    con.execute('CREATE TABLE "raw_2025_2026_teams" (code VARCHAR, name VARCHAR)')
+    con.execute("INSERT INTO \"raw_2025_2026_teams\" VALUES ('1', 'A'), ('3', 'C')")
+    con.execute(
+        "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+        "VALUES ('raw_2025_2026_teams', '2025-2026', 'teams.csv', 'fakehash', 2)"
+    )
+
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2025-11-01', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    for uid in ("team_a", "team_b", "team_c"):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, 0.1, 0.1, 2, 1.0)",
+            [ts_mv, uid],
+        )
+
+    con.execute(
+        "INSERT INTO minutes_model_versions (model_version, calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES (1, '2025-11-01', '2025-2026', 1, 1, 1, 1, '[]')"
+    )
+    for uid in ("p1", "p2", "p3"):
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_final, "
+            "p_start_historical_position_avg, weight_own, logit_adjustment_total, p_start_final, "
+            "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+            "VALUES (1, ?, 'Forward', 0.9, 0.9, 1.0, 0.0, 0.9, 0.0, 0.05, 0.05, 0.9, 20)",
+            [uid],
+        )
+
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2025-11-01', '2025-2026', ?, 1, 1, 1, 1)", [ts_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    for uid in ("p1", "p2", "p3"):
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+            "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+            "ep_total, expected_bps) VALUES (?, ?, 'target', 1.0, 0.5, 0.2, 0, 0, 0, 0.3, 0, 0, 0, 0, 2.0, 20.0)",
+            [ep_mv, uid],
+        )
+
+    # p3: confirmed primary penalty taker, asof-visible before the target gameweek's deadline
+    con.execute("INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) VALUES ('src1', 'Test Source', 'official', 0.9)")
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, information_type, source_id, source_reliability_score, confidence, "
+        "observed_date, ingested_date, tab_origin, row_origin) "
+        "VALUES ('claim_p3', 'player', 'p3', 'set_piece_order_override', ?, 'FACT', 'src1', 0.9, 0.9, "
+        "'2025-08-01', '2025-08-01 00:00:00', 'research_pull:SetPieceTakers', 1)",
+        [json.dumps({"club": "A", "duty": "Penalties", "order": "primary"})],
+    )
+    bt.ep.seed_v1_params(con)  # base_scoring_matrix, set_piece_evidence_params (1.15), etc.
+
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    return backtest_run_id, ep_mv, ts_mv
+
+
+def test_score_gameweek_records_segment_suffixed_metrics_when_opted_in(con):
+    backtest_run_id, ep_mv, ts_mv = _seed_score_gameweek_segment_scenario(con)
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, 1, ts_mv, 1,
+        compute_segments=True, set_piece_params_version=1,
+    )
+    rows = dict(con.execute(
+        "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall())
+    assert "log_score_goals_mean:promoted_team" in rows  # p2, on team_c
+    assert "log_score_goals_mean:new_signing" in rows    # p2, transferred in
+    assert "log_score_goals_mean:set_piece_taker" in rows  # p3, confirmed penalty taker
+    # aggregate (unsuffixed) metrics still get recorded exactly as before -- segments are additive
+    assert "log_score_goals_mean" in rows
+
+
+def test_score_gameweek_records_no_segment_metrics_when_not_opted_in(con):
+    backtest_run_id, ep_mv, ts_mv = _seed_score_gameweek_segment_scenario(con)
+    bt.score_gameweek(con, backtest_run_id, "2025-2026", 10, ep_mv, 1, ts_mv, 1)
+    names = {r[0] for r in con.execute(
+        "SELECT metric_name FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall()}
+    assert not any(":" in n and not n.startswith("realized_") for n in names)
+
+
+# ============================================================
+# Priority 9c -- "beats the ownership-weighted average manager"
+# ============================================================
+
+def _seed_beats_crowd_scenario(con):
+    """p1 (mu=6.0, 50% owned, scored 10, captained + in XI), p2 (mu=4.0, 20% owned, scored
+    5, in XI), p3 (mu=3.0, 80% owned despite the lower projection -- a real differential-vs-
+    template shape, scored 2, NOT in the model's squad but still part of the real field).
+    Minimal FK chain for ep_outputs (team_strength/minutes model version rows) plus a real
+    squad_optimizer_runs/selections row so so_run_id-gated code paths have something to read."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
+    for uid, name in (("p1", "Player One"), ("p2", "Player Two"), ("p3", "Player Three")):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward')", [uid, name])
+
+    now = datetime.now()
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2025-11-01', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2025-11-01', '2025-2026', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2025-11-01', '2025-2026', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "finished, competition, _ingested_at) VALUES "
+        "('m1', '2025-2026', 10, ?, 'team_a', 'team_b', FALSE, 'Premier League', ?)",
+        [datetime(2025, 11, 1, 15, 0), now],
+    )
+
+    for uid, ep_total, sbp, points in (("p1", 6.0, 50.0, 10), ("p2", 4.0, 20.0, 5), ("p3", 3.0, 80.0, 2)):
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+            "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+            "ep_total, expected_bps) VALUES (?, ?, 'm1', 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 20.0)",
+            [ep_mv, uid, ep_total],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, selected_by_percent, event_points, _ingested_at) "
+            "VALUES (?, '2025-2026', 10, ?, ?, ?)",
+            [uid, sbp, points, now],
+        )
+
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2025-11-01', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO squad_optimizer_runs (calibration_asof_date, target_season, target_gameweek, "
+        "ep_model_version, uncertainty_model_version, lambda_params_version, lambda_value, "
+        "guardrail_params_version, divergence_check_passed, solver_status, objective_value) "
+        "VALUES ('2025-11-01', '2025-2026', 10, ?, ?, 1, 0.15, 1, TRUE, 'optimal', 10.0) RETURNING run_id",
+        [ep_mv, un_mv],
+    )
+    so_run_id = con.execute("SELECT max(run_id) FROM squad_optimizer_runs").fetchone()[0]
+    con.execute(
+        "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+        "VALUES (?, 'p1', TRUE, TRUE, TRUE, FALSE)", [so_run_id],
+    )
+    con.execute(
+        "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+        "VALUES (?, 'p2', TRUE, TRUE, FALSE, TRUE)", [so_run_id],
+    )
+
+    bt.params_mod.write_param(con, "ownership_params", 1, "2026-08-10", "captaincy_concentration", value_numeric=0.3)
+    bt.ep.seed_v1_params(con)  # base_scoring_matrix etc., needed by score_gameweek's M3 loop
+    return ep_mv, mm_mv, ts_mv, so_run_id
+
+
+def test_avg_manager_benchmark_points_matches_direct_eo_computation(con):
+    ep_mv, *_ = _seed_beats_crowd_scenario(con)
+    result = bt._avg_manager_benchmark_points(con, "2025-2026", 10, ep_mv, ownership_params_version=1)
+
+    # Recompute independently via the same real ownership.py primitives (already unit-tested
+    # in test_ownership.py) rather than duplicating the EO formula by hand here -- this test's
+    # job is to verify the query/wiring, not re-derive EO math.
+    from fpl_quant import ownership as ownership_mod
+    candidates = [
+        {"player_uid": "p1", "position": "Forward", "mu": 6.0, "selected_by_percent": 50.0},
+        {"player_uid": "p2", "position": "Forward", "mu": 4.0, "selected_by_percent": 20.0},
+        {"player_uid": "p3", "position": "Forward", "mu": 3.0, "selected_by_percent": 80.0},
+    ]
+    eo_by_uid = ownership_mod.compute_eo_for_pool(candidates, captaincy_concentration=0.3)
+    expected = sum((eo_by_uid[uid] / 100.0) * pts for uid, pts in (("p1", 10), ("p2", 5), ("p3", 2)))
+    assert result == pytest.approx(expected)
+
+
+def test_avg_manager_benchmark_points_none_when_no_ownership_data(con):
+    ep_mv, *_ = _seed_beats_crowd_scenario(con)
+    con.execute("UPDATE fact_player_season_stats SET selected_by_percent = NULL WHERE season = '2025-2026' AND gw = 10")
+    assert bt._avg_manager_benchmark_points(con, "2025-2026", 10, ep_mv, ownership_params_version=1) is None
+
+
+def test_score_gameweek_records_beats_crowd_metrics_when_opted_in(con):
+    ep_mv, mm_mv, ts_mv, so_run_id = _seed_beats_crowd_scenario(con)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, mm_mv, ts_mv, 1, so_run_id=so_run_id,
+        ownership_params_version=1,
+    )
+    rows = dict(con.execute(
+        "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall())
+    # p1 captained (10*2) + p2 (5) = 25
+    assert rows["model_squad_realized_points"] == pytest.approx(25.0)
+    assert "avg_manager_benchmark_points" in rows
+    assert rows["beats_crowd_points_delta"] == pytest.approx(rows["model_squad_realized_points"] - rows["avg_manager_benchmark_points"])
+
+
+def test_score_gameweek_skips_beats_crowd_metrics_when_not_opted_in(con):
+    ep_mv, mm_mv, ts_mv, so_run_id = _seed_beats_crowd_scenario(con)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.score_gameweek(con, backtest_run_id, "2025-2026", 10, ep_mv, mm_mv, ts_mv, 1, so_run_id=so_run_id)
+    names = {r[0] for r in con.execute(
+        "SELECT metric_name FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall()}
+    assert "beats_crowd_points_delta" not in names
+    assert "model_squad_realized_points" not in names
+
+
+# ============================================================
 # propose_recalibration -- writes a version, never activates it
 # ============================================================
 

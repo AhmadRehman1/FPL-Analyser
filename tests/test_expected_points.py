@@ -140,13 +140,89 @@ def test_set_piece_goal_uplift_no_op_for_secondary_penalty_taker(con):
     assert multiplier == pytest.approx(1.0)
 
 
-def test_set_piece_goal_uplift_no_op_for_non_penalty_duty(con):
-    """Free-kick/corner duty is deliberately out of scope for this v1 uplift -- only
-    confirmed primary PENALTY duty gets it."""
+def test_set_piece_goal_uplift_no_op_for_corner_duty(con):
+    """Corner duty (delivery, not a direct scoring opportunity for the taker) is out of scope
+    for the GOAL uplift specifically -- see _set_piece_assist_uplift_multiplier() instead."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Corners", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.0)
+
+
+def test_set_piece_goal_uplift_applies_for_confirmed_primary_free_kick_taker(con):
+    """Priority 7b: a direct free-kick is a real, if far rarer, scoring opportunity for the
+    taker -- a smaller uplift than penalties, same mechanism."""
     ep.seed_v1_params(con)
     _seed_source_and_claim(con, "p1", duty="Free-kicks", order="primary")
     asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
     multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.05)
+
+
+def test_set_piece_goal_uplift_penalty_wins_when_both_claimed(con):
+    """A player confirmed as both primary penalty AND free-kick taker gets the larger, more
+    established penalty multiplier, not a compounded or ambiguous result."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary", observed_date=date(2026, 8, 1))
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, information_type, source_id, source_reliability_score, confidence, "
+        "observed_date, ingested_date, tab_origin, row_origin) "
+        "VALUES ('claim_p1_fk', 'player', 'p1', 'set_piece_order_override', ?, 'FACT', 'src1', 0.9, 0.9, "
+        "?, ?, 'research_pull:SetPieceTakers', 2)",
+        [__import__("json").dumps({"club": "A", "duty": "Free-kicks", "order": "primary"}),
+         date(2026, 8, 1), datetime(2026, 8, 1, tzinfo=timezone.utc)],
+    )
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_goal_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.15)
+
+
+# ============================================================
+# _set_piece_assist_uplift_multiplier -- Priority 7b
+# ============================================================
+
+def test_set_piece_assist_uplift_applies_for_confirmed_primary_corner_taker(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Corners", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.20)
+
+
+def test_set_piece_assist_uplift_applies_for_confirmed_primary_free_kick_taker(con):
+    """A free-kick claim doesn't distinguish direct-shot duty from out-swinging delivery duty
+    in the source data -- it legitimately contributes to the assist uplift too, not just the
+    goal uplift (both are real possible sources of value from that role)."""
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Free-kicks", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.20)
+
+
+def test_set_piece_assist_uplift_no_op_for_penalty_only_duty(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Penalties", order="primary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.0)
+
+
+def test_set_piece_assist_uplift_no_op_for_secondary_corner_taker(con):
+    ep.seed_v1_params(con)
+    _seed_source_and_claim(con, "p1", duty="Corners", order="secondary")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
+    assert multiplier == pytest.approx(1.0)
+
+
+def test_set_piece_assist_uplift_no_op_with_no_claims_at_all(con):
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'p1', 'Forward')")
+    asof = datetime(2026, 8, 10, tzinfo=timezone.utc)
+    multiplier = ep._set_piece_assist_uplift_multiplier(con, "p1", asof, set_piece_params_version=1)
     assert multiplier == pytest.approx(1.0)
 
 
