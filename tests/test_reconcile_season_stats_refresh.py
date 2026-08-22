@@ -77,3 +77,69 @@ def test_distinct_gameweeks_are_preserved_as_distinct_rows_not_collapsed(con, tm
         "SELECT gw, now_cost FROM fact_player_season_stats WHERE season = '2026-2027' ORDER BY gw"
     ).fetchall()
     assert rows == [(1, 15.0), (2, 15.5)]
+
+
+# ============================================================
+# Priority 4 -- transfers_in_event / transfers_out_event promotion (the forward-looking
+# price-change-timing signal's own real input; see transfer_planner.price_change_risk_by_player())
+# ============================================================
+
+TRANSFERS_HEADER = "id,gw,now_cost,status,minutes,goals_scored,assists,transfers_in_event,transfers_out_event"
+
+
+def test_transfers_in_out_event_columns_promoted_when_present(con, tmp_path):
+    season = "2026-2027"
+    players_path = tmp_path / season / "players.csv"
+    stats_path = tmp_path / season / "playerstats.csv"
+    _write_csv(players_path, PLAYERS_HEADER, ["101,101,Erling,Haaland,Haaland,43,Forward"])
+    _write_csv(stats_path, TRANSFERS_HEADER, ["101,1,15.0,a,90,1,0,62000,1500"])
+
+    ingest_csv.ingest_csv_file(con, season, "players.csv", players_path)
+    ingest_csv.ingest_csv_file(con, season, "playerstats.csv", stats_path)
+    reconcile.build_dim_player(con)
+    reconcile.build_fact_player_season_stats(con)
+
+    row = con.execute(
+        "SELECT transfers_in_event, transfers_out_event FROM fact_player_season_stats "
+        "WHERE season = '2026-2027' AND gw = 1"
+    ).fetchone()
+    assert row == (62000.0, 1500.0)
+
+
+def test_transfers_in_out_event_columns_null_when_source_lacks_them(con, tmp_path):
+    """Same graceful-degrade-across-seasons handling every other _SEASON_STATS_NUMERIC_COLS
+    entry already gets (see build_fact_player_season_stats()'s own docstring on 2024-2025
+    genuinely predating several columns) -- a season's playerstats.csv without these two
+    columns at all must reconcile cleanly to NULL, never raise or silently fabricate a 0."""
+    # STATS_HEADER (module-level, above) has no transfers_in_event/transfers_out_event at all.
+    row = _ingest_and_reconcile(con, tmp_path, ["101,1,15.0,a,90,1,0"])
+    full_row = con.execute(
+        "SELECT transfers_in_event, transfers_out_event FROM fact_player_season_stats "
+        "WHERE season = '2026-2027' AND gw = 1"
+    ).fetchone()
+    assert full_row == (None, None)
+
+
+def test_transfers_in_out_event_columns_refresh_on_a_later_batch(con, tmp_path):
+    """Same live-refresh discipline as now_cost/status above -- a later same-day ingestion
+    batch's updated transfer counts must overwrite the stale snapshot, not be discarded."""
+    season = "2026-2027"
+    players_path = tmp_path / season / "players.csv"
+    stats_path = tmp_path / season / "playerstats.csv"
+    _write_csv(players_path, PLAYERS_HEADER, ["101,101,Erling,Haaland,Haaland,43,Forward"])
+
+    _write_csv(stats_path, TRANSFERS_HEADER, ["101,1,15.0,a,90,1,0,10000,500"])
+    ingest_csv.ingest_csv_file(con, season, "players.csv", players_path)
+    ingest_csv.ingest_csv_file(con, season, "playerstats.csv", stats_path)
+    reconcile.build_dim_player(con)
+    reconcile.build_fact_player_season_stats(con)
+
+    _write_csv(stats_path, TRANSFERS_HEADER, ["101,1,15.0,a,90,1,0,55000,900"])
+    ingest_csv.ingest_csv_file(con, season, "playerstats.csv", stats_path)
+    reconcile.build_fact_player_season_stats(con)
+
+    row = con.execute(
+        "SELECT transfers_in_event, transfers_out_event FROM fact_player_season_stats "
+        "WHERE season = '2026-2027' AND gw = 1"
+    ).fetchone()
+    assert row == (55000.0, 900.0)

@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from fpl_quant import squad_optimizer as so
@@ -88,6 +90,230 @@ def test_captain_points_double_counted_in_objective():
     by_uid = {c["player_uid"]: c for c in pool}
     expected = sum(by_uid[u]["mu"] for u in result["xi"]) + by_uid[result["captain"]]["mu"]
     assert result["objective"] == pytest.approx(expected)
+
+
+def test_solve_returns_identical_output_across_repeated_calls():
+    """Priority 0 regression test: a real squad recommendation once flip-flopped between
+    formations/captains across repeated runs against IDENTICAL underlying data. solve() must
+    be a pure function of its (candidates, sigma_pairs, lam, guardrail_cap) inputs -- calling
+    it 10 times with the exact same arguments must return the exact same squad/xi/captain/
+    vice/objective every time, not merely "an" optimal solution each time."""
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 2.0, ("mid0", "mid1"): 1.5}
+    results = [so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3) for _ in range(10)]
+    first = results[0]
+    for r in results[1:]:
+        assert r["squad"] == first["squad"]
+        assert r["xi"] == first["xi"]
+        assert r["captain"] == first["captain"]
+        assert r["vice"] == first["vice"]
+        assert r["objective"] == pytest.approx(first["objective"])
+
+
+def test_solve_is_invariant_to_candidate_list_ordering():
+    """The actual root cause of the flip-flopping bug (see squad_optimizer.solve()'s own
+    docstring comment): the candidate pool arrived from an ORDER-BY-less SQL join, whose row
+    order is not guaranteed stable across runs -- and whenever the true optimum admits more
+    than one exactly-tied solution (this fixture's sigma_pairs is deliberately chosen so a
+    genuine tie exists, mirroring the real incident), which tied optimum SCIP's branch-and-
+    bound returns depended on that arrival order. Shuffling the candidate list (simulating a
+    different SQL/thread-scheduling order on a re-run against the same data) must not change
+    the result once solve() is a pure function of its logical inputs."""
+    import random
+
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 2.0, ("mid0", "mid1"): 1.5}
+    baseline = so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3)
+
+    rng = random.Random(1234)
+    for _ in range(10):
+        shuffled = pool[:]
+        rng.shuffle(shuffled)
+        result = so.solve(shuffled, sigma_pairs, lam=0.15, guardrail_cap=3)
+        assert result["xi"] == baseline["xi"]
+        assert result["captain"] == baseline["captain"]
+        assert result["vice"] == baseline["vice"]
+        assert result["objective"] == pytest.approx(baseline["objective"])
+
+
+def test_mip_gap_is_zero_on_a_proven_optimal_solve():
+    """Priority 2 solve-quality transparency: a synthetic pool this small should always
+    reach a PROVEN optimum well within the time limit, so mip_gap should be exactly 0.0 --
+    not merely status == 'optimal' with the gap left unreported."""
+    pool = _synthetic_pool()
+    result = so.solve(pool, sigma_pairs={}, lam=0.15, guardrail_cap=3)
+    assert result["status"] == "optimal"
+    assert result["mip_gap"] == pytest.approx(0.0)
+
+
+# ============================================================
+# Priority 1 -- risk-posture (EO) term
+# ============================================================
+
+def _posture_pool():
+    """Same base pool as _synthetic_pool(), but with fwd2 and fwd3's mu tied at the top of
+    the whole pool -- a genuine EP tie between two forwards, so any XI/squad preference
+    between them can only come from the EO term, not from a real EP edge."""
+    pool = _synthetic_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    top_mu = max(c["mu"] for c in pool)
+    tied_mu = top_mu + 1.0
+    by_uid["fwd2"]["mu"] = tied_mu
+    by_uid["fwd3"]["mu"] = tied_mu
+    eo_by_uid = {c["player_uid"]: 10.0 for c in pool}
+    eo_by_uid["fwd2"] = 90.0  # high-EO "template" pick
+    eo_by_uid["fwd3"] = 5.0   # low-EO differential
+    return pool, eo_by_uid
+
+
+def test_protect_posture_favors_the_higher_eo_tied_ep_candidate():
+    pool, eo_by_uid = _posture_pool()
+    result = so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="protect", eo_weight_kappa=0.5)
+    assert "fwd2" in result["squad"]  # the high-EO tied-mu player is kept
+
+
+def test_chase_posture_favors_the_lower_eo_tied_ep_candidate():
+    """Same pool, same tied EP, opposite posture: chase must make the OPPOSITE choice from
+    protect -- proving the toggle actually changes squad output in the expected direction
+    for both modes, not just that solve() runs under either setting."""
+    pool, eo_by_uid = _posture_pool()
+    result = so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="chase", eo_weight_kappa=0.5)
+    assert "fwd2" not in result["squad"]  # the high-EO tied-mu player is dropped for a lower-EO alternative
+
+
+def test_posture_toggle_changes_squad_output_between_modes():
+    """Direct proof the toggle changes OUTPUT, not just that both modes run without error."""
+    pool, eo_by_uid = _posture_pool()
+    r_protect = so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="protect", eo_weight_kappa=0.5)
+    r_chase = so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="chase", eo_weight_kappa=0.5)
+    assert r_protect["squad"] != r_chase["squad"]
+
+
+def test_eo_term_is_a_no_op_by_default():
+    """kappa=0.0 (the default) must reproduce the exact same result as not passing EO
+    arguments at all -- every existing caller's behavior must be byte-identical."""
+    pool, eo_by_uid = _posture_pool()
+    with_defaults = so.solve(pool, {}, lam=0.0, guardrail_cap=3)
+    with_explicit_zero_kappa = so.solve(
+        pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="protect", eo_weight_kappa=0.0
+    )
+    assert with_defaults["squad"] == with_explicit_zero_kappa["squad"]
+    assert with_defaults["objective"] == pytest.approx(with_explicit_zero_kappa["objective"])
+
+
+def test_eo_weight_kappa_requires_posture():
+    pool, eo_by_uid = _posture_pool()
+    with pytest.raises(ValueError):
+        so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture=None, eo_weight_kappa=0.5)
+
+
+def test_invalid_posture_raises():
+    pool, eo_by_uid = _posture_pool()
+    with pytest.raises(ValueError):
+        so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="bogus", eo_weight_kappa=0.5)
+
+
+# ============================================================
+# Priority 1 -- field-covariance term (linear coefficient, same posture-sign convention)
+# ============================================================
+
+def test_field_cov_term_prefers_higher_covariance_candidate_under_protect():
+    """Same tied-mu setup, but the signal is Cov(player, field) rather than EO -- protect
+    should keep the player with higher field-covariance (moves with the field, protects
+    rank), the same direction EO already demonstrated above."""
+    pool = _synthetic_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    top_mu = max(c["mu"] for c in pool)
+    tied_mu = top_mu + 1.0
+    by_uid["fwd2"]["mu"] = tied_mu
+    by_uid["fwd3"]["mu"] = tied_mu
+    field_cov_by_uid = {c["player_uid"]: 0.0 for c in pool}
+    field_cov_by_uid["fwd2"] = 50.0
+    field_cov_by_uid["fwd3"] = 1.0
+
+    result = so.solve(
+        pool, {}, lam=0.0, guardrail_cap=3, posture="protect",
+        field_cov_by_uid=field_cov_by_uid, field_cov_kappa=0.1,
+    )
+    assert "fwd2" in result["squad"]
+
+
+def test_field_cov_kappa_requires_posture():
+    pool = _synthetic_pool()
+    with pytest.raises(ValueError):
+        so.solve(pool, {}, lam=0.0, guardrail_cap=3, field_cov_by_uid={}, field_cov_kappa=0.1, posture=None)
+
+
+# ============================================================
+# Priority 2 -- bench-quality floor
+# ============================================================
+
+def test_bench_quality_floor_excludes_low_p_start_from_bench():
+    """A candidate below the threshold must never appear on the bench (in squad, not in xi)
+    -- either not selected at all, or selected AND started."""
+    pool = _synthetic_pool()
+    # def5 is the cheapest/lowest-mu defender, the most likely bench filler under a plain
+    # EP-maximizing solve -- flag it as a rotation risk and confirm it never lands on the bench.
+    p_start_by_uid = {c["player_uid"]: 0.9 for c in pool}
+    p_start_by_uid["def5"] = 0.1  # far below any reasonable threshold
+
+    result = so.solve(
+        pool, {}, lam=0.0, guardrail_cap=3,
+        p_start_by_uid=p_start_by_uid, min_bench_p_start_probability=0.25,
+    )
+    if "def5" in result["squad"]:
+        assert "def5" in result["xi"], "def5 is below the bench-quality floor -- it must never be benched"
+
+
+def test_bench_quality_floor_is_a_no_op_when_unset():
+    pool = _synthetic_pool()
+    with_defaults = so.solve(pool, {}, lam=0.0, guardrail_cap=3)
+    with_none_threshold = so.solve(pool, {}, lam=0.0, guardrail_cap=3, p_start_by_uid={"def5": 0.01}, min_bench_p_start_probability=None)
+    assert with_defaults["squad"] == with_none_threshold["squad"]
+
+
+def test_bench_quality_floor_never_gates_missing_p_start_data():
+    """A candidate with no p_start data at all (None) must never be excluded from the bench
+    purely for lacking coverage -- absence of minutes-model data isn't evidence of rotation
+    risk."""
+    pool = _synthetic_pool()
+    result_without_floor = so.solve(pool, {}, lam=0.0, guardrail_cap=3)
+    result_with_floor = so.solve(
+        pool, {}, lam=0.0, guardrail_cap=3,
+        p_start_by_uid={}, min_bench_p_start_probability=0.25,  # no p_start data for anyone
+    )
+    assert result_without_floor["squad"] == result_with_floor["squad"]
+
+
+# ============================================================
+# Priority 2 -- team-concentration risk
+# ============================================================
+
+def test_concentration_kappa_default_is_a_no_op():
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 5.0}  # def0/def1 share clubA -- same-club pair
+    without = so.solve(pool, sigma_pairs, lam=0.0, guardrail_cap=3)
+    with_zero = so.solve(pool, sigma_pairs, lam=0.0, guardrail_cap=3, concentration_kappa=0.0)
+    assert without["squad"] == with_zero["squad"]
+    assert without["objective"] == pytest.approx(with_zero["objective"])
+
+
+def test_concentration_kappa_penalizes_same_club_stacking():
+    """def0 and def1 (clubA) have a strong positive same-club covariance; a high enough
+    concentration_kappa must make the solver strictly worse off for holding both of them
+    together vs. lam=0's plain EP-maximizing baseline -- proving the penalty is actually
+    wired into the objective, not just accepted as a parameter."""
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 5.0}
+    baseline = so.solve(pool, sigma_pairs, lam=0.0, guardrail_cap=3)
+    penalized = so.solve(pool, sigma_pairs, lam=0.0, guardrail_cap=3, concentration_kappa=1.0)
+    both_in_baseline = "def0" in baseline["squad"] and "def1" in baseline["squad"]
+    both_in_penalized = "def0" in penalized["squad"] and "def1" in penalized["squad"]
+    if both_in_baseline:
+        # either the penalty was strong enough to break up the same-club stack, or (if it's
+        # still worth it on raw EP) the reported objective must be strictly lower than an
+        # unpenalized solve holding the identical pair -- one of the two must be true.
+        assert (not both_in_penalized) or (penalized["objective"] < baseline["objective"] - 1e-6)
 
 
 def test_higher_lambda_reduces_or_holds_objective_with_real_variance():
@@ -329,3 +555,173 @@ def test_recommend_captain_with_differential_raises_on_unknown_run(con):
     so.seed_v1_params(con)
     with pytest.raises(ValueError):
         so.recommend_captain_with_differential(con, 999, differential_tiebreak_params_version=1)
+
+
+# ============================================================
+# run() -- Priority 1/2 wiring end-to-end (real DB, real fetch_candidate_pool() joins, not
+# solve()'s own in-memory pool -- same "2 GK/6 DEF/6 MID/4 FWD/6-club" budget/club-cap-feasible
+# shape test_transfer_planner.py's own _seed_real_squad_optimizer_candidate_pool() uses, kept
+# local here rather than cross-imported since every other test file in this project builds its
+# own seed helper rather than sharing one across files.
+# ============================================================
+
+def _seed_run_candidate_pool(con, target_season="2026-2027", target_gameweek=2):
+    clubs = ["clubA", "clubB", "clubC", "clubD", "clubE", "clubF"]
+    for club in clubs:
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [club, club])
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', ?, ?, 'clubA', 'clubB', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)", [target_season, target_gameweek],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'clubA')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [target_season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv = con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1) RETURNING model_version", [target_season, ts_mv, mm_mv],
+    ).fetchone()[0]
+    un_mv = con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1) "
+        "RETURNING model_version", [ep_mv, mm_mv, ts_mv],
+    ).fetchone()[0]
+
+    players = []
+    for i in range(2):
+        players.append((f"gk{i}", "Goalkeeper", 3.0 + i * 0.5, 4.5 + i, clubs[i % 6]))
+    for i in range(6):
+        players.append((f"def{i}", "Defender", 2.5 + i * 0.3, 4.0 + i * 0.5, clubs[i % 6]))
+    for i in range(6):
+        players.append((f"mid{i}", "Midfielder", 3.0 + i * 0.4, 5.0 + i * 0.5, clubs[i % 6]))
+    for i in range(4):
+        players.append((f"fwd{i}", "Forward", 3.5 + i * 0.5, 6.0 + i * 0.5, clubs[i % 6]))
+
+    for i, (uid, position, mu, price, club) in enumerate(players):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, position])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, ?, ?, ?)", [uid, uid.lower(), club, target_season, uid],
+        )
+        # spread ownership across the pool so EO/posture and field-covariance have real,
+        # differentiated data to work with -- not the same value for every player.
+        selected_by_percent = 5.0 + (i * 4.0) % 60.0
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, _ingested_at) "
+            "VALUES (?, ?, 1, ?, ?, current_timestamp)", [uid, target_season, price, selected_by_percent],
+        )
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, 'm1', 0,0,0,0.02,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, uid, mu],
+        )
+        var = 1.0 + mu * 3.0
+        con.execute(
+            "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+            "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+            "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+            "VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0, ?, 0,0,0,0,0,0)", [un_mv, uid, var],
+        )
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_position_avg, "
+            "weight_own, p_start_historical_final, logit_adjustment_total, p_start_final, "
+            "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+            "VALUES (?, ?, ?, 0.7, 1.0, 0.7, 0.0, 0.7, 0.0, 0.15, 0.05, 0.8, 20)",
+            [mm_mv, uid, position],
+        )
+
+    # real, differentiated positive covariance among the highest-mu players (same recipe
+    # test_transfer_planner.py's own helper and this file's test_divergence_check_passes_
+    # with_real_variance_structure both already use) -- needed for the lambda=0-vs-lambda
+    # divergence check to genuinely pass, not just for realism.
+    high_mu_uids = [uid for uid, _pos, mu, _price, _club in players if mu >= 4.0]
+    for i in range(len(high_mu_uids)):
+        for j in range(i + 1, len(high_mu_uids)):
+            con.execute(
+                "INSERT INTO cross_player_covariance (model_version, player_uid_a, player_uid_b, "
+                "fixture_match_id, relationship, covariance) VALUES (?, ?, ?, 'm1', 'teammate', 6.0)",
+                [un_mv, *sorted([high_mu_uids[i], high_mu_uids[j]])],
+            )
+
+    return ep_mv, un_mv
+
+
+def test_run_with_priority1_features_enabled_end_to_end(con):
+    """Full run() call with ownership/risk-posture/field-covariance/bench-quality/
+    concentration-risk ALL opted in at once -- proves the real DB wiring (param resolution,
+    fetch_candidate_pool's new p_start_final join, field_covariance's real fact_match/
+    ep_outputs queries) works end to end, not just solve()'s own in-memory-pool unit tests."""
+    from fpl_quant import expected_points as ep_mod
+    from fpl_quant import uncertainty as un_mod
+
+    ep_mv, un_mv = _seed_run_candidate_pool(con)
+    so.seed_v1_params(con)
+    ep_mod.seed_v1_params(con)
+    un_mod.seed_v1_params(con)
+
+    run_id = so.run(
+        con, date(2026, 8, 10), "2026-2027", 2, ep_mv, un_mv,
+        lambda_params_version=1, guardrail_params_version=1,
+        ownership_params_version=1, risk_posture_params_version=1,
+        field_covariance_params_version=1, bench_quality_params_version=1,
+        concentration_risk_params_version=1,
+    )
+    assert isinstance(run_id, int)
+
+    row = con.execute(
+        "SELECT ownership_params_version, risk_posture_params_version, field_covariance_params_version, "
+        "bench_quality_params_version, concentration_risk_params_version, mip_gap, solver_status "
+        "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
+    ).fetchone()
+    assert row == (1, 1, 1, 1, 1, pytest.approx(0.0), "optimal")
+
+    audit = so.explain_run(con, run_id)
+    assert audit["solve_proved_optimal"] is True
+    assert audit["mip_gap"] == pytest.approx(0.0)
+
+
+def test_run_rejects_ownership_without_risk_posture(con):
+    ep_mv, un_mv = _seed_run_candidate_pool(con)
+    so.seed_v1_params(con)
+    with pytest.raises(ValueError):
+        so.run(
+            con, date(2026, 8, 10), "2026-2027", 2, ep_mv, un_mv,
+            lambda_params_version=1, guardrail_params_version=1,
+            ownership_params_version=1, risk_posture_params_version=None,
+        )
+
+
+def test_run_rejects_field_covariance_without_ownership(con):
+    ep_mv, un_mv = _seed_run_candidate_pool(con)
+    so.seed_v1_params(con)
+    with pytest.raises(ValueError):
+        so.run(
+            con, date(2026, 8, 10), "2026-2027", 2, ep_mv, un_mv,
+            lambda_params_version=1, guardrail_params_version=1,
+            field_covariance_params_version=1,
+        )
+
+
+def test_run_without_any_priority1_2_features_is_unchanged(con):
+    """The original eight-positional-argument call shape must still work exactly as before --
+    backward compatibility for every existing caller (scripts, other tests)."""
+    ep_mv, un_mv = _seed_run_candidate_pool(con)
+    so.seed_v1_params(con)
+    run_id = so.run(con, date(2026, 8, 10), "2026-2027", 2, ep_mv, un_mv, 1, 1)
+    assert isinstance(run_id, int)
+    row = con.execute(
+        "SELECT ownership_params_version, risk_posture_params_version, field_covariance_params_version, "
+        "bench_quality_params_version, concentration_risk_params_version "
+        "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
+    ).fetchone()
+    assert row == (None, None, None, None, None)

@@ -21,9 +21,13 @@ self-certification -- "the original lambda=0 bug passed whatever internal checks
 the time," per the spec's own stated reasoning for keeping them apart.
 """
 
+from datetime import datetime
+
 import duckdb
 
+from . import adversarial_check as ac
 from . import backtest as bt
+from . import consensus_check as cc
 from . import expected_points as ep
 from . import minutes_model as mm
 from . import monte_carlo
@@ -35,11 +39,28 @@ from . import uncertainty as un
 HUMAN_PROMPT = "Does this squad look defensible to you?"
 
 
+def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
+    # Priority 2's own exact spec values ("no clearly-nailed (p_start_final >= 0.75)... every
+    # DEF/MID below a rotation-risk threshold (0.55)") -- not invented literals here, pinned
+    # verbatim from the spec the same way M5's seed_v1_params pins lambda_value=0.15.
+    params_mod.write_param(con, "sanity_check_params", 1, "2026-08-10", "nailed_p_start_threshold", value_numeric=0.75)
+    params_mod.write_param(con, "sanity_check_params", 1, "2026-08-10", "rotation_risk_p_start_threshold", value_numeric=0.55)
+    # Priority 2 -- consensus-divergence: invented v1 defaults (same invented-default status
+    # as every other unpinned constant in this project) -- +/-GBP0.5m is a real, motivating
+    # "same price bracket" a manager would actually compare players within (matches the real
+    # incident this MVP is scoped to catch); 0.2 (a 20% higher blended-evidence-weight bar)
+    # is sized to require a REAL gap, not just noise between two similarly-covered players.
+    params_mod.write_param(con, "consensus_check_params", 1, "2026-08-10", "price_band", value_numeric=0.5)
+    params_mod.write_param(con, "consensus_check_params", 1, "2026-08-10", "divergence_ratio_threshold", value_numeric=0.2)
+
+
 # ============================================================
 # automated sanity-check flags -- pattern-detection, not self-certification
 # ============================================================
 
-def compute_automated_flags(con: duckdb.DuckDBPyConnection, squad_optimizer_run_id: int) -> list[dict]:
+def compute_automated_flags(
+    con: duckdb.DuckDBPyConnection, squad_optimizer_run_id: int, sanity_check_params_version: int | None = None,
+) -> list[dict]:
     """Heuristics matching the spec's own named historical failure signatures: team/position
     concentration, a captained goalkeeper, guardrail-binding status, the lambda=0 divergence
     result. `passed=False` means "worth a human look," not "confirmed broken" -- a club sitting
@@ -63,6 +84,55 @@ def compute_automated_flags(con: duckdb.DuckDBPyConnection, squad_optimizer_run_
         "name": "club_concentration", "passed": not concentration_hit,
         "detail": {"clubs_at_squad_cap": audit["clubs_at_squad_cap"], "clubs_at_xi_cap": audit["clubs_at_xi_cap"]},
     })
+
+    # Priority 2 -- solve-quality transparency, surfaced as its own flag alongside the others
+    # rather than only living in explain_run()'s raw audit dict -- a time/gap-limited solve
+    # is exactly the kind of thing this section exists to make visible to a human, not just
+    # technically retrievable.
+    flags.append({
+        "name": "solve_proved_optimal", "passed": bool(audit["solve_proved_optimal"]),
+        "detail": f"solver_status={audit['solver_status']} mip_gap={audit['mip_gap']}",
+    })
+
+    # Priority 2 -- sanity-check flag: no clearly-nailed MID/FWD attacking return, or every
+    # DEF/MID a rotation risk. Scoped to the XI (not the full squad) -- bench rotation risk is
+    # already handled at squad level by solve()'s own bench-quality floor; what matters for
+    # THIS flag is whether the team that actually plays this week has a real attacking core
+    # and isn't entirely made up of players who might not start. Opt-in via
+    # sanity_check_params_version (None skips both -- same additive, backward-compatible
+    # convention as every other Priority 1/2 feature this session).
+    if sanity_check_params_version is not None:
+        nailed_threshold, _ = params_mod.resolve_param(con, "sanity_check_params", "nailed_p_start_threshold", sanity_check_params_version)
+        rotation_threshold, _ = params_mod.resolve_param(con, "sanity_check_params", "rotation_risk_p_start_threshold", sanity_check_params_version)
+
+        xi_rows = con.execute(
+            "SELECT s.player_uid, dp.position FROM squad_optimizer_selections s "
+            "JOIN dim_player dp ON dp.player_uid = s.player_uid WHERE s.run_id = ? AND s.in_xi",
+            [squad_optimizer_run_id],
+        ).fetchall()
+        uv_row = con.execute(
+            "SELECT uncertainty_model_version FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id]
+        ).fetchone()
+        nailed_attacking_return_note = "no p_start data available"
+        rotation_risk_note = "no p_start data available"
+        nailed_ok, rotation_ok = True, True
+        if uv_row is not None:
+            mm_version_row = con.execute(
+                "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [uv_row[0]]
+            ).fetchone()
+            if mm_version_row is not None:
+                p_start_by_uid = mm.p_start_final_by_player(con, mm_version_row[0], [uid for uid, _pos in xi_rows])
+                attacking = [p_start_by_uid[uid] for uid, pos in xi_rows if pos in ("Midfielder", "Forward") and uid in p_start_by_uid]
+                def_mid = [p_start_by_uid[uid] for uid, pos in xi_rows if pos in ("Defender", "Midfielder") and uid in p_start_by_uid]
+                if attacking:
+                    nailed_ok = any(p >= nailed_threshold for p in attacking)
+                    nailed_attacking_return_note = f"XI MID/FWD p_start_final values: {sorted(attacking, reverse=True)}"
+                if def_mid:
+                    rotation_ok = not all(p < rotation_threshold for p in def_mid)
+                    rotation_risk_note = f"XI DEF/MID p_start_final values: {sorted(def_mid)}"
+        flags.append({"name": "nailed_attacking_return", "passed": nailed_ok, "detail": nailed_attacking_return_note})
+        flags.append({"name": "rotation_risk_def_mid", "passed": rotation_ok, "detail": rotation_risk_note})
+
     return flags
 
 
@@ -77,14 +147,30 @@ def build_report(
     transfer_plan_run_id: int | None = None,
     backtest_run_id: int | None = None,
     active_param_versions: dict[str, int] | None = None,
+    ownership_params_version: int | None = None,
+    sanity_check_params_version: int | None = None,
+    consensus_check_params_version: int | None = None,
+    evidence_decay_params_version: int | None = None,
+    evidence_fact_multiplier_params_version: int | None = None,
+    bench_quality_params_version: int | None = None,
+    report_asof: datetime | None = None,
 ) -> dict:
     """The minimal headline is always present; every other section is a dict key a caller can
     choose to render or not -- that choice is the "expandable on demand" the spec asks for,
-    made at the display layer this module doesn't own. transfer_plan_run_id/backtest_run_id
-    are optional because not every report has an existing squad to plan transfers from, or a
-    backtest run to cite -- absence is recorded plainly (a `None` section), never silently
-    dropped from the report's shape.
-    """
+    made at the display layer this module doesn't own. transfer_plan_run_id/backtest_run_id/
+    ownership_params_version are optional because not every report has an existing squad to
+    plan transfers from, a backtest run to cite, or an ownership-params version pinned for the
+    EO computation -- absence is recorded plainly (a `None` section), never silently dropped
+    from the report's shape.
+
+    consensus_divergence needs consensus_check_params_version, evidence_decay_params_version,
+    evidence_fact_multiplier_params_version, and report_asof ALL set together (an evidence-
+    weight computation is meaningless without an as-of date to decay claims against); absent
+    any one of them, the whole section is None rather than guessing a default asof.
+    adversarial_review additionally needs bench_quality_params_version, reusing the SAME
+    min_bench_p_start_probability threshold solve()'s own bench-quality floor already
+    resolves (one tunable "is this player a rotation risk" number, not two independently-
+    drifting ones for two different consumers of the identical concept)."""
     run_row = con.execute(
         "SELECT target_season, target_gameweek, ep_model_version, uncertainty_model_version "
         "FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id],
@@ -145,7 +231,7 @@ def build_report(
         evidence_provenance[uid] = mm.explain_player_adjustment(con, minutes_model_version, uid)
 
     guardrail_audit = squad_optimizer.explain_run(con, squad_optimizer_run_id)
-    automated_flags = compute_automated_flags(con, squad_optimizer_run_id)
+    automated_flags = compute_automated_flags(con, squad_optimizer_run_id, sanity_check_params_version)
 
     rationale = (
         f"{target_season} GW{target_gameweek}: {len(squad)} players, captain "
@@ -166,8 +252,59 @@ def build_report(
         "backtest_summary": bt.explain_backtest_summary(con, backtest_run_id) if backtest_run_id is not None else None,
         "transfer_chip_rationale": tp.explain_plan(con, transfer_plan_run_id) if transfer_plan_run_id is not None else None,
         "automated_flags": automated_flags,
+        # Priority 1 -- EO-adjusted captain-risk, its own explicit decision distinct from
+        # squad selection itself (per Priority 1's own framing) -- never changes which player
+        # is captained, only reports on the rank-risk profile of the choice already made.
+        "captain_risk_eo": (
+            squad_optimizer.explain_captain_risk_eo(con, squad_optimizer_run_id, ownership_params_version)
+            if ownership_params_version is not None else None
+        ),
+        "consensus_divergence": _consensus_divergence_section(
+            con, squad_optimizer_run_id, consensus_check_params_version,
+            evidence_decay_params_version, evidence_fact_multiplier_params_version, report_asof,
+        ),
+        "adversarial_review": _adversarial_review_section(
+            con, squad_optimizer_run_id, consensus_check_params_version,
+            evidence_decay_params_version, evidence_fact_multiplier_params_version, report_asof,
+            bench_quality_params_version,
+        ),
         "human_prompt": HUMAN_PROMPT,
     }
+
+
+def _consensus_divergence_section(
+    con, squad_optimizer_run_id, consensus_check_params_version,
+    evidence_decay_params_version, evidence_fact_multiplier_params_version, report_asof,
+):
+    if None in (consensus_check_params_version, evidence_decay_params_version, evidence_fact_multiplier_params_version, report_asof):
+        return None
+    price_band, _ = params_mod.resolve_param(con, "consensus_check_params", "price_band", consensus_check_params_version)
+    ratio, _ = params_mod.resolve_param(con, "consensus_check_params", "divergence_ratio_threshold", consensus_check_params_version)
+    return cc.flag_consensus_divergent_picks(
+        con, squad_optimizer_run_id, report_asof, evidence_decay_params_version,
+        evidence_fact_multiplier_params_version, price_band, ratio,
+    )
+
+
+def _adversarial_review_section(
+    con, squad_optimizer_run_id, consensus_check_params_version,
+    evidence_decay_params_version, evidence_fact_multiplier_params_version, report_asof,
+    bench_quality_params_version,
+):
+    if None in (
+        consensus_check_params_version, evidence_decay_params_version, evidence_fact_multiplier_params_version,
+        report_asof, bench_quality_params_version,
+    ):
+        return None
+    price_band, _ = params_mod.resolve_param(con, "consensus_check_params", "price_band", consensus_check_params_version)
+    ratio, _ = params_mod.resolve_param(con, "consensus_check_params", "divergence_ratio_threshold", consensus_check_params_version)
+    bench_threshold, _ = params_mod.resolve_param(
+        con, "bench_quality_params", "min_bench_p_start_probability", bench_quality_params_version
+    )
+    return ac.adversarial_review(
+        con, squad_optimizer_run_id, report_asof, evidence_decay_params_version,
+        evidence_fact_multiplier_params_version, price_band, ratio, bench_threshold,
+    )
 
 
 # ============================================================
@@ -209,10 +346,43 @@ def render_report_text(report: dict) -> str:
         lines.append("--- Transfer & chip rationale ---")
         for t in tr["top_transfers"][:3]:
             lines.append(f"  #{t['rank']}: OUT {t['player_out']} -> IN {t['player_in']} (net {t['net_value']:.2f})")
+        for t in tr["top_multi_transfers"][:3]:
+            lines.append(
+                f"  #{t['rank']} (2-for-2): OUT {t['players_out']} -> IN {t['players_in']} (net {t['net_value']:.2f})"
+            )
+        if tr["hold_recommendation"]:
+            hr = tr["hold_recommendation"]
+            lines.append(
+                f"  Hold-vs-transfer-now: {hr['recommended_action']} "
+                f"(transfer_now={hr['transfer_now_value']}, hold={hr['hold_value']})"
+            )
         for chip_type, c in tr["chips"].items():
             lines.append(f"  {chip_type}: recommended={c['recommended']} score={c['score_or_gain']}")
         if tr["gw19_deadline"]["urgent"]:
             lines.append(f"  GW19 URGENT: unused chips {tr['gw19_deadline']['unused_set1_chips']}")
+
+    if report["captain_risk_eo"]:
+        cr = report["captain_risk_eo"]
+        lines.append("")
+        eo_str = f"{cr['captain_eo']:.1f}%" if cr["captain_eo"] is not None else "unknown"
+        lines.append(f"--- Captain rank-risk (EO-adjusted): {cr['posture_label']} (captain EO {eo_str}) ---")
+
+    if report["consensus_divergence"]:
+        lines.append("")
+        lines.append("--- Consensus-divergence flags ---")
+        for f in report["consensus_divergence"]:
+            lines.append(
+                f"  {f['selected_player_name']} ({f['position']}) -- consider "
+                f"{f['alternative_player_name']} (evidence weight {f['alternative_evidence_weight']:.2f} "
+                f"vs {f['selected_evidence_weight']:.2f})"
+            )
+
+    if report["adversarial_review"]:
+        lines.append("")
+        lines.append("--- Adversarial self-check ---")
+        for f in report["adversarial_review"]:
+            status = "FLAGGED" if f["triggered"] else "clear"
+            lines.append(f"  [{status}] {f['check']}: {f['detail']}")
 
     if report["parameter_transparency"]:
         n_invented = sum(1 for row in report["parameter_transparency"] if not row["backtested_via_m7"])

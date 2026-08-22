@@ -1,6 +1,8 @@
 import json
 from datetime import datetime
 
+import pytest
+
 from fpl_quant import evidence_blend as eb
 from fpl_quant import params
 from fpl_quant import snapshot
@@ -104,6 +106,44 @@ def test_null_confidence_via_dataframe_round_trip_defaults_to_1_not_nan(con):
     w = eb.effective_weight(con, claim_row, datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1)
     assert w == 1.0  # reliability(1.0) * confidence(defaulted to 1.0) * decay(1.0)
     assert w == w  # not NaN (NaN != NaN)
+
+
+def _insert_claim_typed(con, claim_id, claim_type, source_id, reliability, confidence, observed_date="2026-08-01"):
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, "
+        "confidence, observed_date, ingested_date) "
+        "VALUES (?, 'player', 'p1', ?, ?, NULL, 'OPINION', ?, ?, ?, ?, ?)",
+        [claim_id, claim_type, json.dumps({"claim": "some free text"}), source_id, reliability,
+         confidence, observed_date, datetime(2026, 8, 1)],
+    )
+
+
+def test_aggregate_evidence_weight_sums_across_claim_types(con):
+    """community_sentiment/analyst_debate/youtube_evidence never carry claim_value_numeric
+    (verified in ingest_workbook.py -- all three call sites pass None), so blend_numeric
+    always returns None for them; aggregate_evidence_weight sums their reliability/decay
+    weight instead, across every requested claim_type at once."""
+    _seed_player_and_sources(con)
+    _insert_claim_typed(con, "c1", "community_sentiment", "s_official", reliability=1.0, confidence=1.0)
+    _insert_claim_typed(con, "c2", "youtube_evidence", "s_community", reliability=0.4, confidence=1.0)
+    total = eb.aggregate_evidence_weight(
+        con, "player", "p1", ["community_sentiment", "youtube_evidence", "analyst_debate"],
+        datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    assert total == pytest.approx(1.0 + 0.4)
+
+
+def test_aggregate_evidence_weight_zero_not_none_when_no_evidence(con):
+    """Unlike blend_numeric's None (which distinguishes 'no evidence' from 'evidence exists
+    but isn't numeric'), an empty sum is legitimately 0.0 -- there's no missing-vs-zero
+    ambiguity for a sum the way there is for an average."""
+    _seed_player_and_sources(con)
+    total = eb.aggregate_evidence_weight(
+        con, "player", "p1", ["community_sentiment"], datetime(2026, 8, 10),
+        decay_params_version=1, fact_multiplier_params_version=1,
+    )
+    assert total == 0.0
 
 
 def test_community_tier_fact_gets_no_boost_even_if_flagged_fact(con):

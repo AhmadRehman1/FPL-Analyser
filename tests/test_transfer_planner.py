@@ -731,6 +731,371 @@ def test_evaluate_transfers_sufficient_bank_legalizes_an_otherwise_too_expensive
 
 
 # ============================================================
+# Priority 4 -- price_change_risk_by_player / transfer_timing_advice
+# ============================================================
+
+def test_price_change_risk_by_player_flags_rise_and_fall(con):
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('riser', 'riser', 'Midfielder'), "
+        "('faller', 'faller', 'Midfielder'), ('steady', 'steady', 'Midfielder')"
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, transfers_in_event, "
+        "transfers_out_event, _ingested_at) VALUES "
+        "('riser', '2026-2027', 2, 5.0, 80000, 1000, current_timestamp), "
+        "('faller', '2026-2027', 2, 5.0, 1000, 80000, current_timestamp), "
+        "('steady', '2026-2027', 2, 5.0, 5000, 4800, current_timestamp)"
+    )
+    result = tp.price_change_risk_by_player(con, "2026-2027", 2, rise_threshold=50_000.0, fall_threshold=50_000.0)
+    assert result["riser"]["price_change_direction"] == "rise"
+    assert result["riser"]["net_transfers_event"] == pytest.approx(79000.0)
+    assert result["faller"]["price_change_direction"] == "fall"
+    assert result["steady"]["price_change_direction"] == "none"
+
+
+def test_price_change_risk_by_player_none_when_no_transfer_data(con):
+    """Missing transfers_in_event/transfers_out_event (e.g. a source season that predates
+    these columns, or simply no row at all for this gameweek) must report direction=None, not
+    silently coerced to "none" (a real, known "below threshold" result) or a fabricated 0."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('unknown', 'unknown', 'Midfielder')")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+        "VALUES ('unknown', '2026-2027', 2, 5.0, current_timestamp)"
+    )
+    result = tp.price_change_risk_by_player(con, "2026-2027", 2, rise_threshold=50_000.0, fall_threshold=50_000.0)
+    assert result["unknown"]["price_change_direction"] is None
+    assert result["unknown"]["net_transfers_event"] is None
+
+
+def test_transfer_timing_advice_urgent_incoming_rise():
+    advice = tp.transfer_timing_advice({"price_change_direction": "rise"}, {"price_change_direction": "none"})
+    assert advice is not None
+    assert "today, not tomorrow" in advice
+
+
+def test_transfer_timing_advice_urgent_outgoing_fall():
+    advice = tp.transfer_timing_advice({"price_change_direction": "none"}, {"price_change_direction": "fall"})
+    assert advice is not None
+    assert "today, not tomorrow" in advice
+
+
+def test_transfer_timing_advice_none_when_nothing_urgent():
+    assert tp.transfer_timing_advice({"price_change_direction": "none"}, {"price_change_direction": "none"}) is None
+    assert tp.transfer_timing_advice(None, None) is None
+
+
+def test_evaluate_transfers_attaches_price_change_risk_without_changing_ranking(con):
+    """Same informational-only convention as momentum/swing above -- the ranking (net_value,
+    sort order) must be identical whether or not the price-change keys are attached."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]
+    con.execute(
+        "UPDATE fact_player_season_stats SET transfers_in_event = 90000, transfers_out_event = 500 "
+        "WHERE player_uid = 'p_in_same_pos_cheaper'"
+    )
+
+    without = tp.evaluate_transfers(con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4)
+    with_risk = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=1, price_change_rise_threshold=50_000.0, price_change_fall_threshold=50_000.0,
+    )
+
+    assert [r["net_value"] for r in without] == [r["net_value"] for r in with_risk]
+    assert [r["player_in"] for r in without] == [r["player_in"] for r in with_risk]
+    assert "price_change_risk_in" not in without[0]
+
+    top = next(r for r in with_risk if r["player_in"] == "p_in_same_pos_cheaper")
+    assert top["price_change_risk_in"]["price_change_direction"] == "rise"
+    assert top["timing_advice"] is not None
+    assert "today, not tomorrow" in top["timing_advice"]
+
+
+def test_evaluate_transfers_price_change_risk_requires_both_thresholds(con):
+    """Partial opt-in (only one threshold given) must behave exactly like not opting in at
+    all -- no silent guessing of the missing threshold."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]
+    results = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=1, price_change_rise_threshold=50_000.0,  # fall_threshold left None
+    )
+    assert "price_change_risk_in" not in results[0]
+
+
+# ============================================================
+# Priority 3 -- evaluate_multi_transfers / evaluate_hold_recommendation
+# ============================================================
+
+def _seed_multi_gw_pool(con, mid_a_ep, def_a_ep, target_season="2026-2027"):
+    """Two held players (out_mid, out_def) and a real incoming candidate pool across two
+    gameweeks (2 and 3), each gameweek its own real ep_model_version/uncertainty_model_version
+    pair so _horizon_ep_by_player() reads through squad_optimizer.fetch_candidate_pool()
+    exactly as the real pipeline would. mid_a_ep/def_a_ep: {2: ep, 3: ep} per-gameweek
+    projections for the two "good" incoming candidates -- the caller controls whether the
+    real gain is front-loaded (favors transferring now) or back-loaded (favors holding for a
+    next-week double move), the scenario evaluate_hold_recommendation() itself is about."""
+    teams = ["team_a", "team_b"]
+    for t in teams:
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [t, t])
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [target_season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+
+    # uid -> (position, price, {gw: ep})
+    players = {
+        "out_mid": ("Midfielder", 5.0, {2: 4.0, 3: 4.0}),
+        "out_def": ("Defender", 5.0, {2: 4.0, 3: 4.0}),
+        "in_mid_a": ("Midfielder", 5.0, mid_a_ep),
+        "in_def_a": ("Defender", 5.0, def_a_ep),
+        "in_mid_weak": ("Midfielder", 5.0, {2: 1.0, 3: 1.0}),  # always worse -- must never win
+    }
+    for uid, (position, price, _by_gw) in players.items():
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, position])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, '1', ?, ?)", [uid, uid.lower(), target_season, uid],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, ?, 1, ?, current_timestamp)", [uid, target_season, price],
+        )
+
+    horizon_ep_versions = {}
+    for gw in (2, 3):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, ?, ?, 'team_a', 'team_b', FALSE, "
+            "'Premier League', '2026-08-24', current_timestamp)", [f"m{gw}", target_season, gw],
+        )
+        ep_mv = con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1) RETURNING model_version", [target_season, ts_mv, mm_mv],
+        ).fetchone()[0]
+        un_mv = con.execute(
+            "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+            "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1) "
+            "RETURNING model_version", [ep_mv, mm_mv, ts_mv],
+        ).fetchone()[0]
+        for uid, (_pos, _price, by_gw) in players.items():
+            ep_val = by_gw[gw]
+            con.execute(
+                "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+                "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+                "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, ?, 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+                [ep_mv, uid, f"m{gw}", ep_val],
+            )
+            con.execute(
+                "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+                "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+                "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+                "VALUES (?, ?, ?, 0,0,0,0,0,0,0,0, 1.0, 0,0,0,0,0,0)", [un_mv, uid, f"m{gw}"],
+            )
+        horizon_ep_versions[gw] = (ep_mv, un_mv)
+
+    current_holdings = [
+        {"player_uid": "out_mid", "in_xi": True, "is_captain": False, "is_vice": False},
+        {"player_uid": "out_def", "in_xi": True, "is_captain": False, "is_vice": False},
+    ]
+    return current_holdings, horizon_ep_versions
+
+
+def test_evaluate_multi_transfers_finds_a_legal_2_for_2_combo(con):
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 7.0, 3: 7.0}, def_a_ep={2: 7.0, 3: 7.0},
+    )
+    results = tp.evaluate_multi_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=2, points_per_hit=4,
+    )
+    assert results
+    top = results[0]
+    assert top["players_out"] == sorted(["out_mid", "out_def"])
+    assert top["players_in"] == sorted(["in_mid_a", "in_def_a"])
+    # (7+7 - 4-4) for each of the 2 gameweeks, both players: (14-8) + (14-8) = 12
+    assert top["horizon_value_gain"] == pytest.approx(12.0)
+    assert top["transfer_cost"] == 0.0  # 2 free transfers available, no hit
+    assert top["net_value"] == pytest.approx(12.0)
+
+
+def test_evaluate_multi_transfers_applies_a_hit_when_short_on_free_transfers(con):
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 7.0, 3: 7.0}, def_a_ep={2: 7.0, 3: 7.0},
+    )
+    results = tp.evaluate_multi_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+    )
+    top = results[0]
+    assert top["transfer_cost"] == pytest.approx(4.0)  # 1 short of the 2 transfers needed -> 1 hit
+    assert top["net_value"] == pytest.approx(12.0 - 4.0)
+
+
+def test_evaluate_multi_transfers_never_mixes_position_multisets(con):
+    """Selling 1 MID + 1 DEF must only ever be replaced by 1 MID + 1 DEF -- squad position
+    quotas are fixed, so a combo that unbalances them is illegal regardless of net value."""
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 7.0, 3: 7.0}, def_a_ep={2: 7.0, 3: 7.0},
+    )
+    results = tp.evaluate_multi_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=2, points_per_hit=4,
+    )
+    for r in results:
+        in_positions = sorted(
+            "Midfielder" if uid in ("in_mid_a", "in_mid_weak", "out_mid") else "Defender" for uid in r["players_in"]
+        )
+        assert in_positions == ["Defender", "Midfielder"]
+
+
+def test_evaluate_hold_recommendation_prefers_transfer_now_on_a_tie(con):
+    """Flat, front-loaded EP (equal both gameweeks): transferring now captures gw2 AND gw3's
+    worth of gain; holding only ever captures gw3's worth, whichever branch of the hold
+    option is taken -- so 'transfer_now' and 'hold' land on the identical net_value here, and
+    a tie must resolve toward acting now, per spec."""
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 7.0, 3: 7.0}, def_a_ep={2: 7.0, 3: 7.0},
+    )
+    result = tp.evaluate_hold_recommendation(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1,
+        points_per_hit=4, target_gameweek=2,
+    )
+    assert result["recommended_action"] == "transfer_now"
+    assert result["transfer_now_value"] == pytest.approx(result["hold_value"])
+
+
+def test_evaluate_hold_recommendation_prefers_hold_for_a_backloaded_double_move(con):
+    """Real motivating case: the good incoming pair's value is almost entirely NEXT week
+    (back-loaded), and only 1 free transfer is available now -- capturing BOTH players
+    requires holding this week to reach 2 free transfers next week and take the 2-for-2 combo,
+    which beats anything a single transfer now (or next week) could achieve alone."""
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 2.0, 3: 15.0}, def_a_ep={2: 2.0, 3: 15.0},
+    )
+    result = tp.evaluate_hold_recommendation(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1,
+        points_per_hit=4, target_gameweek=2,
+    )
+    assert result["recommended_action"] == "hold"
+    assert result["hold_value"] > result["transfer_now_value"]
+    assert result["best_hold_multi_next_week"] is not None
+    assert result["best_hold_multi_next_week"]["players_in"] == sorted(["in_mid_a", "in_def_a"])
+    # the hold branch's winning option must be the MULTI combo, not the single-transfer one --
+    # proves evaluate_hold_recommendation() actually reaches for the 2-for-2 case, not just a
+    # same-shape single swap that happens to also be available next week.
+    assert result["hold_value"] == pytest.approx(result["best_hold_multi_next_week"]["net_value"])
+
+
+def _seed_run_ready_state(con):
+    """A real, run()-able manager_state_versions row over
+    _seed_real_squad_optimizer_candidate_pool's own candidate pool -- everything
+    evaluate_wildcard()/evaluate_free_hit() need (real squad_optimizer.run() solves) is
+    already proven working against this fixture by the tests above; the ONE piece it does
+    NOT provide is the raw teams.csv/team_alias/roster chain expected_points.run() itself
+    needs to derive EP from scratch (compute_horizon_ep()'s own job) -- monkeypatched away in
+    the two tests below rather than built from scratch here, since _seed_real_squad_optimizer_
+    candidate_pool already returns the EXACT {gw: (ep_mv, un_mv)} shape compute_horizon_ep()
+    itself would produce, over already-real ep_outputs/uncertainty_outputs data."""
+    from fpl_quant import expected_points as ep_mod
+    from fpl_quant import uncertainty as un_mod
+
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    tp.seed_v1_params(con)
+    ep_mod.seed_v1_params(con)
+    un_mod.seed_v1_params(con)
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+
+    # bank=5.0: the fixture's held players (players[:11], per _seed_real_squad_optimizer_
+    # candidate_pool's own docstring) are exactly the LOWEST-priced player at each held
+    # position -- every remaining, unheld same-position candidate costs MORE, so a real
+    # 2-for-2 upgrade combo needs real bank to be affordable at all (a small, deliberately
+    # nonzero float here, not a workaround for a bug: evaluate_multi_transfers()'s own price
+    # constraint is correct, this just gives the wiring test a genuine affordable combo to find).
+    state_version = con.execute(
+        "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
+        "chips_used_set1, chips_used_set2, bank) VALUES ('2026-2027', 2, 1, '[]', '[]', 5.0) "
+        "RETURNING state_version"
+    ).fetchone()[0]
+    for h in holdings:
+        con.execute(
+            "INSERT INTO manager_squad_holdings (state_version, player_uid, in_xi, is_captain, is_vice) "
+            "VALUES (?, ?, ?, ?, ?)", [state_version, h["player_uid"], h["in_xi"], h["is_captain"], h["is_vice"]],
+        )
+    return state_version, ts_mv, mm_mv, horizon_ep_versions
+
+
+def test_run_wires_multi_transfer_and_hold_when_opted_in(con, monkeypatch):
+    """multi_transfer_pool_limit_per_position defaults to None (skip both -- see run()'s own
+    docstring on why: a real, bounded combinatorial search is genuinely expensive relative to
+    everything else run() does, and every existing caller -- a season simulation calling
+    run() many times over in particular -- must keep paying only what it paid before this
+    feature existed unless it opts in). Passing an int computes and persists both, and
+    explain_plan() must surface them."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        multi_transfer_pool_limit_per_position=10,
+    )
+
+    multi_rows = con.execute("SELECT count(*) FROM multi_transfer_recommendations WHERE run_id = ?", [run_id]).fetchone()[0]
+    hold_row = con.execute("SELECT recommended_action FROM hold_recommendations WHERE run_id = ?", [run_id]).fetchone()
+    assert multi_rows > 0
+    assert hold_row is not None
+    assert hold_row[0] in ("hold", "transfer_now", "no_action_available")
+
+    plan = tp.explain_plan(con, run_id)
+    assert plan["top_multi_transfers"]
+    assert plan["hold_recommendation"] is not None
+    assert plan["hold_recommendation"]["recommended_action"] == hold_row[0]
+
+
+def test_run_skips_multi_transfer_and_hold_by_default(con, monkeypatch):
+    """Backward compatibility: the original run() call shape (no keyword arg at all) must
+    leave both new tables empty, not silently compute and discard the results."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    )
+    multi_rows = con.execute("SELECT count(*) FROM multi_transfer_recommendations WHERE run_id = ?", [run_id]).fetchone()[0]
+    hold_row = con.execute("SELECT 1 FROM hold_recommendations WHERE run_id = ?", [run_id]).fetchone()
+    assert multi_rows == 0
+    assert hold_row is None
+
+    plan = tp.explain_plan(con, run_id)
+    assert plan["top_multi_transfers"] == []
+    assert plan["hold_recommendation"] is None
+
+
+def test_evaluate_hold_recommendation_no_action_available_when_no_legal_candidate_exists(con):
+    """No candidate anywhere in the pool is affordable (every incoming player costs more than
+    what's held, with no bank) -- both evaluate_transfers() and evaluate_multi_transfers()
+    legitimately return empty, so there's no real 'now' or 'hold' value to compare at all."""
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 7.0, 3: 7.0}, def_a_ep={2: 7.0, 3: 7.0},
+    )
+    con.execute("UPDATE fact_player_season_stats SET now_cost = 50.0 WHERE player_uid != 'out_mid' AND player_uid != 'out_def'")
+    result = tp.evaluate_hold_recommendation(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1,
+        points_per_hit=4, target_gameweek=2, bank=0.0,
+    )
+    assert result["recommended_action"] == "no_action_available"
+    assert result["transfer_now_value"] is None
+    assert result["hold_value"] is None
+
+
+# ============================================================
 # evaluate_triple_captain
 # ============================================================
 

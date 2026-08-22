@@ -319,6 +319,28 @@ def explain_player_adjustment(con: duckdb.DuckDBPyConnection, model_version: int
     return rows
 
 
+def p_start_final_by_player(con: duckdb.DuckDBPyConnection, model_version: int, player_uids: list[str]) -> dict[str, float]:
+    """Priority 2 addition: bulk p_start_final lookup for a specific list of players at one
+    minutes_model_versions run. squad_optimizer.fetch_candidate_pool already has its own
+    inline version of this same join, scoped to the whole ~577-candidate pool for the
+    bench-quality floor; this is the M9-adapter-style bulk form reporting.py's own sanity-
+    check flag (compute_automated_flags) needs instead, scoped to a specific small
+    player_uid list (a 15-player squad) rather than the whole pool -- kept as its own
+    function rather than reused from squad_optimizer to avoid reporting.py reaching into
+    another module's internals for a raw table read (M9's spec: "each of M0-M8 exposes its
+    own explain()-style interface... M9 does not reach into other modules' internals
+    directly")."""
+    if not player_uids:
+        return {}
+    placeholders = ",".join("?" for _ in player_uids)
+    rows = con.execute(
+        f"SELECT player_uid, p_start_final FROM minutes_model_outputs "
+        f"WHERE model_version = ? AND player_uid IN ({placeholders})",
+        [model_version, *player_uids],
+    ).fetchall()
+    return dict(rows)
+
+
 # ------------------------------------------------------------- GW0 visibility ----
 
 def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_season: str) -> int:
