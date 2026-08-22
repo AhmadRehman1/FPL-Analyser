@@ -148,3 +148,42 @@ def test_calibrate_end_to_end_promoted_team_gets_pure_elo_prior(con, tmp_path, m
     established_row = snap.loc[uids["A"]]
     assert established_row["seasons_of_topflight_data"] == 2
     assert established_row["weight_own_data"] == pytest.approx(2 / 3)
+
+
+def test_calibrate_falls_back_to_prior_season_elo_when_target_season_elo_all_blank(con, monkeypatch):
+    """A real, live-CI-observed condition: FPL-Core-Insights' target-season teams.csv ships an
+    `elo` column present but entirely blank early in a season -- fetch_current_elo() correctly
+    returns {} for that, which must not permanently break the Elo regression."""
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+
+    uids = _seed_teams(con, ["A", "B", "C"])
+    now = datetime.now(timezone.utc)
+    results = [("A", "B", 2, 0), ("B", "A", 0, 1), ("A", "C", 3, 1), ("C", "A", 0, 2)]
+    for i, (h, a, hg, ag) in enumerate(results):
+        for season in ("2024-2025", "2025-2026"):
+            con.execute(
+                "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, home_score, "
+                "away_score, finished, competition, kickoff_time, _ingested_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, TRUE, 'Premier League', ?, ?)",
+                [f"m{season}_{i}", season, uids[h], uids[a], hg, ag,
+                 datetime(2025 if season == "2024-2025" else 2026, 1, 1 + i), now],
+            )
+    for i, (h, a) in enumerate([("A", "B"), ("B", "C")]):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, finished, "
+            "competition, _ingested_at) VALUES (?, '2026-2027', ?, ?, FALSE, 'Premier League', ?)",
+            [f"m2026_{i}", uids[h], uids[a], now],
+        )
+
+    prior_season_elo = {uids["A"]: 2000, uids["B"]: 1900, uids["C"]: 1850}
+    monkeypatch.setattr(
+        ts, "fetch_current_elo",
+        lambda con, season: {} if season == "2026-2027" else prior_season_elo,
+    )
+
+    model_version = ts.calibrate(con, date(2026, 8, 10), xi_params_version=1, rho_params_version=1)
+    n_teams = con.execute(
+        "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [model_version]
+    ).fetchone()[0]
+    assert n_teams == 3
