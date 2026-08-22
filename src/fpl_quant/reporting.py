@@ -32,6 +32,7 @@ from . import backtest as bt
 from . import consensus_check as cc
 from . import evidence_blend as eb
 from . import expected_points as ep
+from . import ingest_understat as iu
 from . import minutes_model as mm
 from . import monte_carlo
 from . import params as params_mod
@@ -235,9 +236,16 @@ def build_report(
     ).fetchone()[0]
 
     total_ep = 0.0
-    category_breakdown, risk_analytic, risk_empirical, evidence_provenance = {}, {}, {}, {}
+    category_breakdown, risk_analytic, risk_empirical, evidence_provenance, understat_signal = {}, {}, {}, {}, {}
     for p in squad:
         uid = p["player_uid"]
+        # Priority 7a -- Understat's independent xG/xA second opinion + xGChain/xGBuildup, the
+        # ONLY point this module reads that data through (see ingest_understat.py's own M9
+        # adapter docstring). Always computed (a cheap SELECT, no extra params needed);
+        # informational only, per that function's own explicit non-blending contract.
+        signal = iu.explain_player_xg_signal(con, uid, target_season)
+        if signal:
+            understat_signal[uid] = signal
         breakdown = ep.explain_player_ep(con, ep_model_version, uid)
         if breakdown:
             category_breakdown[uid] = breakdown
@@ -316,6 +324,7 @@ def build_report(
         "risk": {"analytic": risk_analytic, "empirical": risk_empirical},
         "guardrail_audit": guardrail_audit,
         "evidence_provenance": evidence_provenance,
+        "understat_signal": understat_signal,
         "parameter_transparency": params_mod.transparency_panel(con, active_param_versions) if active_param_versions else None,
         "backtest_summary": bt.explain_backtest_summary(con, backtest_run_id) if backtest_run_id is not None else None,
         "transfer_chip_rationale": tp.explain_plan(con, transfer_plan_run_id) if transfer_plan_run_id is not None else None,
@@ -593,6 +602,17 @@ def render_report_text(report: dict) -> str:
         score = cs.get("confidence_score")
         score_str = f"{score:.2f}" if score is not None else "n/a"
         lines.append(f"  {p['name']:30s} confidence={score_str}")
+
+    if report["understat_signal"]:
+        lines.append("")
+        lines.append("--- Understat xG second opinion (informational only) ---")
+        for p in sorted(h["squad"], key=lambda p: (not p["in_xi"], p["position"])):
+            s = report["understat_signal"].get(p["player_uid"])
+            if s:
+                u_xg = f"{s['understat_xg_per_90']:.2f}" if s["understat_xg_per_90"] is not None else "n/a"
+                fci_xg = f"{s['fpl_core_insights_xg_per_90']:.2f}" if s["fpl_core_insights_xg_per_90"] is not None else "n/a"
+                xgchain = f"{s['xgchain_per_90']:.2f}" if s["xgchain_per_90"] is not None else "n/a"
+                lines.append(f"  {p['name']:30s} understat_xg/90={u_xg} fci_xg/90={fci_xg} xGChain/90={xgchain}")
 
     lines.append("")
     lines.append("--- Automated flags ---")

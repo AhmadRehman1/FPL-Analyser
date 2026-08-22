@@ -438,6 +438,34 @@ def test_build_report_confidence_scores_include_evidence_weight_when_params_give
 
 
 # ============================================================
+# Priority 7a -- understat_signal section
+# ============================================================
+
+def test_build_report_understat_signal_empty_when_no_understat_data(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report = reporting.build_report(con, run_id)
+    assert report["understat_signal"] == {}
+
+
+def test_build_report_understat_signal_present_when_understat_data_exists(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    con.execute(
+        "INSERT INTO fact_understat_player_season (player_uid, season, understat_player_id, "
+        "source_player_name, games, minutes, goals, assists, xg, npxg, xa, xgchain, xgbuildup, "
+        "shots, key_passes, _ingested_at) VALUES "
+        "('p1', '2026-2027', '99', 'Player One', 5, 450, 3, 1, 3.5, 3.0, 1.2, 4.0, 2.0, 15, 8, current_timestamp)"
+    )
+    report = reporting.build_report(con, run_id)
+    assert "p1" in report["understat_signal"]
+    assert report["understat_signal"]["p1"]["understat_xg_per_90"] == pytest.approx(3.5 / 450 * 90)
+    assert "p2" not in report["understat_signal"]
+
+    text = reporting.render_report_text(report)
+    assert "Understat xG second opinion" in text
+    assert "Player One" in text
+
+
+# ============================================================
 # Priority 8c -- week-over-week diff report
 # ============================================================
 

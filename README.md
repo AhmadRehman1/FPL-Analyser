@@ -918,6 +918,24 @@ for the existing (real-data) `lambda_value` finding above.
   legitimately contributes to both the goal and assist uplift, not a double-count of the same
   thing). Both are invented v1 defaults, same status as the penalty multiplier. See
   `expected_points._set_piece_goal_uplift_multiplier()` / `_set_piece_assist_uplift_multiplier()`.
+- **Priority 7a (`ingest_understat.py`): a real, working scraper whose target page structure
+  is NOT independently verified against a live fetch in the environment that built it.**
+  Understat has no official API; this fetches its real league season page and extracts the
+  `playersData` JSON its own frontend embeds, based on Understat's publicly documented,
+  years-stable format (the same approach the long-standing community `understat`/
+  `understatapi` packages use) -- but that build environment's own network policy blocks
+  understat.com entirely (confirmed via a direct connection attempt, not assumed), so the
+  parser is tested only against a hand-built fixture faithful to the documented structure, not
+  a real fetched page. `_fetch_understat_html()` is isolated specifically so verifying against
+  a real page (e.g. from a CI runner or locally, both of which have open internet) is a
+  one-line swap, not a rewrite -- do that before relying on this in production. Deliberately
+  season-cumulative (one request per season via the league page), not per-match scraping.
+  Surfaced only informationally via `explain_player_xg_signal()`/`reporting.build_report()`'s
+  `understat_signal` section -- never blended into `ep_goals`/`ep_assists` (two
+  independently-fitted xG estimates combined without a principled, backtested weighting rule
+  would be exactly the double-counting risk this project's conventions warn against
+  everywhere else). `xGChain`/`xGBuildup` have no existing analog anywhere in this project --
+  a genuinely new playmaking-involvement signal, also informational-only for now.
 - **Price/ownership momentum: also already-available, wired in as strictly secondary.**
   `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
   `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --

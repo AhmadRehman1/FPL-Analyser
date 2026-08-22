@@ -8,14 +8,14 @@ import json
 import math
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import (  # noqa: E402
-    db, decay, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
+    db, decay, expected_points, ingest_csv, ingest_research_pull, ingest_understat, ingest_workbook, minutes_model,
     monte_carlo, params, reconcile, reporting, squad_optimizer, team_strength, transfer_planner, uncertainty,
 )
 
@@ -113,6 +113,20 @@ def main() -> None:
         t0 = time.time()
         research_pull_results = ingest_research_pull.ingest_all(con, str(RESEARCH_PULL_XLSX_PATH), source_tier_params_version=1)
         print(f"[research_pull] {time.time() - t0:.1f}s -> {json.dumps(research_pull_results)}")
+
+    # Priority 7a: informational only (see ingest_understat.py's own module docstring) --
+    # never blocks the real M1-M6 modeling pipeline below on a network hiccup. This
+    # environment's own network policy blocks understat.com entirely (confirmed), so this is
+    # expected to fail here and succeed wherever it actually has open internet (e.g. a CI
+    # runner) -- caught broadly and reported, not silently swallowed.
+    t0 = time.time()
+    try:
+        understat_results = ingest_understat.ingest_league_season(
+            con, TARGET_SEASON, int(TARGET_SEASON.split("-")[0]), datetime.now(),
+        )
+        print(f"[understat] {time.time() - t0:.1f}s -> {json.dumps(understat_results)}")
+    except Exception as e:
+        print(f"[understat] {time.time() - t0:.1f}s -> SKIPPED (fetch/parse failed: {e})")
 
     t0 = time.time()
     ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=2, rho_params_version=1)
