@@ -1,0 +1,126 @@
+"""M8, for a real FPL entry -- bootstraps manager holdings from an ACTUAL squad (fetched live
+from FPL's own public API by entry ID, e.g. one built outside this project entirely), not from
+M5's own from-scratch pick. See transfer_planner.bootstrap_from_real_squad()'s own docstring
+for why this is a genuinely different bootstrap path from scripts/run_transfer_planner.py.
+
+Usage (from repo root):
+    PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py <entry_id> <event>
+
+<entry_id> is the numeric id in your FPL team's URL (fantasy.premierleague.com/entry/<entry_id>/...).
+<event> is the gameweek your CURRENT squad's picks should be read for (i.e. the gameweek you've
+already set your team for) -- the plan itself is produced for the NEXT gameweek automatically.
+
+Same network-blocked-in-sandbox caveat as ingest_fpl_entry_picks.py's own module docstring:
+fetch_bootstrap_elements()/fetch_entry_picks() were not verified against a live fetch in this
+project's own development sandbox (that environment's network policy blocks
+fantasy.premierleague.com entirely) -- this script only runs somewhere with open internet (a
+real machine, or the scheduled GitHub Actions workflow).
+
+Depends on scripts/run_ingestion.py having already run for real (needs the same real
+ts_model_version=1/mm_model_version=1/etc. this project's other real-run scripts assume).
+"""
+
+import sys
+import time
+from datetime import date
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from fpl_quant import db, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
+
+TARGET_SEASON = "2026-2027"
+
+
+def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
+    element_names = ifp.fetch_bootstrap_elements()
+    picks = ifp.fetch_entry_picks(entry_id, event)
+    if not picks:
+        raise SystemExit(f"no real picks found for entry_id={entry_id} at event={event}")
+    return [
+        {
+            "player_name": element_names[p["element"]],
+            "in_xi": p["position"] <= 11,
+            "is_captain": bool(p.get("is_captain")),
+            "is_vice": bool(p.get("is_vice_captain")),
+        }
+        for p in picks
+    ]
+
+
+def main() -> None:
+    if len(sys.argv) != 3:
+        raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event>")
+    entry_id, current_event = int(sys.argv[1]), int(sys.argv[2])
+    plan_for_gameweek = current_event + 1
+
+    con = db.connect()
+    tp.seed_v1_params(con)
+
+    print(f"[fetch] pulling real picks for entry_id={entry_id}, GW{current_event}...")
+    squad = _fetch_real_squad(entry_id, current_event)
+    print(f"[fetch] {len(squad)} players")
+
+    state_version = tp.bootstrap_from_real_squad(
+        con, date.today(), TARGET_SEASON, current_event,
+        ep_model_version=1, uncertainty_model_version=1, squad=squad,
+    )
+    print(f"[bootstrap] state_version={state_version} from real entry_id={entry_id}")
+
+    t0 = time.time()
+    run_id = tp.run(
+        con,
+        calibration_asof_date=date.today(),
+        target_season=TARGET_SEASON,
+        target_gameweek=plan_for_gameweek,
+        input_state_version=state_version,
+        ts_model_version=1,
+        mm_model_version=1,
+        horizon_params_version=1,
+        scoring_params_version=1,
+        bps_params_version=1,
+        tau_params_version=1,
+        rho_residual_params_version=1,
+        corr_params_version=1,
+        transfer_cost_params_version=1,
+        lambda_params_version=1,
+        guardrail_params_version=1,
+        wildcard_threshold_params_version=1,
+        free_hit_threshold_params_version=1,
+        kappa_tc_params_version=1,
+        # Priority 3, opt-in: this script's whole point is a real hold-vs-transfer-now
+        # recommendation, so it's worth the extra solve time here (unlike the default GW1->GW2
+        # run_transfer_planner.py, which leaves this off).
+        multi_transfer_pool_limit_per_position=10,
+    )
+    print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")
+
+    print("\n--- top 5 transfer recommendations ---")
+    recs = con.execute(
+        "SELECT rank, player_out, player_in, horizon_value_gain, transfer_cost, net_value "
+        "FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 5", [run_id],
+    ).fetchall()
+    for rank, out_uid, in_uid, gain, cost, net in recs:
+        out_name = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [out_uid]).fetchone()[0]
+        in_name = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [in_uid]).fetchone()[0]
+        print(f"  #{rank}: OUT {out_name} -> IN {in_name} | gain={gain:.2f} cost={cost} net={net:.2f}")
+
+    hold_rec = con.execute(
+        "SELECT recommended_action, transfer_now_value, hold_value FROM hold_recommendations WHERE run_id = ?", [run_id],
+    ).fetchone()
+    if hold_rec:
+        print(f"\n--- hold vs transfer now ---\n  {hold_rec[0]} (transfer_now={hold_rec[1]:.2f}, hold={hold_rec[2]:.2f})")
+
+    print("\n--- chip evaluations ---")
+    chips = con.execute(
+        "SELECT chip_type, recommended, score_or_gain FROM chip_evaluations WHERE run_id = ?", [run_id],
+    ).fetchall()
+    for chip_type, recommended, score in chips:
+        print(f"  {chip_type}: recommended={recommended} score={score}")
+
+    con.close()
+
+
+if __name__ == "__main__":
+    main()

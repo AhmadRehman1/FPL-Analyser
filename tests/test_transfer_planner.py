@@ -126,6 +126,89 @@ def test_bootstrap_defaults_bank_to_zero_when_a_held_players_price_is_unknown(co
     assert bank == 0.0
 
 
+# ============================================================
+# bootstrap_from_real_squad -- an arbitrary real squad, not a real M5 solve
+# ============================================================
+
+def _seed_model_version_chain(con, target_season="2026-2027"):
+    """Just the ep_model_versions/uncertainty_model_versions FK chain
+    bootstrap_from_real_squad()'s squad_optimizer_runs insert needs -- no players/selections,
+    unlike _seed_minimal_squad_optimizer_run() above."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [target_season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1)", [target_season, ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    return ep_mv, un_mv
+
+
+def _seed_resolvable_player(con, name, normalized, player_uid, season="2026-2027"):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [player_uid, name])
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES (?, ?, '1', ?, ?)", [name, normalized, season, player_uid],
+    )
+
+
+def test_bootstrap_from_real_squad_resolves_names_and_creates_matching_state(con):
+    ep_mv, un_mv = _seed_model_version_chain(con)
+    _seed_resolvable_player(con, "Bruno Fernandes", "bruno fernandes", "p_bruno")
+    _seed_resolvable_player(con, "Erling Haaland", "erling haaland", "p_haaland")
+    squad = [
+        {"player_name": "Bruno Fernandes", "in_xi": True, "is_captain": True, "is_vice": False},
+        {"player_name": "Erling Haaland", "in_xi": True, "is_captain": False, "is_vice": True},
+    ]
+    state_version = tp.bootstrap_from_real_squad(con, date(2026, 8, 22), "2026-2027", 2, ep_mv, un_mv, squad)
+
+    state = con.execute(
+        "SELECT season, as_of_gameweek, free_transfers_available FROM manager_state_versions WHERE state_version = ?",
+        [state_version],
+    ).fetchone()
+    assert state == ("2026-2027", 2, 1)
+
+    holdings = tp._read_holdings(con, state_version)
+    assert {h["player_uid"] for h in holdings} == {"p_bruno", "p_haaland"}
+    bruno = next(h for h in holdings if h["player_uid"] == "p_bruno")
+    assert bruno["is_captain"] is True
+
+    # the underlying squad_optimizer_runs row must be flagged is_manager_snapshot, same
+    # discipline as the squad_optimizer-run-sourced bootstrap path
+    run_row = con.execute(
+        "SELECT so.is_manager_snapshot FROM squad_optimizer_selections sel "
+        "JOIN squad_optimizer_runs so ON so.run_id = sel.run_id "
+        "WHERE sel.player_uid = 'p_bruno'"
+    ).fetchone()
+    assert run_row[0] is True
+
+
+def test_bootstrap_from_real_squad_raises_on_unresolvable_name(con):
+    ep_mv, un_mv = _seed_model_version_chain(con)
+    squad = [{"player_name": "Not A Real Player", "in_xi": True, "is_captain": False, "is_vice": False}]
+    with pytest.raises(ValueError):
+        tp.bootstrap_from_real_squad(con, date(2026, 8, 22), "2026-2027", 2, ep_mv, un_mv, squad)
+    # nothing partially committed for the unresolvable squad
+    assert con.execute("SELECT count(*) FROM squad_optimizer_selections").fetchone()[0] == 0
+
+
 def test_write_manager_snapshot_creates_a_real_flagged_run(con):
     run_id, ep_mv, un_mv = _seed_minimal_squad_optimizer_run(con)
     state_version = tp.bootstrap_from_squad_optimizer_run(con, run_id)

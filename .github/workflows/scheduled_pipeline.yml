@@ -49,27 +49,35 @@ jobs:
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
 
-      # The two evidence workbooks are private/curated, not publicly fetchable -- stored as
-      # base64-encoded repo secrets (Settings -> Secrets and variables -> Actions) and
-      # materialized here. GitHub Actions secrets are capped at 64KB each: if either workbook
-      # exceeds that, base64-in-a-secret won't work and a different store (a private release
-      # asset, an artifact from a separate upload step, or object storage) is needed instead --
-      # this step will simply produce an empty/truncated file in that case, not fail loudly, so
-      # verify the decoded file size the first time this runs for real.
-      - name: Materialize evidence workbooks from secrets
+      # The two evidence workbooks are private/curated, not publicly fetchable. Two different
+      # storage mechanisms, chosen per-file by size:
+      # - FPL_Evidence_Claims_Research_Pull.xlsx (~15KB) fits comfortably under GitHub Actions'
+      #   64KB-per-secret cap -- stored as a base64-encoded repo secret (Settings -> Secrets
+      #   and variables -> Actions) and decoded below.
+      # - FPL_202627_Master_Evidence_Database.xlsx (~700KB) does NOT fit in a secret. Fetched
+      #   instead from a Google Drive file set to "Anyone with the link" (Viewer) -- a real,
+      #   accepted trade-off (unguessable-link privacy, not true access control) chosen over
+      #   committing it to this PUBLIC repo or attaching it as a public Release asset, both of
+      #   which would be strictly worse (indexed/discoverable, not just unguessable). The
+      #   `uc?export=download` URL pattern is Google's own standard mechanism for a public
+      #   Drive file's raw bytes; it was NOT verified against a live fetch in this project's
+      #   own sandbox (that environment's network policy blocks drive.google.com entirely, same
+      #   restriction as understat.com/fantasy.premierleague.com elsewhere in this pipeline) --
+      #   verify the first real run here. Google interstitials a virus-scan warning page instead
+      #   of a direct download for files over ~25MB; this one (under 1MB) shouldn't hit that,
+      #   but re-check if a future, larger version of this workbook starts failing here.
+      - name: Materialize evidence workbooks
         env:
-          MASTER_EVIDENCE_DB_B64: ${{ secrets.FPL_MASTER_EVIDENCE_DATABASE_XLSX_B64 }}
           RESEARCH_PULL_B64: ${{ secrets.FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64 }}
         run: |
           mkdir -p data/external
-          if [ -n "$MASTER_EVIDENCE_DB_B64" ]; then
-            echo "$MASTER_EVIDENCE_DB_B64" | base64 -d > "data/external/FPL_202627_Master_Evidence_Database.xlsx"
-          else
-            echo "::warning::FPL_MASTER_EVIDENCE_DATABASE_XLSX_B64 secret not set -- ingestion will fail without it"
-          fi
           if [ -n "$RESEARCH_PULL_B64" ]; then
             echo "$RESEARCH_PULL_B64" | base64 -d > "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          else
+            echo "::warning::FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64 secret not set -- ingestion will fail without it"
           fi
+          curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
+            -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
       - name: Run ingestion (M0-M6)
         run: PYTHONPATH=src python scripts/run_ingestion.py
