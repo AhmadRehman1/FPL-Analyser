@@ -15,7 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import (  # noqa: E402
-    db, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
+    db, decay, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
     monte_carlo, params, reconcile, reporting, squad_optimizer, team_strength, transfer_planner, uncertainty,
 )
 
@@ -90,6 +90,7 @@ def main() -> None:
     squad_optimizer.seed_v1_params(con)
     transfer_planner.seed_v1_params(con)
     reporting.seed_v1_params(con)
+    decay.seed_v1_params(con)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "
@@ -98,7 +99,7 @@ def main() -> None:
           "tc_risk_aversion_params, wildcard_gain_threshold_params, ownership_params, "
           "risk_posture_params, field_covariance_params, bench_quality_params, "
           "concentration_risk_params, sanity_check_params, consensus_check_params, "
-          "confidence_score_params v1 seeded")
+          "confidence_score_params, claim_type_decay_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
