@@ -1,0 +1,29 @@
+name: Print real FPL deadlines (manual re-sync tool)
+
+# A lightweight, manually-triggered utility -- prints scripts/print_fpl_deadlines.py's own
+# output to this run's job logs. Used to regenerate scheduled_pipeline.yml's `on.schedule`
+# cron list (one entry per real gameweek deadline, minus 1 day) whenever the real season
+# schedule changes (postponements, rescheduled fixtures) -- see that script's own docstring
+# for why this is a manual re-sync rather than dynamic self-scheduling. Deliberately its own
+# separate, fast workflow (no ingestion, no evidence workbooks) so checking real deadlines
+# doesn't cost a full ~10-minute pipeline run.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  print-deadlines:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install requests
+        run: pip install requests
+
+      - name: Print real deadlines
+        run: python scripts/print_fpl_deadlines.py
