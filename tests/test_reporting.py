@@ -248,6 +248,9 @@ def test_render_report_text_includes_every_top_level_section(con):
     assert "(C)" in text  # captain marker
     assert "Automated flags" in text
     assert reporting.HUMAN_PROMPT in text
+    assert "90% range" in text
+    assert "Player confidence scores" in text
+    assert "confidence=0.00" in text  # both seeded players have weight_own=0.0
 
 
 def test_build_report_raises_on_unknown_run_id(con):
@@ -317,6 +320,121 @@ def test_build_report_consensus_and_adversarial_sections_when_requested(con):
     assert report["adversarial_review"] is not None
     checks = {f["check"] for f in report["adversarial_review"]}
     assert "budget_legality" in checks and "squad_completeness" in checks
+
+
+# ============================================================
+# Priority 6 -- _squad_ep_range / player_confidence_score (pure logic)
+# ============================================================
+
+def test_squad_ep_range_computes_normal_approximation_with_captain_doubling():
+    risk_analytic = {"p1": {"var_total": 2.0}, "p2": {"var_total": 2.0}}
+    r = reporting._squad_ep_range(risk_analytic, {"p1", "p2"}, "p1", {}, total_ep=14.0)
+    # total_var = (1+3)*2.0 [captain p1] + (1+0)*2.0 [p2] = 10.0 -> std_dev = sqrt(10)
+    import math
+    expected_std = math.sqrt(10.0)
+    assert r["std_dev"] == pytest.approx(expected_std)
+    assert r["floor"] == pytest.approx(14.0 - 1.645 * expected_std)
+    assert r["ceiling"] == pytest.approx(14.0 + 1.645 * expected_std)
+
+
+def test_squad_ep_range_includes_cross_covariance_term():
+    risk_analytic = {"p1": {"var_total": 2.0}, "p2": {"var_total": 2.0}}
+    sigma_pairs = {("p1", "p2"): 0.5}
+    r_with_cov = reporting._squad_ep_range(risk_analytic, {"p1", "p2"}, None, sigma_pairs, total_ep=14.0)
+    r_without_cov = reporting._squad_ep_range(risk_analytic, {"p1", "p2"}, None, {}, total_ep=14.0)
+    assert r_with_cov["std_dev"] > r_without_cov["std_dev"]
+
+
+def test_squad_ep_range_missing_variance_data_returns_none_range():
+    risk_analytic = {"p1": {"var_total": 2.0}}  # p2 missing entirely
+    r = reporting._squad_ep_range(risk_analytic, {"p1", "p2"}, None, {}, total_ep=14.0)
+    assert r["floor"] is None and r["ceiling"] is None and r["std_dev"] is None
+    assert "insufficient" in r["caveat"]
+
+
+def test_squad_ep_range_empty_xi_returns_none_range():
+    r = reporting._squad_ep_range({}, set(), None, {}, total_ep=0.0)
+    assert r["floor"] is None
+    assert "insufficient" in r["caveat"]
+
+
+def test_squad_ep_range_refuses_negative_variance():
+    risk_analytic = {"p1": {"var_total": 1.0}, "p2": {"var_total": 1.0}}
+    # a wildly negative covariance can drive the aggregate variance below zero -- must be
+    # refused rather than silently sqrt()'d or reported nonsensically.
+    sigma_pairs = {("p1", "p2"): -100.0}
+    r = reporting._squad_ep_range(risk_analytic, {"p1", "p2"}, None, sigma_pairs, total_ep=10.0)
+    assert r["floor"] is None and r["ceiling"] is None
+    assert "negative variance" in r["caveat"]
+
+
+def test_player_confidence_score_both_components():
+    result = reporting.player_confidence_score(weight_own=0.8, evidence_weight=2.5, evidence_weight_normalization=5.0)
+    assert result["confidence_score"] == pytest.approx((0.8 + 0.5) / 2)
+    assert result["normalized_evidence_weight"] == pytest.approx(0.5)
+
+
+def test_player_confidence_score_weight_own_only():
+    result = reporting.player_confidence_score(weight_own=0.6, evidence_weight=None, evidence_weight_normalization=5.0)
+    assert result["confidence_score"] == pytest.approx(0.6)
+    assert result["normalized_evidence_weight"] is None
+
+
+def test_player_confidence_score_neither_component_available():
+    result = reporting.player_confidence_score(weight_own=None, evidence_weight=None, evidence_weight_normalization=5.0)
+    assert result["confidence_score"] is None  # absence of data, not "zero confidence"
+
+
+def test_player_confidence_score_clamps_evidence_weight_above_normalization():
+    result = reporting.player_confidence_score(weight_own=None, evidence_weight=50.0, evidence_weight_normalization=5.0)
+    assert result["normalized_evidence_weight"] == pytest.approx(1.0)
+    assert result["confidence_score"] == pytest.approx(1.0)
+
+
+# ============================================================
+# Priority 6 -- build_report wiring: total_projected_ep_range, category_breakdown
+# floor/ceiling, confidence_scores
+# ============================================================
+
+def test_build_report_includes_squad_ep_range_and_breakdown_floor_ceiling(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report = reporting.build_report(con, run_id)
+
+    r = report["headline"]["total_projected_ep_range"]
+    assert r["floor"] is not None and r["ceiling"] is not None
+    assert r["floor"] < report["headline"]["total_projected_ep"] < r["ceiling"]
+
+    assert report["category_breakdown"]["p1"]["floor"] == pytest.approx(1.0)
+    assert report["category_breakdown"]["p1"]["ceiling"] == pytest.approx(9.0)
+
+
+def test_build_report_confidence_scores_present_with_weight_own_only_by_default(con):
+    """confidence_scores is always computed (not opt-in); without the evidence-weight params
+    only the weight_own component is available."""
+    run_id, *_ = _seed_full_squad_scenario(con)
+    report = reporting.build_report(con, run_id)
+    scores = report["confidence_scores"]
+    assert set(scores.keys()) == {"p1", "p2"}
+    for uid in ("p1", "p2"):
+        assert scores[uid]["weight_own"] == pytest.approx(0.0)  # seeded weight_own=0.0
+        assert scores[uid]["evidence_weight"] is None
+        assert scores[uid]["confidence_score"] == pytest.approx(0.0)
+
+
+def test_build_report_confidence_scores_include_evidence_weight_when_params_given(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    reporting.seed_v1_params(con)
+    report = reporting.build_report(
+        con, run_id,
+        consensus_check_params_version=1, evidence_decay_params_version=1,
+        evidence_fact_multiplier_params_version=1, confidence_score_params_version=1,
+        report_asof=datetime(2026, 8, 10),
+    )
+    scores = report["confidence_scores"]
+    for uid in ("p1", "p2"):
+        # no evidence claims seeded -> aggregate_evidence_weight sums to 0.0, a real value
+        assert scores[uid]["evidence_weight"] == pytest.approx(0.0)
+        assert scores[uid]["normalized_evidence_weight"] == pytest.approx(0.0)
 
 
 def test_render_report_text_includes_captain_risk_eo_when_present(con):

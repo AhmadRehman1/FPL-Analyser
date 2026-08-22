@@ -9,6 +9,7 @@ transfer_plan_run_id already sitting in the database from earlier milestones' re
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -44,11 +45,24 @@ def main() -> None:
     backtest_run_id = con.execute("SELECT max(backtest_run_id) FROM backtest_runs").fetchone()[0]
     transfer_plan_run_id = con.execute("SELECT max(run_id) FROM transfer_plan_runs").fetchone()[0]
 
+    # Every Priority 1/2/6 opt-in section wired to its real v1 params (all seeded by
+    # reporting.seed_v1_params()/squad_optimizer.seed_v1_params() in run_ingestion.py) --
+    # this is what makes captain_risk_eo, consensus_divergence, adversarial_review, and the
+    # evidence_weight half of confidence_scores genuinely STANDING sections of every real
+    # report, not one-off opt-ins only exercised in tests.
     report = reporting.build_report(
         con, real_run_id,
         transfer_plan_run_id=transfer_plan_run_id,
         backtest_run_id=backtest_run_id,
         active_param_versions=ACTIVE_PARAM_VERSIONS,
+        ownership_params_version=1,
+        sanity_check_params_version=1,
+        consensus_check_params_version=1,
+        evidence_decay_params_version=1,
+        evidence_fact_multiplier_params_version=1,
+        bench_quality_params_version=1,
+        confidence_score_params_version=1,
+        report_asof=datetime.now(),
     )
     print(reporting.render_report_text(report))
 
@@ -59,6 +73,9 @@ def main() -> None:
     print(f"evidence_provenance: {len(report['evidence_provenance'])} players, "
           f"{sum(len(v) for v in report['evidence_provenance'].values())} claims considered total")
     print(f"parameter_transparency: {len(report['parameter_transparency'])} param rows")
+    print(f"confidence_scores: {len(report['confidence_scores'])} players")
+    n_consensus = len(report["consensus_divergence"]) if report["consensus_divergence"] is not None else 0
+    print(f"consensus_divergence: {n_consensus} flagged picks")
 
     con.close()
 

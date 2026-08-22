@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import (  # noqa: E402
     db, expected_points, ingest_csv, ingest_research_pull, ingest_workbook, minutes_model,
-    monte_carlo, params, reconcile, squad_optimizer, team_strength, transfer_planner, uncertainty,
+    monte_carlo, params, reconcile, reporting, squad_optimizer, team_strength, transfer_planner, uncertainty,
 )
 
 DATA_ROOT = REPO_ROOT / "data" / "external" / "FPL-Core-Insights-main" / "data"
@@ -89,12 +89,16 @@ def main() -> None:
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
     transfer_planner.seed_v1_params(con)
+    reporting.seed_v1_params(con)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "
           "cross_player_correlation_params, risk_aversion_params, "
           "squad_optimizer_guardrail_params, planning_horizon_params, transfer_cost_params, "
-          "tc_risk_aversion_params, wildcard_gain_threshold_params v1 seeded")
+          "tc_risk_aversion_params, wildcard_gain_threshold_params, ownership_params, "
+          "risk_posture_params, field_covariance_params, bench_quality_params, "
+          "concentration_risk_params, sanity_check_params, consensus_check_params, "
+          "confidence_score_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
