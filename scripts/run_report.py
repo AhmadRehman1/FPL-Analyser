@@ -18,6 +18,10 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from fpl_quant import db, reporting  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
+# Priority 8c: small, committed per-gameweek report snapshots -- see reporting.py's own
+# module docstring for why this lives as plain JSON in the repo rather than in the (gitignored,
+# never-persisted-across-runs) DuckDB file itself.
+REPORT_HISTORY_DIR = REPO_ROOT / "data" / "report_history"
 
 # Every param family currently seeded at v1 across M1-M8 (run_ingestion.py's own list).
 ACTIVE_PARAM_VERSIONS = {
@@ -65,6 +69,14 @@ def main() -> None:
         report_asof=datetime.now(),
     )
     print(reporting.render_report_text(report))
+
+    # Priority 8c: diff against last week's saved snapshot (if any), then save this week's.
+    previous_gw = report["headline"]["target_gameweek"] - 1
+    previous_snapshot = reporting.load_report_snapshot(TARGET_SEASON, previous_gw, REPORT_HISTORY_DIR)
+    diff = reporting.diff_reports(previous_snapshot, report)
+    print("\n" + reporting.render_diff_text(diff))
+    saved_path = reporting.save_report_snapshot(report, REPORT_HISTORY_DIR)
+    print(f"\n[report_history] snapshot saved to {saved_path}")
 
     print("\n--- section sizes (sanity check) ---")
     print(f"category_breakdown: {len(report['category_breakdown'])} players")

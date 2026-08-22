@@ -437,6 +437,119 @@ def test_build_report_confidence_scores_include_evidence_weight_when_params_give
         assert scores[uid]["normalized_evidence_weight"] == pytest.approx(0.0)
 
 
+# ============================================================
+# Priority 8c -- week-over-week diff report
+# ============================================================
+
+def test_snapshot_for_diff_extracts_the_small_subset(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report = reporting.build_report(con, run_id)
+    snap = reporting.snapshot_for_diff(report)
+    assert snap["target_season"] == "2026-2027"
+    assert snap["target_gameweek"] == 1
+    assert {p["player_uid"] for p in snap["squad"]} == {"p1", "p2"}
+    assert snap["captain_uid"] == "p1"
+    assert snap["total_projected_ep"] == pytest.approx(report["headline"]["total_projected_ep"])
+    assert snap["doubtful_flags"] == {}  # sanity_check_params_version not requested
+    assert snap["weight_own_by_uid"] == {"p1": pytest.approx(0.0), "p2": pytest.approx(0.0)}
+
+
+def test_snapshot_for_diff_includes_weight_own_when_nonzero(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    con.execute("UPDATE minutes_model_outputs SET weight_own = 0.6")
+    report = reporting.build_report(con, run_id)
+    snap = reporting.snapshot_for_diff(report)
+    assert snap["weight_own_by_uid"] == {"p1": pytest.approx(0.6), "p2": pytest.approx(0.6)}
+
+
+def test_save_and_load_report_snapshot_round_trips(con, tmp_path):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report = reporting.build_report(con, run_id)
+    saved_path = reporting.save_report_snapshot(report, tmp_path)
+    assert saved_path.name == "2026-2027_gw1.json"
+
+    loaded = reporting.load_report_snapshot("2026-2027", 1, tmp_path)
+    assert loaded == reporting.snapshot_for_diff(report)
+
+
+def test_load_report_snapshot_none_when_missing(tmp_path):
+    assert reporting.load_report_snapshot("2026-2027", 1, tmp_path) is None
+
+
+def test_diff_reports_no_previous_snapshot(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report = reporting.build_report(con, run_id)
+    diff = reporting.diff_reports(None, report)
+    assert diff["has_previous"] is False
+    assert diff["squad_changes"] is None
+
+
+def test_diff_reports_detects_squad_and_captain_changes(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report_prev = reporting.build_report(con, run_id)
+    previous_snapshot = reporting.snapshot_for_diff(report_prev)
+
+    # p2 transferred out, p3 (new signing) transferred in, captaincy moves to p2
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'Player Three', 'Forward')")
+    con.execute("UPDATE squad_optimizer_selections SET in_squad = FALSE, in_xi = FALSE WHERE run_id = ? AND player_uid = 'p2'", [run_id])
+    con.execute(
+        "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+        "VALUES (?, 'p3', TRUE, TRUE, FALSE, FALSE)", [run_id],
+    )
+    con.execute("UPDATE squad_optimizer_selections SET is_captain = FALSE WHERE run_id = ? AND player_uid = 'p1'", [run_id])
+    con.execute("UPDATE squad_optimizer_selections SET is_captain = TRUE WHERE run_id = ? AND player_uid = 'p2'", [run_id])
+    # p2 needs its own category_breakdown/risk rows to still appear in the new report despite
+    # no longer being "in_squad" -- simplest is to just leave it out of the new report's squad
+    # read entirely, which is exactly what in_squad=FALSE already achieves.
+
+    report_cur = reporting.build_report(con, run_id)
+    diff = reporting.diff_reports(previous_snapshot, report_cur)
+
+    assert diff["has_previous"] is True
+    assert diff["squad_changes"]["out"] == ["Player Two"]
+    assert diff["captain_changed"] is True
+    assert diff["previous_captain"] == "Player One"
+    assert diff["current_captain"] is None or diff["current_captain"] != "Player One"
+
+
+def test_diff_reports_flags_newly_doubtful_starters(con):
+    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "nailed_p_start_threshold", value_numeric=0.75)
+    params.write_param(con, "sanity_check_params", 1, "2026-08-10", "rotation_risk_p_start_threshold", value_numeric=0.55)
+    mm_mv = con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [un_mv]
+    ).fetchone()[0]
+
+    # previous week: p2 (Forward) is clearly nailed (0.95) -> nailed_attacking_return passes
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.95 WHERE model_version = ? AND player_uid = 'p2'", [mm_mv])
+    report_prev = reporting.build_report(con, run_id, sanity_check_params_version=1)
+    previous_snapshot = reporting.snapshot_for_diff(report_prev)
+    assert previous_snapshot["doubtful_flags"]["nailed_attacking_return"] is True
+
+    # this week: p2's p_start_final drops back below threshold -- newly doubtful
+    con.execute("UPDATE minutes_model_outputs SET p_start_final = 0.7 WHERE model_version = ? AND player_uid = 'p2'", [mm_mv])
+    report_cur = reporting.build_report(con, run_id, sanity_check_params_version=1)
+    diff = reporting.diff_reports(previous_snapshot, report_cur)
+    assert "nailed_attacking_return" in diff["newly_doubtful_flags"]
+
+
+def test_render_diff_text_no_previous(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report = reporting.build_report(con, run_id)
+    diff = reporting.diff_reports(None, report)
+    text = reporting.render_diff_text(diff)
+    assert "no prior gameweek snapshot" in text
+
+
+def test_render_diff_text_with_previous(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    report = reporting.build_report(con, run_id)
+    previous_snapshot = reporting.snapshot_for_diff(report)
+    diff = reporting.diff_reports(previous_snapshot, report)
+    text = reporting.render_diff_text(diff)
+    assert "unchanged" in text  # nothing changed between identical snapshots
+
+
 def test_render_report_text_includes_captain_risk_eo_when_present(con):
     run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
     for uid, price, ownership in (("p1", 5.0, 60.0), ("p2", 6.0, 10.0)):
