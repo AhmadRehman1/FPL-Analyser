@@ -731,6 +731,98 @@ def test_evaluate_transfers_sufficient_bank_legalizes_an_otherwise_too_expensive
 
 
 # ============================================================
+# Priority 4 -- price_change_risk_by_player / transfer_timing_advice
+# ============================================================
+
+def test_price_change_risk_by_player_flags_rise_and_fall(con):
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('riser', 'riser', 'Midfielder'), "
+        "('faller', 'faller', 'Midfielder'), ('steady', 'steady', 'Midfielder')"
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, transfers_in_event, "
+        "transfers_out_event, _ingested_at) VALUES "
+        "('riser', '2026-2027', 2, 5.0, 80000, 1000, current_timestamp), "
+        "('faller', '2026-2027', 2, 5.0, 1000, 80000, current_timestamp), "
+        "('steady', '2026-2027', 2, 5.0, 5000, 4800, current_timestamp)"
+    )
+    result = tp.price_change_risk_by_player(con, "2026-2027", 2, rise_threshold=50_000.0, fall_threshold=50_000.0)
+    assert result["riser"]["price_change_direction"] == "rise"
+    assert result["riser"]["net_transfers_event"] == pytest.approx(79000.0)
+    assert result["faller"]["price_change_direction"] == "fall"
+    assert result["steady"]["price_change_direction"] == "none"
+
+
+def test_price_change_risk_by_player_none_when_no_transfer_data(con):
+    """Missing transfers_in_event/transfers_out_event (e.g. a source season that predates
+    these columns, or simply no row at all for this gameweek) must report direction=None, not
+    silently coerced to "none" (a real, known "below threshold" result) or a fabricated 0."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('unknown', 'unknown', 'Midfielder')")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+        "VALUES ('unknown', '2026-2027', 2, 5.0, current_timestamp)"
+    )
+    result = tp.price_change_risk_by_player(con, "2026-2027", 2, rise_threshold=50_000.0, fall_threshold=50_000.0)
+    assert result["unknown"]["price_change_direction"] is None
+    assert result["unknown"]["net_transfers_event"] is None
+
+
+def test_transfer_timing_advice_urgent_incoming_rise():
+    advice = tp.transfer_timing_advice({"price_change_direction": "rise"}, {"price_change_direction": "none"})
+    assert advice is not None
+    assert "today, not tomorrow" in advice
+
+
+def test_transfer_timing_advice_urgent_outgoing_fall():
+    advice = tp.transfer_timing_advice({"price_change_direction": "none"}, {"price_change_direction": "fall"})
+    assert advice is not None
+    assert "today, not tomorrow" in advice
+
+
+def test_transfer_timing_advice_none_when_nothing_urgent():
+    assert tp.transfer_timing_advice({"price_change_direction": "none"}, {"price_change_direction": "none"}) is None
+    assert tp.transfer_timing_advice(None, None) is None
+
+
+def test_evaluate_transfers_attaches_price_change_risk_without_changing_ranking(con):
+    """Same informational-only convention as momentum/swing above -- the ranking (net_value,
+    sort order) must be identical whether or not the price-change keys are attached."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]
+    con.execute(
+        "UPDATE fact_player_season_stats SET transfers_in_event = 90000, transfers_out_event = 500 "
+        "WHERE player_uid = 'p_in_same_pos_cheaper'"
+    )
+
+    without = tp.evaluate_transfers(con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4)
+    with_risk = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=1, price_change_rise_threshold=50_000.0, price_change_fall_threshold=50_000.0,
+    )
+
+    assert [r["net_value"] for r in without] == [r["net_value"] for r in with_risk]
+    assert [r["player_in"] for r in without] == [r["player_in"] for r in with_risk]
+    assert "price_change_risk_in" not in without[0]
+
+    top = next(r for r in with_risk if r["player_in"] == "p_in_same_pos_cheaper")
+    assert top["price_change_risk_in"]["price_change_direction"] == "rise"
+    assert top["timing_advice"] is not None
+    assert "today, not tomorrow" in top["timing_advice"]
+
+
+def test_evaluate_transfers_price_change_risk_requires_both_thresholds(con):
+    """Partial opt-in (only one threshold given) must behave exactly like not opting in at
+    all -- no silent guessing of the missing threshold."""
+    holdings_dict, horizon_ep_versions = _seed_ep_and_holdings_for_transfers(con)
+    current_holdings = [holdings_dict["p_out"]]
+    results = tp.evaluate_transfers(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=1, points_per_hit=4,
+        target_gameweek=1, price_change_rise_threshold=50_000.0,  # fall_threshold left None
+    )
+    assert "price_change_risk_in" not in results[0]
+
+
+# ============================================================
 # Priority 3 -- evaluate_multi_transfers / evaluate_hold_recommendation
 # ============================================================
 

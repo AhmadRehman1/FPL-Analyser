@@ -306,6 +306,18 @@ _SEASON_STATS_NUMERIC_COLS = {
     "expected_goals_per_90": "DOUBLE", "expected_assists_per_90": "DOUBLE",
     "defensive_contribution": "DOUBLE", "defensive_contribution_per_90": "DOUBLE",
     "saves_per_90": "DOUBLE", "total_points": "INTEGER", "event_points": "INTEGER",
+    # Priority 4 addition: this-event (this gameweek only, not cumulative-to-date) net
+    # transfer activity -- the FPL API's own standard field names (transfers_in_event/
+    # transfers_out_event), reused verbatim rather than invented, since a source CSV mirroring
+    # the official API is expected to use the same names. Appended at the END of this dict
+    # (not interleaved) since build_fact_player_season_stats() below indexes select_exprs
+    # positionally -- inserting these anywhere else would silently shift every later index.
+    # Same graceful-degrade-if-absent handling as every other column here: whether the real
+    # ingested playerstats.csv actually carries these two columns was never verified against
+    # real data in this session (data/external/ is gitignored, not present in this
+    # environment -- see README and price_momentum_by_player's own identical caveat); a
+    # missing column selects NULL via the existing `available` check below, not an error.
+    "transfers_in_event": "DOUBLE", "transfers_out_event": "DOUBLE",
 }
 
 
@@ -366,7 +378,7 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                  chance_of_playing_next_round, status, minutes, goals_scored, assists, bps,
                  expected_goals, expected_assists, expected_goals_per_90, expected_assists_per_90,
                  defensive_contribution, defensive_contribution_per_90, saves_per_90,
-                 total_points, event_points, _ingested_at)
+                 total_points, event_points, transfers_in_event, transfers_out_event, _ingested_at)
             SELECT
                 pm.player_uid, '{season_sql}', TRY_CAST(r.gw AS INTEGER),
                 -- unlike the standard FPL API convention (tenths, e.g. 155 => 15.5m),
@@ -377,7 +389,7 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                 {select_exprs[4]}, {select_exprs[5]}, {select_exprs[6]}, {select_exprs[7]},
                 {select_exprs[8]}, {select_exprs[9]}, {select_exprs[10]}, {select_exprs[11]},
                 {select_exprs[12]}, {select_exprs[13]}, {select_exprs[14]},
-                {select_exprs[15]}, {select_exprs[16]},
+                {select_exprs[15]}, {select_exprs[16]}, {select_exprs[17]}, {select_exprs[18]},
                 TIMESTAMP '{now_sql}'
             FROM "{table}" r
             JOIN _player_id_map pm ON pm.season = '{season_sql}' AND pm.player_id_local = norm_id(r.id)
@@ -404,6 +416,8 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                 saves_per_90 = excluded.saves_per_90,
                 total_points = excluded.total_points,
                 event_points = excluded.event_points,
+                transfers_in_event = excluded.transfers_in_event,
+                transfers_out_event = excluded.transfers_out_event,
                 _ingested_at = excluded._ingested_at
             """
         )
@@ -435,6 +449,18 @@ _COLUMN_SEMANTICS = [
         "event_points",
         "live",
         "closest available tag; actually a single-gameweek delta, not a running total nor a current-state snapshot",
+    ),
+    (
+        "fact_player_season_stats",
+        "transfers_in_event",
+        "live",
+        "same single-gameweek-delta caveat as event_points -- net transfers IN this gameweek only, not season-cumulative",
+    ),
+    (
+        "fact_player_season_stats",
+        "transfers_out_event",
+        "live",
+        "same single-gameweek-delta caveat as event_points -- net transfers OUT this gameweek only, not season-cumulative",
     ),
 ]
 

@@ -120,6 +120,17 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # in this project (not derived from data), flagged for its own future M7 recalibration,
     # independent of Wildcard's.
     params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
+    # Priority 4 -- price-change-timing: FPL's own price-change algorithm (how large a net-
+    # transfer swing at a given ownership level actually triggers a real change) is not
+    # public, and this project has not verified what scale transfers_in_event/
+    # transfers_out_event actually populate at in the real ingested data (see
+    # price_change_risk_by_player's own docstring). 50,000 is an invented v1 default -- a
+    # round, order-of-magnitude guess at "a real, non-noise net-transfer swing" for a
+    # single-gameweek figure, same invented-default status as every other unpinned constant in
+    # this project, flagged here explicitly for M7 recalibration once real data confirms the
+    # actual scale these two columns populate at.
+    params_mod.write_param(con, "price_change_timing_params", 1, "2026-08-12", "rise_threshold", value_numeric=50_000.0)
+    params_mod.write_param(con, "price_change_timing_params", 1, "2026-08-12", "fall_threshold", value_numeric=50_000.0)
 
 
 # ============================================================
@@ -311,6 +322,76 @@ def price_momentum_by_player(
 
 
 # ============================================================
+# Priority 4 -- forward-looking price-change-timing signal, distinct from
+# price_momentum_by_player()'s retrospective lookback above. Same informational-only
+# convention (see evaluate_transfers()'s own use of it below): never folded into
+# horizon_value_gain/net_value or the ranking sort, only actionable for TIMING a swap that's
+# already been decided on other grounds.
+# ============================================================
+
+def price_change_risk_by_player(
+    con: duckdb.DuckDBPyConnection, target_season: str, as_of_gameweek: int, rise_threshold: float, fall_threshold: float,
+) -> dict[str, dict]:
+    """{player_uid: {"net_transfers_event": float | None, "price_change_direction": "rise" |
+    "fall" | "none" | None}} -- this-GAMEWEEK-only net transfer activity (transfers_in_event
+    minus transfers_out_event, NOT season-cumulative -- see reconcile.py's own column-
+    semantics tagging for these two columns), the actual signal FPL's own price-change
+    mechanism is driven by.
+
+    FPL's exact proprietary price-change formula (how large a net-transfer swing at a given
+    ownership level actually triggers a real change) is not public. Rather than guess at
+    reverse-engineering it, this compares net_transfers_event against explicit, versioned
+    rise_threshold/fall_threshold floats -- a real, if approximate, signal, not a claim to
+    replicate FPL's undisclosed algorithm exactly. direction=None (not "none") means no
+    transfers_in_event/transfers_out_event data exists for this player at this gameweek at
+    all (see the schema migration's own caveat: whether the real ingested playerstats.csv
+    populates these two columns was never verified against real data in this session,
+    data/external/ being gitignored and absent from this environment) -- distinguished from
+    "none" (real data exists, genuinely below both thresholds), matching this project's
+    "missing != a real zero/negative result" discipline throughout.
+    """
+    rows = con.execute(
+        "SELECT player_uid, transfers_in_event, transfers_out_event FROM fact_player_season_stats "
+        "WHERE season = ? AND gw = ?",
+        [target_season, as_of_gameweek],
+    ).fetchall()
+    out = {}
+    for player_uid, transfers_in, transfers_out in rows:
+        if transfers_in is None or transfers_out is None:
+            out[player_uid] = {"net_transfers_event": None, "price_change_direction": None}
+            continue
+        net = transfers_in - transfers_out
+        if net >= rise_threshold:
+            direction = "rise"
+        elif net <= -fall_threshold:
+            direction = "fall"
+        else:
+            direction = "none"
+        out[player_uid] = {"net_transfers_event": net, "price_change_direction": direction}
+    return out
+
+
+def transfer_timing_advice(price_change_risk_in: dict | None, price_change_risk_out: dict | None) -> str | None:
+    """The actionable half of the signal above: if the INCOMING player is about to RISE,
+    buying tomorrow costs more than buying today; if the OUTGOING player is about to FALL,
+    selling tomorrow nets less than selling today. Either condition alone is enough to say
+    "make this swap today, not tomorrow" -- None (not an empty string) when neither applies,
+    matching this project's "absence is a real, distinct value" discipline."""
+    urgent_in = bool(price_change_risk_in) and price_change_risk_in.get("price_change_direction") == "rise"
+    urgent_out = bool(price_change_risk_out) and price_change_risk_out.get("price_change_direction") == "fall"
+    if urgent_in and urgent_out:
+        return (
+            "make this swap today, not tomorrow -- the incoming player's price looks set to rise "
+            "and the outgoing player's price looks set to fall"
+        )
+    if urgent_in:
+        return "make this swap today, not tomorrow -- the incoming player's price looks set to rise"
+    if urgent_out:
+        return "make this swap today, not tomorrow -- the outgoing player's price looks set to fall"
+    return None
+
+
+# ============================================================
 # transfer evaluation
 # ============================================================
 
@@ -328,6 +409,8 @@ def evaluate_transfers(
     ts_model_version: int | None = None,
     swing_short_window: int = 3,
     swing_long_window: int = 6,
+    price_change_rise_threshold: float | None = None,
+    price_change_fall_threshold: float | None = None,
 ) -> list[dict]:
     """Exhaustive single-transfer search: every current squad player x every other real
     candidate, ranked by net value over the horizon. Single-best-transfer-per-gameweek scope
@@ -354,6 +437,16 @@ def evaluate_transfers(
     player's own team's rolling fixture-difficulty swing as of target_gameweek. Same
     informational-only convention as price/ownership momentum above: never folded into
     horizon_value_gain/net_value or the ranking sort.
+
+    price_change_rise_threshold/price_change_fall_threshold (Priority 4, optional, default
+    None -- prior behavior, no keys on results): when BOTH given (together with
+    target_gameweek), each result also carries price_change_risk_in/out (see
+    price_change_risk_by_player()) and timing_advice (see transfer_timing_advice()) -- the
+    ONE exception to "purely informational" among everything else this docstring lists:
+    timing_advice is still never folded into horizon_value_gain/net_value or the ranking
+    sort (which swap wins is untouched), but it IS a genuine actionable recommendation about
+    WHEN to execute a swap already decided on other grounds -- "make this swap today, not
+    tomorrow" -- matching Priority 4's own explicit ask, not merely descriptive detail.
     """
     horizon_ep = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
     momentum = price_momentum_by_player(con, target_season, target_gameweek, momentum_lookback_gameweeks) if target_gameweek is not None else {}
@@ -365,6 +458,14 @@ def evaluate_transfers(
             con, target_season, target_gameweek, ts_model_version, swing_short_window, swing_long_window,
         )
         team_by_player = fixture_swing.team_uid_by_player(con, target_season)
+    attach_price_change_risk = (
+        target_gameweek is not None and price_change_rise_threshold is not None and price_change_fall_threshold is not None
+    )
+    price_change_risk: dict = {}
+    if attach_price_change_risk:
+        price_change_risk = price_change_risk_by_player(
+            con, target_season, target_gameweek, price_change_rise_threshold, price_change_fall_threshold,
+        )
     current_uids = {h["player_uid"] for h in current_holdings}
     club_counts: dict[str, int] = {}
     for h in current_holdings:
@@ -409,6 +510,12 @@ def evaluate_transfers(
                 out_swing = swing_by_team.get(out_team)
                 result["fixture_swing_in"] = in_swing.swing_score if in_swing is not None else None
                 result["fixture_swing_out"] = out_swing.swing_score if out_swing is not None else None
+            if attach_price_change_risk:
+                in_risk = price_change_risk.get(in_uid)
+                out_risk = price_change_risk.get(out_uid)
+                result["price_change_risk_in"] = in_risk
+                result["price_change_risk_out"] = out_risk
+                result["timing_advice"] = transfer_timing_advice(in_risk, out_risk)
             results.append(result)
 
     results.sort(key=lambda r: r["net_value"], reverse=True)
@@ -878,6 +985,7 @@ def run(
     kappa_tc_params_version: int,
     *,
     multi_transfer_pool_limit_per_position: int | None = None,
+    price_change_timing_params_version: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -892,7 +1000,14 @@ def run(
     existing caller (a repeated-many-times season simulation in particular -- see
     backtest.run_season_simulation()) should keep paying only what it already paid before this
     feature existed unless it explicitly opts in. Passing an int (the candidate_pool_limit_
-    per_position bound both new evaluators take) computes and persists both."""
+    per_position bound both new evaluators take) computes and persists both.
+
+    price_change_timing_params_version (Priority 4, opt-in): None (the default) attaches no
+    price_change_risk_in/out or timing_advice to transfer_results -- unlike
+    multi_transfer_pool_limit_per_position this isn't a performance concern (a single cheap
+    query), but the underlying transfers_in_event/transfers_out_event data was never verified
+    against real ingested data in this session (see price_change_risk_by_player()'s own
+    docstring), so this stays opt-in rather than silently active for every caller."""
     state_row = con.execute(
         "SELECT season, free_transfers_available, chips_used_set1, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
@@ -913,9 +1028,14 @@ def run(
     )
 
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
+    price_change_kwargs = {}
+    if price_change_timing_params_version is not None:
+        rise_threshold, _ = params_mod.resolve_param(con, "price_change_timing_params", "rise_threshold", price_change_timing_params_version)
+        fall_threshold, _ = params_mod.resolve_param(con, "price_change_timing_params", "fall_threshold", price_change_timing_params_version)
+        price_change_kwargs = {"price_change_rise_threshold": rise_threshold, "price_change_fall_threshold": fall_threshold}
     transfer_results = evaluate_transfers(
         con, current_holdings, target_season, horizon_ep_versions, free_transfers_available, points_per_hit,
-        bank=bank or 0.0, target_gameweek=target_gameweek, ts_model_version=ts_model_version,
+        bank=bank or 0.0, target_gameweek=target_gameweek, ts_model_version=ts_model_version, **price_change_kwargs,
     )
 
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
