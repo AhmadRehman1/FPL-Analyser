@@ -125,11 +125,27 @@ jobs:
             });
 
       # Priority 8c's snapshots are the point of persisting anything here -- everything else
-      # (the DuckDB file itself) is gitignored and rebuilt fresh next run.
+      # (the DuckDB file itself) is gitignored and rebuilt fresh next run. A real, observed
+      # failure mode (not hypothesized): two workflow_dispatch runs (e.g. one per real FPL
+      # account, see real_squad_entry_id above) finishing close together both try to push this
+      # commit -- the second's bare `git push` gets rejected outright ("fetch first"), even
+      # though its own report_history content is perfectly valid and just needs to land on top
+      # of the first's. Retry with a rebase (never force-push -- this is master) a few times
+      # rather than crashing the whole run over a benign race between two legitimate pushes.
       - name: Commit report_history snapshots
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/report_history/
-          git diff --cached --quiet || git commit -m "chore: update report_history snapshot [skip ci]"
-          git push
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update report_history snapshot [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
+            git fetch origin master
+            git rebase origin/master
+          done
+          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
+          exit 1
