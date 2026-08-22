@@ -39,6 +39,7 @@ import duckdb
 
 from . import expected_points as ep
 from . import fixture_swing
+from . import ingest_workbook as iw
 from . import monte_carlo
 from . import params as params_mod
 from . import squad_optimizer
@@ -196,6 +197,63 @@ def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_opt
             [state_version, player_uid, in_xi, is_captain, is_vice],
         )
     return state_version
+
+
+def bootstrap_from_real_squad(
+    con: duckdb.DuckDBPyConnection, calibration_asof_date: date, target_season: str, target_gameweek: int,
+    ep_model_version: int, uncertainty_model_version: int, squad: list[dict],
+) -> int:
+    """Priority 10-adjacent addition: bootstraps manager_state_versions/manager_squad_holdings
+    from a squad the manager actually holds in real life (e.g. built outside this project
+    entirely), NOT from a real M5 solve -- the one real gap bootstrap_from_squad_optimizer_run()
+    couldn't cover, since it requires an EXISTING squad_optimizer_runs row and nothing upstream
+    of it can inject an arbitrary external squad directly.
+
+    squad: [{"player_name": str, "in_xi": bool, "is_captain": bool, "is_vice": bool}, ...] --
+    player_name resolved via the SAME normalized-name matching every other real-name source in
+    this project already uses (ingest_workbook._resolve_player()), not a new, separately-invented
+    matching rule. A name that fails to resolve raises immediately (a manager's real squad is
+    exactly 15 real players; silently dropping one and continuing would produce a manager_state
+    that doesn't actually match what they hold) -- this is deliberately less forgiving than
+    ingest_understat.py's own skip-and-continue policy, because that module ingests a bulk,
+    best-effort external dataset where losing a few unresolvable rows is an acceptable, disclosed
+    loss, while this one is meant to represent one specific real person's exact 15 players.
+
+    Reuses transfer_planner.py's own is_manager_snapshot=TRUE squad_optimizer_runs pattern
+    (see _write_manager_snapshot_as_optimizer_run()'s own docstring for why that's the only path
+    that actually works against this schema's FK constraints), then hands off to
+    bootstrap_from_squad_optimizer_run() for the bank/state_version bookkeeping -- one bootstrap
+    mechanism, not two independently-maintained ones. Inherits that function's own
+    free_transfers_available=1 assumption ("a fresh account's real starting allocation") --
+    correct for a genuine GW1/GW2 bootstrap, but a real manager rolling a transfer into a LATER
+    gameweek may actually hold 2; that case isn't handled by either bootstrap path today and
+    would need a real free_transfers_available parameter threaded through, not assumed here."""
+    resolved = []
+    for p in squad:
+        player_uid = iw._resolve_player(con, p["player_name"], target_season)
+        if not player_uid:
+            raise ValueError(f"could not resolve player_name={p['player_name']!r} to a player_uid")
+        resolved.append({**p, "player_uid": player_uid})
+
+    run_id = con.execute(
+        """
+        INSERT INTO squad_optimizer_runs
+            (run_id, calibration_asof_date, target_season, target_gameweek, ep_model_version,
+             uncertainty_model_version, lambda_params_version, lambda_value, guardrail_params_version,
+             divergence_check_passed, divergence_check_note, solver_status, objective_value, is_manager_snapshot)
+        VALUES (nextval('seq_squad_optimizer_run'), ?, ?, ?, ?, ?, 0, 0.0, 0, TRUE,
+                'M8 real-squad bootstrap, not a real solve', 'manager_snapshot', NULL, TRUE)
+        RETURNING run_id
+        """,
+        [calibration_asof_date, target_season, target_gameweek, ep_model_version, uncertainty_model_version],
+    ).fetchone()[0]
+    for p in resolved:
+        con.execute(
+            "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
+            "VALUES (?, ?, TRUE, ?, ?, ?)",
+            [run_id, p["player_uid"], p["in_xi"], p["is_captain"], p["is_vice"]],
+        )
+    return bootstrap_from_squad_optimizer_run(con, run_id)
 
 
 def _read_holdings(con: duckdb.DuckDBPyConnection, state_version: int) -> list[dict]:
