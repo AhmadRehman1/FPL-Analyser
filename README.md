@@ -408,6 +408,14 @@ scripts/run_rival_sample_ingestion.py -- Priority 10 Phase A: samples real rival
 .github/workflows/scheduled_pipeline.yml -- Priority 8a: the real scheduled-job runner (GitHub
                                      Actions, not a Claude Code Remote Routine -- this sandbox's
                                      own network policy blocks the sites the pipeline needs)
+scripts/print_fpl_deadlines.py      -- Priority 8a: real gameweek deadline_time values from
+                                     bootstrap-static, plus each one's "1 day before" cron
+                                     expression -- the manual re-sync tool scheduled_pipeline.yml's
+                                     own cron list is generated from (re-run whenever the real
+                                     season schedule changes; GitHub Actions cron can't be
+                                     dynamically rescheduled from inside a run, so this isn't
+                                     automatic). Runnable via .github/workflows/print_deadlines.yml
+                                     (workflow_dispatch, no ingestion -- fast).
 docs/priority10_field_simulator_design.md -- Priority 10: the design doc for the full rival-
                                      squad-distribution field simulator (Phase A implemented,
                                      Phases B/C/D design-only)
