@@ -1100,6 +1100,22 @@ for the existing (real-data) `lambda_value` finding above.
   recent prior season's real, fully-populated Elo snapshot (`2025-2026`, verified all 20 teams
   have one) when the target season's is empty -- a disclosed proxy, not a fabricated value,
   and only used for exactly as long as this season's own Elo hasn't been published upstream.
+- **A third real gap, one layer deeper still, root-caused all the way down: FPL-Core-Insights
+  spells the same real club differently across seasons.** Even after the Elo fallback above,
+  `team_strength.calibrate()` still hard-failed on one specific team: `Ipswich Town` has
+  neither an MLE fit nor an Elo prior. Root cause, confirmed by cloning the real upstream repo
+  and diffing the raw source files directly, not guessed: 2024-25's `teams/teams.csv` spells
+  the club `Ipswich`, while 2026-27's `teams.csv` spells it `Ipswich Town` --
+  `entity_resolution.team_uid_for()` has no fuzzy suffix-stripping *by design* (see its own
+  docstring: name-variant unification is meant to be an explicit, curated alias row, not a
+  heuristic guess), so these normalize to two different `team_uid`s, and the club's real
+  2024-25 Premier League history never attaches to the 2026-27 identity unless the (private,
+  curated) evidence workbook's `club_name_map` covers this exact spelling variant. It doesn't
+  yet -- a real, named gap for that workbook to close, not something fixable from this repo
+  alone. Rather than hard-failing the whole calibration over one team and blocking every other
+  team's otherwise-real forecast, `calibrate()` now falls back such a team to the real,
+  computed league-average attack/defence across every team that *does* have an MLE fit --
+  logged loudly (`::warning::`) so it stays visible, not a silently-accepted default.
 - **Price/ownership momentum: also already-available, wired in as strictly secondary.**
   `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
   `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --

@@ -234,6 +234,26 @@ def calibrate(
          reference_team_uid, a0, a1, b0, b1, n_reg, json.dumps(list(fit_seasons))],
     ).fetchone()[0]
 
+    # Real, observed condition (surfaced by an actual live CI run): a target-season team can
+    # have genuinely zero information available from ANY loaded source -- no MLE fit (never
+    # played a competitive fixture in fit_seasons under this exact name) AND no Elo prior
+    # (not present in either the target season's or the fallback season's teams.csv, again
+    # under this exact name). The real, root-cause example this project actually hit: FPL-
+    # Core-Insights spells the same club "Ipswich" in 2024-25's source data but "Ipswich Town"
+    # in 2026-27's -- two different literal strings normalize to two different team_uids
+    # (entity_resolution.team_uid_for has no fuzzy suffix-stripping, by design -- see its own
+    # docstring: name-variant unification is meant to be an explicit, curated alias row, not a
+    # heuristic guess), so the 2024-25 history genuinely never gets attached to the 2026-27
+    # team_uid unless the (private, curated) evidence workbook's club_name_map covers this
+    # specific spelling variant. It doesn't yet -- a real, named gap, not silently patched over
+    # here. Rather than hard-failing the whole calibration (and blocking every other team's
+    # otherwise-real forecast) over this one team, such a team gets the real, computed
+    # league-average attack/defence across every team that DOES have an MLE fit -- a genuine
+    # "we truly have nothing better" default, not an invented literal, clearly logged so it's
+    # visible rather than silently accepted.
+    fallback_attack = sum(attack_mle.values()) / len(attack_mle) if attack_mle else 0.0
+    fallback_defence = sum(defence_mle.values()) / len(defence_mle) if defence_mle else 0.0
+
     for team_uid in target_teams:
         seasons = seasons_map.get(team_uid, 0)
         weight_own = min(1.0, seasons / seasons_threshold)
@@ -251,7 +271,13 @@ def calibrate(
         elif a_mle is not None:
             final_attack, final_defence = a_mle, d_mle
         else:
-            raise ValueError(f"team {team_uid} has neither an MLE fit nor an Elo prior -- cannot calibrate")
+            print(
+                f"::warning::team_strength.calibrate: {team_uid} has neither an MLE fit nor an "
+                f"Elo prior (likely a club_name_map gap -- see team_strength.py's own comment "
+                f"just above this loop) -- using the real league-average attack/defence as a "
+                f"last-resort fallback instead of crashing the whole calibration"
+            )
+            final_attack, final_defence = fallback_attack, fallback_defence
 
         con.execute(
             """

@@ -187,3 +187,55 @@ def test_calibrate_falls_back_to_prior_season_elo_when_target_season_elo_all_bla
         "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [model_version]
     ).fetchone()[0]
     assert n_teams == 3
+
+
+def test_calibrate_uses_league_average_when_team_has_no_mle_and_no_elo(con, monkeypatch, capsys):
+    """The real root cause this project actually hit: a club spelled differently across seasons
+    (e.g. "Ipswich" in 2024-25's source data vs "Ipswich Town" in 2026-27's) normalizes to two
+    different team_uids, so the 2026-27 uid has neither an MLE fit (its 2024-25 history is
+    attached to the OTHER uid) nor an Elo prior (also keyed by the wrong uid) -- must not crash
+    the whole calibration over one team."""
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+
+    uids = _seed_teams(con, ["A", "B", "Renamed"])
+    now = datetime.now(timezone.utc)
+    results = [("A", "B", 2, 0), ("B", "A", 0, 1)]
+    for i, (h, a, hg, ag) in enumerate(results):
+        for season in ("2024-2025", "2025-2026"):
+            con.execute(
+                "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, home_score, "
+                "away_score, finished, competition, kickoff_time, _ingested_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, TRUE, 'Premier League', ?, ?)",
+                [f"m{season}_{i}", season, uids[h], uids[a], hg, ag,
+                 datetime(2025 if season == "2024-2025" else 2026, 1, 1 + i), now],
+            )
+    # "Renamed" only ever appears under this team_uid in the target season -- no fit_seasons
+    # history, and (unlike test_calibrate_end_to_end_promoted_team_gets_pure_elo_prior) no Elo
+    # for it either, in any season. A and B also need a real 2026-27 fixture each (not just
+    # against Renamed) so they're both in target_teams/eligible_teams -- otherwise the Elo
+    # regression itself can't fit (a different, already-covered failure mode).
+    for i, (h, a) in enumerate([("A", "Renamed"), ("A", "B")]):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, finished, "
+            "competition, _ingested_at) VALUES (?, '2026-2027', ?, ?, FALSE, 'Premier League', ?)",
+            [f"m2026_{i}", uids[h], uids[a], now],
+        )
+
+    monkeypatch.setattr(
+        ts, "fetch_current_elo",
+        lambda con, season: {uids["A"]: 2000, uids["B"]: 1900},
+    )
+
+    model_version = ts.calibrate(con, date(2026, 8, 10), xi_params_version=1, rho_params_version=1)
+    snap = con.execute(
+        "SELECT team_uid, attack_mle, final_attack, final_defence "
+        "FROM team_strength_snapshots WHERE model_version = ?", [model_version],
+    ).fetchdf().set_index("team_uid")
+
+    renamed_row = snap.loc[uids["Renamed"]]
+    assert pd.isna(renamed_row["attack_mle"])  # confirms it genuinely has no MLE fit
+    real_fits = snap.drop(uids["Renamed"])
+    expected_fallback = real_fits["attack_mle"].mean()
+    assert renamed_row["final_attack"] == pytest.approx(expected_fallback)
+    assert "::warning::" in capsys.readouterr().out
