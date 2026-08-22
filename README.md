@@ -905,12 +905,19 @@ for the existing (real-data) `lambda_value` finding above.
   and the BPS `mu` term consistently, the existing "intentional dual use" pattern this module's
   own non-double-counting audit already documents) for confirmed *primary penalty takers*
   specifically -- the single highest-signal, best-understood case, and the one pure historical
-  xG genuinely can't reflect yet for a summer signing or an in-season duty change. Free-kick/
-  corner duty claims exist in the same source tab and are deliberately left alone -- a smaller,
-  separately-scoped extension, not silently folded in. Asof-safe (a claim only applies after its
-  own `observed_date`, verified directly). The uplift magnitude (1.15) is an invented v1
-  default, same status as every other unpinned constant here -- no reconciled penalty-frequency/
-  conversion data exists anywhere in this project to derive a real number from.
+  xG genuinely can't reflect yet for a summer signing or an in-season duty change. Asof-safe (a
+  claim only applies after its own `observed_date`, verified directly). The uplift magnitude
+  (1.15) is an invented v1 default, same status as every other unpinned constant here -- no
+  reconciled penalty-frequency/conversion data exists anywhere in this project to derive a real
+  number from.
+- **Priority 7b extends the same dormant claims to free-kick and corner duty.** A confirmed
+  primary free-kick taker gets a smaller `e_goals` uplift (1.05 -- real but far rarer than
+  penalty conversion); a confirmed primary corner *or* free-kick taker gets a new `e_assists`
+  uplift (1.20, one shared multiplier for both roles -- a "free kick taker" claim doesn't
+  distinguish direct-shot duty from out-swinging delivery duty in the source data, so it
+  legitimately contributes to both the goal and assist uplift, not a double-count of the same
+  thing). Both are invented v1 defaults, same status as the penalty multiplier. See
+  `expected_points._set_piece_goal_uplift_multiplier()` / `_set_piece_assist_uplift_multiplier()`.
 - **Price/ownership momentum: also already-available, wired in as strictly secondary.**
   `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
   `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --
