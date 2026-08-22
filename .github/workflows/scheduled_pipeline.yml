@@ -49,33 +49,28 @@ jobs:
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
 
-      # The two evidence workbooks are private/curated, not publicly fetchable. Two different
-      # storage mechanisms, chosen per-file by size:
-      # - FPL_Evidence_Claims_Research_Pull.xlsx (~15KB) fits comfortably under GitHub Actions'
-      #   64KB-per-secret cap -- stored as a base64-encoded repo secret (Settings -> Secrets
-      #   and variables -> Actions) and decoded below.
-      # - FPL_202627_Master_Evidence_Database.xlsx (~700KB) does NOT fit in a secret. Fetched
-      #   instead from a Google Drive file set to "Anyone with the link" (Viewer) -- a real,
-      #   accepted trade-off (unguessable-link privacy, not true access control) chosen over
-      #   committing it to this PUBLIC repo or attaching it as a public Release asset, both of
-      #   which would be strictly worse (indexed/discoverable, not just unguessable). The
-      #   `uc?export=download` URL pattern is Google's own standard mechanism for a public
-      #   Drive file's raw bytes; it was NOT verified against a live fetch in this project's
-      #   own sandbox (that environment's network policy blocks drive.google.com entirely, same
-      #   restriction as understat.com/fantasy.premierleague.com elsewhere in this pipeline) --
-      #   verify the first real run here. Google interstitials a virus-scan warning page instead
-      #   of a direct download for files over ~25MB; this one (under 1MB) shouldn't hit that,
-      #   but re-check if a future, larger version of this workbook starts failing here.
+      # The two evidence workbooks are private/curated, not publicly fetchable. Both are fetched
+      # from a Google Drive file set to "Anyone with the link" (Viewer) -- a real, accepted
+      # trade-off (unguessable-link privacy, not true access control) chosen over committing them
+      # to this PUBLIC repo or attaching them as public Release assets, both of which would be
+      # strictly worse (indexed/discoverable, not just unguessable). The `uc?export=download` URL
+      # pattern is Google's own standard mechanism for a public Drive file's raw bytes.
+      #
+      # FPL_Evidence_Claims_Research_Pull.xlsx (~15KB) was originally stored as a base64-encoded
+      # repo secret instead, since it comfortably fits under GitHub Actions' 64KB-per-secret cap.
+      # That approach was abandoned after a real run failed with a zlib decompression error --
+      # the secret had been corrupted by an incomplete copy-paste of the ~20,700-character
+      # base64 string on a phone. Drive-fetch has no such manual-paste step, so it's used for
+      # both files now regardless of size.
+      #
+      # Google interstitials a virus-scan warning page instead of a direct download for files
+      # over ~25MB; both files here (well under 1MB) shouldn't hit that, but re-check if a
+      # future, larger version of either workbook starts failing here.
       - name: Materialize evidence workbooks
-        env:
-          RESEARCH_PULL_B64: ${{ secrets.FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64 }}
         run: |
           mkdir -p data/external
-          if [ -n "$RESEARCH_PULL_B64" ]; then
-            echo "$RESEARCH_PULL_B64" | base64 -d > "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
-          else
-            echo "::warning::FPL_EVIDENCE_CLAIMS_RESEARCH_PULL_XLSX_B64 secret not set -- ingestion will fail without it"
-          fi
+          curl -sSL "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
+            -o "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
           curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
             -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
