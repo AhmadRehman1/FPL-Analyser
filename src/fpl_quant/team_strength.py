@@ -206,7 +206,19 @@ def calibrate(
     effective_threshold = min(seasons_threshold, len(fit_seasons))
     eligible_teams = [t for t, s in seasons_map.items() if s >= effective_threshold]
 
+    # A real, observed condition (surfaced by an actual live CI run, not hypothesized): early
+    # in a season, FPL-Core-Insights' target-season teams.csv genuinely ships an `elo` column
+    # that's present but entirely blank for every team -- fetch_current_elo() correctly
+    # returns {} for that, but an empty Elo population makes the regression permanently
+    # unfittable (fit_elo_regression's own >=2-eligible-teams requirement) despite fit_seasons'
+    # match data being perfectly fine. A team's Elo doesn't reset to unknown at a season
+    # boundary, so falling back to the most recent prior season's real, populated Elo snapshot
+    # (matched to today's teams via the same team_uid identity fetch_current_elo already
+    # resolves through) is a reasonable, disclosed proxy -- not a fabricated value -- for
+    # exactly as long as this season's own Elo hasn't been published upstream yet.
     elo_by_team = fetch_current_elo(con, target_season)
+    if not elo_by_team and fit_seasons:
+        elo_by_team = fetch_current_elo(con, fit_seasons[-1])
     a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, eligible_teams)
 
     model_version = con.execute(

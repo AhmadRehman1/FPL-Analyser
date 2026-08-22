@@ -1090,6 +1090,16 @@ for the existing (real-data) `lambda_value` finding above.
   (re-run `backtest.refit_minutes_and_evidence_params()` for real and this time persist the
   result somewhere durable, e.g. Drive-fetched into CI the same way the evidence workbooks are)
   named here as a flagged follow-up, not silently done.
+- **A second real gap the same live run surfaced, one layer deeper: `team_strength.calibrate()`
+  assumed the target season's own Elo data is always populated.** FPL-Core-Insights'
+  `2026-2027/teams.csv` genuinely ships an `elo` column, but it's entirely blank for all 20
+  teams this early in a season (confirmed by cloning the real repo directly, not guessed) --
+  `fetch_current_elo()` correctly returns `{}` for that, but `fit_elo_regression()`'s own
+  `>=2 eligible teams` requirement then hard-fails the whole calibration on 0. A team's Elo
+  doesn't reset to unknown at a season boundary, so `calibrate()` now falls back to the most
+  recent prior season's real, fully-populated Elo snapshot (`2025-2026`, verified all 20 teams
+  have one) when the target season's is empty -- a disclosed proxy, not a fabricated value,
+  and only used for exactly as long as this season's own Elo hasn't been published upstream.
 - **Price/ownership momentum: also already-available, wired in as strictly secondary.**
   `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
   `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --
