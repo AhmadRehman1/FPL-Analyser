@@ -1070,6 +1070,26 @@ for the existing (real-data) `lambda_value` finding above.
   flips from passing to failing week-over-week (Priority 8b's own exact wording) -- ordinary
   squad/captain churn is expected and already visible in the diff report itself, not
   alert-worthy on its own.
+- **A real gap the first live scheduled-workflow runs surfaced: `run_ingestion.py` silently
+  assumed a persistent, already-recalibrated database that a fresh CI checkout never has.**
+  `db/*.duckdb` is gitignored by design (a rebuilt-each-run artifact, not source) -- but M7's
+  real 76-gameweek backtest + `scripts/review_recalibration.py` confirmation only ever wrote
+  its winning `param_versions` rows (`xi` v2, `rho_residual` v2, `fact_type_multiplier_params`
+  v8, `minutes_model_shrinkage_params` v10 -- commits 7bf7604/1f0dc7b) into that one local
+  database, on a machine this project no longer has access to. `run_ingestion.py` still asked
+  for those exact version numbers by pinned literal, so a fresh, empty CI database threw
+  `ParamNotFoundError` immediately on `team_strength.calibrate()`. Fixed two different ways
+  depending on whether the winning value was actually recoverable: `xi`=0.005 and
+  `rho_residual`=0.0 are both explicitly documented above (real, confirmed numbers, not a
+  guess), so they're re-written as their own immutable v2 rows directly in `run_ingestion.py`
+  now -- the real recalibration result, just re-materialized instead of re-derived.
+  `fact_type_multiplier_params`/`minutes_model_shrinkage_params`'s actual winning v8/v10
+  *values* were never recorded anywhere outside that lost database (only the version numbers
+  a multi-round block coordinate descent landed on, not what they resolved to) -- rolled back
+  to their honest, freshly-reproducible v1 baseline rather than fabricated, with the real fix
+  (re-run `backtest.refit_minutes_and_evidence_params()` for real and this time persist the
+  result somewhere durable, e.g. Drive-fetched into CI the same way the evidence workbooks are)
+  named here as a flagged follow-up, not silently done.
 - **Price/ownership momentum: also already-available, wired in as strictly secondary.**
   `now_cost`/`selected_by_percent` are both real, per-gameweek "live" columns in
   `fact_player_season_stats`, refreshing correctly since the earlier reconcile dedup fix --
