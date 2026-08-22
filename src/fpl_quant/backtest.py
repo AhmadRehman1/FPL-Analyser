@@ -26,6 +26,7 @@ from scipy.stats import poisson
 from . import expected_points as ep
 from . import minutes_model
 from . import monte_carlo
+from . import ownership as ownership_mod
 from . import params as params_mod
 from . import squad_optimizer
 from . import team_strength
@@ -364,6 +365,152 @@ def _realized_player_match_outcome(con: duckdb.DuckDBPyConnection, player_uid: s
     }
 
 
+# ============================================================
+# Priority 9b: segment-tiering. A SEPARATE axis from tier_for()'s time-based cold/warm/mature
+# classification above -- this project's own "realized_goals_assists:{player_uid}" /
+# "realized_points:{player_uid}" metric names (score_gameweek's own established convention,
+# not a new one invented here) already show backtest_metrics' metric_name column is meant to
+# carry a colon-suffixed sub-dimension; segment membership reuses that same convention
+# (":promoted_team", ":new_signing", ":set_piece_taker") rather than a new schema column.
+# ============================================================
+
+def _previous_season(con: duckdb.DuckDBPyConnection, season: str) -> str | None:
+    """The season immediately before `season` among seasons that actually have fact_match
+    data -- ordered by the season string itself (YYYY-YYYY sorts chronologically), not parsed
+    year arithmetic, so this doesn't assume anything about which seasons exist beyond what's
+    actually loaded. None for the earliest loaded season -- there's genuinely nothing to
+    compare it against, not a false "not promoted" default."""
+    seasons = [r[0] for r in con.execute(
+        "SELECT DISTINCT season FROM fact_match WHERE competition = ? ORDER BY season", [PL]
+    ).fetchall()]
+    if season not in seasons:
+        return None
+    idx = seasons.index(season)
+    return seasons[idx - 1] if idx > 0 else None
+
+
+def _is_newly_promoted_team(con: duckdb.DuckDBPyConnection, team_uid: str, season: str) -> bool | None:
+    """True iff team_uid has real fixtures in `season` but had none in the immediately
+    preceding loaded season -- derived from fact_match itself (no external promoted-teams
+    list to maintain or get stale). None (not False) when there's no preceding season loaded
+    to compare against -- "can't tell" is a genuinely different claim from "not promoted"."""
+    prev_season = _previous_season(con, season)
+    if prev_season is None:
+        return None
+    n_prev = con.execute(
+        "SELECT count(*) FROM fact_match WHERE season = ? AND competition = ? "
+        "AND (home_team_uid = ? OR away_team_uid = ?)",
+        [prev_season, PL, team_uid, team_uid],
+    ).fetchone()[0]
+    return n_prev == 0
+
+
+def _is_new_signing(con: duckdb.DuckDBPyConnection, player_uid: str, season: str) -> bool | None:
+    """True iff the player's club (player_alias.team_code, season-grain -- the same grain
+    minutes_model already keys lookback seasons on) differs from, or didn't exist in, the
+    immediately preceding loaded season. None when there's no preceding season to compare
+    against, or when a player has more than one distinct team_code within `season` itself
+    (a genuine mid-season transfer makes "new signing" for the WHOLE season ambiguous --
+    skipped rather than guessed, same simplification-disclosure pattern as everywhere else
+    in this project)."""
+    prev_season = _previous_season(con, season)
+    if prev_season is None:
+        return None
+    cur_codes = {r[0] for r in con.execute(
+        "SELECT DISTINCT team_code FROM player_alias WHERE player_uid = ? AND season = ?", [player_uid, season]
+    ).fetchall()}
+    if len(cur_codes) != 1:
+        return None
+    prev_codes = {r[0] for r in con.execute(
+        "SELECT DISTINCT team_code FROM player_alias WHERE player_uid = ? AND season = ?", [player_uid, prev_season]
+    ).fetchall()}
+    return cur_codes != prev_codes
+
+
+def _player_segments(
+    con: duckdb.DuckDBPyConnection, player_uid: str, team_uid: str | None, season: str,
+    asof, set_piece_params_version: int | None, promoted_team_cache: dict,
+) -> set[str]:
+    segments = set()
+    if team_uid is not None:
+        if team_uid not in promoted_team_cache:
+            promoted_team_cache[team_uid] = _is_newly_promoted_team(con, team_uid, season)
+        if promoted_team_cache[team_uid]:
+            segments.add("promoted_team")
+    if _is_new_signing(con, player_uid, season):
+        segments.add("new_signing")
+    if set_piece_params_version is not None and asof is not None:
+        if ep._set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version) > 1.0:
+            segments.add("set_piece_taker")
+    return segments
+
+
+def _record_segment_metrics(
+    con: duckdb.DuckDBPyConnection, backtest_run_id: int, season: str, gameweek: int, tier: str,
+    metric_name: str, scored: list[tuple[str, float]], segment_of: dict[str, set[str]],
+) -> None:
+    """scored: [(player_uid, score_value), ...] for one metric family this gameweek --
+    buckets by segment and records a mean per segment actually represented (never a segment
+    with zero members this gameweek, never a fabricated 0.0)."""
+    by_segment: dict[str, list[float]] = {}
+    for player_uid, value in scored:
+        for segment in segment_of.get(player_uid, ()):
+            by_segment.setdefault(segment, []).append(value)
+    for segment, values in by_segment.items():
+        _record_metric(con, backtest_run_id, season, gameweek, tier, f"{metric_name}:{segment}", sum(values) / len(values))
+
+
+# ============================================================
+# Priority 9c: "beats the ownership-weighted average manager" -- the real bar is beating the
+# crowd, not clearing zero (roadmap's own framing).
+# ============================================================
+
+def _avg_manager_benchmark_points(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, ep_model_version: int, ownership_params_version: int,
+) -> float | None:
+    """A SYNTHETIC 'average manager' benchmark, not FPL's own real published average entry
+    score (that aggregate isn't ingested anywhere in this project -- grepped). Reuses Priority
+    1's exact EO mechanism (ownership.compute_eo_for_pool) -- every player with a real fixture
+    this gameweek contributes eo_pct/100 * their REAL realized fact_player_season_stats.
+    event_points, approximating "what the ownership-weighted field actually scored" the same
+    way field_covariance.py's synthetic EO-weighted portfolio approximates field risk exposure
+    elsewhere -- one EO mechanism, two consumers, not two independently-invented ones.
+
+    Players with no real selected_by_percent data this gameweek are excluded from the sum (a
+    genuine, disclosed simplification, not a fabricated 0% assumption) -- None (not 0.0) when
+    NO player in the pool has usable ownership data at all, since that's "not computable," not
+    "the field scored zero.\""""
+    captaincy_concentration, _ = params_mod.resolve_param(
+        con, "ownership_params", "captaincy_concentration", ownership_params_version,
+    )
+    rows = con.execute(
+        "SELECT o.player_uid, dp.position, o.ep_total, fps.selected_by_percent "
+        "FROM ep_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid "
+        "LEFT JOIN fact_player_season_stats fps ON fps.player_uid = o.player_uid AND fps.season = ? AND fps.gw = ? "
+        "WHERE o.model_version = ?",
+        [season, gameweek, ep_model_version],
+    ).fetchall()
+    candidates = [
+        {"player_uid": uid, "position": pos, "mu": ep_total, "selected_by_percent": sbp}
+        for uid, pos, ep_total, sbp in rows
+    ]
+    eo_by_uid = ownership_mod.compute_eo_for_pool(candidates, captaincy_concentration)
+
+    total, any_eo = 0.0, False
+    for uid, _pos, _ep_total, _sbp in rows:
+        eo = eo_by_uid.get(uid)
+        if eo is None:
+            continue
+        any_eo = True
+        row = con.execute(
+            "SELECT event_points FROM fact_player_season_stats WHERE player_uid = ? AND season = ? AND gw = ?",
+            [uid, season, gameweek],
+        ).fetchone()
+        pts = row[0] if row and row[0] is not None else 0.0
+        total += (eo / 100.0) * pts
+    return total if any_eo else None
+
+
 def _record_metric(con: duckdb.DuckDBPyConnection, backtest_run_id: int, season: str, gameweek: int, tier: str, metric_name: str, metric_value: float) -> None:
     con.execute(
         "INSERT INTO backtest_metrics (backtest_run_id, season, gameweek, tier, metric_name, metric_value) "
@@ -382,6 +529,10 @@ def score_gameweek(
     ts_model_version: int,
     scoring_params_version: int,
     so_run_id: int | None = None,
+    *,
+    compute_segments: bool = False,
+    set_piece_params_version: int | None = None,
+    ownership_params_version: int | None = None,
 ) -> None:
     """Scores one already-completed walk-forward step against that gameweek's now-real
     results. Four metric families for this first implementation pass (deliberately scoped --
@@ -410,6 +561,19 @@ def score_gameweek(
     moment-matching of rho_residual/Z_fixture against realized covariance -- a single
     gameweek's realized points for a pair of players is just two scalars, not a covariance;
     the aggregation across many gameweeks happens at recalibration time, not here.
+
+    Priority 9b (opt-in via compute_segments, default off -- every existing caller/backtest
+    run is unaffected): additionally buckets each of the four metric families above by
+    segment (promoted_team, new_signing, set_piece_taker -- see _player_segments()) and
+    records a segment-suffixed metric_name (matching this function's own established
+    "realized_goals_assists:{player_uid}" colon-suffix convention below) for whichever
+    segments actually have members this gameweek. set_piece_taker specifically also needs
+    set_piece_params_version -- without it, that one segment is skipped, the other two are not.
+
+    Priority 9c (opt-in via ownership_params_version, needs so_run_id too -- there's no
+    squad to compare against otherwise): records model_squad_realized_points,
+    avg_manager_benchmark_points, and their delta (beats_crowd_points_delta, positive = beat
+    the synthetic EO-weighted crowd that week) -- see _avg_manager_benchmark_points().
     """
     tier = tier_for(season, gameweek)
 
@@ -419,6 +583,18 @@ def score_gameweek(
         "WHERE season = ? AND gameweek = ? AND competition = ? AND home_score IS NOT NULL AND away_score IS NOT NULL",
         [season, gameweek, PL],
     ).fetchall()
+
+    segment_of: dict[str, set[str]] = {}
+    if compute_segments:
+        team_of: dict[str, str] = {}
+        promoted_team_cache: dict[str, bool | None] = {}
+        asof = gameweek_deadline(con, season, gameweek)
+        for match_id, home_uid, away_uid, _hs, _as in fixtures:
+            team_of.update(monte_carlo._team_of_for_fixture(con, home_uid, away_uid, season))
+        for player_uid, team_uid in team_of.items():
+            segment_of[player_uid] = _player_segments(
+                con, player_uid, team_uid, season, asof, set_piece_params_version, promoted_team_cache,
+            )
     resids, n_degenerate = [], 0
     for match_id, home_uid, away_uid, home_score, away_score in fixtures:
         lam_home, lam_away, _ = ep._fixture_lambdas(con, home_uid, match_id, ts_model_version)
@@ -449,6 +625,7 @@ def score_gameweek(
         "SELECT player_uid, fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]
     ).fetchall())
     minutes_log, minutes_brier = [], []
+    minutes_log_by_player, minutes_brier_by_player = [], []
     for player_uid, p0, p1, p2 in mm_rows:
         match_id = ep_fixture_of.get(player_uid)
         if match_id is None:
@@ -456,11 +633,17 @@ def score_gameweek(
         outcome = _realized_player_match_outcome(con, player_uid, match_id)
         state = _minutes_state(outcome["minutes_played"])
         probs = {"0": p0, "1_59": p1, "60plus": p2}
-        minutes_log.append(log_score_categorical(probs, state))
-        minutes_brier.append(brier_categorical(probs, state))
+        log_val, brier_val = log_score_categorical(probs, state), brier_categorical(probs, state)
+        minutes_log.append(log_val)
+        minutes_brier.append(brier_val)
+        minutes_log_by_player.append((player_uid, log_val))
+        minutes_brier_by_player.append((player_uid, brier_val))
     if minutes_log:
         _record_metric(con, backtest_run_id, season, gameweek, tier, "log_score_minutes_mean", sum(minutes_log) / len(minutes_log))
         _record_metric(con, backtest_run_id, season, gameweek, tier, "brier_minutes_mean", sum(minutes_brier) / len(minutes_brier))
+    if compute_segments:
+        _record_segment_metrics(con, backtest_run_id, season, gameweek, tier, "log_score_minutes_mean", minutes_log_by_player, segment_of)
+        _record_segment_metrics(con, backtest_run_id, season, gameweek, tier, "brier_minutes_mean", minutes_brier_by_player, segment_of)
 
     # -------- M3: clean sheet (Bernoulli), goals/assists (Poisson) --------
     squad_uids = set()
@@ -475,6 +658,7 @@ def score_gameweek(
         [ep_model_version],
     ).fetchall()
     cs_log, cs_brier, goals_log, assists_log = [], [], [], []
+    cs_log_bp, cs_brier_bp, goals_log_bp, assists_log_bp = [], [], [], []
     for player_uid, position, match_id, ep_cs, ep_g, ep_a in ep_rows:
         outcome = _realized_player_match_outcome(con, player_uid, match_id)
 
@@ -482,16 +666,23 @@ def score_gameweek(
         if cs_pts:
             p_cs = ep_cs / cs_pts
             realized_cs = outcome["team_goals_conceded"] == 0 and outcome["minutes_played"] >= 60
-            cs_log.append(log_score_bernoulli(p_cs, realized_cs))
-            cs_brier.append(brier_bernoulli(p_cs, realized_cs))
+            log_val, brier_val = log_score_bernoulli(p_cs, realized_cs), brier_bernoulli(p_cs, realized_cs)
+            cs_log.append(log_val)
+            cs_brier.append(brier_val)
+            cs_log_bp.append((player_uid, log_val))
+            cs_brier_bp.append((player_uid, brier_val))
 
         goal_pts = ep._sm(con, "goal_points", scoring_params_version, position)
         if goal_pts:
-            goals_log.append(log_score_poisson(ep_g / goal_pts, outcome["goals"]))
+            goals_val = log_score_poisson(ep_g / goal_pts, outcome["goals"])
+            goals_log.append(goals_val)
+            goals_log_bp.append((player_uid, goals_val))
 
         assist_pts = ep._sm(con, "assist_points", scoring_params_version)
         if assist_pts:
-            assists_log.append(log_score_poisson(ep_a / assist_pts, outcome["assists"]))
+            assists_val = log_score_poisson(ep_a / assist_pts, outcome["assists"])
+            assists_log.append(assists_val)
+            assists_log_bp.append((player_uid, assists_val))
 
         # rho_residual/Z_fixture are calibrated against realized goals+assists COUNTS
         # specifically (monte_carlo.compute_lambda_representative()'s own definition), not
@@ -509,6 +700,12 @@ def score_gameweek(
     ):
         if values:
             _record_metric(con, backtest_run_id, season, gameweek, tier, name, sum(values) / len(values))
+    if compute_segments:
+        for name, values_bp in (
+            ("log_score_clean_sheet_mean", cs_log_bp), ("brier_clean_sheet_mean", cs_brier_bp),
+            ("log_score_goals_mean", goals_log_bp), ("log_score_assists_mean", assists_log_bp),
+        ):
+            _record_segment_metrics(con, backtest_run_id, season, gameweek, tier, name, values_bp, segment_of)
 
     # -------- per-squad-player realized total points (raw material for M5's realized_sharpe) --------
     for player_uid in squad_uids:
@@ -518,6 +715,22 @@ def score_gameweek(
         ).fetchone()
         if row is not None and row[0] is not None:
             _record_metric(con, backtest_run_id, season, gameweek, tier, f"realized_points:{player_uid}", row[0])
+
+    # -------- Priority 9c: beats-the-crowd benchmark --------
+    if so_run_id is not None and ownership_params_version is not None:
+        xi_uids = frozenset(r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_xi", [so_run_id]
+        ).fetchall())
+        captain_row = con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND is_captain", [so_run_id]
+        ).fetchone()
+        captain_uid = captain_row[0] if captain_row else None
+        model_points = _realized_xi_points(con, season, gameweek, xi_uids, captain_uid)
+        avg_manager_points = _avg_manager_benchmark_points(con, season, gameweek, ep_model_version, ownership_params_version)
+        if avg_manager_points is not None:
+            _record_metric(con, backtest_run_id, season, gameweek, tier, "model_squad_realized_points", model_points)
+            _record_metric(con, backtest_run_id, season, gameweek, tier, "avg_manager_benchmark_points", avg_manager_points)
+            _record_metric(con, backtest_run_id, season, gameweek, tier, "beats_crowd_points_delta", model_points - avg_manager_points)
 
 
 # ============================================================
@@ -548,13 +761,20 @@ def run(
     n_antithetic_pairs: int = 2000,
     run_monte_carlo: bool = True,
     notes: str | None = None,
+    compute_segments: bool = False,
+    set_piece_params_version: int | None = None,
+    ownership_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
     has_double_gameweek() (4 real historical gameweeks -- see that function's docstring for why
     DGWs are out of scope here, same as expected_points.py's own existing v1 scope boundary)
     rather than attempting and crashing -- warm_up_gameweeks records the total skipped, of
-    either kind."""
+    either kind.
+
+    compute_segments/set_piece_params_version/ownership_params_version: Priority 9b/9c
+    opt-in, passed straight through to score_gameweek() -- see its own docstring. Default off,
+    same backward-compatible convention as every other opt-in feature in this project."""
     steps = [
         (s, gw) for s, gw in ALL_SEASON_GAMEWEEKS
         if has_fittable_history(con, s, gw) and not has_double_gameweek(con, s, gw)
@@ -582,7 +802,11 @@ def run(
             "WHERE backtest_run_id = ? AND season = ? AND gameweek = ?",
             [backtest_run_id, season, gameweek],
         ).fetchone()
-        score_gameweek(con, backtest_run_id, season, gameweek, ep_mv, mm_mv, ts_mv, scoring_params_version, so_run_id=so_run_id)
+        score_gameweek(
+            con, backtest_run_id, season, gameweek, ep_mv, mm_mv, ts_mv, scoring_params_version, so_run_id=so_run_id,
+            compute_segments=compute_segments, set_piece_params_version=set_piece_params_version,
+            ownership_params_version=ownership_params_version,
+        )
 
     return backtest_run_id
 
