@@ -101,6 +101,16 @@ jobs:
           curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
             -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
+      # Priority A5: records exactly what this run's outputs were built from -- this repo's
+      # own commit, the FPL-Core-Insights commit just cloned above, both evidence workbooks'
+      # sha256+size, and every pinned package's installed version. Deliberately right after
+      # the clone/materialize steps above (before ingestion mutates anything) so the manifest
+      # reflects the real upstream state this run consumed, not a later, already-processed
+      # state. Never blocks the pipeline -- see the script's own module docstring for why a
+      # missing upstream input is a named warning here, not a failure.
+      - name: Record source provenance manifest
+        run: PYTHONPATH=src python scripts/record_provenance.py
+
       - name: Run ingestion (M0-M6)
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
