@@ -1,7 +1,5 @@
 from datetime import datetime
 
-import pytest
-
 from fpl_quant import ingest_fpl_entry_picks as ifp
 
 

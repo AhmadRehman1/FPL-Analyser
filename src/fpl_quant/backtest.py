@@ -1545,7 +1545,7 @@ def refit_lambda(
         else:
             grid_results[lam] = {"realized_sharpe": float("-inf"), "mean_points": None, "n_gameweeks": len(gameweek_points)}
 
-    best_lambda = max(grid_results, key=lambda l: grid_results[l]["realized_sharpe"])
+    best_lambda = max(grid_results, key=lambda lam_val: grid_results[lam_val]["realized_sharpe"])
     return {"best_lambda": best_lambda, "grid": grid_results}
 
 

@@ -112,7 +112,7 @@ def test_transfers_in_out_event_columns_null_when_source_lacks_them(con, tmp_pat
     genuinely predating several columns) -- a season's playerstats.csv without these two
     columns at all must reconcile cleanly to NULL, never raise or silently fabricate a 0."""
     # STATS_HEADER (module-level, above) has no transfers_in_event/transfers_out_event at all.
-    row = _ingest_and_reconcile(con, tmp_path, ["101,1,15.0,a,90,1,0"])
+    _ingest_and_reconcile(con, tmp_path, ["101,1,15.0,a,90,1,0"])
     full_row = con.execute(
         "SELECT transfers_in_event, transfers_out_event FROM fact_player_season_stats "
         "WHERE season = '2026-2027' AND gw = 1"
