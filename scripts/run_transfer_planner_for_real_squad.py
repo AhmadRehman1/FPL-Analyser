@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
+from fpl_quant import db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -104,13 +104,21 @@ def main() -> None:
         "SELECT rank, player_out, player_in, horizon_value_gain, transfer_cost, net_value "
         "FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 5", [run_id],
     ).fetchall()
+    # Real per-player club, for the dashboard's club-color dots -- same player_uid -> team_uid
+    # lookup fixture_swing.py's own swing scores are keyed by, not a separate guess.
+    team_by_player = fs.team_uid_by_player(con, TARGET_SEASON)
+    team_names = {r[0]: r[1] for r in con.execute("SELECT team_uid, canonical_name FROM dim_team").fetchall()}
+
     recs_out = []
     for rank, out_uid, in_uid, gain, cost, net in recs:
         out_name = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [out_uid]).fetchone()[0]
         in_name = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [in_uid]).fetchone()[0]
+        out_club = team_names.get(team_by_player.get(out_uid))
+        in_club = team_names.get(team_by_player.get(in_uid))
         print(f"  #{rank}: OUT {out_name} -> IN {in_name} | gain={gain:.2f} cost={cost} net={net:.2f}")
         recs_out.append({
             "rank": rank, "player_out": out_name, "player_in": in_name,
+            "player_out_club": out_club, "player_in_club": in_club,
             "gain": round(gain, 2), "cost": cost, "net": round(net, 2),
         })
 
