@@ -1154,6 +1154,201 @@ def report_season_simulation_sensitivity(
 
 
 # ============================================================
+# beats_baseline: does the model's architecture actually beat simpler alternatives, over the
+# same walked window and the same asof_scope() discipline -- the headline question the elaborate
+# M1-M6 pipeline's edge was previously ASSERTED to answer, not measured. Three baselines:
+#   1. "recent_points"        -- pick by recent real form, no model at all.
+#   2. "ownership_popularity" -- pick the most-owned ("template") squad, no model at all.
+#   3. "crowd"                -- the ownership-weighted average manager (Priority 9c, already
+#                                 built as a per-gameweek metric; this is where it becomes an
+#                                 actual season-level comparator instead of just a metric).
+# ============================================================
+
+def _naive_candidate_pool(
+    con: duckdb.DuckDBPyConnection, target_season: str, signal: str, lookback_gameweeks: int = 3,
+) -> list[dict]:
+    """A squad_optimizer.solve()-compatible candidate pool ({"player_uid","position","mu","var",
+    "club","price"}) built from real, already-known data only -- NOT ep_outputs, no model
+    involved at all, per this being a genuinely model-free baseline. Reads fact_player_season_stats
+    by bare name, so it inherits whatever asof_scope() shadow (or lack of one) is active at the
+    call site -- callers MUST call this inside the SAME asof_scope() the real model's own
+    candidate pool would be built in, for an apples-to-apples "what was knowable at this
+    deadline" comparison, never main.* directly.
+
+    signal="recent_points": mu = mean of the last lookback_gameweeks real event_points (a
+    rolling form metric). signal="ownership": mu = the most recent real selected_by_percent (a
+    popularity/"template team" pick). Either way mu feeds squad_optimizer.solve() the exact
+    same way ep_total normally does -- reusing the real M5 budget/formation/club-cap machinery
+    gives a fair, same-constraints comparison, not a strawman unconstrained ranking. var is
+    always 0.0 (a naive baseline carries no risk model; solve() is always called with lam=0.0
+    for these pools regardless, making var moot).
+
+    A player missing from the resulting mu map (no recent_points history yet, or no ownership
+    data yet) is excluded from the pool entirely -- missing data is never treated as a
+    fabricated 0, matching this project's discipline everywhere else.
+    """
+    if signal not in ("recent_points", "ownership"):
+        raise ValueError(f"signal must be 'recent_points' or 'ownership', got {signal!r}")
+
+    team_of = dict(con.execute(
+        "SELECT DISTINCT player_uid, team_code FROM player_alias WHERE season = ?", [target_season],
+    ).fetchall())
+    positions = dict(con.execute("SELECT player_uid, position FROM dim_player").fetchall())
+    prices = dict(con.execute(
+        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = ? AND now_cost IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [target_season],
+    ).fetchall())
+
+    if signal == "ownership":
+        mu_by_uid = dict(con.execute(
+            "SELECT player_uid, selected_by_percent FROM fact_player_season_stats "
+            "WHERE season = ? AND selected_by_percent IS NOT NULL "
+            "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+            [target_season],
+        ).fetchall())
+    else:
+        rows = con.execute(
+            "SELECT player_uid, event_points FROM fact_player_season_stats "
+            "WHERE season = ? AND event_points IS NOT NULL "
+            "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) <= ?",
+            [target_season, lookback_gameweeks],
+        ).fetchall()
+        by_player: dict[str, list[float]] = {}
+        for player_uid, event_points in rows:
+            by_player.setdefault(player_uid, []).append(event_points)
+        mu_by_uid = {uid: sum(vals) / len(vals) for uid, vals in by_player.items()}
+
+    candidates = []
+    for player_uid, price in prices.items():
+        position = positions.get(player_uid)
+        club = team_of.get(player_uid)
+        mu = mu_by_uid.get(player_uid)
+        if position not in squad_optimizer.POSITIONS or club is None or mu is None:
+            continue
+        candidates.append({
+            "player_uid": player_uid, "position": position, "mu": mu, "var": 0.0, "club": club, "price": price,
+        })
+    return candidates
+
+
+def beats_baseline(
+    con: duckdb.DuckDBPyConnection,
+    season: str,
+    start_gameweek: int,
+    end_gameweek: int,
+    model_gameweeks: list[int],
+    model_weekly_points: list[float],
+    *,
+    xi_params_version: int,
+    rho_params_version: int,
+    decay_params_version: int,
+    adjustment_params_version: int,
+    shrinkage_params_version: int,
+    fact_multiplier_params_version: int,
+    scoring_params_version: int,
+    bps_params_version: int,
+    tau_params_version: int,
+    ownership_params_version: int,
+    guardrail_cap: float = 3.0,
+    recent_points_lookback_gameweeks: int = 3,
+) -> dict:
+    """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
+    asof_scope() discipline every other walk-forward step in this module uses, then compares
+    each against model_gameweeks/model_weekly_points -- the trajectory an already-completed
+    run_season_simulation() call produced for the SAME window (passed in rather than
+    recomputed here, since re-running the real M5 MIQP + M6 Monte Carlo a second time just to
+    get a number this function already has cheaper access to would be pure waste; this
+    function's own walk only needs M1-M3, not M5/M6, for any of the three baselines).
+
+    Per gameweek: recent_points and ownership_popularity each pick a squad via
+    squad_optimizer.solve() against a _naive_candidate_pool() (lam=0.0 -- no risk model, and
+    none of these three baselines needs squad_optimizer_runs/selections rows persisted, since
+    nothing downstream ever needs to look one back up), scored on that squad's REAL realized
+    points the same way run_season_simulation()'s own model squad is (_realized_xi_points(),
+    called after the asof_scope() block exits so it reads real, no-longer-shadowed results).
+    crowd reuses _avg_manager_benchmark_points() unchanged (Priority 9c) -- already a real,
+    computed season-level number, just not previously compared against the model's own
+    trajectory at the season level.
+
+    A gameweek where a baseline's own candidate pool can't fill a legal squad (SCIP status not
+    in ('optimal','timelimit') -- e.g. genuinely early-season, too few players have
+    lookback_gameweeks of real history yet) is skipped for THAT baseline only, not treated as a
+    fabricated 0 -- n_gameweeks/n_gameweeks_skipped report this honestly. model_beats_baseline_by
+    is computed only over the gameweeks a baseline actually has data for (the model's own points
+    on those SAME gameweeks, not its full-window total), so a baseline with partial coverage is
+    never penalized twice -- once for its own missing weeks, again for a lopsided total
+    comparison.
+    """
+    if len(model_gameweeks) != len(model_weekly_points):
+        raise ValueError("model_gameweeks and model_weekly_points must be the same length")
+    model_points_by_gw = dict(zip(model_gameweeks, model_weekly_points))
+
+    baseline_weekly: dict[str, list[float]] = {"recent_points": [], "ownership_popularity": [], "crowd": []}
+    baseline_gameweeks: dict[str, list[int]] = {"recent_points": [], "ownership_popularity": [], "crowd": []}
+
+    for gw in range(start_gameweek, end_gameweek + 1):
+        with asof_scope(con, season, gw) as deadline:
+            calibration_asof_date = deadline.date()
+            ts_mv = team_strength.calibrate(
+                con, calibration_asof_date, xi_params_version, rho_params_version,
+                target_season=season, fit_seasons=fit_seasons_for(season),
+            )
+            mm_mv = minutes_model.run(
+                con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
+                shrinkage_params_version, fact_multiplier_params_version,
+            )
+            ep_mv = ep.run(
+                con, calibration_asof_date, season, gw, ts_mv, mm_mv,
+                scoring_params_version, bps_params_version, tau_params_version,
+            )
+
+            recent_pool = _naive_candidate_pool(con, season, "recent_points", recent_points_lookback_gameweeks)
+            recent_solve = (
+                squad_optimizer.solve(recent_pool, {}, 0.0, guardrail_cap) if len(recent_pool) >= 15 else None
+            )
+            ownership_pool = _naive_candidate_pool(con, season, "ownership")
+            ownership_solve = (
+                squad_optimizer.solve(ownership_pool, {}, 0.0, guardrail_cap) if len(ownership_pool) >= 15 else None
+            )
+
+        # _avg_manager_benchmark_points needs THIS gameweek's own real selected_by_percent/
+        # event_points (fps.gw = the current gameweek) -- asof_scope()'s shadow truncates to
+        # gw < the current gameweek by design, so calling it inside the block above would
+        # always see nothing for gw itself and silently return None every time (a real bug
+        # this exact reasoning caught before it shipped). Called out here, after the shadow
+        # drops, the same way _realized_xi_points() below reads real, no-longer-shadowed
+        # results -- ep_mv itself is still valid to use here, it names a real, already-written
+        # ep_outputs model_version regardless of which schema temp/main currently resolves to.
+        crowd_points = _avg_manager_benchmark_points(con, season, gw, ep_mv, ownership_params_version)
+
+        if recent_solve is not None and recent_solve["status"] in ("optimal", "timelimit"):
+            baseline_weekly["recent_points"].append(_realized_xi_points(con, season, gw, recent_solve["xi"], recent_solve["captain"]))
+            baseline_gameweeks["recent_points"].append(gw)
+        if ownership_solve is not None and ownership_solve["status"] in ("optimal", "timelimit"):
+            baseline_weekly["ownership_popularity"].append(_realized_xi_points(con, season, gw, ownership_solve["xi"], ownership_solve["captain"]))
+            baseline_gameweeks["ownership_popularity"].append(gw)
+        if crowd_points is not None:
+            baseline_weekly["crowd"].append(crowd_points)
+            baseline_gameweeks["crowd"].append(gw)
+
+    total_window_gameweeks = end_gameweek - start_gameweek + 1
+    summary = {"model": {"total_points": sum(model_weekly_points), "n_gameweeks": len(model_gameweeks)}}
+    for name, weekly in baseline_weekly.items():
+        gws = baseline_gameweeks[name]
+        comparable_model_total = sum(model_points_by_gw[gw] for gw in gws if gw in model_points_by_gw)
+        comparable_baseline_total = sum(pts for gw, pts in zip(gws, weekly) if gw in model_points_by_gw)
+        summary[name] = {
+            "total_points": sum(weekly),
+            "n_gameweeks": len(gws),
+            "n_gameweeks_skipped": total_window_gameweeks - len(gws),
+            "model_total_points_same_gameweeks": comparable_model_total,
+            "model_beats_baseline_by": comparable_model_total - comparable_baseline_total,
+        }
+    return summary
+
+
+# ============================================================
 # recalibration: proposal-writing gate + per-family refit techniques
 # ============================================================
 

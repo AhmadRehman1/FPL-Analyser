@@ -267,6 +267,16 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     backtesting was deliberately deferred — the two loaded seasons are hardcoded in
     `tier_for()`, and inventing tier boundaries for hypothetical seasons with no real data to
     check them against would be premature.
+  - **Phase B2 hardening — `backtest.beats_baseline()`:** the crowd benchmark above was, until
+    this, only ever a per-gameweek `backtest_metrics` row, never compared against the model's
+    own season-level trajectory. `beats_baseline()` now scores three model-free baselines
+    (recent-form pick, ownership-popularity pick — both via a real `squad_optimizer.solve()`
+    call against the same budget/formation/club-cap constraints the real model plays under, not
+    an unconstrained strawman ranking — and the crowd benchmark) over the exact same walked
+    window a `run_season_simulation()` call produced, using the identical `asof_scope()`
+    discipline. Wired into `scripts/run_season_simulation.py` so a real run prints a real
+    verdict per baseline (beats/loses to/ties, by how much), not just an architecture
+    disclosure with no evidence either way attached to it.
   - **Priority 10 (field simulator):** a design doc, not code, per the roadmap's own explicit
     instruction (`docs/priority10_field_simulator_design.md`). Its key finding: unlike every
     other rival/field signal in this project, the public FPL API exposes real individual
@@ -407,7 +417,8 @@ scripts/print_chip_timing_roadmap.py -- first-half-of-season chip-timing signal 
                                      scores against each account's actual current squad.
                                      Writes data/dashboard/chip_timing_roadmap.json
 scripts/run_season_simulation.py   -- M7/M8: one real season simulation + a real lambda/
-                                     concentration-cap sensitivity sweep against the real DB
+                                     concentration-cap sensitivity sweep against the real DB,
+                                     plus beats_baseline() (Phase B2) against the same window
 scripts/run_report.py              -- M9: build + print a real squad report from the project
                                      database; Priority 8c's diff-against-last-week + snapshot
                                      save now run here too
