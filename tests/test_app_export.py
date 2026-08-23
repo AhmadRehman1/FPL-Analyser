@@ -1,3 +1,6 @@
+import pytest
+import requests
+
 from fpl_quant import app_export as ax
 
 
@@ -307,3 +310,97 @@ def test_build_leagues_attaches_ownership_when_provided():
     ownership_by_league = {99: {"n_entries_sampled": 5, "most_owned": [], "captains": []}}
     out = ax.build_leagues(entry_summary, standings_by_league, None, ownership_by_league)
     assert out["tables"][0]["ownership"] == ownership_by_league[99]
+
+
+# ============================================================
+# _fetch_json -- retry/backoff (Phase B hardening)
+# ============================================================
+
+class _FakeResponse:
+    def __init__(self, status_code, json_payload=None, headers=None):
+        self.status_code = status_code
+        self._json_payload = json_payload
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
+
+    def json(self):
+        return self._json_payload
+
+
+def test_fetch_json_retries_on_429_then_succeeds(monkeypatch):
+    responses = [_FakeResponse(429), _FakeResponse(200, {"ok": True})]
+    calls = []
+    sleeps = []
+
+    def fake_get(url, timeout, headers):
+        calls.append(url)
+        return responses.pop(0)
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    monkeypatch.setattr(ax.time, "sleep", lambda s: sleeps.append(s))
+
+    result = ax._fetch_json("https://example.test/x")
+    assert result == {"ok": True}
+    assert len(calls) == 2
+    assert len(sleeps) == 1
+
+
+def test_fetch_json_honors_retry_after_header(monkeypatch):
+    responses = [_FakeResponse(429, headers={"Retry-After": "7"}), _FakeResponse(200, {"ok": True})]
+    sleeps = []
+
+    monkeypatch.setattr(ax.requests, "get", lambda url, timeout, headers: responses.pop(0))
+    monkeypatch.setattr(ax.time, "sleep", lambda s: sleeps.append(s))
+
+    ax._fetch_json("https://example.test/x")
+    assert sleeps == [7.0]
+
+
+def test_fetch_json_raises_after_exhausting_retries(monkeypatch):
+    calls = []
+
+    def fake_get(url, timeout, headers):
+        calls.append(url)
+        return _FakeResponse(503)
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    monkeypatch.setattr(ax.time, "sleep", lambda s: None)
+
+    with pytest.raises(requests.HTTPError):
+        ax._fetch_json("https://example.test/x", max_attempts=3)
+    assert len(calls) == 3
+
+
+def test_fetch_json_does_not_retry_on_404(monkeypatch):
+    calls = []
+
+    def fake_get(url, timeout, headers):
+        calls.append(url)
+        return _FakeResponse(404)
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    monkeypatch.setattr(ax.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("should not sleep/retry on a 404")))
+
+    with pytest.raises(requests.HTTPError):
+        ax._fetch_json("https://example.test/x")
+    assert len(calls) == 1
+
+
+def test_fetch_json_retries_on_connection_error_then_succeeds(monkeypatch):
+    calls = []
+
+    def fake_get(url, timeout, headers):
+        calls.append(url)
+        if len(calls) == 1:
+            raise requests.ConnectionError("boom")
+        return _FakeResponse(200, {"ok": True})
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    monkeypatch.setattr(ax.time, "sleep", lambda s: None)
+
+    result = ax._fetch_json("https://example.test/x")
+    assert result == {"ok": True}
+    assert len(calls) == 2
