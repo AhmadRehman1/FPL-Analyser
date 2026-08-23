@@ -6,200 +6,181 @@
 <title>FPL Quant</title>
 <meta name="description" content="Real, model-computed FPL transfer and chip-timing recommendations for two real accounts.">
 
-<!-- iOS "Add to Home Screen": opens standalone (no Safari chrome) when launched from the icon -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FPL Quant">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#0b0f14">
+<meta name="theme-color" content="#3a6b3f">
 
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap">
 <style>
-  :root {
-    --bg: #f4f6f8;
-    --card: #ffffff;
-    --text: #14181d;
-    --text-dim: #5b6470;
-    --border: #e2e6ea;
-    --accent: #2f6fed;
-    --good: #1f9d55;
-    --bad: #d64545;
-    --neutral: #8a93a0;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0b0f14;
-      --card: #141a21;
-      --text: #eef1f4;
-      --text-dim: #97a1ac;
-      --border: #232b34;
-      --accent: #5b8dfd;
-      --good: #3ecb75;
-      --bad: #ec6363;
-      --neutral: #6b7480;
-    }
-  }
   * { box-sizing: border-box; }
-  body {
+  html, body {
     margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: oklch(0.29 0.065 152);
+    color: oklch(0.2 0.01 90);
+    font-family: "Barlow", sans-serif;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  body {
+    position: relative;
+    background:
+      radial-gradient(140% 60% at 10% -10%, oklch(0.52 0.12 150 / 0.85), transparent 55%),
+      radial-gradient(120% 55% at 105% 0%, oklch(0.4 0.1 155 / 0.75), transparent 50%),
+      oklch(0.29 0.065 152);
+    background-attachment: fixed;
     padding-bottom: env(safe-area-inset-bottom);
   }
-  header {
-    padding: calc(env(safe-area-inset-top) + 20px) 20px 16px;
-    text-align: center;
+  body::before {
+    content: "";
+    position: fixed; inset: 0; pointer-events: none; z-index: 1;
+    opacity: 0.045; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
-  header h1 {
-    margin: 0 0 4px;
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+  .pitch-lines {
+    position: fixed; top: -60px; right: -80px; width: 340px; height: 340px;
+    opacity: 0.13; z-index: 0; pointer-events: none;
   }
-  header p {
-    margin: 0;
-    color: var(--text-dim);
-    font-size: 13px;
+  a { color: oklch(0.6 0.18 40); }
+  a:hover { color: oklch(0.66 0.18 40); }
+
+  header { padding: calc(env(safe-area-inset-top) + 26px) 16px 4px; position: relative; z-index: 2; }
+  .brand { max-width: 420px; margin: 0 auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+  .brand > div:first-child { min-width: 0; }
+  .live { flex-shrink: 0; }
+  .brand h1 {
+    margin: 0; font-family: "Anton", sans-serif; font-weight: 400; font-size: 27px; letter-spacing: 0.005em;
+    color: oklch(0.98 0.005 90); text-shadow: 0 2px 14px oklch(0.15 0.06 150 / 0.55); line-height: 1;
   }
-  main {
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 8px 16px 40px;
+  .brand .ts { font-size: 10.5px; color: oklch(0.85 0.03 150); margin-top: 3px; }
+  .live { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: oklch(0.94 0.18 130); text-transform: uppercase; }
+  .live .dot { width: 6px; height: 6px; border-radius: 50%; background: oklch(0.94 0.18 130); box-shadow: 0 0 0 3px oklch(0.94 0.18 130 / 0.25); animation: pulse 1.8s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.4; } }
+
+  main { max-width: 420px; margin: 0 auto; padding: 20px 16px 50px; position: relative; z-index: 2; }
+
+  .account-strip { display: flex; align-items: center; gap: 8px; margin: 26px 0 12px; }
+  .account-strip:first-child { margin-top: 4px; }
+  .account-strip .name { font-weight: 700; font-size: 14.5px; color: oklch(0.98 0.005 90); min-width: 0; overflow-wrap: break-word; }
+  .account-strip .gw-tag {
+    background: oklch(0.98 0.005 90 / 0.16); border: 1px solid oklch(0.98 0.005 90 / 0.3);
+    color: oklch(0.98 0.005 90); font-weight: 700; font-size: 10.5px; letter-spacing: 0.04em;
+    padding: 3px 9px; border-radius: 999px; margin-left: auto; flex-shrink: 0;
   }
+
   .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 18px;
-    margin-bottom: 16px;
+    background: oklch(0.985 0.004 90); border-radius: 20px; padding: 20px 20px 18px;
+    margin-bottom: 14px; box-shadow: 0 14px 34px oklch(0.14 0.05 150 / 0.4), 0 1px 0 oklch(1 0 0 / 0.6) inset;
   }
-  .card h2 {
-    margin: 0 0 14px;
-    font-size: 16px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .card h2 .gw-tag {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-dim);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 2px 9px;
-  }
+
   .verdict {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    margin-bottom: 14px;
+    background: linear-gradient(155deg, oklch(0.93 0.15 145), oklch(0.9 0.15 145));
+    border-radius: 13px; padding: 13px 16px; margin-bottom: 15px;
+    display: flex; justify-content: space-between; align-items: center;
   }
-  .verdict.hold { background: color-mix(in srgb, var(--good) 14%, transparent); }
-  .verdict.transfer_now { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-  .verdict .label {
-    font-size: 15px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
+  .verdict.transfer-now { background: linear-gradient(155deg, oklch(0.93 0.13 250), oklch(0.9 0.13 250)); }
+  .verdict .action { font-family: "Anton", sans-serif; font-weight: 400; font-size: 16px; letter-spacing: 0.01em; color: oklch(0.3 0.1 150); min-width: 0; }
+  .verdict.transfer-now .action { color: oklch(0.32 0.1 250); }
+  .verdict .nums { font-size: 10.5px; color: oklch(0.4 0.05 150); font-weight: 600; text-align: right; line-height: 1.35; flex-shrink: 0; white-space: nowrap; }
+  .verdict.transfer-now .nums { color: oklch(0.38 0.05 250); }
+
+  .rec-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(0.55 0.01 90); margin-bottom: 8px; }
+  .rec { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1.5px solid oklch(0.92 0.005 90); font-size: 13px; font-weight: 500; gap: 8px; }
+  .rec:first-of-type { border-top: none; padding-top: 0; }
+  .rec .move { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1; }
+  .rec .club-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 2px oklch(1 0 0 / 0.6); }
+  .rec .out { color: oklch(0.52 0.19 25); font-weight: 700; text-decoration: line-through; text-decoration-color: oklch(0.52 0.19 25 / 0.4); }
+  .rec .in { color: oklch(0.38 0.12 150); font-weight: 700; }
+  .rec .net { font-family: "Anton", sans-serif; font-weight: 400; font-size: 16px; color: oklch(0.38 0.12 150); flex-shrink: 0; white-space: nowrap; }
+
+  .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 16px; }
+  .chip { background: oklch(0.955 0.006 90); border-radius: 11px; padding: 9px 4px 8px; text-align: center; }
+  .chip.top { background: oklch(0.94 0.1 85); }
+  .chip .k { font-size: 9.5px; font-weight: 700; color: oklch(0.5 0.01 90); letter-spacing: 0.02em; }
+  .chip .v { font-family: "Anton", sans-serif; font-weight: 400; font-size: 17px; margin-top: 2px; color: oklch(0.34 0.09 40); }
+  .chip.top .v { color: oklch(0.36 0.13 60); }
+
+  .swing-card { background: oklch(0.985 0.004 90); border-radius: 20px; padding: 20px; box-shadow: 0 14px 34px oklch(0.14 0.05 150 / 0.4), 0 1px 0 oklch(1 0 0 / 0.6) inset; margin-bottom: 4px; }
+  .swing-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; gap: 8px; }
+  .swing-title { font-weight: 700; font-size: 13.5px; min-width: 0; }
+  .swing-range { font-size: 10px; color: oklch(0.55 0.01 90); font-weight: 600; flex-shrink: 0; white-space: nowrap; }
+  .swing-sub { font-size: 11px; color: oklch(0.55 0.01 90); margin-bottom: 14px; }
+  .swing-row { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
+  .swing-row .gw { width: 32px; font-size: 10px; font-weight: 700; color: oklch(0.5 0.01 90); text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .swing-track { flex: 1; height: 10px; background: oklch(0.93 0.006 90); border-radius: 5px; position: relative; }
+  .swing-fill { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+  .swing-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1.5px; background: oklch(0.82 0.005 90); }
+
+  .callouts { display: flex; gap: 10px; margin-top: 16px; }
+  .callout { flex: 1; border-radius: 13px; padding: 12px 14px; }
+  .callout.good { background: linear-gradient(155deg, oklch(0.93 0.15 145), oklch(0.9 0.15 145)); }
+  .callout.bad { background: linear-gradient(155deg, oklch(0.93 0.1 30), oklch(0.9 0.1 30)); }
+  .callout .k { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.7; }
+  .callout .v { font-family: "Anton", sans-serif; font-weight: 400; font-size: 17px; margin-top: 3px; }
+  .callout.good .v { color: oklch(0.3 0.1 150); }
+  .callout.bad .v { color: oklch(0.4 0.16 30); }
+  .clubs-used { font-size: 10.5px; color: oklch(0.55 0.01 90); margin-top: 12px; line-height: 1.5; }
+
+  .foot-note {
+    font-size: 10.5px; line-height: 1.6; color: oklch(0.92 0.03 150); margin-top: 8px;
+    padding: 13px 15px; border-radius: 13px; background: oklch(0.98 0.005 90 / 0.1);
+    border: 1px solid oklch(0.98 0.005 90 / 0.18);
   }
-  .verdict.hold .label { color: var(--good); }
-  .verdict.transfer_now .label { color: var(--accent); }
-  .verdict .detail { font-size: 12px; color: var(--text-dim); }
+  .foot-note b { color: oklch(1 0 0); }
 
-  .rec-list { list-style: none; margin: 0 0 4px; padding: 0; }
-  .rec-list li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 9px 0;
-    border-top: 1px solid var(--border);
-    font-size: 13.5px;
+  footer { text-align: center; font-size: 10.5px; color: oklch(0.85 0.03 150); padding: 6px 20px 30px; position: relative; z-index: 2; }
+  footer a { color: oklch(0.97 0.1 130); }
+
+  /* loading skeleton */
+  .skel { background: linear-gradient(100deg, oklch(0.93 0.005 90) 35%, oklch(0.97 0.004 90) 50%, oklch(0.93 0.005 90) 65%); background-size: 200% 100%; animation: shimmer 1.6s ease-in-out infinite; border-radius: 8px; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  .skel-line { height: 13px; margin-bottom: 10px; }
+  .skel-verdict { height: 46px; border-radius: 13px; margin-bottom: 15px; }
+  .skel-chip { height: 44px; border-radius: 11px; }
+  .skel-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 16px; }
+
+  /* error state */
+  .error-body { text-align: center; padding: 10px 6px 4px; }
+  .error-title { font-weight: 700; font-size: 14.5px; margin: 12px 0 5px; }
+  .error-sub { font-size: 12px; color: oklch(0.5 0.01 90); line-height: 1.5; max-width: 300px; margin: 0 auto 16px; }
+  .error-retry {
+    display: inline-flex; align-items: center; gap: 6px; background: oklch(0.3 0.07 152); color: oklch(0.98 0.005 90);
+    font-weight: 700; font-size: 12px; padding: 9px 16px; border-radius: 999px; border: none; cursor: pointer;
   }
-  .rec-list li:first-child { border-top: none; }
-  .rec-list .players { color: var(--text); }
-  .rec-list .players b { font-weight: 600; }
-  .rec-list .players .arrow { color: var(--text-dim); margin: 0 4px; }
-  .rec-list .net { font-weight: 700; color: var(--good); font-variant-numeric: tabular-nums; }
-
-  .chip-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin-top: 14px;
-  }
-  .chip {
-    text-align: center;
-    padding: 8px 4px;
-    border-radius: 8px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-  }
-  .chip .name { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
-  .chip .score { font-size: 13px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
-
-  .swing-wrap { margin-top: 4px; }
-  .swing-row { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
-  .swing-row .gw-label { width: 34px; font-size: 10.5px; color: var(--text-dim); flex-shrink: 0; text-align: right; }
-  .swing-track { flex: 1; height: 12px; background: var(--bg); border-radius: 6px; position: relative; overflow: hidden; }
-  .swing-fill { position: absolute; top: 0; bottom: 0; border-radius: 6px; }
-  .swing-mid { position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--border); }
-
-  .callout {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    font-size: 12px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: var(--bg);
-    margin-top: 12px;
-  }
-  .callout div { flex: 1; }
-  .callout .k { color: var(--text-dim); }
-  .callout .v { font-weight: 700; margin-top: 2px; }
-  .callout .v.good { color: var(--good); }
-  .callout .v.bad { color: var(--bad); }
-
-  .clubs { font-size: 11px; color: var(--text-dim); margin-top: 10px; line-height: 1.5; }
-
-  .caveat {
-    font-size: 11.5px;
-    color: var(--text-dim);
-    line-height: 1.5;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: var(--card);
-    border: 1px solid var(--border);
-  }
-  .caveat b { color: var(--text); }
-
-  footer {
-    text-align: center;
-    font-size: 11px;
-    color: var(--text-dim);
-    padding: 8px 20px 24px;
-  }
-  footer a { color: var(--accent); text-decoration: none; }
-
-  .skeleton { color: var(--text-dim); font-size: 13px; padding: 20px; text-align: center; }
-  .error { color: var(--bad); font-size: 13px; padding: 16px; text-align: center; }
 </style>
 </head>
 <body>
 
+<svg class="pitch-lines" viewBox="0 0 340 340" fill="none" stroke="white" stroke-width="2" aria-hidden="true">
+  <rect x="20" y="20" width="300" height="300" rx="4"/>
+  <circle cx="170" cy="170" r="55"/>
+  <path d="M20 110 h60 v100 h-60 z"/>
+  <path d="M320 110 h-60 v100 h60 z"/>
+</svg>
+
 <header>
-  <h1>FPL Quant</h1>
-  <p id="updated-at">loading real data&hellip;</p>
+  <div class="brand">
+    <div>
+      <h1>FPL Quant</h1>
+      <div class="ts" id="updated-at">loading&hellip;</div>
+    </div>
+    <div class="live"><span class="dot"></span>Live run</div>
+  </div>
 </header>
 
 <main id="app">
-  <div class="skeleton">Fetching the latest committed run&hellip;</div>
+  <div class="account-strip"><span class="name">&nbsp;</span></div>
+  <div class="card">
+    <div class="skel skel-verdict"></div>
+    <div class="skel skel-line" style="width: 40%;"></div>
+    <div class="skel skel-line" style="width: 85%;"></div>
+    <div class="skel skel-line" style="width: 78%; margin-bottom: 0;"></div>
+    <div class="skel-chips">
+      <div class="skel skel-chip"></div><div class="skel skel-chip"></div>
+      <div class="skel skel-chip"></div><div class="skel skel-chip"></div>
+    </div>
+  </div>
 </main>
 
 <footer>
@@ -210,6 +191,21 @@
 <script>
 const REPO_RAW = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
 
+// Real Premier League primary colors -- public club brand colors, not invented.
+const CLUB_COLORS = {
+  "Arsenal": "oklch(0.5 0.22 25)", "Aston Villa": "oklch(0.3 0.14 15)",
+  "Bournemouth": "oklch(0.45 0.2 25)", "Brentford": "oklch(0.5 0.2 20)",
+  "Brighton": "oklch(0.45 0.15 250)", "Chelsea": "oklch(0.4 0.13 255)",
+  "Coventry City": "oklch(0.75 0.1 220)", "Crystal Palace": "oklch(0.4 0.13 260)",
+  "Everton": "oklch(0.38 0.15 260)", "Fulham": "oklch(0.25 0.01 90)",
+  "Hull City": "oklch(0.7 0.15 65)", "Ipswich Town": "oklch(0.42 0.16 255)",
+  "Leeds": "oklch(0.45 0.14 255)", "Liverpool": "oklch(0.5 0.2 25)",
+  "Man City": "oklch(0.7 0.1 235)", "Man Utd": "oklch(0.5 0.2 25)",
+  "Newcastle": "oklch(0.2 0.005 90)", "Nott'm Forest": "oklch(0.48 0.2 25)",
+  "Spurs": "oklch(0.3 0.08 260)", "Sunderland": "oklch(0.5 0.2 25)",
+};
+const clubColor = (name) => CLUB_COLORS[name] || "oklch(0.6 0.01 90)";
+
 async function fetchJSON(path) {
   const res = await fetch(`${REPO_RAW}/${path}?t=${Date.now()}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
@@ -218,69 +214,67 @@ async function fetchJSON(path) {
 
 function fmtTime(iso) {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 function verdictBlock(hold) {
   if (!hold) return "";
   const isHold = hold.recommended_action === "hold";
   return `
-    <div class="verdict ${isHold ? "hold" : "transfer_now"}">
-      <span class="label">${isHold ? "Hold this week" : "Use transfer now"}</span>
-      <span class="detail">hold value ${hold.hold_value.toFixed(1)} vs. transfer-now ${hold.transfer_now_value.toFixed(1)}</span>
+    <div class="verdict ${isHold ? "" : "transfer-now"}">
+      <span class="action">${isHold ? "Hold this week" : "Use transfer now"}</span>
+      <span class="nums">Hold&nbsp;${hold.hold_value.toFixed(1)}<br>Now&nbsp;${hold.transfer_now_value.toFixed(1)}</span>
     </div>`;
+}
+
+function clubDot(name) {
+  if (!name) return "";
+  return `<span class="club-dot" style="background:${clubColor(name)}"></span>`;
 }
 
 function recListBlock(recs) {
   if (!recs || !recs.length) return `<p style="color:var(--text-dim);font-size:13px;">No transfer recommendations available.</p>`;
-  return `<ul class="rec-list">` + recs.slice(0, 3).map(r => `
-    <li>
-      <span class="players"><b>OUT</b> ${r.player_out} <span class="arrow">&rarr;</span> <b>IN</b> ${r.player_in}</span>
+  return `<div class="rec-label">Top transfer targets</div>` + recs.slice(0, 3).map(r => `
+    <div class="rec">
+      <span class="move">${clubDot(r.player_out_club)}<span class="out">${r.player_out}</span> &rarr; ${clubDot(r.player_in_club)}<span class="in">${r.player_in}</span></span>
       <span class="net">+${r.net.toFixed(1)}</span>
-    </li>`).join("") + `</ul>`;
+    </div>`).join("");
 }
 
 function chipRowBlock(chips) {
   if (!chips || !chips.length) return "";
   const short = { wildcard: "WC", free_hit: "FH", triple_captain: "TC", bench_boost: "BB" };
-  return `<div class="chip-row">` + chips.map(c => `
-    <div class="chip">
-      <div class="name">${short[c.chip_type] || c.chip_type}</div>
-      <div class="score">${c.score != null ? c.score.toFixed(1) : "&mdash;"}</div>
+  const maxScore = Math.max(...chips.map(c => c.score ?? -Infinity));
+  return `<div class="chips">` + chips.map(c => `
+    <div class="chip ${c.score === maxScore ? "top" : ""}">
+      <div class="k">${short[c.chip_type] || c.chip_type}</div>
+      <div class="v">${c.score != null ? c.score.toFixed(1) : "&mdash;"}</div>
     </div>`).join("") + `</div>`;
 }
 
 function accountCard(squad) {
   return `
+    <div class="account-strip">
+      <span class="name">${squad.label}</span>
+      <span class="gw-tag">GW ${squad.plan_for_gameweek}</span>
+    </div>
     <div class="card">
-      <h2>${squad.label} <span class="gw-tag">GW${squad.plan_for_gameweek}</span></h2>
       ${verdictBlock(squad.hold_vs_transfer_now)}
       ${recListBlock(squad.transfer_recommendations)}
       ${chipRowBlock(squad.chip_evaluations)}
     </div>`;
 }
 
-function swingColor(v) {
-  // negative = easier run (good, green); positive = harder run (bad, red)
-  if (v == null) return "var(--neutral)";
-  return v < 0 ? "var(--good)" : "var(--bad)";
-}
-
 function swingRoadmapCard(account, maxAbs) {
   const rows = account.weekly_swing.map(w => {
     const v = w.avg_squad_swing;
     const pct = v == null ? 0 : Math.min(48, Math.abs(v) / maxAbs * 48);
-    const side = v == null ? "" : (v < 0
-      ? `left:50%; width:${pct}%;`
-      : `right:50%; width:${pct}%;`);
+    const side = v == null ? "" : (v < 0 ? `left:50%; width:${pct}%;` : `right:50%; width:${pct}%;`);
+    const color = v == null ? "transparent" : (v < 0 ? "oklch(0.56 0.15 150)" : "oklch(0.62 0.19 30)");
     return `
       <div class="swing-row">
-        <span class="gw-label">GW${w.gameweek}</span>
-        <div class="swing-track">
-          <div class="swing-mid"></div>
-          <div class="swing-fill" style="${side} background:${swingColor(v)};"></div>
-        </div>
+        <span class="gw">GW${w.gameweek}</span>
+        <div class="swing-track"><div class="swing-mid"></div><div class="swing-fill" style="${side} background:${color};"></div></div>
       </div>`;
   }).join("");
 
@@ -288,14 +282,15 @@ function swingRoadmapCard(account, maxAbs) {
   const worst = account.toughest_window_wildcard_candidate;
 
   return `
-    <div class="card">
-      <h2>${account.label} &mdash; first-half fixture swing</h2>
-      <div class="swing-wrap">${rows}</div>
-      <div class="callout">
-        <div><div class="k">Easiest run (Bench Boost / Triple Captain window)</div><div class="v good">${best ? `GW${best.gameweek}` : "&mdash;"}</div></div>
-        <div><div class="k">Toughest run (Wildcard to consider before)</div><div class="v bad">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div></div>
+    <div class="swing-card">
+      <div class="swing-head"><span class="swing-title">Fixture swing</span><span class="swing-range">GW${account.weekly_swing[0].gameweek}&ndash;${account.weekly_swing[account.weekly_swing.length - 1].gameweek}</span></div>
+      <div class="swing-sub">Negative = easier run for this squad&rsquo;s clubs</div>
+      ${rows}
+      <div class="callouts">
+        <div class="callout good"><div class="k">Easiest run</div><div class="v">${best ? `GW${best.gameweek}` : "&mdash;"}</div></div>
+        <div class="callout bad"><div class="k">Toughest run</div><div class="v">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div></div>
       </div>
-      <div class="clubs">Squad clubs used for this signal: ${account.squad_clubs.join(", ")}</div>
+      <div class="clubs-used">${account.squad_clubs.join(", ")}</div>
     </div>`;
 }
 
@@ -308,30 +303,46 @@ async function render() {
       fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
     ]);
 
-    document.getElementById("updated-at").textContent =
-      `Last real run: ${fmtTime(chatgpt.generated_at)}`;
+    document.getElementById("updated-at").textContent = `Last real run: ${fmtTime(chatgpt.generated_at)}`;
 
     let html = accountCard(chatgpt) + accountCard(main);
 
     if (roadmap) {
       const allSwings = roadmap.accounts.flatMap(a => a.weekly_swing.map(w => w.avg_squad_swing)).filter(v => v != null);
       const maxAbs = Math.max(0.05, ...allSwings.map(Math.abs));
-      html += roadmap.accounts.map(a => swingRoadmapCard(a, maxAbs)).join("");
+      html += roadmap.accounts.map((a, i) => `
+        <div class="account-strip"><span class="name">${a.label}</span></div>
+        ${swingRoadmapCard(a, maxAbs)}
+      `).join("");
     }
 
     html += `
-      <div class="caveat">
+      <div class="foot-note">
         <b>Real, but not tuned yet:</b> every model parameter behind these numbers is still an
         un-recalibrated v1 default (not yet backtested against real results). The fixture-swing
-        roadmap reflects <b>today's</b> squad composition &mdash; transfers made along the way will
-        change which teams it's actually tracking by the time later gameweeks arrive. Chip scores
-        are each chip clearing its own value bar in isolation, not a signal to fire multiple at
-        once.
+        roadmap reflects <b>today's</b> squad composition &mdash; transfers made along the way
+        will change which teams it's actually tracking by the time later gameweeks arrive. Chip
+        scores each clear their own value bar independently, not a signal to fire multiple at once.
       </div>`;
 
     app.innerHTML = html;
   } catch (err) {
-    app.innerHTML = `<div class="error">Couldn't load live data (${err.message}). The scheduled pipeline may not have run yet, or GitHub's raw-content cache hasn't caught up &mdash; try again shortly.</div>`;
+    app.innerHTML = `
+      <div class="card">
+        <div class="error-body">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+            <circle cx="20" cy="20" r="18" stroke="oklch(0.6 0.19 30)" stroke-width="2.2"/>
+            <path d="M20 12v10" stroke="oklch(0.6 0.19 30)" stroke-width="2.4" stroke-linecap="round"/>
+            <circle cx="20" cy="27.5" r="1.6" fill="oklch(0.6 0.19 30)"/>
+          </svg>
+          <div class="error-title">Couldn't load live data</div>
+          <div class="error-sub">${err.message}. The scheduled pipeline may not have run yet, or GitHub's raw-content cache hasn't caught up &mdash; try again shortly.</div>
+          <button class="error-retry" onclick="render()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/></svg>
+            Retry
+          </button>
+        </div>
+      </div>`;
   }
 }
 
