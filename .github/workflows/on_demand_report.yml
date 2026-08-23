@@ -81,7 +81,7 @@ jobs:
 
       - name: Restore the most recent ingested DB
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: db/fpl_quant_v2.duckdb
           key: duckdb-restore-only-no-such-exact-key
