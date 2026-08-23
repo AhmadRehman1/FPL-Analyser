@@ -419,3 +419,14 @@ def build_leagues(
 
 def generated_at() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def current_event(bootstrap: dict) -> int | None:
+    """The real gameweek FPL itself currently flags as in-progress (bootstrap-static's own
+    events[].is_current) -- None if the season hasn't started yet or every event is finished.
+    Shared by export_live_data.py and the on-demand per-manager workflow, which both need "what
+    gameweek is a manager's CURRENT squad set for" without a hardcoded number."""
+    for ev in bootstrap.get("events", []):
+        if ev.get("is_current"):
+            return ev["id"]
+    return None

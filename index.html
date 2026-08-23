@@ -367,6 +367,19 @@ const ACCOUNTS = [
   { id: 7139944, label: "ChatGPT template team" },
   { id: 1305242, label: "Main account" },
 ];
+const REPO_SLUG = "AhmadRehman1/FPL-Analyser";
+
+function loadCustomAccounts() {
+  try { return JSON.parse(localStorage.getItem("fq_custom_accounts")) || []; } catch { return []; }
+}
+function saveCustomAccount(account) {
+  const accounts = loadCustomAccounts().filter(a => a.id !== account.id);
+  accounts.push(account);
+  localStorage.setItem("fq_custom_accounts", JSON.stringify(accounts));
+}
+function allAccounts() {
+  return [...ACCOUNTS, ...loadCustomAccounts()];
+}
 const TABS = ["home", "team", "transfers", "fixtures", "leagues"];
 
 // Real Premier League primary colors -- public club brand colors, not invented.
@@ -397,7 +410,7 @@ const state = {
   accountId: Number(localStorage.getItem("fq_account_id")) || ACCOUNTS[1].id,
   players: null, playersById: null,
   fixtures: null, roadmap: null,
-  team: null, profile: null, leagues: null, realSquad: null,
+  team: null, profile: null, leagues: null, realSquad: null, live: null,
   lastTab: "home",
   transferFilter: { position: "All", strategy: "all", query: "" },
 };
@@ -423,6 +436,26 @@ async function fetchJSON(path) {
     }
     throw err;
   }
+}
+
+// Deliberately NOT fetchJSON: a missing app_live_<id>.json means "nothing is live right now",
+// not "the network failed, fall back to whatever was last cached" -- fetchJSON's stale-data
+// fallback would otherwise resurrect a match that ended hours ago and present it as in-play.
+async function fetchLiveData(entryId) {
+  try {
+    const res = await fetch(`${REPO_RAW}/data/dashboard/app_live_${entryId}.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+const LIVE_POLL_INTERVAL_MS = 60_000;
+
+async function pollLiveData() {
+  state.live = await fetchLiveData(state.accountId);
+  if (state.lastTab === "home" || state.lastTab === "team") renderCurrentTab();
 }
 
 function updateStaleBanner() {
@@ -451,6 +484,16 @@ function fmtCompact(n) {
 function initials(name) {
   if (!name) return "--";
   return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+}
+
+// Anything a user typed themselves (an account nickname) or that another manager set on their
+// own FPL profile (a rival team/player name in the Leagues screen) is free text, not markup --
+// escaped before landing in an innerHTML template so it always renders as the literal text it
+// is, never gets parsed as HTML, and never silently vanishes (an unescaped "<Team>" is parsed
+// as an unknown tag and dropped by the browser rather than shown).
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // ============================================================
@@ -487,14 +530,23 @@ async function loadAccount(id) {
 
 function populateAccountSwitcher() {
   const sel = document.getElementById("account-switcher");
-  sel.innerHTML = ACCOUNTS.map(a => `<option value="${a.id}" ${a.id === state.accountId ? "selected" : ""}>${a.label}</option>`).join("");
+  sel.innerHTML =
+    allAccounts().map(a => `<option value="${a.id}" ${a.id === state.accountId ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")
+    + `<option value="add-team">+ Add your team&hellip;</option>`;
   sel.onchange = async () => {
+    if (sel.value === "add-team") {
+      sel.value = state.accountId;
+      location.hash = "add-team";
+      return;
+    }
     state.accountId = Number(sel.value);
     localStorage.setItem("fq_account_id", state.accountId);
     state.staleSince = null;
+    state.live = null;
     await loadAccount(state.accountId);
     updateStaleBanner();
     renderCurrentTab();
+    pollLiveData();
   };
 }
 
@@ -512,6 +564,10 @@ function route() {
   }
   if (hash === "profile") {
     openProfileSheet();
+    return;
+  }
+  if (hash === "add-team") {
+    openAddTeamSheet();
     return;
   }
   closeSheet();
@@ -576,6 +632,32 @@ function formationOf(squad) {
   return `${counts.DEF}-${counts.MID}-${counts.FWD}`;
 }
 
+function liveNowBlock() {
+  const live = state.live;
+  if (!live) return "";
+  const rk = live.rank_estimate;
+  const bonusEarners = live.players.filter(p => p.provisional_bonus > 0);
+  return `
+    <div class="section">
+      <div class="card" style="background:linear-gradient(155deg,oklch(0.95 0.05 130),oklch(0.92 0.08 130));">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;">
+          <span class="live"><span class="dot"></span>Live now &middot; GW${live.gameweek}</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">
+          <span style="font-family:'Anton',sans-serif;font-size:32px;">${live.live_total}</span>
+          <span style="font-size:12px;color:var(--ink-dim);">points so far, bonus included</span>
+        </div>
+        ${bonusEarners.length ? `<div style="font-size:11.5px;color:var(--ink-dim);margin-bottom:8px;">
+          Provisional bonus: ${bonusEarners.map(p => `${p.web_name} +${p.provisional_bonus}`).join(", ")}
+        </div>` : ""}
+        ${rk && rk.sample_size ? `<div style="font-size:11px;color:var(--ink-dim2);line-height:1.5;">
+          Est. rank ~${rk.estimated_rank ? rk.estimated_rank.toLocaleString() : "&mdash;"} &mdash; beating ${rk.percentile}%
+          of ${rk.sample_size} managers sampled near your rank right now, not FPL's own official number.
+        </div>` : ""}
+      </div>
+    </div>`;
+}
+
 function renderHome() {
   const el = document.getElementById("home-content");
   if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
@@ -586,6 +668,7 @@ function renderHome() {
   const leagueTable = state.leagues && state.leagues.tables[0];
 
   el.innerHTML = `
+    ${liveNowBlock()}
     <div class="section">
       <div class="card" style="padding-top:14px;">
         <div class="card-title">Gameweek ${state.team.gameweek ?? ""}${deadline ? ` &middot; deadline ${fmtTime(deadline)}` : ""}</div>
@@ -633,7 +716,7 @@ function renderHome() {
         ${leagueTable.standings.slice(0, 3).map(r => `
           <div class="t-row ${r.is_you ? "you" : ""}">
             <div class="t-rk">${r.rank}</div>
-            <div class="t-name-wrap"><div class="t-name">${r.player_name}${r.is_you ? " (you)" : ""}</div><div class="t-team">${r.entry_name || ""}</div></div>
+            <div class="t-name-wrap"><div class="t-name">${escapeHtml(r.player_name)}${r.is_you ? " (you)" : ""}</div><div class="t-team">${escapeHtml(r.entry_name || "")}</div></div>
             <div class="t-pts">${r.total}</div>
           </div>`).join("")}
       </div>
@@ -651,14 +734,23 @@ function renderHome() {
 // TEAM
 // ============================================================
 
+function liveBonusFor(playerId) {
+  if (!state.live) return 0;
+  const row = state.live.players.find(p => p.player_id === playerId);
+  return row ? row.provisional_bonus : 0;
+}
+
 function pitchRow(players) {
-  return `<div class="prow">${players.map(p => `
+  return `<div class="prow">${players.map(p => {
+    const bonus = liveBonusFor(p.player_id);
+    return `
     <div class="pcard" onclick="location.hash='player-${p.player_id}'">
       <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
       ${p.is_captain ? `<div class="cap-badge">C</div>` : p.is_vice_captain ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
       <div class="p-tag">${p.web_name}</div>
-      <div class="p-pts-tag">${p.event_points}</div>
-    </div>`).join("")}</div>`;
+      <div class="p-pts-tag">${p.event_points + bonus}${bonus ? ` <span style="opacity:0.85;">(+${bonus})</span>` : ""}</div>
+    </div>`;
+  }).join("")}</div>`;
 }
 
 function flaggedSquadRows() {
@@ -965,7 +1057,7 @@ function ownershipBlock(ownership) {
       <div class="ownership-title">Captains this gameweek</div>
       <div class="captain-list">
         ${ownership.captains.map(c => `
-          <div class="captain-row"><span class="who">${c.player_name}</span><span class="pick">${c.web_name || "&mdash;"}</span></div>`).join("") || `<span style="font-size:12px;color:var(--ink-dim);">No picks recorded yet.</span>`}
+          <div class="captain-row"><span class="who">${escapeHtml(c.player_name)}</span><span class="pick">${escapeHtml(c.web_name) || "&mdash;"}</span></div>`).join("") || `<span style="font-size:12px;color:var(--ink-dim);">No picks recorded yet.</span>`}
       </div>
     </div>`;
 }
@@ -989,7 +1081,7 @@ function renderLeagues() {
           ${table.standings.map(r => `
             <div class="t-row ${r.is_you ? "you" : ""}">
               <div class="t-rk" style="${r.is_you ? "color:var(--green);" : ""}">${r.rank}</div>
-              <div class="t-name-wrap"><div class="t-name">${r.player_name}${r.is_you ? " (you)" : ""}</div><div class="t-team">${r.entry_name || ""}</div></div>
+              <div class="t-name-wrap"><div class="t-name">${escapeHtml(r.player_name)}${r.is_you ? " (you)" : ""}</div><div class="t-team">${escapeHtml(r.entry_name || "")}</div></div>
               <div class="t-pts" style="${r.is_you ? "color:var(--green);" : ""}">${r.total}</div>
             </div>`).join("")}
         </div>
@@ -1085,6 +1177,58 @@ function trackRecordBlock() {
     </p>`;
 }
 
+// ============================================================
+// ADD YOUR TEAM SHEET (multi-user, no new hosting)
+// ============================================================
+
+function addTeamIssueUrl(entryId, label) {
+  const title = `[add-manager] ${label}`;
+  const body = `entry_id: ${entryId}\nlabel: ${label}\n\n(Opened from the FPL Quant app's "Add your team" screen. A workflow processes this automatically -- usually within a couple of minutes.)`;
+  const params = new URLSearchParams({ title, body });
+  return `https://github.com/${REPO_SLUG}/issues/new?${params.toString()}`;
+}
+
+function openAddTeamSheet() {
+  const content = document.getElementById("sheet-content");
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:6px;">
+      <div class="name" style="font-size:19px;">Add your team</div>
+      <div class="sub" style="max-width:280px;text-align:center;line-height:1.5;">
+        Enter your FPL team ID to get your own real transfer plan and dashboard. This opens a
+        GitHub issue that a workflow processes automatically &mdash; usually ready in 1&ndash;2
+        minutes. Requires a free GitHub account.
+      </div>
+    </div>
+    <div class="stat-list" style="margin-bottom:14px;padding:16px;">
+      <label style="display:block;font-size:11px;font-weight:700;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">FPL team ID</label>
+      <input class="search-input" id="add-team-id" type="number" inputmode="numeric" placeholder="e.g. 1305242" style="margin-bottom:14px;">
+      <div style="font-size:10.5px;color:var(--ink-dim2);margin:-10px 0 14px;">From your team's URL: fantasy.premierleague.com/entry/<b>&lt;id&gt;</b>/...</div>
+      <label style="display:block;font-size:11px;font-weight:700;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Nickname (optional)</label>
+      <input class="search-input" id="add-team-label" type="text" placeholder="e.g. My Team" maxlength="40">
+    </div>
+    <button class="profile-menu-link" style="background:var(--green);color:white;border:none;font-size:13.5px;" id="add-team-submit">Continue on GitHub &rsaquo;</button>
+    <div id="add-team-status" style="font-size:11.5px;color:var(--on-dark-dim);text-align:center;margin-top:12px;line-height:1.6;"></div>
+  `;
+  document.getElementById("add-team-submit").onclick = () => {
+    const idInput = document.getElementById("add-team-id");
+    const labelInput = document.getElementById("add-team-label");
+    const entryId = parseInt(idInput.value, 10);
+    const status = document.getElementById("add-team-status");
+    if (!entryId || entryId <= 0) {
+      status.textContent = "Enter a valid numeric team ID first.";
+      status.style.color = "var(--red)";
+      return;
+    }
+    const label = (labelInput.value.trim() || `Manager ${entryId}`).slice(0, 40);
+    window.open(addTeamIssueUrl(entryId, label), "_blank", "noopener");
+    saveCustomAccount({ id: entryId, label });
+    populateAccountSwitcher();
+    status.style.color = "var(--on-dark-dim)";
+    status.textContent = `Opened a GitHub issue for "${label}". Once it's processed, come back and pick it from the account switcher at the top.`;
+  };
+  document.getElementById("sheet-overlay").hidden = false;
+}
+
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
@@ -1133,6 +1277,8 @@ async function init() {
     populateAccountSwitcher();
     updateStaleBanner();
     route();
+    pollLiveData();
+    setInterval(pollLiveData, LIVE_POLL_INTERVAL_MS);
   } catch (err) {
     document.getElementById("home-content").innerHTML = `
       <div class="card">

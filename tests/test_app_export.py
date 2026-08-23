@@ -291,6 +291,16 @@ def test_build_leagues_separates_overall_tile_from_fetched_tables():
     assert table["ownership"] is None  # not passed, so not fabricated
 
 
+def test_current_event_finds_the_is_current_gameweek():
+    bootstrap = {"events": [{"id": 6, "is_current": False}, {"id": 7, "is_current": True}, {"id": 8, "is_current": False}]}
+    assert ax.current_event(bootstrap) == 7
+
+
+def test_current_event_none_when_nothing_flagged_current():
+    assert ax.current_event({"events": [{"id": 1, "is_current": False}]}) is None
+    assert ax.current_event({"events": []}) is None
+
+
 def test_build_leagues_attaches_ownership_when_provided():
     entry_summary = {"id": 1, "leagues": {"classic": [{"id": 99, "name": "Mates & Rivals"}]}}
     standings_by_league = {99: {"standings": {"results": []}}}

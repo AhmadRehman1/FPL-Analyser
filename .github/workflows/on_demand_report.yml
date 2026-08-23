@@ -1,0 +1,201 @@
+name: On-demand manager report (multi-user, no new hosting)
+
+# Lets ANY manager get a real transfer plan/dashboard without a scheduled slot: open a GitHub
+# issue titled "[add-manager] ..." with an `entry_id:` line in the body (the app's "Add your
+# team" screen builds this URL for you -- see index.html's addTeamUrl()). Reuses
+# run_transfer_planner_for_real_squad.py / export_app_data.py completely unmodified against a
+# DB snapshot the last scheduled_pipeline.yml run already cached (see that workflow's own
+# "Cache the freshly-ingested DB" step), so a single request never re-runs the full M0-M7
+# pipeline. Falls back to a full ingestion only if no cache exists yet at all (e.g. the very
+# first request in the app's history, before any scheduled run has happened).
+#
+# Deliberately issue-triggered rather than a workflow_dispatch called from a hosted proxy: no
+# token needs to live anywhere outside GitHub itself, and opening an issue needs nothing but a
+# GitHub account -- see the scouting-report roadmap's own notes on why this was chosen over a
+# paid/free third-party host.
+#
+# SECURITY: the issue body/title are fully untrusted public input (anyone can open one). Nothing
+# derived from them is ever spliced via ${{ }} into a run:/script: body -- only passed through
+# `env:` and read back as an environment variable, and entry_id/label are hard-sanitized to a
+# narrow charset in the parse step before anything downstream touches them. Not instant: expect
+# ~1-2 minutes (DB restore + a real M8/M9 solve). `concurrency` below serializes requests rather
+# than letting an unbounded public queue run in parallel.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: on-demand-manager-report
+  cancel-in-progress: false
+
+jobs:
+  handle-request:
+    if: startsWith(github.event.issue.title, '[add-manager]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Parses + hard-sanitizes entry_id/label from the untrusted issue body BEFORE anything
+      # else touches them. ISSUE_BODY only ever reaches Python via an env var (never spliced
+      # into the script text itself), and the sanitized outputs are constrained to a narrow,
+      # injection-safe charset -- see this workflow's own top-of-file SECURITY note.
+      - name: Parse and sanitize entry_id/label from the issue body
+        id: parse
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import re
+
+          body = os.environ.get("ISSUE_BODY") or ""
+
+          entry_match = re.search(r"entry_id\s*:\s*(\d{1,10})", body)
+          if not entry_match or int(entry_match.group(1)) <= 0:
+              print("::error::no valid entry_id found in the issue body (expected a line like 'entry_id: 1234567')")
+              raise SystemExit(1)
+          entry_id = entry_match.group(1)
+
+          label_match = re.search(r"label\s*:\s*(.+)", body)
+          raw_label = label_match.group(1).strip() if label_match else f"Manager {entry_id}"
+          safe_label = re.sub(r"[^A-Za-z0-9 .'&-]", "", raw_label)[:40].strip() or f"Manager {entry_id}"
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"entry_id={entry_id}\n")
+              f.write(f"label={safe_label}\n")
+          PYEOF
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      # Rare fallback: only when no scheduled run has EVER cached a DB yet. Mirrors
+      # scheduled_pipeline.yml's own early steps exactly.
+      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data/external
+          curl -sSL "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
+            -o "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
+            -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Determine current gameweek
+        id: gw
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import sys
+
+          sys.path.insert(0, "src")
+          from fpl_quant import app_export as ax
+
+          bootstrap = ax.fetch_bootstrap_static()
+          event = ax.current_event(bootstrap)
+          if event is None:
+              print("::error::bootstrap-static reports no current gameweek right now")
+              raise SystemExit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"event={event}\n")
+          PYEOF
+
+      # entry_id/event are already hard-validated as pure digits above, and label is
+      # hard-sanitized to a narrow charset -- safe to pass as ordinary quoted shell arguments.
+      - name: Plan transfers for the requested manager
+        id: plan
+        continue-on-error: true
+        run: |
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
+            "${{ steps.parse.outputs.entry_id }}" "${{ steps.gw.outputs.event }}" \
+            "${{ steps.parse.outputs.label }}"
+
+      - name: Export live app data for the requested manager
+        if: steps.plan.outcome == 'success'
+        run: |
+          PYTHONPATH=src python scripts/export_app_data.py \
+            "${{ steps.parse.outputs.entry_id }}:${{ steps.gw.outputs.event }}:${{ steps.parse.outputs.label }}"
+
+      - name: Commit the new manager's dashboard data
+        if: steps.plan.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/dashboard/
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: add manager ${{ steps.parse.outputs.entry_id }} [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
+            git fetch origin master
+            git rebase origin/master
+          done
+          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
+          exit 1
+
+      # entry_id/label are passed via env (not spliced into the script text) even though they're
+      # already sanitized -- belt-and-suspenders for anything that ever reaches actions/github-script.
+      - name: Comment success and close the issue
+        if: steps.plan.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
+          LABEL: ${{ steps.parse.outputs.label }}
+        with:
+          script: |
+            const { ENTRY_ID, LABEL } = process.env;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+              body: `Done! **${LABEL}** (entry ${ENTRY_ID}) is now live in the app -- open it and pick this account from the switcher at the top.`,
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+              state: "closed", state_reason: "completed",
+            });
+
+      - name: Comment failure and close the issue
+        if: steps.plan.outcome != 'success'
+        uses: actions/github-script@v7
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
+        with:
+          script: |
+            const { ENTRY_ID } = process.env;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+              body: `Couldn't build a report for entry_id ${ENTRY_ID} -- double check the ID is correct (from your team's URL: fantasy.premierleague.com/entry/<id>/...) and that you've set a squad for the current gameweek. Feel free to reopen this issue to retry.`,
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+              state: "closed", state_reason: "not_planned",
+            });
