@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from fpl_quant import app_export as ax
@@ -420,3 +422,78 @@ def test_fetch_entry_picks_still_returns_none_on_404(monkeypatch):
     404-means-'no picks yet' contract."""
     monkeypatch.setattr(ax.requests, "get", lambda url, **kwargs: _FakeResponse(404))
     assert ax.fetch_entry_picks(123, 5) is None
+
+
+# ============================================================
+# append_live_rank_snapshot / last_known_rank_snapshot (Review Feature 6)
+# ============================================================
+
+def test_append_live_rank_snapshot_creates_file_when_missing(tmp_path):
+    payload = ax.append_live_rank_snapshot(
+        tmp_path, 123, 5, ts="2026-08-23T15:00:00Z", overall_rank=1_000_000,
+        mini_league_pos=3, live_points=12, stale=False, data_asof="2026-08-23",
+    )
+    assert payload["entry_id"] == 123
+    assert payload["gw"] == 5
+    assert payload["stale"] is False
+    assert len(payload["snapshots"]) == 1
+    assert payload["snapshots"][0] == {
+        "ts": "2026-08-23T15:00:00Z", "overall_rank": 1_000_000, "mini_league_pos": 3, "live_points": 12,
+    }
+    on_disk = json.loads((tmp_path / "live_rank_123_5.json").read_text())
+    assert on_disk == payload
+
+
+def test_append_live_rank_snapshot_appends_without_mutating_prior_rows(tmp_path):
+    ax.append_live_rank_snapshot(
+        tmp_path, 123, 5, ts="2026-08-23T15:00:00Z", overall_rank=1_000_000,
+        mini_league_pos=3, live_points=0, stale=False, data_asof="2026-08-23",
+    )
+    payload = ax.append_live_rank_snapshot(
+        tmp_path, 123, 5, ts="2026-08-23T15:10:00Z", overall_rank=999_000,
+        mini_league_pos=2, live_points=12, stale=False, data_asof="2026-08-23",
+    )
+    assert len(payload["snapshots"]) == 2
+    assert payload["snapshots"][0] == {
+        "ts": "2026-08-23T15:00:00Z", "overall_rank": 1_000_000, "mini_league_pos": 3, "live_points": 0,
+    }
+    assert payload["snapshots"][1]["overall_rank"] == 999_000
+
+
+def test_append_live_rank_snapshot_rejects_non_positive_rank(tmp_path):
+    with pytest.raises(ValueError):
+        ax.append_live_rank_snapshot(
+            tmp_path, 123, 5, ts="2026-08-23T15:00:00Z", overall_rank=0,
+            mini_league_pos=None, live_points=0, stale=False, data_asof="2026-08-23",
+        )
+    with pytest.raises(ValueError):
+        ax.append_live_rank_snapshot(
+            tmp_path, 123, 5, ts="2026-08-23T15:00:00Z", overall_rank=-5,
+            mini_league_pos=None, live_points=0, stale=False, data_asof="2026-08-23",
+        )
+
+
+def test_append_live_rank_snapshot_records_stale_flag(tmp_path):
+    payload = ax.append_live_rank_snapshot(
+        tmp_path, 123, 5, ts="2026-08-23T15:20:00Z", overall_rank=999_000,
+        mini_league_pos=2, live_points=12, stale=True, data_asof="2026-08-23",
+    )
+    assert payload["stale"] is True
+
+
+def test_last_known_rank_snapshot_none_when_no_file(tmp_path):
+    assert ax.last_known_rank_snapshot(tmp_path, 123, 5) is None
+
+
+def test_last_known_rank_snapshot_returns_the_most_recent(tmp_path):
+    ax.append_live_rank_snapshot(
+        tmp_path, 123, 5, ts="2026-08-23T15:00:00Z", overall_rank=1_000_000,
+        mini_league_pos=3, live_points=0, stale=False, data_asof="2026-08-23",
+    )
+    ax.append_live_rank_snapshot(
+        tmp_path, 123, 5, ts="2026-08-23T15:10:00Z", overall_rank=999_000,
+        mini_league_pos=2, live_points=12, stale=False, data_asof="2026-08-23",
+    )
+    last = ax.last_known_rank_snapshot(tmp_path, 123, 5)
+    assert last["overall_rank"] == 999_000
+    assert last["ts"] == "2026-08-23T15:10:00Z"

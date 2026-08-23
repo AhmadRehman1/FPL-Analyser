@@ -4,6 +4,15 @@ estimate. Exits immediately (no writes, no extra fetches) when nothing is live r
 tighter-cadence live_tracking.yml workflow that calls this every ~10 minutes across matchday
 windows stays cheap outside actual play.
 
+Roadmap Feature 6: also appends each account's rank estimate to an append-only
+data/dashboard/live_rank_<entry_id>_<gw>.json snapshot series every time this runs while live
+(see app_export.append_live_rank_snapshot()) -- the PWA's live rank trajectory line.
+mini_league_pos is always None here: no specific mini-league is configured anywhere in this
+project to track a position within, a real, disclosed gap rather than a fabricated number.
+A live fetch that fails even after B7's retry/backoff falls back to that account's own
+last-known snapshot, marked stale -- never a fabricated rank, and never crashes the whole
+poll cycle over one account's fetch failure.
+
 Usage (from repo root):
     PYTHONPATH=src python scripts/export_live_data.py <entry_id>:<label> [<entry_id>:<label> ...]
 
@@ -16,6 +25,7 @@ Same network-blocked-in-sandbox caveat as every other live-fetch script in this 
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -74,20 +84,37 @@ def main() -> None:
     player_directory = ax.build_player_directory(bootstrap)
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     for entry_id, label in accounts:
-        picks_payload = ax.fetch_entry_picks(entry_id, event)
-        if not picks_payload:
-            print(f"  [skip] entry_id={entry_id}: no picks recorded for GW{event} yet")
+        try:
+            picks_payload = ax.fetch_entry_picks(entry_id, event)
+            if not picks_payload:
+                print(f"  [skip] entry_id={entry_id}: no picks recorded for GW{event} yet")
+                continue
+            entry_summary = ax.fetch_entry_summary(entry_id)
+
+            team = ax.build_team_snapshot(entry_summary, picks_payload, live, player_directory)
+            live_total = lt.compute_live_squad_total(team["squad"], provisional_bonus)
+
+            sample_points = _rival_sample_points(
+                ax.FPL_OVERALL_LEAGUE_ID, entry_summary.get("summary_overall_rank"), event, live,
+            )
+            rank_estimate = lt.estimate_live_rank(live_total["total"], sample_points, bootstrap.get("total_players"))
+        except ax.UpstreamUnavailableError as e:
+            # Review Feature 6 / B7: a live fetch failed even after retry/backoff -- fall back
+            # to this account's own last-known rank (never fabricate one) and mark the
+            # snapshot stale, rather than crashing the whole poll cycle over one account.
+            print(f"  [stale] entry_id={entry_id}: live fetch failed ({e}) -- falling back to last-known rank")
+            last = ax.last_known_rank_snapshot(DASHBOARD_DIR, entry_id, event)
+            if last is None:
+                print(f"  [skip] entry_id={entry_id}: no prior snapshot to fall back to -- nothing to append")
+                continue
+            ax.append_live_rank_snapshot(
+                DASHBOARD_DIR, entry_id, event, ts=now_iso, overall_rank=last["overall_rank"],
+                mini_league_pos=last["mini_league_pos"], live_points=last["live_points"],
+                stale=True, data_asof=now_iso[:10],
+            )
             continue
-        entry_summary = ax.fetch_entry_summary(entry_id)
-
-        team = ax.build_team_snapshot(entry_summary, picks_payload, live, player_directory)
-        live_total = lt.compute_live_squad_total(team["squad"], provisional_bonus)
-
-        sample_points = _rival_sample_points(
-            ax.FPL_OVERALL_LEAGUE_ID, entry_summary.get("summary_overall_rank"), event, live,
-        )
-        rank_estimate = lt.estimate_live_rank(live_total["total"], sample_points, bootstrap.get("total_players"))
 
         out = {
             "entry_id": entry_id, "label": label, "gameweek": event,
@@ -98,6 +125,15 @@ def main() -> None:
         (DASHBOARD_DIR / f"app_live_{entry_id}.json").write_text(json.dumps(out, indent=2))
         print(f"  [write] app_live_{entry_id}.json (live_total={live_total['total']}, "
               f"rank_estimate sample_size={rank_estimate['sample_size']})")
+
+        if rank_estimate["estimated_rank"]:
+            ax.append_live_rank_snapshot(
+                DASHBOARD_DIR, entry_id, event, ts=now_iso, overall_rank=rank_estimate["estimated_rank"],
+                mini_league_pos=None, live_points=live_total["total"], stale=False, data_asof=now_iso[:10],
+            )
+            print(f"  [live_rank] appended snapshot for entry_id={entry_id} (overall_rank={rank_estimate['estimated_rank']})")
+        else:
+            print(f"  [skip] entry_id={entry_id}: no rank estimate yet (sample_size={rank_estimate['sample_size']}) -- not appending")
 
 
 if __name__ == "__main__":

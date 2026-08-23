@@ -15,8 +15,10 @@ independently verified live fetch in THIS environment. Every fetch_* function is
 project's established convention (ingest_understat.py, ingest_fpl_entry_picks.py).
 """
 
+import json
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 
@@ -454,6 +456,53 @@ def build_leagues(
 
 def generated_at() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# Roadmap Feature 6: live overall-rank movement view. The one function in this module that
+# does its own file I/O (every other function here returns a pure dict/list and lets its
+# caller script write it) -- a real, disclosed exception: appending to an existing snapshot
+# series needs to read the prior state before writing, and that read-modify-write is the
+# whole point of this function, not incidental to it.
+# ============================================================
+
+def append_live_rank_snapshot(
+    dashboard_dir: Path, entry_id: int, gw: int, *,
+    ts: str, overall_rank: int, mini_league_pos: int | None, live_points: int, stale: bool, data_asof: str,
+) -> dict:
+    """Append-only: reads data/dashboard/live_rank_<entry_id>_<gw>.json if it already exists,
+    appends exactly one new snapshot, writes back -- never mutates a prior row. overall_rank
+    must be a real, positive int (the caller's job to supply the last-known rank on a stale
+    poll, never a fabricated one here) -- there is no "no snapshot" representation; a poll
+    cycle with nothing worth recording simply doesn't call this function at all (see
+    scripts/export_live_data.py)."""
+    if overall_rank <= 0:
+        raise ValueError(f"overall_rank must be a positive int, got {overall_rank}")
+    path = dashboard_dir / f"live_rank_{entry_id}_{gw}.json"
+    if path.exists():
+        payload = json.loads(path.read_text())
+    else:
+        payload = {"entry_id": entry_id, "gw": gw, "snapshots": []}
+    payload["data_asof"] = data_asof
+    payload["stale"] = stale
+    payload["snapshots"] = [
+        *payload["snapshots"],
+        {"ts": ts, "overall_rank": overall_rank, "mini_league_pos": mini_league_pos, "live_points": live_points},
+    ]
+    path.write_text(json.dumps(payload, indent=2))
+    return payload
+
+
+def last_known_rank_snapshot(dashboard_dir: Path, entry_id: int, gw: int) -> dict | None:
+    """The most recent snapshot already on disk for (entry_id, gw), or None if the file
+    doesn't exist yet -- what a stale fallback poll (a live fetch that failed even after
+    retry/backoff) falls back to, per this feature's own 'never fabricate a rank' rule."""
+    path = dashboard_dir / f"live_rank_{entry_id}_{gw}.json"
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text())
+    snapshots = payload.get("snapshots") or []
+    return snapshots[-1] if snapshots else None
 
 
 def current_event(bootstrap: dict) -> int | None:
