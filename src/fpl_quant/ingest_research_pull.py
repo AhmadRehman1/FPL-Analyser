@@ -14,7 +14,6 @@ unverified ("do not treat this number as confirmed"), which only reinforces it.
 
 import json
 import re
-import uuid
 from datetime import date, datetime, timezone
 
 import duckdb

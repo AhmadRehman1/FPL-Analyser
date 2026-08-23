@@ -29,10 +29,9 @@ and the means (M3).
 """
 
 import math
-from datetime import date, datetime, timezone
+from datetime import date
 
 import duckdb
-import numpy as np
 from scipy.stats import norm, poisson
 
 from . import expected_points as ep
@@ -76,7 +75,7 @@ def category_variances(con, ep_row: dict, position: str, scoring_params_version:
     saves_per_pt = ep._sm(con, "saves_per_point", scoring_params_version)
     defcon_pts = ep._sm(con, "defcon_points", scoring_params_version) if position != "Goalkeeper" else 0.0
 
-    p0, p1, p2 = ep_row["p_0"], ep_row["p_1_59"], ep_row["p_60plus"]
+    p1, p2 = ep_row["p_1_59"], ep_row["p_60plus"]
     e_app = 1 * p1 + 2 * p2
     e_app2 = 1 * p1 + 4 * p2
     var_appearance = max(e_app2 - e_app**2, 0.0)

@@ -15,7 +15,7 @@ constraint), and put -lambda*t linearly into the objective instead of -lambda*w'
 directly.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date
 
 import duckdb
 import pyscipopt as scip
