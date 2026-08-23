@@ -93,13 +93,31 @@ jobs:
       # Google interstitials a virus-scan warning page instead of a direct download for files
       # over ~25MB; both files here (well under 1MB) shouldn't hit that, but re-check if a
       # future, larger version of either workbook starts failing here.
+      # Review B7: --retry 5 --retry-delay 10 --fail so a transient Drive/network blip
+      # (timeout, connection reset, or a transient 5xx -- --fail is what makes curl's own
+      # --retry actually engage on an HTTP error status, not just connection-level failures)
+      # gets 5 real retry attempts instead of failing the whole ~20-25 minute run outright.
+      # Followed by a real content-length sanity check (not just "curl exited 0") -- both real
+      # workbooks are >=1KB; a near-empty file most likely means Drive served an HTML
+      # interstitial/error page instead of the real .xlsx, which curl's own exit code alone
+      # wouldn't catch.
       - name: Materialize evidence workbooks
         run: |
           mkdir -p data/external
-          curl -sSL "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
-            -o "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
-          curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
-            -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+          fetch_and_check() {
+            local url="$1" out="$2"
+            curl -sSL --retry 5 --retry-delay 10 --fail "$url" -o "$out"
+            local size
+            size=$(wc -c < "$out")
+            if [ "$size" -lt 1000 ]; then
+              echo "::error::$out is only $size bytes after download -- looks like a failed/interstitial fetch, not the real workbook"
+              exit 1
+            fi
+          }
+          fetch_and_check "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
+            "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_and_check "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
+            "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
       # Priority A5: records exactly what this run's outputs were built from -- this repo's
       # own commit, the FPL-Core-Insights commit just cloned above, both evidence workbooks'

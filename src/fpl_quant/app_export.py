@@ -15,11 +15,19 @@ independently verified live fetch in THIS environment. Every fetch_* function is
 project's established convention (ingest_understat.py, ingest_fpl_entry_picks.py).
 """
 
+import time
 from datetime import datetime, timezone
 
 import requests
 
 FPL_API_BASE = "https://fantasy.premierleague.com/api"
+
+
+class UpstreamUnavailableError(Exception):
+    """A live FPL API fetch failed even after retry/backoff (see _fetch_json()) -- never
+    raised for a real, non-transient client error (404 etc, which fetch_entry_picks()'s own
+    caller-facing None-on-404 convention still needs to see as a plain requests.HTTPError,
+    unchanged)."""
 
 POSITION_LABELS = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
@@ -43,10 +51,37 @@ FPL_OVERALL_LEAGUE_ID = 314
 # fetch -- isolated network I/O, the one surface real verification and test mocking touch
 # ============================================================
 
-def _fetch_json(url: str) -> dict:
-    resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-    resp.raise_for_status()
-    return resp.json()
+def _fetch_json(url: str, *, max_retries: int = 4, backoff_seconds: float = 1.0) -> dict:
+    """Review B7: retries a 429 (rate limit) or transient 5xx/connection error with
+    exponential backoff (backoff_seconds * 2**attempt, honoring a 429 response's own
+    Retry-After header when present) instead of the single unretried attempt this used to
+    be -- live_tracking.yml's cron fires every ~10 minutes across matchday windows, many real
+    calls against an API this project doesn't control. Raises UpstreamUnavailableError once
+    max_retries is exhausted, never silently returns stale/empty data. A real, non-transient
+    client error (404 etc.) is NOT retried -- raise_for_status() still raises a plain
+    requests.HTTPError immediately, unchanged from before (fetch_entry_picks()'s own
+    404-means-None handling depends on exactly this)."""
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        except requests.RequestException as e:
+            last_exc = e
+        else:
+            if resp.status_code == 429 or resp.status_code >= 500:
+                last_exc = requests.HTTPError(f"{resp.status_code} from {url}", response=resp)
+            else:
+                resp.raise_for_status()
+                return resp.json()
+
+        if attempt < max_retries:
+            retry_after = None
+            if isinstance(last_exc, requests.HTTPError) and last_exc.response is not None:
+                retry_after = last_exc.response.headers.get("Retry-After")
+            delay = float(retry_after) if retry_after else backoff_seconds * (2**attempt)
+            time.sleep(delay)
+
+    raise UpstreamUnavailableError(f"{url} failed after {max_retries + 1} attempts: {last_exc}") from last_exc
 
 
 def fetch_bootstrap_static(*, payload: dict | None = None) -> dict:

@@ -1,3 +1,5 @@
+import pytest
+
 from fpl_quant import app_export as ax
 
 
@@ -307,3 +309,114 @@ def test_build_leagues_attaches_ownership_when_provided():
     ownership_by_league = {99: {"n_entries_sampled": 5, "most_owned": [], "captains": []}}
     out = ax.build_leagues(entry_summary, standings_by_league, None, ownership_by_league)
     assert out["tables"][0]["ownership"] == ownership_by_league[99]
+
+
+# ============================================================
+# _fetch_json retry/backoff (Review B7)
+# ============================================================
+
+class _FakeResponse:
+    def __init__(self, status_code, json_payload=None, headers=None):
+        self.status_code = status_code
+        self._json_payload = json_payload
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
+
+    def json(self):
+        return self._json_payload
+
+
+def test_fetch_json_succeeds_on_first_try(monkeypatch):
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return _FakeResponse(200, {"ok": True})
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    result = ax._fetch_json("http://example.test")
+    assert result == {"ok": True}
+    assert len(calls) == 1
+
+
+def test_fetch_json_retries_on_429_then_succeeds(monkeypatch):
+    responses = [_FakeResponse(429), _FakeResponse(429), _FakeResponse(200, {"ok": True})]
+    sleeps = []
+
+    def fake_get(url, **kwargs):
+        return responses.pop(0)
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    monkeypatch.setattr(ax.time, "sleep", lambda s: sleeps.append(s))
+
+    result = ax._fetch_json("http://example.test", max_retries=4, backoff_seconds=1.0)
+    assert result == {"ok": True}
+    assert sleeps == [1.0, 2.0]  # exponential backoff: 1*2**0, 1*2**1
+
+
+def test_fetch_json_retries_on_connection_error_then_succeeds(monkeypatch):
+    import requests
+
+    calls = {"n": 0}
+
+    def fake_get(url, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise requests.ConnectionError("boom")
+        return _FakeResponse(200, {"ok": True})
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    monkeypatch.setattr(ax.time, "sleep", lambda s: None)
+
+    result = ax._fetch_json("http://example.test")
+    assert result == {"ok": True}
+    assert calls["n"] == 3
+
+
+def test_fetch_json_raises_upstream_unavailable_after_exhausting_retries(monkeypatch):
+    monkeypatch.setattr(ax.requests, "get", lambda url, **kwargs: _FakeResponse(503))
+    monkeypatch.setattr(ax.time, "sleep", lambda s: None)
+
+    with pytest.raises(ax.UpstreamUnavailableError):
+        ax._fetch_json("http://example.test", max_retries=2)
+
+
+def test_fetch_json_honors_retry_after_header(monkeypatch):
+    responses = [_FakeResponse(429, headers={"Retry-After": "7"}), _FakeResponse(200, {"ok": True})]
+    sleeps = []
+
+    monkeypatch.setattr(ax.requests, "get", lambda url, **kwargs: responses.pop(0))
+    monkeypatch.setattr(ax.time, "sleep", lambda s: sleeps.append(s))
+
+    ax._fetch_json("http://example.test")
+    assert sleeps == [7.0]
+
+
+def test_fetch_json_does_not_retry_a_real_404(monkeypatch):
+    """A genuine client error (not rate-limited, not transient) must still raise a plain
+    requests.HTTPError immediately, unretried -- fetch_entry_picks()'s own 404-means-None
+    handling depends on this exact behavior being unchanged."""
+    calls = {"n": 0}
+
+    def fake_get(url, **kwargs):
+        calls["n"] += 1
+        return _FakeResponse(404)
+
+    monkeypatch.setattr(ax.requests, "get", fake_get)
+    monkeypatch.setattr(ax.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("must not sleep/retry on a real 404")))
+
+    import requests
+    with pytest.raises(requests.HTTPError):
+        ax._fetch_json("http://example.test")
+    assert calls["n"] == 1
+
+
+def test_fetch_entry_picks_still_returns_none_on_404(monkeypatch):
+    """Integration check: the retry wrapper must not break fetch_entry_picks()'s own
+    404-means-'no picks yet' contract."""
+    monkeypatch.setattr(ax.requests, "get", lambda url, **kwargs: _FakeResponse(404))
+    assert ax.fetch_entry_picks(123, 5) is None

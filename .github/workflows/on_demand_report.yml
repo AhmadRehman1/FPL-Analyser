@@ -96,14 +96,26 @@ jobs:
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
 
+      # Review B7: same retry/content-length-sanity discipline as scheduled_pipeline.yml's
+      # own "Materialize evidence workbooks" step -- see its comment for the reasoning.
       - name: Materialize evidence workbooks [cache miss fallback]
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p data/external
-          curl -sSL "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
-            -o "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
-          curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
-            -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+          fetch_and_check() {
+            local url="$1" out="$2"
+            curl -sSL --retry 5 --retry-delay 10 --fail "$url" -o "$out"
+            local size
+            size=$(wc -c < "$out")
+            if [ "$size" -lt 1000 ]; then
+              echo "::error::$out is only $size bytes after download -- looks like a failed/interstitial fetch, not the real workbook"
+              exit 1
+            fi
+          }
+          fetch_and_check "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
+            "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_and_check "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
+            "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
       - name: Run ingestion (M0-M6) [cache miss fallback]
         if: steps.cache.outputs.cache-hit != 'true'
