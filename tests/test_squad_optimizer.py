@@ -398,8 +398,6 @@ def test_captain_choice_is_risk_aware_not_just_risk_aware_for_squad_membership()
 def test_divergence_check_passes_with_real_variance_structure(con):
     """A meaningfully differentiated variance/covariance structure (like M4's real output)
     should make lambda actually move the solve -- the check should NOT fire here."""
-    import time
-    from datetime import date
 
     so.seed_v1_params(con)
     pool = _synthetic_pool()

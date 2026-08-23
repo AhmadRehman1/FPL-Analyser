@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Correctness-first rule set: unused imports/names, undefined names, obvious bugs.
+# Deliberately not enabling pycodestyle's stylistic checks (E501 in particular) -- this
+# codebase's convention is long, dense prose comments/docstrings (see README.md's own
+# "Design notes" section), and reflowing those to a line-length limit would be pure churn
+# with no correctness value, not a real fix.
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+# Advisory only (see .github/workflows/tests.yml: the typecheck job runs this but doesn't
+# gate CI). A first real run against this codebase found 94 errors, nearly all the same
+# pattern: con.execute(...).fetchone() indexed without a None-check. Fixing those requires
+# knowing, query by query, whether a query can legitimately return zero rows -- a real
+# semantic judgment call, not a mechanical fix -- so they're left for deliberate follow-up
+# rather than papered over with blanket type: ignore comments.

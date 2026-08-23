@@ -1,6 +1,5 @@
 from datetime import date
 
-import numpy as np
 import pytest
 
 from fpl_quant import expected_points as ep

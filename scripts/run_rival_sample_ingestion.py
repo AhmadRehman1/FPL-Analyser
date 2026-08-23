@@ -13,7 +13,7 @@ Usage (from repo root):
 """
 
 import sys
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

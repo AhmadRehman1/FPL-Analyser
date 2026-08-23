@@ -988,7 +988,6 @@ def _seed_realized_goals_assists(con, backtest_run_id, tier, values_by_gw_and_pl
 
 def test_refit_rho_residual_recovers_a_sane_rho_from_correlated_synthetic_data(con):
     backtest_run_id = _seed_backtest_run(con)
-    rng_pairs = {}
     import random
 
     random.seed(0)

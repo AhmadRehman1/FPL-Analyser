@@ -9,7 +9,7 @@ is listed as the home side). This module joins on code, not id, per the verified
 """
 
 import re
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 import duckdb
 import openpyxl

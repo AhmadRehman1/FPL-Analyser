@@ -16,7 +16,7 @@ filter would leave that population permanently empty and the regression unfittab
 """
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date
 
 import duckdb
 import numpy as np

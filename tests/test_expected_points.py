@@ -2,7 +2,6 @@ import pytest
 from scipy.stats import poisson
 
 from fpl_quant import expected_points as ep
-from fpl_quant import params
 
 
 def test_seed_v1_params_resolves_expected_values(con):
