@@ -662,6 +662,60 @@ def run(
 
 
 # ============================================================
+# Review B5: Z_fixture rate-heterogeneity disclosure.
+#
+# z_fixture_variance() calibrates the target correlation only at the REPRESENTATIVE lambda
+# (compute_lambda_representative(), ~0.141 in the real GW1 2026-27 run) -- Corr(X_i, X_j) is
+# a function of each pair's own individual rates, so a high-lambda Haaland and a low-lambda
+# bench defender do not actually share that representative correlation. The real,
+# already-observed finding (README: teammate total-points correlation in the real run comes
+# out far below 0.15 -- 0.02-0.08, not ~0.15 -- even though the underlying goals+assists
+# mechanism is calibrated exactly to 0.15) has so far only had a central value reported.
+# ============================================================
+
+def report_covariance_dilution(con: duckdb.DuckDBPyConnection, mc_model_version: int) -> dict | None:
+    """Reports the full empirical DISTRIBUTION of teammate pairwise total-points correlation
+    (not just its mean) from monte_carlo_empirical_covariance, so the real spread behind the
+    "0.02-0.08 vs 0.15" dilution finding is visible, not just a single central value.
+    Converts the table's stored COVARIANCE into a CORRELATION per pair (dividing by
+    sqrt(var_a * var_b) from monte_carlo_player_summary) -- covariance alone isn't comparable
+    across pairs of very different individual variances the way correlation is. Only
+    'teammate' pairs are in scope (the relationship rho_residual/Z_fixture actually target);
+    'opponent'/'independent' pairs measure a different thing and are excluded. Returns None
+    if no teammate pairs exist at this model_version (e.g. a single-player squad, or no two
+    squad players share a common fixture) or every pair has a zero variance.
+    """
+    rows = con.execute(
+        "SELECT c.empirical_covariance, sa.var_total, sb.var_total "
+        "FROM monte_carlo_empirical_covariance c "
+        "JOIN monte_carlo_player_summary sa ON sa.model_version = c.model_version AND sa.player_uid = c.player_uid_a "
+        "JOIN monte_carlo_player_summary sb ON sb.model_version = c.model_version AND sb.player_uid = c.player_uid_b "
+        "WHERE c.model_version = ? AND c.relationship = 'teammate'",
+        [mc_model_version],
+    ).fetchall()
+
+    correlations = []
+    for cov, var_a, var_b in rows:
+        denom = (var_a * var_b) ** 0.5
+        if denom > 0:
+            correlations.append(cov / denom)
+
+    if not correlations:
+        return None
+
+    arr = np.array(correlations)
+    return {
+        "n_pairs": len(arr),
+        "mean": float(arr.mean()),
+        "min": float(arr.min()),
+        "p25": float(np.quantile(arr, 0.25)),
+        "median": float(np.quantile(arr, 0.5)),
+        "p75": float(np.quantile(arr, 0.75)),
+        "max": float(arr.max()),
+    }
+
+
+# ============================================================
 # M9 adapter -- empirical risk display, alongside M4's analytic quantiles
 # ============================================================
 

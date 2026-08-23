@@ -503,3 +503,109 @@ def test_simulate_fixture_squad_goals_conserve_the_drawn_scoreline(con, monkeypa
 
     np.testing.assert_array_equal(home_goals_sum, home_goals_expected)
     np.testing.assert_array_equal(result["p4"]["goals"], away_goals_expected)
+
+
+# ============================================================
+# report_covariance_dilution() -- Review B5
+# ============================================================
+
+def _seed_covariance_pairs(con, pairs, summary_var):
+    """pairs: [(uid_a, uid_b, empirical_covariance, relationship), ...].
+    summary_var: {uid: var_total} -- monte_carlo_player_summary rows for every uid involved.
+    Builds the real FK chain monte_carlo_run_versions needs (mirrors test_backtest.py's
+    _seed_kappa_tc_step -- no cross-test-file import precedent in this suite) since DuckDB
+    enforces it. Returns the seeded mc_model_version."""
+    for uid in summary_var:
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward') ON CONFLICT DO NOTHING", [uid, uid])
+
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')",
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1)",
+        [ep_mv, mm_mv, ts_mv],
+    )
+    un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
+    so_run_id = con.execute(
+        "INSERT INTO squad_optimizer_runs (run_id, calibration_asof_date, target_season, target_gameweek, "
+        "ep_model_version, uncertainty_model_version, lambda_params_version, lambda_value, "
+        "guardrail_params_version, divergence_check_passed, solver_status, objective_value) "
+        "VALUES (nextval('seq_squad_optimizer_run'), '2026-08-10', '2026-2027', 1, ?, ?, 1, 0.15, 1, TRUE, 'optimal', 10.0) "
+        "RETURNING run_id",
+        [ep_mv, un_mv],
+    ).fetchone()[0]
+    mc_mv = con.execute("SELECT nextval('seq_monte_carlo_model_version')").fetchone()[0]
+    con.execute(
+        "INSERT INTO monte_carlo_run_versions (model_version, calibration_asof_date, squad_optimizer_run_id, "
+        "ep_model_version, minutes_model_version, team_strength_model_version, uncertainty_model_version, "
+        "rho_residual_params_version, z_fixture_lambda_representative, z_fixture_variance, n_antithetic_pairs, "
+        "query_id, seed) VALUES (?, '2026-08-10', ?, ?, ?, ?, ?, 1, 0.1, 0.1, 100, 'test', 1)",
+        [mc_mv, so_run_id, ep_mv, mm_mv, ts_mv, un_mv],
+    )
+
+    for uid, var_total in summary_var.items():
+        con.execute(
+            "INSERT INTO monte_carlo_player_summary (model_version, player_uid, mean_total, var_total, "
+            "quantile_05, quantile_25, quantile_75, quantile_95, min_total, max_total) "
+            "VALUES (?, ?, 4.0, ?, 0.0, 2.0, 6.0, 10.0, 0.0, 15.0)",
+            [mc_mv, uid, var_total],
+        )
+    for uid_a, uid_b, cov, relationship in pairs:
+        con.execute(
+            "INSERT INTO monte_carlo_empirical_covariance "
+            "(model_version, player_uid_a, player_uid_b, relationship, empirical_covariance) VALUES (?, ?, ?, ?, ?)",
+            [mc_mv, uid_a, uid_b, relationship, cov],
+        )
+    return mc_mv
+
+
+def test_report_covariance_dilution_returns_none_with_no_teammate_pairs(con):
+    mc_mv = _seed_covariance_pairs(con, [("a", "b", 0.5, "opponent")], summary_var={"a": 4.0, "b": 4.0})
+    assert mc.report_covariance_dilution(con, mc_mv) is None
+
+
+def test_report_covariance_dilution_excludes_non_teammate_pairs(con):
+    mc_mv = _seed_covariance_pairs(
+        con,
+        [("a", "b", 2.0, "teammate"), ("a", "c", 100.0, "opponent"), ("b", "c", 100.0, "independent")],
+        summary_var={"a": 4.0, "b": 4.0, "c": 4.0},
+    )
+    result = mc.report_covariance_dilution(con, mc_mv)
+    assert result["n_pairs"] == 1
+    assert result["mean"] == pytest.approx(2.0 / 4.0)  # cov/sqrt(4*4)
+
+
+def test_report_covariance_dilution_reports_distribution_not_just_mean(con):
+    # 4 teammate pairs at var=4.0 each (sqrt(var_a*var_b)=4.0) -> correlations 0.05/0.10/0.20/0.40
+    pairs = [("a", "b", 0.2, "teammate"), ("a", "c", 0.4, "teammate"), ("a", "d", 0.8, "teammate"), ("a", "e", 1.6, "teammate")]
+    mc_mv = _seed_covariance_pairs(con, pairs, summary_var={u: 4.0 for u in "abcde"})
+
+    result = mc.report_covariance_dilution(con, mc_mv)
+    assert result["n_pairs"] == 4
+    expected = [0.05, 0.10, 0.20, 0.40]
+    assert result["mean"] == pytest.approx(sum(expected) / len(expected))
+    assert result["min"] == pytest.approx(min(expected))
+    assert result["max"] == pytest.approx(max(expected))
+    assert result["min"] <= result["p25"] <= result["median"] <= result["p75"] <= result["max"]
+    # the distribution field is genuinely non-empty (not degenerate to a single repeated value)
+    assert result["min"] != result["max"]
+
+
+def test_report_covariance_dilution_skips_zero_variance_pairs(con):
+    mc_mv = _seed_covariance_pairs(con, [("a", "b", 0.5, "teammate")], summary_var={"a": 0.0, "b": 4.0})
+    assert mc.report_covariance_dilution(con, mc_mv) is None
