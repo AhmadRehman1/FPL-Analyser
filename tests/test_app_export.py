@@ -25,6 +25,27 @@ def test_build_player_directory_maps_and_rescales_fields():
     assert row["selected_by_percent"] == 42.3
 
 
+def test_build_player_directory_carries_official_news_fields():
+    bootstrap = {"teams": [{"id": 1, "name": "Arsenal", "short_name": "ARS"}], "elements": [{
+        "id": 1, "web_name": "Saliba", "first_name": "William", "second_name": "Saliba", "team": 1,
+        "element_type": 2, "now_cost": 60, "status": "d", "news": "Knock - 75% chance of playing",
+        "news_added": "2026-08-20T10:00:00Z", "chance_of_playing_next_round": 75,
+    }]}
+    [row] = ax.build_player_directory(bootstrap)
+    assert row["status"] == "d"
+    assert row["news"] == "Knock - 75% chance of playing"
+    assert row["chance_of_playing_next_round"] == 75
+
+
+def test_build_player_directory_reports_no_news_as_none_not_empty_string():
+    bootstrap = {"teams": [], "elements": [{
+        "id": 1, "web_name": "Fit", "first_name": "A", "second_name": "B", "team": None,
+        "element_type": 1, "now_cost": 45, "status": "a", "news": "",
+    }]}
+    [row] = ax.build_player_directory(bootstrap)
+    assert row["news"] is None
+
+
 def test_build_player_directory_handles_blank_numeric_strings():
     bootstrap = {"teams": [], "elements": [{
         "id": 1, "web_name": "New", "first_name": "New", "second_name": "Signing", "team": None,
@@ -34,6 +55,48 @@ def test_build_player_directory_handles_blank_numeric_strings():
     [row] = ax.build_player_directory(bootstrap)
     assert row["form"] is None
     assert row["team"] is None
+
+
+# ============================================================
+# build_price_watch
+# ============================================================
+
+def _player(id, web_name, transfers_in_event=0, transfers_out_event=0, **kw):
+    base = {
+        "id": id, "web_name": web_name, "team": "ARS", "team_name": "Arsenal", "position": "MID",
+        "price": 8.0, "selected_by_percent": 20.0,
+        "transfers_in_event": transfers_in_event, "transfers_out_event": transfers_out_event,
+    }
+    base.update(kw)
+    return base
+
+
+def test_build_price_watch_splits_risers_and_fallers_by_net_momentum():
+    directory = [
+        _player(1, "Riser", transfers_in_event=500_000, transfers_out_event=10_000),
+        _player(2, "Faller", transfers_in_event=5_000, transfers_out_event=300_000),
+        _player(3, "Quiet", transfers_in_event=0, transfers_out_event=0),
+    ]
+    out = ax.build_price_watch(directory, top_n=5)
+    assert [p["web_name"] for p in out["risers"]] == ["Riser"]
+    assert out["risers"][0]["net_transfers"] == 490_000
+    assert [p["web_name"] for p in out["fallers"]] == ["Faller"]
+    assert out["fallers"][0]["net_transfers"] == -295_000
+
+
+def test_build_price_watch_respects_top_n_and_sort_order():
+    directory = [
+        _player(1, "Small riser", transfers_in_event=10_000),
+        _player(2, "Big riser", transfers_in_event=100_000),
+    ]
+    out = ax.build_price_watch(directory, top_n=1)
+    assert [p["web_name"] for p in out["risers"]] == ["Big riser"]
+
+
+def test_build_price_watch_empty_when_no_transfer_activity():
+    directory = [_player(1, "Static")]
+    out = ax.build_price_watch(directory)
+    assert out == {"risers": [], "fallers": []}
 
 
 # ============================================================
@@ -166,6 +229,44 @@ def test_build_profile_reports_chip_usage_and_bests():
 
 
 # ============================================================
+# build_league_ownership
+# ============================================================
+
+def test_build_league_ownership_counts_ownership_and_captains():
+    standings_payload = {"standings": {"results": [
+        {"rank": 1, "entry": 555, "entry_name": "Nair-Do-Wells", "player_name": "Priya Nair"},
+        {"rank": 2, "entry": 556, "entry_name": "Obi Wan FC", "player_name": "Marcus Obi"},
+        {"rank": 3, "entry": 557, "entry_name": "No Picks Yet", "player_name": "New Joiner"},
+    ]}}
+    entry_picks_by_id = {
+        555: {"picks": [
+            {"element": 9, "multiplier": 2, "is_captain": True},
+            {"element": 4, "multiplier": 1, "is_captain": False},
+            {"element": 99, "multiplier": 0, "is_captain": False},  # benched, excluded
+        ]},
+        556: {"picks": [
+            {"element": 9, "multiplier": 1, "is_captain": False},
+            {"element": 4, "multiplier": 2, "is_captain": True},
+        ]},
+        557: None,  # no picks recorded yet -- excluded from the count entirely
+    }
+    player_directory = [
+        {"id": 9, "web_name": "Salah"}, {"id": 4, "web_name": "Saka"}, {"id": 99, "web_name": "Bench"},
+    ]
+    out = ax.build_league_ownership(standings_payload, entry_picks_by_id, player_directory)
+    assert out["n_entries_sampled"] == 2
+    assert out["most_owned"][0] == {"player_id": 9, "web_name": "Salah", "n_owners": 2, "pct_of_league": 100.0}
+    captains_by_entry = {c["entry_id"]: c["web_name"] for c in out["captains"]}
+    assert captains_by_entry == {555: "Salah", 556: "Saka"}
+
+
+def test_build_league_ownership_zero_when_nobody_has_picks_yet():
+    standings_payload = {"standings": {"results": [{"rank": 1, "entry": 1, "entry_name": "X", "player_name": "Y"}]}}
+    out = ax.build_league_ownership(standings_payload, {1: None}, [])
+    assert out == {"n_entries_sampled": 0, "most_owned": [], "captains": []}
+
+
+# ============================================================
 # build_leagues
 # ============================================================
 
@@ -187,3 +288,22 @@ def test_build_leagues_separates_overall_tile_from_fetched_tables():
     [table] = out["tables"]
     you_row = next(r for r in table["standings"] if r["is_you"])
     assert you_row["entry_id"] == 1305242
+    assert table["ownership"] is None  # not passed, so not fabricated
+
+
+def test_current_event_finds_the_is_current_gameweek():
+    bootstrap = {"events": [{"id": 6, "is_current": False}, {"id": 7, "is_current": True}, {"id": 8, "is_current": False}]}
+    assert ax.current_event(bootstrap) == 7
+
+
+def test_current_event_none_when_nothing_flagged_current():
+    assert ax.current_event({"events": [{"id": 1, "is_current": False}]}) is None
+    assert ax.current_event({"events": []}) is None
+
+
+def test_build_leagues_attaches_ownership_when_provided():
+    entry_summary = {"id": 1, "leagues": {"classic": [{"id": 99, "name": "Mates & Rivals"}]}}
+    standings_by_league = {99: {"standings": {"results": []}}}
+    ownership_by_league = {99: {"n_entries_sampled": 5, "most_owned": [], "captains": []}}
+    out = ax.build_leagues(entry_summary, standings_by_league, None, ownership_by_league)
+    assert out["tables"][0]["ownership"] == ownership_by_league[99]

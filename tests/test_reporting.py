@@ -504,6 +504,85 @@ def test_load_report_snapshot_none_when_missing(tmp_path):
     assert reporting.load_report_snapshot("2026-2027", 1, tmp_path) is None
 
 
+# ============================================================
+# build_track_record_summary
+# ============================================================
+
+def _seed_backtest_run(con, *, warm_up_gameweeks=3, steps, metrics):
+    """steps: list of (season, gameweek, tier). metrics: list of (season, gameweek, tier,
+    metric_name, metric_value), matching backtest_metrics' real composite key."""
+    backtest_run_id = con.execute(
+        "INSERT INTO backtest_runs (warm_up_gameweeks, notes) VALUES (?, 'test') RETURNING backtest_run_id",
+        [warm_up_gameweeks],
+    ).fetchone()[0]
+    for season, gw, tier in steps:
+        con.execute(
+            "INSERT INTO backtest_gameweek_steps (backtest_run_id, season, gameweek, tier, data_asof, divergence_check_passed) "
+            "VALUES (?, ?, ?, ?, '2026-08-10', TRUE)",
+            [backtest_run_id, season, gw, tier],
+        )
+    for season, gw, tier, metric_name, metric_value in metrics:
+        con.execute(
+            "INSERT INTO backtest_metrics (backtest_run_id, season, gameweek, tier, metric_name, metric_value) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [backtest_run_id, season, gw, tier, metric_name, metric_value],
+        )
+    return backtest_run_id
+
+
+def test_build_track_record_summary_none_when_no_backtest_run_yet():
+    # con is never touched when backtest_run_id is None -- passing None for it here is the point.
+    summary = reporting.build_track_record_summary(None, {"parameter_transparency": []}, None)
+    assert summary == {
+        "backtest_run_id": None, "n_gameweek_steps": None, "seasons_covered": [], "metrics": [],
+        "parameters_total": 0, "parameters_backtested": 0, "parameters_still_invented": 0,
+    }
+
+
+def test_build_track_record_summary_real_steps_and_metrics(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+
+    backtest_run_id = _seed_backtest_run(
+        con,
+        steps=[("2025-2026", 10, "warm"), ("2025-2026", 11, "warm"), ("2026-2027", 1, "cold")],
+        metrics=[
+            ("2025-2026", 10, "warm", "brier_appearance", 0.18),
+            ("2025-2026", 11, "warm", "brier_appearance", 0.22),
+            ("2026-2027", 1, "cold", "brier_appearance", 0.20),
+        ],
+    )
+
+    summary = reporting.build_track_record_summary(con, report, backtest_run_id)
+    assert summary["backtest_run_id"] == backtest_run_id
+    assert summary["n_gameweek_steps"] == 3
+    assert summary["seasons_covered"] == ["2025-2026", "2026-2027"]
+    assert summary["metrics"] == [{"metric_name": "brier_appearance", "mean_value": pytest.approx(0.2), "n_observations": 3}]
+    assert summary["parameters_total"] == 1
+    assert summary["parameters_backtested"] == 0  # no recalibration_proposals row for this family yet
+    assert summary["parameters_still_invented"] == 1
+
+
+def test_build_track_record_summary_flags_backtested_params(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    backtest_run_id = _seed_backtest_run(con, steps=[("2025-2026", 10, "warm")], metrics=[])
+    con.execute(
+        "INSERT INTO recalibration_proposals (backtest_run_id, param_family, param_key, new_params_version, "
+        "metric_name, metric_before, metric_after) VALUES (?, 'squad_optimizer_guardrail_params', 'xi_club_concentration_cap', "
+        "2, 'brier_appearance', 0.3, 0.2)",
+        [backtest_run_id],
+    )
+    # transparency_panel() reads recalibration_proposals live, so build_report must run AFTER
+    # the proposal above exists for backtested_via_m7 to see it.
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+
+    summary = reporting.build_track_record_summary(con, report, backtest_run_id)
+    assert summary["parameters_backtested"] == 1
+    assert summary["parameters_still_invented"] == 0
+
+
 def test_diff_reports_no_previous_snapshot(con):
     run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
     report = reporting.build_report(con, run_id)

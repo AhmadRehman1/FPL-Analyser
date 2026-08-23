@@ -1,0 +1,70 @@
+name: Live in-match tracking (Final Third, roadmap item 1)
+
+# Provisional bonus points + a sample-based live rank estimate while real Premier League
+# fixtures are actually being played. Deliberately a BROAD schedule (every 10 minutes across
+# typical PL matchday windows), not a precise per-fixture-kickoff cron the way
+# scheduled_pipeline.yml's deadline schedule is -- that precision needs real kickoff times
+# fetched from bootstrap-static/fixtures, which this sandbox's network policy blocks (same
+# limitation every live-fetch module in this project already documents). A future session with
+# real network access could build a print_live_windows.py analog to print_fpl_deadlines.py and
+# tighten this the same way; until then, scripts/export_live_data.py's own is_any_fixture_live()
+# check makes an off-target run cheap (a couple of API calls, then exit) rather than wasteful --
+# and this repo is public, so GitHub Actions minutes are free and unlimited regardless.
+on:
+  schedule:
+    - cron: "*/10 18-21 * * 5"    # Friday evening kickoffs
+    - cron: "*/10 11-22 * * 6"    # Saturday -- most of the round
+    - cron: "*/10 12-21 * * 0"    # Sunday
+    - cron: "*/10 18-22 * * 1"    # Monday Night Football
+    - cron: "*/10 18-22 * * 2,3"  # midweek rounds (rearranged fixtures, festive schedule, etc.)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  live-tracking:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Deliberately just `requests` -- this workflow never touches the DuckDB pipeline (no
+      # ingestion, no evidence workbooks), only live-fetch + pure in-memory computation (see
+      # live_tracking.py's own module docstring), so the full requirements.txt isn't needed.
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Export live data (no-op outside an actual live window)
+        run: |
+          PYTHONPATH=src python scripts/export_live_data.py \
+            "7139944:ChatGPT template team" \
+            "1305242:Main account"
+
+      - name: Commit live snapshots (only if anything was actually live)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # nullglob: before this workflow's very first real live window, no app_live_*.json
+          # has ever been committed, so the glob matches nothing -- without this, bash passes
+          # the literal unmatched pattern to `git add`, which errors ("did not match any
+          # files") and, under Actions' default `bash -e`, kills the whole step.
+          shopt -s nullglob
+          git add data/dashboard/app_live_*.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update live tracking snapshot [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
+            git fetch origin master
+            git rebase origin/master
+          done
+          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
+          exit 1

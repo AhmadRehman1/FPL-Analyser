@@ -109,7 +109,8 @@ def build_player_directory(bootstrap: dict) -> list[dict]:
     """One row per real FPL player, current-season totals only (no history) -- the source for
     both the Transfers screen's browse/search list and the Player Stats detail sheet's header
     stats. Everything here is a direct bootstrap-static field, renamed/rescaled (now_cost is
-    tenths of a million), never derived or estimated."""
+    tenths of a million), never derived or estimated. news/news_added are the game's own official
+    injury/suspension blurb (e.g. "Knock - 75% chance of playing"), not scraped or guessed."""
     teams_by_id = {t["id"]: t["short_name"] for t in bootstrap.get("teams", [])}
     team_names_by_id = {t["id"]: t["name"] for t in bootstrap.get("teams", [])}
     out = []
@@ -138,6 +139,10 @@ def build_player_directory(bootstrap: dict) -> list[dict]:
             "ict_index": float(e["ict_index"]) if e.get("ict_index") not in (None, "") else None,
             "status": e.get("status"),
             "chance_of_playing_next_round": e.get("chance_of_playing_next_round"),
+            "news": e.get("news") or None,
+            "news_added": e.get("news_added"),
+            "transfers_in_event": e.get("transfers_in_event", 0),
+            "transfers_out_event": e.get("transfers_out_event", 0),
         })
     return out
 
@@ -181,6 +186,26 @@ def build_fixtures_by_gameweek(bootstrap: dict, fixtures: list[dict]) -> dict:
             "fixtures": sorted(by_gw[gw], key=lambda x: x["kickoff_time"] or ""),
         })
     return {"gameweeks": gameweeks}
+
+
+def build_price_watch(player_directory: list[dict], top_n: int = 8) -> dict:
+    """Today's biggest real transfer-momentum movers -- net transfers in/out this event, straight
+    from bootstrap-static. Deliberately NOT a price-change prediction: FPL has never published
+    its price-change algorithm, so any specific "will rise/fall" threshold would be an unverified
+    guess dressed up as a fact. This only ever reports the real signal (who the field is actually
+    buying/selling right now) and leaves the call to the reader."""
+    with_momentum = [
+        {**p, "net_transfers": p["transfers_in_event"] - p["transfers_out_event"]}
+        for p in player_directory
+        if p["transfers_in_event"] or p["transfers_out_event"]
+    ]
+    risers = sorted((p for p in with_momentum if p["net_transfers"] > 0), key=lambda p: -p["net_transfers"])[:top_n]
+    fallers = sorted((p for p in with_momentum if p["net_transfers"] < 0), key=lambda p: p["net_transfers"])[:top_n]
+    keep = ("id", "web_name", "team", "team_name", "position", "price", "selected_by_percent", "net_transfers")
+    return {
+        "risers": [{k: p[k] for k in keep} for p in risers],
+        "fallers": [{k: p[k] for k in keep} for p in fallers],
+    }
 
 
 # ============================================================
@@ -298,12 +323,63 @@ def build_profile(entry_summary: dict, history: dict) -> dict:
     }
 
 
-def build_leagues(entry_summary: dict, standings_by_league: dict[int, dict], total_players: int | None) -> dict:
+def build_league_ownership(
+    standings_payload: dict, entry_picks_by_id: dict[int, dict | None], player_directory: list[dict],
+) -> dict:
+    """Real ownership/captaincy intelligence for one private league -- who's captaining what and
+    who owns whom, computed directly from each rival's own real picks for this gameweek (public
+    information the game itself already shows for any entry; the same category of fetch
+    ingest_fpl_entry_picks.py already does at global-sample scale, just pointed at one private
+    league's own much smaller entry list instead of a 200-entry sample of the Overall league).
+
+    entry_picks_by_id: {entry_id: picks_payload or None} -- a rival with no picks yet for this
+    event is silently excluded from the count, the same "no picks recorded" distinction
+    fetch_entry_picks() draws elsewhere; this keeps pct_of_league honest (denominator is who was
+    actually counted, not the league's full roster)."""
+    players_by_id = {p["id"]: p for p in player_directory}
+    results = standings_payload.get("standings", {}).get("results", [])
+
+    ownership_counts: dict[int, int] = {}
+    captains = []
+    n_counted = 0
+    for r in results:
+        payload = entry_picks_by_id.get(r["entry"])
+        if not payload:
+            continue
+        n_counted += 1
+        for pick in payload.get("picks", []):
+            if pick.get("multiplier", 0) > 0:
+                ownership_counts[pick["element"]] = ownership_counts.get(pick["element"], 0) + 1
+            if pick.get("is_captain"):
+                captains.append({
+                    "entry_id": r["entry"], "entry_name": r.get("entry_name"), "player_name": r.get("player_name"),
+                    "player_id": pick["element"], "web_name": players_by_id.get(pick["element"], {}).get("web_name"),
+                })
+
+    most_owned = sorted(
+        (
+            {
+                "player_id": pid, "web_name": players_by_id.get(pid, {}).get("web_name"), "n_owners": n,
+                "pct_of_league": round(n / n_counted * 100, 1) if n_counted else None,
+            }
+            for pid, n in ownership_counts.items()
+        ),
+        key=lambda row: -row["n_owners"],
+    )[:10]
+
+    return {"n_entries_sampled": n_counted, "most_owned": most_owned, "captains": captains}
+
+
+def build_leagues(
+    entry_summary: dict, standings_by_league: dict[int, dict], total_players: int | None,
+    ownership_by_league: dict[int, dict] | None = None,
+) -> dict:
     """Every real classic league the manager belongs to (from their own entry summary), plus
     a real standings table for whichever of those leagues were fetched (standings_by_league --
     the caller decides which, typically excluding the global Overall league). The Overall league
     itself is still surfaced as a rank/of-N-million tile using entry_summary's own numbers,
-    without fetching its (multi-million-row) standings."""
+    without fetching its (multi-million-row) standings. ownership_by_league (optional): each
+    fetched league's build_league_ownership() result, attached onto its table."""
     classic = entry_summary.get("leagues", {}).get("classic", [])
     tiles = []
     tables = []
@@ -336,9 +412,21 @@ def build_leagues(entry_summary: dict, standings_by_league: dict[int, dict], tot
                 }
                 for r in results
             ],
+            "ownership": (ownership_by_league or {}).get(league_id),
         })
     return {"tiles": tiles, "tables": tables}
 
 
 def generated_at() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def current_event(bootstrap: dict) -> int | None:
+    """The real gameweek FPL itself currently flags as in-progress (bootstrap-static's own
+    events[].is_current) -- None if the season hasn't started yet or every event is finished.
+    Shared by export_live_data.py and the on-demand per-manager workflow, which both need "what
+    gameweek is a manager's CURRENT squad set for" without a hardcoded number."""
+    for ev in bootstrap.get("events", []):
+        if ev.get("is_current"):
+            return ev["id"]
+    return None

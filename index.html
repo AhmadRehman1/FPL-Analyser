@@ -159,6 +159,17 @@
   .l-tile-of{font-size:9.5px;color:var(--on-dark-dim);}
 
   .table-card{background:var(--card);border-radius:18px;padding:4px 14px 6px;}
+  .ownership-card{background:var(--card);border-radius:18px;padding:14px 16px 16px;margin-top:10px;}
+  .ownership-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-dim2);margin-bottom:10px;}
+  .owned-list{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+  .owned-row{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;font-weight:600;}
+  .owned-row .bar-track{flex:1;height:6px;background:var(--card-2);border-radius:4px;margin:0 10px;position:relative;overflow:hidden;}
+  .owned-row .bar-fill{position:absolute;left:0;top:0;bottom:0;background:var(--green);border-radius:4px;}
+  .owned-row .pct{width:38px;text-align:right;color:var(--ink-dim);font-weight:700;flex-shrink:0;}
+  .captain-list{display:flex;flex-direction:column;gap:7px;}
+  .captain-row{display:flex;justify-content:space-between;font-size:12px;}
+  .captain-row .who{color:var(--ink-dim);}
+  .captain-row .pick{font-weight:700;}
   .table-head{display:flex;padding:11px 4px 9px;font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-dim2);font-weight:700;border-bottom:1px solid var(--divider);}
   .col-rk{width:38px;}
   .col-name{flex:1;}
@@ -264,6 +275,21 @@
 
   .profile-menu-link{display:block;text-align:center;background:var(--card);border-radius:14px;padding:13px;font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:10px;text-decoration:none;}
 
+  /* ---- flags (injury/news) ---- */
+  .flag-banner{background:oklch(0.94 0.1 60);border-left:4px solid var(--amber);border-radius:10px;padding:11px 13px;font-size:12px;color:oklch(0.32 0.1 50);line-height:1.5;margin-bottom:14px;}
+  .flag-banner.severe{background:oklch(0.92 0.1 25);border-left-color:var(--red);color:oklch(0.32 0.14 20);}
+  .flag-banner b{font-weight:700;}
+  .flag-strip{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+  .flag-row{display:flex;align-items:center;gap:10px;background:var(--card);border-left:4px solid var(--amber);border-radius:12px;padding:9px 12px;}
+  .flag-row.severe{border-left-color:var(--red);}
+  .flag-row .p-avatar-xs{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .flag-row .flag-text{flex:1;min-width:0;}
+  .flag-row .flag-name{font-size:11.5px;font-weight:700;}
+  .flag-row .flag-news{font-size:10.5px;color:var(--ink-dim);}
+
+  /* ---- stale-data notice ---- */
+  .stale-banner{max-width:460px;margin:0 auto 4px;padding:9px 16px;background:oklch(0.3 0.09 60/0.85);color:oklch(0.97 0.05 80);font-size:11.5px;font-weight:600;text-align:center;position:relative;z-index:3;}
+
   footer{text-align:center;font-size:10px;color:var(--on-dark-dim);padding:6px 20px 110px;position:relative;z-index:2;max-width:460px;margin:0 auto;}
   footer a{color:oklch(0.97 0.1 130);}
 </style>
@@ -275,12 +301,13 @@
   <path d="M20 110 h60 v100 h-60 z"/><path d="M320 110 h-60 v100 h60 z"/>
 </svg>
 
+<div class="stale-banner" id="stale-banner" hidden></div>
 <header class="topbar">
   <div class="brand-row">
     <h1>FPL Quant</h1>
     <div class="header-actions">
-      <select id="account-switcher"></select>
-      <button class="avatar-btn" id="avatar-btn" onclick="location.hash='profile'">--</button>
+      <select id="account-switcher" aria-label="Switch account"></select>
+      <button class="avatar-btn" id="avatar-btn" onclick="location.hash='profile'" aria-label="Open profile">--</button>
     </div>
   </div>
   <div class="live-pill">
@@ -328,7 +355,7 @@
 <div class="sheet-overlay" id="sheet-overlay" hidden>
   <div class="sheet">
     <div class="sheet-grabber"></div>
-    <button class="sheet-close" onclick="history.back()">&times;</button>
+    <button class="sheet-close" onclick="history.back()" aria-label="Close">&times;</button>
     <div id="sheet-content"></div>
   </div>
 </div>
@@ -340,6 +367,19 @@ const ACCOUNTS = [
   { id: 7139944, label: "ChatGPT template team" },
   { id: 1305242, label: "Main account" },
 ];
+const REPO_SLUG = "AhmadRehman1/FPL-Analyser";
+
+function loadCustomAccounts() {
+  try { return JSON.parse(localStorage.getItem("fq_custom_accounts")) || []; } catch { return []; }
+}
+function saveCustomAccount(account) {
+  const accounts = loadCustomAccounts().filter(a => a.id !== account.id);
+  accounts.push(account);
+  localStorage.setItem("fq_custom_accounts", JSON.stringify(accounts));
+}
+function allAccounts() {
+  return [...ACCOUNTS, ...loadCustomAccounts()];
+}
 const TABS = ["home", "team", "transfers", "fixtures", "leagues"];
 
 // Real Premier League primary colors -- public club brand colors, not invented.
@@ -360,19 +400,72 @@ const FDR_COLOR = (d) => d == null ? "oklch(0.85 0.005 90)" : d <= 2 ? "var(--fd
 
 const jerseyIcon = (fill) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B0B12" stroke-width="2"><path d="M12 3l3 2h4l-1 5-2 1v10H8V11L6 10 5 5h4l3-2z"/></svg>`;
 
+// FPL's own official status codes: a=available (not flagged), d=doubtful, i=injured,
+// s=suspended, u=unavailable/left the club, n=not eligible this round. All real, from
+// bootstrap-static -- never inferred.
+const isFlagged = (player) => player && player.status && player.status !== "a";
+const isSevereFlag = (player) => player && ["i", "s", "u", "n"].includes(player.status);
+
 const state = {
   accountId: Number(localStorage.getItem("fq_account_id")) || ACCOUNTS[1].id,
   players: null, playersById: null,
   fixtures: null, roadmap: null,
-  team: null, profile: null, leagues: null, realSquad: null,
+  team: null, profile: null, leagues: null, realSquad: null, live: null,
   lastTab: "home",
-  transferFilter: { position: "All", query: "" },
+  transferFilter: { position: "All", strategy: "all", query: "" },
 };
 
+// Each successful fetch is mirrored into localStorage (per-viewer only, per PWA convention) so
+// a later failed fetch (offline, a network blip) can fall back to the last real data this device
+// saw instead of just breaking -- and so the UI can say so honestly, not pretend it's live.
+const cacheKeyFor = (path) => `fq_cache_${path}`;
+
 async function fetchJSON(path) {
-  const res = await fetch(`${REPO_RAW}/${path}?t=${Date.now()}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
-  return res.json();
+  try {
+    const res = await fetch(`${REPO_RAW}/${path}?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+    const data = await res.json();
+    try { localStorage.setItem(cacheKeyFor(path), JSON.stringify({ data, cachedAt: Date.now() })); } catch {}
+    return data;
+  } catch (err) {
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(cacheKeyFor(path))); } catch {}
+    if (cached) {
+      state.staleSince = state.staleSince ? Math.min(state.staleSince, cached.cachedAt) : cached.cachedAt;
+      return cached.data;
+    }
+    throw err;
+  }
+}
+
+// Deliberately NOT fetchJSON: a missing app_live_<id>.json means "nothing is live right now",
+// not "the network failed, fall back to whatever was last cached" -- fetchJSON's stale-data
+// fallback would otherwise resurrect a match that ended hours ago and present it as in-play.
+async function fetchLiveData(entryId) {
+  try {
+    const res = await fetch(`${REPO_RAW}/data/dashboard/app_live_${entryId}.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+const LIVE_POLL_INTERVAL_MS = 60_000;
+
+async function pollLiveData() {
+  state.live = await fetchLiveData(state.accountId);
+  if (state.lastTab === "home" || state.lastTab === "team") renderCurrentTab();
+}
+
+function updateStaleBanner() {
+  const banner = document.getElementById("stale-banner");
+  if (state.staleSince) {
+    banner.hidden = false;
+    banner.textContent = `Showing cached data from ${fmtTime(new Date(state.staleSince).toISOString())} — couldn't reach the network just now.`;
+  } else {
+    banner.hidden = true;
+  }
 }
 
 function fmtTime(iso, opts) {
@@ -382,8 +475,10 @@ function fmtTime(iso, opts) {
 function fmtMoney(v) { return v == null ? "&mdash;" : `£${v.toFixed(1)}m`; }
 function fmtCompact(n) {
   if (n == null) return "&mdash;";
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "m";
-  if (n >= 1_000) return Math.round(n / 1000) + "k";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return sign + (abs / 1_000_000).toFixed(1).replace(/\.0$/, "") + "m";
+  if (abs >= 1_000) return sign + Math.round(abs / 1000) + "k";
   return String(n);
 }
 function initials(name) {
@@ -391,20 +486,34 @@ function initials(name) {
   return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
 }
 
+// Anything a user typed themselves (an account nickname) or that another manager set on their
+// own FPL profile (a rival team/player name in the Leagues screen) is free text, not markup --
+// escaped before landing in an innerHTML template so it always renders as the literal text it
+// is, never gets parsed as HTML, and never silently vanishes (an unescaped "<Team>" is parsed
+// as an unknown tag and dropped by the browser rather than shown).
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 // ============================================================
 // data loading
 // ============================================================
 
 async function loadShared() {
-  const [playersPayload, fixturesPayload, roadmap] = await Promise.all([
+  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch] = await Promise.all([
     fetchJSON("data/dashboard/app_players.json"),
     fetchJSON("data/dashboard/app_fixtures.json"),
     fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
+    fetchJSON("data/dashboard/app_track_record.json").catch(() => null),
+    fetchJSON("data/dashboard/app_price_watch.json").catch(() => null),
   ]);
   state.players = playersPayload.players;
   state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
   state.fixtures = fixturesPayload.gameweeks;
   state.roadmap = roadmap;
+  state.trackRecord = trackRecord;
+  state.priceWatch = priceWatch;
   document.getElementById("updated-at").textContent = `Last run: ${fmtTime(playersPayload.generated_at)}`;
 }
 
@@ -421,12 +530,23 @@ async function loadAccount(id) {
 
 function populateAccountSwitcher() {
   const sel = document.getElementById("account-switcher");
-  sel.innerHTML = ACCOUNTS.map(a => `<option value="${a.id}" ${a.id === state.accountId ? "selected" : ""}>${a.label}</option>`).join("");
+  sel.innerHTML =
+    allAccounts().map(a => `<option value="${a.id}" ${a.id === state.accountId ? "selected" : ""}>${escapeHtml(a.label)}</option>`).join("")
+    + `<option value="add-team">+ Add your team&hellip;</option>`;
   sel.onchange = async () => {
+    if (sel.value === "add-team") {
+      sel.value = state.accountId;
+      location.hash = "add-team";
+      return;
+    }
     state.accountId = Number(sel.value);
     localStorage.setItem("fq_account_id", state.accountId);
+    state.staleSince = null;
+    state.live = null;
     await loadAccount(state.accountId);
+    updateStaleBanner();
     renderCurrentTab();
+    pollLiveData();
   };
 }
 
@@ -444,6 +564,10 @@ function route() {
   }
   if (hash === "profile") {
     openProfileSheet();
+    return;
+  }
+  if (hash === "add-team") {
+    openAddTeamSheet();
     return;
   }
   closeSheet();
@@ -508,6 +632,32 @@ function formationOf(squad) {
   return `${counts.DEF}-${counts.MID}-${counts.FWD}`;
 }
 
+function liveNowBlock() {
+  const live = state.live;
+  if (!live) return "";
+  const rk = live.rank_estimate;
+  const bonusEarners = live.players.filter(p => p.provisional_bonus > 0);
+  return `
+    <div class="section">
+      <div class="card" style="background:linear-gradient(155deg,oklch(0.95 0.05 130),oklch(0.92 0.08 130));">
+        <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;">
+          <span class="live"><span class="dot"></span>Live now &middot; GW${live.gameweek}</span>
+        </div>
+        <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">
+          <span style="font-family:'Anton',sans-serif;font-size:32px;">${live.live_total}</span>
+          <span style="font-size:12px;color:var(--ink-dim);">points so far, bonus included</span>
+        </div>
+        ${bonusEarners.length ? `<div style="font-size:11.5px;color:var(--ink-dim);margin-bottom:8px;">
+          Provisional bonus: ${bonusEarners.map(p => `${p.web_name} +${p.provisional_bonus}`).join(", ")}
+        </div>` : ""}
+        ${rk && rk.sample_size ? `<div style="font-size:11px;color:var(--ink-dim2);line-height:1.5;">
+          Est. rank ~${rk.estimated_rank ? rk.estimated_rank.toLocaleString() : "&mdash;"} &mdash; beating ${rk.percentile}%
+          of ${rk.sample_size} managers sampled near your rank right now, not FPL's own official number.
+        </div>` : ""}
+      </div>
+    </div>`;
+}
+
 function renderHome() {
   const el = document.getElementById("home-content");
   if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
@@ -518,6 +668,7 @@ function renderHome() {
   const leagueTable = state.leagues && state.leagues.tables[0];
 
   el.innerHTML = `
+    ${liveNowBlock()}
     <div class="section">
       <div class="card" style="padding-top:14px;">
         <div class="card-title">Gameweek ${state.team.gameweek ?? ""}${deadline ? ` &middot; deadline ${fmtTime(deadline)}` : ""}</div>
@@ -565,7 +716,7 @@ function renderHome() {
         ${leagueTable.standings.slice(0, 3).map(r => `
           <div class="t-row ${r.is_you ? "you" : ""}">
             <div class="t-rk">${r.rank}</div>
-            <div class="t-name-wrap"><div class="t-name">${r.player_name}${r.is_you ? " (you)" : ""}</div><div class="t-team">${r.entry_name || ""}</div></div>
+            <div class="t-name-wrap"><div class="t-name">${escapeHtml(r.player_name)}${r.is_you ? " (you)" : ""}</div><div class="t-team">${escapeHtml(r.entry_name || "")}</div></div>
             <div class="t-pts">${r.total}</div>
           </div>`).join("")}
       </div>
@@ -583,13 +734,40 @@ function renderHome() {
 // TEAM
 // ============================================================
 
+function liveBonusFor(playerId) {
+  if (!state.live) return 0;
+  const row = state.live.players.find(p => p.player_id === playerId);
+  return row ? row.provisional_bonus : 0;
+}
+
 function pitchRow(players) {
-  return `<div class="prow">${players.map(p => `
+  return `<div class="prow">${players.map(p => {
+    const bonus = liveBonusFor(p.player_id);
+    return `
     <div class="pcard" onclick="location.hash='player-${p.player_id}'">
       <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
       ${p.is_captain ? `<div class="cap-badge">C</div>` : p.is_vice_captain ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
       <div class="p-tag">${p.web_name}</div>
-      <div class="p-pts-tag">${p.event_points}</div>
+      <div class="p-pts-tag">${p.event_points + bonus}${bonus ? ` <span style="opacity:0.85;">(+${bonus})</span>` : ""}</div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function flaggedSquadRows() {
+  return state.team.squad
+    .map(p => ({ pick: p, player: state.playersById[p.player_id] }))
+    .filter(({ player }) => isFlagged(player));
+}
+
+function flagStripBlock(rows) {
+  if (!rows.length) return "";
+  return `<div class="flag-strip">${rows.map(({ pick, player }) => `
+    <div class="flag-row ${isSevereFlag(player) ? "severe" : ""}" onclick="location.hash='player-${pick.player_id}'">
+      <div class="p-avatar-xs" style="background:${clubColor(pick.team_name)}">${jerseyIcon()}</div>
+      <div class="flag-text">
+        <div class="flag-name">${pick.web_name}</div>
+        <div class="flag-news">${player.news || (player.chance_of_playing_next_round != null ? `${player.chance_of_playing_next_round}% chance of playing` : "Flagged by the club")}</div>
+      </div>
     </div>`).join("")}</div>`;
 }
 
@@ -600,6 +778,7 @@ function renderTeam() {
   const xi = squad.filter(p => p.in_xi);
   const bench = squad.filter(p => !p.in_xi).sort((a, b) => a.squad_position - b.squad_position);
   const byPos = (pos) => xi.filter(p => p.position === pos).sort((a, b) => a.squad_position - b.squad_position);
+  const flagged = flaggedSquadRows();
 
   el.innerHTML = `
     <div class="section-title" style="margin-bottom:12px;"><span>${state.team.team_name || "My Team"}</span><span class="link-sm">GW ${state.team.gameweek ?? ""}</span></div>
@@ -609,6 +788,7 @@ function renderTeam() {
       <div class="stat-tile"><div class="k">Value</div><div class="v">${fmtMoney(state.team.team_value)}</div></div>
       <div class="stat-tile"><div class="k">Free Transfers</div><div class="v">${state.team.free_transfers ?? "&mdash;"}</div></div>
     </div>
+    ${flagStripBlock(flagged)}
     <div class="pitch-wrap">
       <div class="pitch-stripe"></div>
       <div class="pitch-lines">
@@ -659,10 +839,16 @@ function playerRow(p) {
     </div>`;
 }
 
+// Community-standard-ish thresholds, not an official FPL definition -- labeled as such in the UI.
+const DIFFERENTIAL_MAX_OWNED = 10;
+const TEMPLATE_MIN_OWNED = 30;
+
 function filteredPlayers() {
-  const { position, query } = state.transferFilter;
+  const { position, strategy, query } = state.transferFilter;
   return state.players
     .filter(p => position === "All" || p.position === position)
+    .filter(p => strategy !== "differentials" || (p.selected_by_percent ?? 100) < DIFFERENTIAL_MAX_OWNED)
+    .filter(p => strategy !== "template" || (p.selected_by_percent ?? 0) >= TEMPLATE_MIN_OWNED)
     .filter(p => !query || p.web_name.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => (b.form ?? -1) - (a.form ?? -1));
 }
@@ -680,6 +866,36 @@ function setTransferFilter(position) {
   renderTransferList();
 }
 
+function setStrategyFilter(strategy) {
+  state.transferFilter.strategy = strategy;
+  document.querySelectorAll(".filter-chip[data-strategy]").forEach(el => el.classList.toggle("active", el.dataset.strategy === strategy));
+  renderTransferList();
+}
+
+function priceWatchBlock() {
+  const pw = state.priceWatch;
+  if (!pw || (!pw.risers.length && !pw.fallers.length)) return "";
+  const row = (p) => `
+    <div class="player-chip" onclick="location.hash='player-${p.id}'">
+      <div class="p-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      <div class="p-name">${p.web_name}</div>
+      <div class="p-team">${p.team || ""}</div>
+      <div class="p-pts" style="color:${p.net_transfers > 0 ? "var(--green)" : "var(--red)"};font-size:12px;">${p.net_transfers > 0 ? "+" : ""}${fmtCompact(p.net_transfers)}</div>
+    </div>`;
+  return `
+    <div class="section">
+      <div class="card">
+        <div class="card-title">Transfer momentum today</div>
+        ${pw.risers.length ? `<div class="hscroll" style="margin-bottom:10px;">${pw.risers.map(row).join("")}</div>` : ""}
+        ${pw.fallers.length ? `<div class="hscroll">${pw.fallers.map(row).join("")}</div>` : ""}
+        <p style="font-size:10.5px;color:var(--ink-dim2);margin:12px 0 0;line-height:1.5;">
+          Real net transfers in/out today, not a price-change prediction &mdash; FPL has never
+          published its actual price algorithm.
+        </p>
+      </div>
+    </div>`;
+}
+
 function renderTransfers() {
   const el = document.getElementById("transfers-content");
   const recs = state.realSquad;
@@ -691,11 +907,17 @@ function renderTransfers() {
         ${recListBlock(recs && recs.transfer_recommendations, 5)}
       </div>
     </div>
+    ${priceWatchBlock()}
     <div class="section">
       <div class="section-title"><span>Browse players</span></div>
       <input class="search-input" id="player-search" type="search" placeholder="Search players&hellip;" value="${state.transferFilter.query}">
       <div class="filter-row">
         ${["All", "GKP", "DEF", "MID", "FWD"].map(pos => `<button class="filter-chip ${pos === state.transferFilter.position ? "active" : ""}" data-pos="${pos}" onclick="setTransferFilter('${pos}')">${pos}</button>`).join("")}
+      </div>
+      <div class="filter-row">
+        <button class="filter-chip ${state.transferFilter.strategy === "all" ? "active" : ""}" data-strategy="all" onclick="setStrategyFilter('all')">All ownership</button>
+        <button class="filter-chip ${state.transferFilter.strategy === "differentials" ? "active" : ""}" data-strategy="differentials" onclick="setStrategyFilter('differentials')">Differentials &lt;${DIFFERENTIAL_MAX_OWNED}%</button>
+        <button class="filter-chip ${state.transferFilter.strategy === "template" ? "active" : ""}" data-strategy="template" onclick="setStrategyFilter('template')">Template ${TEMPLATE_MIN_OWNED}%+</button>
       </div>
       <div id="transfer-list"></div>
     </div>
@@ -803,9 +1025,9 @@ function renderFixtures() {
     <div class="section-title" style="margin-bottom:12px;">
       <span>Fixtures</span>
       <div class="gw-switch">
-        <button class="gw-btn" id="fixtures-prev" onclick="shiftFixturesGw(-1)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="gw-btn" id="fixtures-prev" onclick="shiftFixturesGw(-1)" aria-label="Previous gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
         <span class="gw-label" id="fixtures-gw-label"></span>
-        <button class="gw-btn" id="fixtures-next" onclick="shiftFixturesGw(1)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+        <button class="gw-btn" id="fixtures-next" onclick="shiftFixturesGw(1)" aria-label="Next gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
       </div>
     </div>
     <div id="fixtures-list"></div>
@@ -817,6 +1039,28 @@ function renderFixtures() {
 // ============================================================
 // LEAGUES
 // ============================================================
+
+function ownershipBlock(ownership) {
+  if (!ownership || !ownership.n_entries_sampled) return "";
+  const maxOwners = Math.max(...ownership.most_owned.map(p => p.n_owners), 1);
+  return `
+    <div class="ownership-card">
+      <div class="ownership-title">Most owned in this league (${ownership.n_entries_sampled} managers)</div>
+      <div class="owned-list">
+        ${ownership.most_owned.slice(0, 6).map(p => `
+          <div class="owned-row" onclick="location.hash='player-${p.player_id}'">
+            <span>${p.web_name}</span>
+            <span class="bar-track"><span class="bar-fill" style="width:${(p.n_owners / maxOwners * 100).toFixed(0)}%"></span></span>
+            <span class="pct">${p.pct_of_league}%</span>
+          </div>`).join("")}
+      </div>
+      <div class="ownership-title">Captains this gameweek</div>
+      <div class="captain-list">
+        ${ownership.captains.map(c => `
+          <div class="captain-row"><span class="who">${escapeHtml(c.player_name)}</span><span class="pick">${escapeHtml(c.web_name) || "&mdash;"}</span></div>`).join("") || `<span style="font-size:12px;color:var(--ink-dim);">No picks recorded yet.</span>`}
+      </div>
+    </div>`;
+}
 
 function renderLeagues() {
   const el = document.getElementById("leagues-content");
@@ -837,10 +1081,11 @@ function renderLeagues() {
           ${table.standings.map(r => `
             <div class="t-row ${r.is_you ? "you" : ""}">
               <div class="t-rk" style="${r.is_you ? "color:var(--green);" : ""}">${r.rank}</div>
-              <div class="t-name-wrap"><div class="t-name">${r.player_name}${r.is_you ? " (you)" : ""}</div><div class="t-team">${r.entry_name || ""}</div></div>
+              <div class="t-name-wrap"><div class="t-name">${escapeHtml(r.player_name)}${r.is_you ? " (you)" : ""}</div><div class="t-team">${escapeHtml(r.entry_name || "")}</div></div>
               <div class="t-pts" style="${r.is_you ? "color:var(--green);" : ""}">${r.total}</div>
             </div>`).join("")}
         </div>
+        ${ownershipBlock(table.ownership)}
       </div>`).join("")}
   `;
 }
@@ -876,6 +1121,7 @@ function openPlayerSheet(id) {
         <div class="sub">${p.team_name || ""} &middot; ${p.position || ""}</div>
         <div class="price">${fmtMoney(p.price)}</div>
       </div>
+      ${isFlagged(p) ? `<div class="flag-banner ${isSevereFlag(p) ? "severe" : ""}"><b>${p.news || "Flagged by the club"}</b>${p.chance_of_playing_next_round != null ? ` &mdash; ${p.chance_of_playing_next_round}% chance of playing` : ""}</div>` : ""}
       <div class="stat-grid4">
         <div class="g-tile"><div class="g-label">Total Pts</div><div class="g-value">${p.total_points}</div></div>
         <div class="g-tile"><div class="g-label">Form</div><div class="g-value" style="color:var(--green);">${p.form ?? "&mdash;"}</div></div>
@@ -906,6 +1152,83 @@ function openPlayerSheet(id) {
 // PROFILE SHEET
 // ============================================================
 
+function trackRecordBlock() {
+  const tr = state.trackRecord;
+  if (!tr) return "";
+  if (tr.backtest_run_id == null) {
+    return `
+      <div class="section-title" style="color:var(--on-dark);"><span>Model track record</span></div>
+      <p class="empty-state" style="margin-bottom:16px;">No walk-forward backtest has been run yet.</p>`;
+  }
+  const metricRows = tr.metrics.map(m => `
+    <div class="sl-row"><div class="sl-label">${m.metric_name.replace(/_/g, " ")}</div><div class="sl-value">${m.mean_value} <span style="color:var(--ink-dim2);font-weight:500;">(${m.n_observations} obs)</span></div></div>`).join("");
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Model track record</span></div>
+    <div class="stat-list" style="margin-bottom:16px;">
+      <div class="sl-row"><div class="sl-label">Backtested gameweeks</div><div class="sl-value">${tr.n_gameweek_steps} across ${tr.seasons_covered.join(", ")}</div></div>
+      ${metricRows}
+      <div class="sl-row"><div class="sl-label">Parameters backtested</div><div class="sl-value">${tr.parameters_backtested} / ${tr.parameters_total}</div></div>
+      <div class="sl-row"><div class="sl-label">Still literature defaults</div><div class="sl-value">${tr.parameters_still_invented}</div></div>
+    </div>
+    <p style="font-size:11px;line-height:1.6;color:var(--on-dark-dim);margin:-6px 0 16px;">
+      Real numbers from the model's own walk-forward backtest, not a marketing accuracy score &mdash;
+      the parameter count is deliberately honest about what's still a literature default vs. what's
+      actually been recalibrated against real outcomes.
+    </p>`;
+}
+
+// ============================================================
+// ADD YOUR TEAM SHEET (multi-user, no new hosting)
+// ============================================================
+
+function addTeamIssueUrl(entryId, label) {
+  const title = `[add-manager] ${label}`;
+  const body = `entry_id: ${entryId}\nlabel: ${label}\n\n(Opened from the FPL Quant app's "Add your team" screen. A workflow processes this automatically -- usually within a couple of minutes.)`;
+  const params = new URLSearchParams({ title, body });
+  return `https://github.com/${REPO_SLUG}/issues/new?${params.toString()}`;
+}
+
+function openAddTeamSheet() {
+  const content = document.getElementById("sheet-content");
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:6px;">
+      <div class="name" style="font-size:19px;">Add your team</div>
+      <div class="sub" style="max-width:280px;text-align:center;line-height:1.5;">
+        Enter your FPL team ID to get your own real transfer plan and dashboard. This opens a
+        GitHub issue that a workflow processes automatically &mdash; usually ready in 1&ndash;2
+        minutes. Requires a free GitHub account.
+      </div>
+    </div>
+    <div class="stat-list" style="margin-bottom:14px;padding:16px;">
+      <label style="display:block;font-size:11px;font-weight:700;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">FPL team ID</label>
+      <input class="search-input" id="add-team-id" type="number" inputmode="numeric" placeholder="e.g. 1305242" style="margin-bottom:14px;">
+      <div style="font-size:10.5px;color:var(--ink-dim2);margin:-10px 0 14px;">From your team's URL: fantasy.premierleague.com/entry/<b>&lt;id&gt;</b>/...</div>
+      <label style="display:block;font-size:11px;font-weight:700;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Nickname (optional)</label>
+      <input class="search-input" id="add-team-label" type="text" placeholder="e.g. My Team" maxlength="40">
+    </div>
+    <button class="profile-menu-link" style="background:var(--green);color:white;border:none;font-size:13.5px;" id="add-team-submit">Continue on GitHub &rsaquo;</button>
+    <div id="add-team-status" style="font-size:11.5px;color:var(--on-dark-dim);text-align:center;margin-top:12px;line-height:1.6;"></div>
+  `;
+  document.getElementById("add-team-submit").onclick = () => {
+    const idInput = document.getElementById("add-team-id");
+    const labelInput = document.getElementById("add-team-label");
+    const entryId = parseInt(idInput.value, 10);
+    const status = document.getElementById("add-team-status");
+    if (!entryId || entryId <= 0) {
+      status.textContent = "Enter a valid numeric team ID first.";
+      status.style.color = "var(--red)";
+      return;
+    }
+    const label = (labelInput.value.trim() || `Manager ${entryId}`).slice(0, 40);
+    window.open(addTeamIssueUrl(entryId, label), "_blank", "noopener");
+    saveCustomAccount({ id: entryId, label });
+    populateAccountSwitcher();
+    status.style.color = "var(--on-dark-dim)";
+    status.textContent = `Opened a GitHub issue for "${label}". Once it's processed, come back and pick it from the account switcher at the top.`;
+  };
+  document.getElementById("sheet-overlay").hidden = false;
+}
+
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
@@ -930,6 +1253,7 @@ function openProfileSheet() {
             <div class="v" style="font-size:11px;">${c.used ? `Used GW${c.used_gameweek}` : "Available"}</div>
           </div>`).join("")}
       </div>
+      ${trackRecordBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>
     `;
@@ -947,10 +1271,14 @@ if ("serviceWorker" in navigator) {
 
 async function init() {
   try {
+    state.staleSince = null;
     await loadShared();
     await loadAccount(state.accountId);
     populateAccountSwitcher();
+    updateStaleBanner();
     route();
+    pollLiveData();
+    setInterval(pollLiveData, LIVE_POLL_INTERVAL_MS);
   } catch (err) {
     document.getElementById("home-content").innerHTML = `
       <div class="card">

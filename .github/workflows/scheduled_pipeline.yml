@@ -131,6 +131,23 @@ jobs:
       - name: Run ingestion (M0-M6)
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
+      # Multi-user roadmap item: the on-demand-report.yml workflow needs a freshly-ingested
+      # DB to bootstrap a NEW manager's transfer plan from (M8) without re-running the entire
+      # M0-M7 pipeline itself (expensive, and pointless duplicate work of what THIS job just
+      # did). actions/cache is the free, GitHub-native way to hand that file to a later,
+      # separate workflow run -- no external storage/DB service needed. Key is unique per run
+      # (github.run_id) so every scheduled run always writes a fresh entry; the on-demand
+      # workflow finds it via a `duckdb-` prefix restore-key match (newest wins), not this exact
+      # key, since it can't predict a run_id it wasn't part of. Saved right after ingestion,
+      # before the per-account transfer-planner steps below -- those only add manager-specific
+      # state on top and the on-demand workflow bootstraps its own fresh manager state anyway,
+      # so the cached snapshot doesn't need to (and shouldn't have to) wait on them.
+      - name: Cache the freshly-ingested DB for on-demand manager requests
+        uses: actions/cache/save@v4
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-${{ github.run_id }}
+
       # Runs for real on every scheduled run (not manual-dispatch-only anymore) for both real
       # FPL accounts this project tracks -- has to live in THIS job, right after ingestion,
       # since it needs the same ephemeral database run_ingestion.py just populated in this same
