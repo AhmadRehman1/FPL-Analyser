@@ -413,14 +413,11 @@ scripts/run_rival_sample_ingestion.py -- Priority 10 Phase A: samples real rival
                                      default flow (its own request-volume/rate-limit concern)
 .github/workflows/scheduled_pipeline.yml -- Priority 8a: the real scheduled-job runner (GitHub
                                      Actions, not a Claude Code Remote Routine -- this sandbox's
-                                     own network policy blocks the sites the pipeline needs)
-scripts/print_fpl_deadlines.py      -- Priority 8a: real gameweek deadline_time values from
-                                     bootstrap-static, plus each one's "1 day before" cron
-                                     expression -- the manual re-sync tool scheduled_pipeline.yml's
-                                     own cron list is generated from (re-run whenever the real
-                                     season schedule changes; GitHub Actions cron can't be
-                                     dynamically rescheduled from inside a run, so this isn't
-                                     automatic). Runnable via .github/workflows/print_deadlines.yml
+                                     own network policy blocks the sites the pipeline needs).
+                                     Runs unconditionally twice a day (06:00/18:00 UTC) -- no
+                                     deadline-tracking, no per-gameweek cron list to maintain
+                                     (see the Status section's own note on why the original
+                                     one-cron-per-deadline design was abandoned)
                                      (workflow_dispatch, no ingestion -- fast).
 docs/priority10_field_simulator_design.md -- Priority 10: the design doc for the full rival-
                                      squad-distribution field simulator (Phase A implemented,
@@ -1104,6 +1101,14 @@ for the existing (real-data) `lambda_value` finding above.
   flips from passing to failing week-over-week (Priority 8b's own exact wording) -- ordinary
   squad/captain churn is expected and already visible in the diff report itself, not
   alert-worthy on its own.
+- **The per-deadline cron above was later abandoned for a plain twice-daily schedule.** A single
+  run 1 day before each deadline meant the freshest a recommendation ever got was 24h stale --
+  team news, price moves, and injury updates in that last day were never reflected, and a single
+  failed run left the whole gameweek on stale data with no automatic retry until the next one.
+  `scheduled_pipeline.yml` now runs unconditionally at 06:00 and 18:00 UTC every day, with no
+  deadline-tracking at all: self-maintaining (a postponed fixture doesn't invalidate anything,
+  no more manual re-sync), and at most ~12h stale instead of up to a week. A `concurrency` group
+  queues rather than overlaps a run that lands mid-execution (a full run takes ~20-25 minutes).
 - **A real gap the first live scheduled-workflow runs surfaced: `run_ingestion.py` silently
   assumed a persistent, already-recalibrated database that a fresh CI checkout never has.**
   `db/*.duckdb` is gitignored by design (a rebuilt-each-run artifact, not source) -- but M7's
