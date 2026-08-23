@@ -107,6 +107,16 @@ def main() -> None:
     )
     print(f"[recalibrate] {time.time() - t0:.1f}s -> {len(proposal_ids)} pending proposals: {proposal_ids}")
 
+    if proposal_ids:
+        # Review B1 (Gate G1): mirrors the recalibration_proposals rows just written into a
+        # committed JSON file, so the values survive independently of the local db/*.duckdb
+        # (gitignored, rebuilt fresh every run) that would otherwise be their only record.
+        # Every seed here is 'pending' -- see write_recalibration_seeds()'s own docstring for
+        # why this never activates anything; a human still has to review and re-author the
+        # seed's status before scripts/run_ingestion.py will ever load it.
+        seed_path = backtest.write_recalibration_seeds(con, backtest_run_id, proposal_ids)
+        print(f"[write_recalibration_seeds] wrote {seed_path} ({len(proposal_ids)} pending seeds)")
+
     con.close()
 
 

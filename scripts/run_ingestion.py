@@ -15,13 +15,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import (  # noqa: E402
-    db, decay, expected_points, ingest_csv, ingest_research_pull, ingest_understat, ingest_workbook, minutes_model,
-    monte_carlo, params, reconcile, reporting, squad_optimizer, team_strength, transfer_planner, uncertainty,
+    backtest, db, decay, expected_points, ingest_csv, ingest_research_pull, ingest_understat, ingest_workbook,
+    minutes_model, monte_carlo, params, reconcile, reporting, squad_optimizer, team_strength, transfer_planner,
+    uncertainty,
 )
 
 DATA_ROOT = REPO_ROOT / "data" / "external" / "FPL-Core-Insights-main" / "data"
 XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_202627_Master_Evidence_Database.xlsx"
 RESEARCH_PULL_XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_Evidence_Claims_Research_Pull.xlsx"
+# Review B1 (Gate G1): the committed, human-reviewed recalibration seed file -- see
+# data/recalibration/seeds_confirmed_v2.json for what's in it and why.
+RECALIBRATION_SEED_PATH = REPO_ROOT / "data" / "recalibration" / "seeds_confirmed_v2.json"
 # "Now", not a hardcoded date: a model run's data_asof has to be today for evidence ingested
 # today to actually be visible (a fixed past date would look-ahead-safely -- but wrongly --
 # exclude same-day evidence every time this script re-runs).
@@ -65,9 +69,15 @@ def main() -> None:
     # developed against (correctly gitignored as a build artifact, never committed) -- a fresh
     # database (every scheduled CI run; db/*.duckdb doesn't persist between them) has to
     # re-materialize it explicitly rather than resolve a version that was never written here.
-    # Re-recorded as its own immutable v2 row, matching this project's own real activation
-    # commit (7bf7604), not re-derived or guessed.
-    params.write_param(con, "model_decay_params", 2, "2026-08-12", "xi", value_numeric=0.005)
+    # Review B1 (Gate G1): sourced from the committed, disclosed seed file instead of a bare
+    # inline literal -- see data/recalibration/seeds_confirmed_v2.json for why this specific
+    # pair is safe to load as an active default (already human-confirmed via commit 7bf7604,
+    # not a still-pending proposal). Falls back to the same value with a visible warning if
+    # that file is ever missing, so a fresh checkout still ingests successfully.
+    xi_seed = backtest.resolve_confirmed_seed_or_warn(
+        RECALIBRATION_SEED_PATH, "model_decay_params", "xi", fallback_value=0.005, fallback_params_version=2,
+    )
+    params.write_param(con, "model_decay_params", xi_seed["params_version"], "2026-08-12", "xi", value_numeric=xi_seed["value"])
     # M2 v1 defaults, adapted to the real injury-status vocabulary this workbook actually
     # uses (Out/Doubt/Doubt (improving)/Doubt (minutes)), not the spec's illustrative
     # Out/Doubtful/Minor-knock/Fit strings -- see README for the mapping rationale.
@@ -103,8 +113,15 @@ def main() -> None:
     # Same re-materialization as model_decay_params.xi above: M7's real backtest confirmed
     # rho_residual=0.0 (independent -- see README's own Status section), activated for real via
     # commit 7bf7604, but that confirmed param_versions row only ever existed in the since-lost
-    # local db/fpl_quant_v2.duckdb. Re-recorded here as its own immutable v2 row.
-    params.write_param(con, "correlation_params", 2, "2026-08-12", "rho_residual", value_numeric=0.0)
+    # local db/fpl_quant_v2.duckdb. Review B1 (Gate G1): sourced from the same committed seed
+    # file, same fallback discipline as xi above.
+    rho_residual_seed = backtest.resolve_confirmed_seed_or_warn(
+        RECALIBRATION_SEED_PATH, "correlation_params", "rho_residual", fallback_value=0.0, fallback_params_version=2,
+    )
+    params.write_param(
+        con, "correlation_params", rho_residual_seed["params_version"], "2026-08-12",
+        "rho_residual", value_numeric=rho_residual_seed["value"],
+    )
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "

@@ -16,7 +16,8 @@ enforcement mechanism below (asof_scope) has to actually work, not just be plaus
 import json
 import math
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 import duckdb
 import numpy as np
@@ -2099,6 +2100,121 @@ def recalibrate(
             ))
 
     return proposal_ids
+
+
+# ============================================================
+# Review B1 (Gate G1): persist recalibration outputs as reproducible seed artifacts.
+#
+# The single clearest provenance failure this project has actually had: fact_type_multiplier_
+# params v8 / minutes_model_shrinkage_params v10's real winning values were lost with a dead
+# local DB and rolled back to v1 (README acknowledges this). recalibrate() already writes
+# every candidate as an immutable param_versions row plus a recalibration_proposals audit
+# row -- both durable, in DuckDB -- but a lost/never-cloned local db/*.duckdb (correctly
+# gitignored, rebuilt fresh every run) still erases which VALUES a real recalibration run
+# actually found. write_recalibration_seeds() closes that gap: a committed, human-readable
+# JSON mirror of the SAME recalibration_proposals rows, so the values survive independently
+# of any local DB file.
+#
+# This section implements PERSISTENCE + LOADING only -- it never activates a version. A
+# 'pending' seed (the status propose_recalibration() always writes) is loaded by nothing
+# here; load_confirmed_recalibration_seeds() explicitly filters pending rows out. Only a
+# human editing a seed's status to something other than 'pending' (matching
+# recalibration_proposals.status's own CHECK constraint -- see review_recalibration.py for
+# the equivalent DB-side review step) makes it eligible to load as an active default.
+# ============================================================
+
+def write_recalibration_seeds(
+    con: duckdb.DuckDBPyConnection, backtest_run_id: int, proposal_ids: list[int], *,
+    out_dir: Path = Path("data/recalibration"), provenance: dict | None = None,
+) -> Path:
+    """Mirrors every recalibration_proposals row this backtest_run_id's recalibrate() call
+    just wrote (via `proposal_ids`, recalibrate()'s own return value) into a committed JSON
+    file, data/recalibration/seeds_<backtest_run_id>.json. Every seed's status is read
+    straight from the DB row -- always 'pending' immediately after recalibrate() returns
+    (propose_recalibration() never writes anything else) -- so a freshly-written seed file is
+    never mistaken for an already-reviewed one. `provenance` is passed through verbatim
+    (e.g. scripts/record_provenance.py's own manifest dict) rather than computed here --
+    this module has no business shelling out to git itself.
+    """
+    if not proposal_ids:
+        raise ValueError(f"no proposal_ids given -- recalibrate() found nothing to seed for backtest_run_id={backtest_run_id}")
+
+    placeholders = ",".join(["?"] * len(proposal_ids))
+    rows = con.execute(
+        f"""
+        SELECT proposal_id, param_family, param_key, dimensions, new_params_version, new_value, status
+        FROM recalibration_proposals WHERE proposal_id IN ({placeholders})
+        ORDER BY param_family, param_key
+        """,
+        proposal_ids,
+    ).fetchall()
+
+    seeds = {}
+    for proposal_id, family, key, dimensions_json, new_version, new_value, status in rows:
+        dims = json.loads(dimensions_json) if dimensions_json else None
+        seed_key = f"{family}:{key}" if dims is None else f"{family}:{key}:{json.dumps(dims, sort_keys=True)}"
+        seeds[seed_key] = {
+            "proposal_id": proposal_id, "param_family": family, "param_key": key, "dimensions": dims,
+            "value": new_value, "params_version": new_version, "status": status,
+        }
+
+    manifest = {
+        "backtest_run_id": backtest_run_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "seeds": seeds,
+        "provenance": provenance,
+    }
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"seeds_{backtest_run_id}.json"
+    out_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    return out_path
+
+
+def load_confirmed_recalibration_seeds(seed_path: Path) -> dict[tuple[str, str], dict]:
+    """Reads a recalibration seed file (see write_recalibration_seeds()) and returns ONLY the
+    entries whose status is NOT 'pending' -- e.g. 'confirmed', a human-reviewed value safe to
+    load as an active default. A 'pending' seed is a genuine, still-unreviewed proposal (Gate
+    G1: a human must confirm before it becomes the new default) and is never returned here,
+    however plausible the fresher number looks. Missing file -> {} (this function never
+    invents a fallback value; see resolve_confirmed_seed_or_warn() for a caller that wants a
+    documented fallback instead of an empty result).
+
+    Returns {(param_family, param_key): {"value": float, "params_version": int}} -- keyed by
+    the un-dimensioned (family, key) pair; a dimensioned seed is skipped here (no caller of
+    this loader currently needs a dimensioned confirmed default -- xi/rho_residual are both
+    global-scope params).
+    """
+    if not seed_path.exists():
+        return {}
+    data = json.loads(seed_path.read_text())
+    out = {}
+    for seed in data.get("seeds", {}).values():
+        if seed.get("status") == "pending" or seed.get("dimensions") is not None:
+            continue
+        out[(seed["param_family"], seed["param_key"])] = {
+            "value": seed["value"], "params_version": seed["params_version"],
+        }
+    return out
+
+
+def resolve_confirmed_seed_or_warn(
+    seed_path: Path, param_family: str, param_key: str, *, fallback_value: float, fallback_params_version: int,
+) -> dict:
+    """Loads one (param_family, param_key) confirmed seed from seed_path if present;
+    otherwise warns loudly (GitHub-Actions-visible) and returns the caller's own documented
+    fallback -- never silently returns nothing. Built for run_ingestion.py, so its own
+    previously-bare xi/rho_residual literals become a warned, visible fallback path instead
+    of the unconditional default they used to be."""
+    seed = load_confirmed_recalibration_seeds(seed_path).get((param_family, param_key))
+    if seed is not None:
+        return seed
+    print(
+        f"::warning::backtest.resolve_confirmed_seed_or_warn: no confirmed '{param_key}' seed "
+        f"found for {param_family} at {seed_path} -- falling back to the caller's own documented "
+        f"default (value={fallback_value}, params_version={fallback_params_version})."
+    )
+    return {"value": fallback_value, "params_version": fallback_params_version}
 
 
 # ============================================================
