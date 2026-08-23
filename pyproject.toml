@@ -14,9 +14,12 @@ ignore = ["E501"]
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-# Advisory only (see .github/workflows/tests.yml: the typecheck job runs this but doesn't
-# gate CI). A first real run against this codebase found 94 errors, nearly all the same
-# pattern: con.execute(...).fetchone() indexed without a None-check. Fixing those requires
-# knowing, query by query, whether a query can legitimately return zero rows -- a real
-# semantic judgment call, not a mechanical fix -- so they're left for deliberate follow-up
-# rather than papered over with blanket type: ignore comments.
+# Gates CI (see .github/workflows/tests.yml's typecheck job). The first real run found 94
+# errors, nearly all the same pattern: con.execute(...).fetchone() indexed without a
+# None-check. Each was resolved on its own facts, not blanket-suppressed: most are a query
+# guaranteed by SQL semantics to return exactly one row (COUNT(*)/aggregate with no GROUP BY,
+# a single-row INSERT ... RETURNING, nextval()) or by an invariant the surrounding code
+# already enforces (a foreign key the caller validated earlier in the same function) -- each
+# documented with an `assert row is not None, "<why>"` at the point of use, which narrows the
+# type for mypy and turns a confusing NoneType crash into a clear, named failure if the
+# invariant is ever actually violated.

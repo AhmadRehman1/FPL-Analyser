@@ -395,7 +395,7 @@ def run(
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
     mean_minutes = ep._mean_minutes_by_bucket(con)
 
-    model_version = con.execute(
+    model_version_row = con.execute(
         """
         INSERT INTO uncertainty_model_versions
             (calibration_asof_date, ep_model_version, minutes_model_version,
@@ -403,16 +403,23 @@ def run(
         VALUES (?, ?, ?, ?, ?) RETURNING model_version
         """,
         [calibration_asof_date, ep_model_version, mm_model_version, ts_model_version, rho_residual_params_version],
-    ).fetchone()[0]
+    ).fetchone()
+    assert model_version_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    model_version = model_version_row[0]
 
     fixtures = con.execute(
         "SELECT DISTINCT fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]
     ).fetchall()
 
     for (match_id,) in fixtures:
-        home_uid, away_uid = con.execute(
+        match_row = con.execute(
             "SELECT home_team_uid, away_team_uid FROM fact_match WHERE match_id = ?", [match_id]
         ).fetchone()
+        assert match_row is not None, (
+            f"match_id={match_id} came from ep_outputs.fixture_match_id, which ep.run() only "
+            "ever populates from fact_match -- it must still exist here"
+        )
+        home_uid, away_uid = match_row
 
         rows = con.execute(
             """

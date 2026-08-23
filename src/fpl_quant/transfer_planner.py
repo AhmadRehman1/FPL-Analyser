@@ -32,8 +32,10 @@ whatever variance M4 actually produces per horizon gameweek, undecorated.
 """
 
 import json
+from collections.abc import Iterable
 from datetime import date
 from itertools import combinations
+from typing import Any
 
 import duckdb
 
@@ -71,7 +73,7 @@ def _write_manager_snapshot_as_optimizer_run(
     disclosed here and in the README, not hidden.
     """
     holdings = _read_holdings(con, state_version)
-    run_id = con.execute(
+    run_id_row = con.execute(
         """
         INSERT INTO squad_optimizer_runs
             (run_id, calibration_asof_date, target_season, target_gameweek, ep_model_version,
@@ -82,7 +84,9 @@ def _write_manager_snapshot_as_optimizer_run(
         RETURNING run_id
         """,
         [calibration_asof_date, target_season, target_gameweek, ep_model_version, uncertainty_model_version],
-    ).fetchone()[0]
+    ).fetchone()
+    assert run_id_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    run_id = run_id_row[0]
     for h in holdings:
         con.execute(
             "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
@@ -183,12 +187,14 @@ def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_opt
     held_uids = [uid for uid, *_ in holdings]
     bank = _compute_bank_for_squad(con, target_season, held_uids)
 
-    state_version = con.execute(
+    state_version_row = con.execute(
         "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
         "chips_used_set1, chips_used_set2, derived_from_state_version, bank) "
         "VALUES (?, ?, 1, '[]', '[]', NULL, ?) RETURNING state_version",
         [target_season, target_gameweek, bank],
-    ).fetchone()[0]
+    ).fetchone()
+    assert state_version_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    state_version = state_version_row[0]
 
     for player_uid, in_xi, is_captain, is_vice in holdings:
         con.execute(
@@ -235,7 +241,7 @@ def bootstrap_from_real_squad(
             raise ValueError(f"could not resolve player_name={p['player_name']!r} to a player_uid")
         resolved.append({**p, "player_uid": player_uid})
 
-    run_id = con.execute(
+    run_id_row = con.execute(
         """
         INSERT INTO squad_optimizer_runs
             (run_id, calibration_asof_date, target_season, target_gameweek, ep_model_version,
@@ -246,7 +252,9 @@ def bootstrap_from_real_squad(
         RETURNING run_id
         """,
         [calibration_asof_date, target_season, target_gameweek, ep_model_version, uncertainty_model_version],
-    ).fetchone()[0]
+    ).fetchone()
+    assert run_id_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    run_id = run_id_row[0]
     for p in resolved:
         con.execute(
             "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
@@ -413,7 +421,7 @@ def price_change_risk_by_player(
         "WHERE season = ? AND gw = ?",
         [target_season, as_of_gameweek],
     ).fetchall()
-    out = {}
+    out: dict[str, dict[str, Any]] = {}
     for player_uid, transfers_in, transfers_out in rows:
         if transfers_in is None or transfers_out is None:
             out[player_uid] = {"net_transfers_event": None, "price_change_direction": None}
@@ -435,8 +443,8 @@ def transfer_timing_advice(price_change_risk_in: dict | None, price_change_risk_
     selling tomorrow nets less than selling today. Either condition alone is enough to say
     "make this swap today, not tomorrow" -- None (not an empty string) when neither applies,
     matching this project's "absence is a real, distinct value" discipline."""
-    urgent_in = bool(price_change_risk_in) and price_change_risk_in.get("price_change_direction") == "rise"
-    urgent_out = bool(price_change_risk_out) and price_change_risk_out.get("price_change_direction") == "fall"
+    urgent_in = price_change_risk_in is not None and price_change_risk_in.get("price_change_direction") == "rise"
+    urgent_out = price_change_risk_out is not None and price_change_risk_out.get("price_change_direction") == "fall"
     if urgent_in and urgent_out:
         return (
             "make this swap today, not tomorrow -- the incoming player's price looks set to rise "
@@ -512,6 +520,8 @@ def evaluate_transfers(
     swing_by_team: dict = {}
     team_by_player: dict = {}
     if attach_swing:
+        # attach_swing's own condition above already guarantees both are not None.
+        assert target_gameweek is not None and ts_model_version is not None
         swing_by_team = fixture_swing.swing_scores_by_team(
             con, target_season, target_gameweek, ts_model_version, swing_short_window, swing_long_window,
         )
@@ -521,6 +531,12 @@ def evaluate_transfers(
     )
     price_change_risk: dict = {}
     if attach_price_change_risk:
+        # attach_price_change_risk's own condition above already guarantees all three are not None.
+        assert (
+            target_gameweek is not None
+            and price_change_rise_threshold is not None
+            and price_change_fall_threshold is not None
+        )
         price_change_risk = price_change_risk_by_player(
             con, target_season, target_gameweek, price_change_rise_threshold, price_change_fall_threshold,
         )
@@ -669,6 +685,7 @@ def evaluate_multi_transfers(
         combined_ep_out = out_a["total_ep"] + out_b["total_ep"]
         pos_a, pos_b = sorted((out_a["position"], out_b["position"]))
 
+        in_pairs: Iterable[tuple[dict, dict]]
         if pos_a == pos_b:
             in_pairs = combinations(incoming_by_position.get(pos_a, []), 2)
         else:
@@ -951,14 +968,15 @@ def evaluate_bench_boost(
     placeholders = ",".join("?" * len(bench_uids))
     by_gw = {}
     for gw, (ep_mv, _un_mv) in horizon_ep_versions.items():
-        total = con.execute(
+        total_row = con.execute(
             f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
             [ep_mv, *bench_uids],
-        ).fetchone()[0]
-        by_gw[gw] = total
+        ).fetchone()
+        assert total_row is not None, "aggregate query with no GROUP BY always returns exactly one row"
+        by_gw[gw] = total_row[0]
     if not by_gw:
         return {"recommended": False, "reason": "no horizon gameweeks with fixtures"}
-    best_gw = max(by_gw, key=by_gw.get)
+    best_gw = max(by_gw, key=lambda gw: by_gw[gw])
     result = {"recommended": True, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw}
     if target_season is not None and ts_model_version is not None:
         result["crowded_chip_week"] = crowded_chip_week_score(con, target_season, best_gw, ts_model_version)
@@ -1062,10 +1080,12 @@ def evaluate_wildcard_bench_boost_combo(
     fresh_bench_ep_at_target_gw = 0.0
     if fresh_bench_uids:
         placeholders = ",".join("?" * len(fresh_bench_uids))
-        fresh_bench_ep_at_target_gw = con.execute(
+        fresh_bench_row = con.execute(
             f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
             [ep_mv, *fresh_bench_uids],
-        ).fetchone()[0]
+        ).fetchone()
+        assert fresh_bench_row is not None, "aggregate query with no GROUP BY always returns exactly one row"
+        fresh_bench_ep_at_target_gw = fresh_bench_row[0]
 
     wc_alone_gain = wildcard_result.get("gain", 0.0)
     bb_alone_value = bench_boost_result.get("bench_ep_sum", 0.0) if bench_boost_result.get("recommended") else 0.0
@@ -1362,7 +1382,7 @@ def run(
 
     gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
 
-    run_id = con.execute(
+    run_id_row = con.execute(
         """
         INSERT INTO transfer_plan_runs
             (calibration_asof_date, target_season, target_gameweek, input_state_version,
@@ -1373,7 +1393,9 @@ def run(
         [calibration_asof_date, target_season, target_gameweek, input_state_version, horizon_params_version,
          transfer_cost_params_version, json.dumps({str(gw): v[0] for gw, v in horizon_ep_versions.items()}),
          json.dumps({str(gw): v[1] for gw, v in horizon_ep_versions.items()})],
-    ).fetchone()[0]
+    ).fetchone()
+    assert run_id_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    run_id = run_id_row[0]
 
     for r in transfer_results[:10]:  # top 10 stored -- not all ~8k candidate pairs, this is a report, not an audit of the whole search
         con.execute(
@@ -1485,6 +1507,10 @@ def apply_recommendation(
         "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
     ).fetchone()
+    assert state_row is not None, (
+        f"input_state_version={input_state_version} came from transfer_plan_runs.input_state_version, "
+        "which must reference an existing manager_state_versions row"
+    )
     free_transfers_available, chips_used_set1_json, chips_used_set2_json, bank = state_row
     chips_used_set1 = set(json.loads(chips_used_set1_json))
     chips_used_set2 = set(json.loads(chips_used_set2_json))
@@ -1537,14 +1563,16 @@ def apply_recommendation(
         else:
             chips_used_set2 = chips_used_set2 | {accept_chip}
 
-    new_state_version = con.execute(
+    new_state_version_row = con.execute(
         "INSERT INTO manager_state_versions "
         "(season, as_of_gameweek, free_transfers_available, chips_used_set1, chips_used_set2, "
         "derived_from_state_version, produced_by_run_id, bank) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING state_version",
         [target_season, target_gameweek + 1, new_free_transfers, json.dumps(sorted(chips_used_set1)),
          json.dumps(sorted(chips_used_set2)), input_state_version, run_id, new_bank],
-    ).fetchone()[0]
+    ).fetchone()
+    assert new_state_version_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    new_state_version = new_state_version_row[0]
     for h in holdings_by_uid.values():
         con.execute(
             "INSERT INTO manager_squad_holdings (state_version, player_uid, in_xi, is_captain, is_vice) VALUES (?, ?, ?, ?, ?)",

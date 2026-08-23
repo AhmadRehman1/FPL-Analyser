@@ -97,7 +97,7 @@ def captain_risk_report(xi_candidates: list[dict], eo_by_uid: dict[str, float | 
     RANK risk by doing so, depending on how many rivals also made it.
     """
     captain_eo = eo_by_uid.get(captain_uid)
-    xi_eos = [eo_by_uid[c["player_uid"]] for c in xi_candidates if eo_by_uid.get(c["player_uid"]) is not None]
+    xi_eos = [eo for c in xi_candidates if (eo := eo_by_uid.get(c["player_uid"])) is not None]
     xi_avg_eo = sum(xi_eos) / len(xi_eos) if xi_eos else None
 
     if captain_eo is None or xi_avg_eo is None:

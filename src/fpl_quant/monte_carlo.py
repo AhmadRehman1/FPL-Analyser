@@ -278,9 +278,13 @@ def simulate_fixture(
 
     team_of = _team_of_for_fixture(con, home_uid, away_uid, target_season)
     lam_home, lam_away, _is_home = ep._fixture_lambdas(con, home_uid, match_id, ts_model_version)
-    ts_rho_params_version = con.execute(
+    ts_rho_row = con.execute(
         "SELECT rho_params_version FROM team_strength_model_versions WHERE model_version = ?", [ts_model_version]
-    ).fetchone()[0]
+    ).fetchone()
+    # ep._fixture_lambdas above already queried team_strength_model_versions for this same
+    # ts_model_version and would have failed its own assert if it didn't exist.
+    assert ts_rho_row is not None, f"ts_model_version={ts_model_version} must already exist in team_strength_model_versions"
+    ts_rho_params_version = ts_rho_row[0]
     rho_dc, _ = params_mod.resolve_param(con, "model_decay_params", "rho", ts_rho_params_version)
 
     def _u_pair():
@@ -437,7 +441,9 @@ def run(
     lambda_representative = compute_lambda_representative(con, list(squad_uids), ep_model_version, scoring_params_version)
     sigma_z_sq = z_fixture_variance(rho_residual, lambda_representative)
 
-    model_version = con.execute("SELECT nextval('seq_monte_carlo_model_version')").fetchone()[0]
+    model_version_row = con.execute("SELECT nextval('seq_monte_carlo_model_version')").fetchone()
+    assert model_version_row is not None, "nextval() with no FROM clause always returns exactly one row"
+    model_version = model_version_row[0]
     query_id = f"squad_run_{squad_optimizer_run_id}_gw{target_gameweek}"
     seed = deterministic_seed(model_version, calibration_asof_date, query_id)
 

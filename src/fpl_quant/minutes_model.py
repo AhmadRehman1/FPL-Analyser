@@ -177,7 +177,8 @@ def compute_logit_adjustment(
             except params_mod.ParamNotFoundError:
                 continue
             if claim_type == "manager_tendency":
-                sign = {"positive": 1, "negative": -1}.get(payload.get("valence"), 0)
+                valence = payload.get("valence")
+                sign = {"positive": 1, "negative": -1}.get(valence, 0) if isinstance(valence, str) else 0
                 magnitude = magnitude * sign
             w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
             total += magnitude * w
@@ -278,7 +279,8 @@ def explain_player_adjustment(con: duckdb.DuckDBPyConnection, model_version: int
                 rows.append({**base, "included": False, "exclusion_reason": "no resolvable magnitude param"})
                 continue
             if claim_type == "manager_tendency":
-                sign = {"positive": 1, "negative": -1}.get(payload.get("valence"), 0)
+                valence = payload.get("valence")
+                sign = {"positive": 1, "negative": -1}.get(valence, 0) if isinstance(valence, str) else 0
                 magnitude = magnitude * sign
             w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
             rows.append({
@@ -309,6 +311,9 @@ def explain_player_adjustment(con: duckdb.DuckDBPyConnection, model_version: int
             if pull_strength is None:
                 rows.append({**base, "included": False, "exclusion_reason": "no resolvable magnitude param"})
                 continue
+            # base_logit is computed from this same `pull_strength is not None` condition above
+            # (line 300), so it's never None here.
+            assert base_logit is not None
             if c["claim_value_numeric"] is None or pd.isna(c["claim_value_numeric"]):
                 rows.append({**base, "included": False, "exclusion_reason": "no numeric claim_value"})
                 continue
@@ -432,7 +437,7 @@ def run(
 
     per_player_idx = per_player.set_index("player_uid")
 
-    model_version = con.execute(
+    model_version_row = con.execute(
         """
         INSERT INTO minutes_model_versions
             (calibration_asof_date, target_season, decay_params_version, adjustment_params_version,
@@ -442,7 +447,9 @@ def run(
         """,
         [calibration_asof_date, target_season, decay_params_version, adjustment_params_version,
          shrinkage_params_version, fact_multiplier_params_version, json.dumps(list(lookback_seasons))],
-    ).fetchone()[0]
+    ).fetchone()
+    assert model_version_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    model_version = model_version_row[0]
 
     for _, row in target_players.iterrows():
         player_uid, position = row["player_uid"], row["position"]

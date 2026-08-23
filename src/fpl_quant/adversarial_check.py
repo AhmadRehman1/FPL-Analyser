@@ -33,10 +33,12 @@ def adversarial_review(
 ) -> list[dict]:
     findings = []
 
-    n_squad, n_xi = con.execute(
+    counts_row = con.execute(
         "SELECT count(*) FILTER (WHERE in_squad), count(*) FILTER (WHERE in_xi) "
         "FROM squad_optimizer_selections WHERE run_id = ?", [squad_optimizer_run_id],
     ).fetchone()
+    assert counts_row is not None, "aggregate query with no GROUP BY always returns exactly one row"
+    n_squad, n_xi = counts_row
     findings.append({
         "check": "squad_completeness", "triggered": not (n_squad == 15 and n_xi == 11),
         "detail": f"{n_squad}/15 in squad, {n_xi}/11 in XI",

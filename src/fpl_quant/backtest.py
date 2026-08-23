@@ -17,6 +17,7 @@ import json
 import math
 from contextlib import contextmanager
 from datetime import date
+from typing import Any
 
 import duckdb
 import numpy as np
@@ -118,6 +119,7 @@ def has_double_gameweek(con: duckdb.DuckDBPyConnection, season: str, gameweek: i
         """,
         [season, gameweek, PL, season, gameweek, PL],
     ).fetchone()
+    assert row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
     return row[0] > 0
 
 
@@ -129,11 +131,13 @@ def has_fittable_history(con: duckdb.DuckDBPyConnection, season: str, gameweek: 
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
         return False
-    n = con.execute(
+    n_row = con.execute(
         "SELECT count(*) FROM fact_match WHERE competition = ? AND finished = TRUE "
         "AND home_score IS NOT NULL AND away_score IS NOT NULL AND kickoff_time < ?",
         [PL, deadline],
-    ).fetchone()[0]
+    ).fetchone()
+    assert n_row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+    n = n_row[0]
     return n >= floor
 
 
@@ -397,11 +401,13 @@ def _is_newly_promoted_team(con: duckdb.DuckDBPyConnection, team_uid: str, seaso
     prev_season = _previous_season(con, season)
     if prev_season is None:
         return None
-    n_prev = con.execute(
+    n_prev_row = con.execute(
         "SELECT count(*) FROM fact_match WHERE season = ? AND competition = ? "
         "AND (home_team_uid = ? OR away_team_uid = ?)",
         [prev_season, PL, team_uid, team_uid],
-    ).fetchone()[0]
+    ).fetchone()
+    assert n_prev_row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+    n_prev = n_prev_row[0]
     return n_prev == 0
 
 
@@ -781,10 +787,12 @@ def run(
     ]
     warm_up_gameweeks = len(ALL_SEASON_GAMEWEEKS) - len(steps)
 
-    backtest_run_id = con.execute(
+    backtest_run_id_row = con.execute(
         "INSERT INTO backtest_runs (warm_up_gameweeks, notes) VALUES (?, ?) RETURNING backtest_run_id",
         [warm_up_gameweeks, notes],
-    ).fetchone()[0]
+    ).fetchone()
+    assert backtest_run_id_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    backtest_run_id = backtest_run_id_row[0]
 
     for season, gameweek in steps:
         run_gameweek_step(
@@ -797,11 +805,16 @@ def run(
             lambda_params_version=lambda_params_version, guardrail_params_version=guardrail_params_version,
             n_antithetic_pairs=n_antithetic_pairs, run_monte_carlo=run_monte_carlo,
         )
-        ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
+        step_row = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
             "WHERE backtest_run_id = ? AND season = ? AND gameweek = ?",
             [backtest_run_id, season, gameweek],
         ).fetchone()
+        assert step_row is not None, (
+            f"run_gameweek_step just inserted this exact (backtest_run_id={backtest_run_id}, "
+            f"season={season}, gameweek={gameweek}) row"
+        )
+        ep_mv, mm_mv, ts_mv, so_run_id = step_row
         score_gameweek(
             con, backtest_run_id, season, gameweek, ep_mv, mm_mv, ts_mv, scoring_params_version, so_run_id=so_run_id,
             compute_segments=compute_segments, set_piece_params_version=set_piece_params_version,
@@ -1028,6 +1041,10 @@ def run_season_simulation(
                 "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank FROM manager_state_versions WHERE state_version = ?",
                 [state_version],
             ).fetchone()
+            assert state_row is not None, (
+                f"state_version={state_version} must reference a real manager_state_versions row "
+                "(bootstrapped once, then only ever advanced by this same loop's own inserts)"
+            )
             _fts, chips_used_set1_json, chips_used_set2_json, _bank = state_row
             chips_used_set1 = set(json.loads(chips_used_set1_json))
             chips_used_set2 = set(json.loads(chips_used_set2_json))
@@ -1158,6 +1175,7 @@ def report_season_simulation_sensitivity(
 
 def _next_param_version(con: duckdb.DuckDBPyConnection, param_family: str) -> int:
     row = con.execute("SELECT max(param_version) FROM param_versions WHERE param_family = ?", [param_family]).fetchone()
+    assert row is not None, "max(...) with no GROUP BY always returns exactly one row"
     return (row[0] or 0) + 1
 
 
@@ -1193,7 +1211,7 @@ def propose_recalibration(
 
     params_mod.write_param(con, param_family, new_params_version, effective_date, param_key, value_numeric=new_value, dimensions=dimensions)
 
-    return con.execute(
+    proposal_id_row = con.execute(
         """
         INSERT INTO recalibration_proposals
             (backtest_run_id, param_family, param_key, dimensions, old_params_version, new_params_version,
@@ -1203,7 +1221,9 @@ def propose_recalibration(
         """,
         [backtest_run_id, param_family, param_key, json.dumps(dimensions, sort_keys=True) if dimensions else None,
          old_params_version, new_params_version, old_value, new_value, metric_name, metric_before, metric_after],
-    ).fetchone()[0]
+    ).fetchone()
+    assert proposal_id_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    return proposal_id_row[0]
 
 
 def refit_xi_rho(
@@ -1519,7 +1539,7 @@ def refit_lambda(
     against the same signal the primary risk dial is tuned against would erode the exact
     protection it exists to provide if the primary mechanism ever silently degenerated.
     """
-    grid_results = {}
+    grid_results: dict[float, dict[str, Any]] = {}
     for lam in lambda_grid:
         gameweek_points = []
         for season, gw in eval_steps:
@@ -1593,7 +1613,7 @@ def refit_kappa_tc(
     evolving manager holding), not a small extension of this function. Named as a real,
     disclosed gap, not silently skipped.
     """
-    grid_results = {}
+    grid_results: dict[float, dict[str, Any]] = {}
     for kappa in kappa_tc_grid:
         gameweek_points = []
         for season, gw in eval_steps:
@@ -1639,7 +1659,7 @@ def report_concentration_sensitivity(
     writes a param_versions or recalibration_proposals row; it exists purely to inform the M7
     spec's own qualitative "could a human beat this by eye" review step.
     """
-    grid_results = {}
+    grid_results: dict[float, dict[str, Any]] = {}
     for cap in cap_grid:
         gameweek_points = []
         for season, gw in eval_steps:
@@ -1871,9 +1891,11 @@ def explain_backtest_summary(con: duckdb.DuckDBPyConnection, backtest_run_id: in
     for tier, name, n, avg_value in metric_rows:
         metrics_by_tier.setdefault(tier, {})[name] = {"n": n, "mean": avg_value}
 
-    n_pending_proposals = con.execute(
+    n_pending_row = con.execute(
         "SELECT count(*) FROM recalibration_proposals WHERE backtest_run_id = ? AND status = 'pending'", [backtest_run_id]
-    ).fetchone()[0]
+    ).fetchone()
+    assert n_pending_row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+    n_pending_proposals = n_pending_row[0]
 
     return {
         "backtest_run_id": backtest_run_id, "started_at": started_at, "warm_up_gameweeks": warm_up_gameweeks,

@@ -73,7 +73,9 @@ def ingest_csv_file(
     ).fetchone()
 
     ingested_at = datetime.now(timezone.utc)
-    batch_id = con.execute("SELECT nextval('seq_ingestion_batch')").fetchone()[0]
+    batch_id_row = con.execute("SELECT nextval('seq_ingestion_batch')").fetchone()
+    assert batch_id_row is not None, "nextval() with no FROM clause always returns exactly one row"
+    batch_id = batch_id_row[0]
     abs_path_sql = str(abs_path).replace("'", "''")
     ingested_at_sql = ingested_at.strftime("%Y-%m-%d %H:%M:%S.%f")
 
@@ -92,7 +94,9 @@ def ingest_csv_file(
     else:
         con.execute(f'INSERT INTO "{table}" {select_sql}')
 
-    row_count = con.execute(f'SELECT count(*) FROM "{table}" WHERE _batch_id = ?', [batch_id]).fetchone()[0]
+    row_count_row = con.execute(f'SELECT count(*) FROM "{table}" WHERE _batch_id = ?', [batch_id]).fetchone()
+    assert row_count_row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+    row_count = row_count_row[0]
 
     con.execute(
         """

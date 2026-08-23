@@ -170,6 +170,7 @@ def _position_average_rates(con: duckdb.DuckDBPyConnection, position: str, seaso
         """,
         [position, *season_priority],
     ).fetchone()
+    assert row is not None, "avg(...) with no GROUP BY always returns exactly one row"
     return {
         "expected_goals_per_90": row[0] or 0.0,
         "expected_assists_per_90": row[1] or 0.0,
@@ -203,6 +204,7 @@ def _defensive_action_rates_per_90(con: duckdb.DuckDBPyConnection, player_uid: s
         """,
         [player_uid, *seasons],
     ).fetchone()
+    assert row is not None, "sum(...) with no GROUP BY always returns exactly one row"
     cbi_total, recoveries_total, minutes_total = row
     own_cbi = (cbi_total or 0) / minutes_total * 90 if minutes_total else 0.0
     own_recoveries = (recoveries_total or 0) / minutes_total * 90 if minutes_total else 0.0
@@ -218,6 +220,7 @@ def _defensive_action_rates_per_90(con: duckdb.DuckDBPyConnection, player_uid: s
         """,
         [position, *seasons],
     ).fetchone()
+    assert pos_row is not None, "sum(...) with no GROUP BY always returns exactly one row"
     pos_cbi_total, pos_recoveries_total, pos_minutes_total = pos_row
     pos_avg_cbi = (pos_cbi_total or 0) / pos_minutes_total * 90 if pos_minutes_total else 0.0
     pos_avg_recoveries = (pos_recoveries_total or 0) / pos_minutes_total * 90 if pos_minutes_total else 0.0
@@ -244,6 +247,7 @@ def _mean_minutes_by_bucket(con: duckdb.DuckDBPyConnection) -> dict:
         FROM fact_player_match_stats
         """
     ).fetchone()
+    assert row is not None, "avg(...) with no GROUP BY always returns exactly one row"
     return {"mean_1_59": row[0] or 30.0, "mean_60plus": row[1] or 85.0}
 
 
@@ -263,13 +267,16 @@ def _fixture_lambdas(con: duckdb.DuckDBPyConnection, team_uid: str, match_id: st
     match = con.execute(
         "SELECT home_team_uid, away_team_uid FROM fact_match WHERE match_id = ?", [match_id]
     ).fetchone()
+    assert match is not None, f"match_id={match_id} must already exist in fact_match (caller's own fixture query)"
     home_uid, away_uid = match
     is_home = team_uid == home_uid
     opp_uid = away_uid if is_home else home_uid
 
-    home_adv = con.execute(
+    home_adv_row = con.execute(
         "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?", [ts_model_version]
-    ).fetchone()[0]
+    ).fetchone()
+    assert home_adv_row is not None, f"ts_model_version={ts_model_version} must already exist in team_strength_model_versions"
+    home_adv = home_adv_row[0]
 
     own = con.execute(
         "SELECT final_attack, final_defence FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
@@ -279,6 +286,8 @@ def _fixture_lambdas(con: duckdb.DuckDBPyConnection, team_uid: str, match_id: st
         "SELECT final_attack, final_defence FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
         [ts_model_version, opp_uid],
     ).fetchone()
+    assert own is not None, f"team_uid={team_uid} must have a team_strength_snapshots row for model_version={ts_model_version}"
+    assert opp is not None, f"team_uid={opp_uid} must have a team_strength_snapshots row for model_version={ts_model_version}"
     own_attack, own_defence = own
     opp_attack, opp_defence = opp
 
@@ -558,7 +567,7 @@ def run(
     if not fixtures:
         raise ValueError(f"no {PL} fixtures found for {target_season} GW{target_gameweek}")
 
-    model_version = con.execute(
+    model_version_row = con.execute(
         """
         INSERT INTO ep_model_versions
             (calibration_asof_date, target_season, team_strength_model_version, minutes_model_version,
@@ -568,7 +577,9 @@ def run(
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version],
-    ).fetchone()[0]
+    ).fetchone()
+    assert model_version_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    model_version = model_version_row[0]
 
     for match_id, home_uid, away_uid in fixtures:
         fixture_rows = []

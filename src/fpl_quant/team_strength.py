@@ -127,6 +127,7 @@ def compute_seasons_of_topflight_data(
                 "AND (home_team_uid = ? OR away_team_uid = ?)",
                 [s, PL, team_uid, team_uid],
             ).fetchone()
+            assert row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
             if row[0] > 0:
                 count += 1
         result[team_uid] = count
@@ -221,7 +222,7 @@ def calibrate(
         elo_by_team = fetch_current_elo(con, fit_seasons[-1])
     a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, eligible_teams)
 
-    model_version = con.execute(
+    model_version_row = con.execute(
         """
         INSERT INTO team_strength_model_versions
             (calibration_asof_date, home_advantage, xi_params_version, rho_params_version,
@@ -232,7 +233,9 @@ def calibrate(
         """,
         [calibration_asof_date, home_advantage, xi_params_version, rho_params_version,
          reference_team_uid, a0, a1, b0, b1, n_reg, json.dumps(list(fit_seasons))],
-    ).fetchone()[0]
+    ).fetchone()
+    assert model_version_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    model_version = model_version_row[0]
 
     # Real, observed condition (surfaced by an actual live CI run): a target-season team can
     # have genuinely zero information available from ANY loaded source -- no MLE fit (never
@@ -264,11 +267,17 @@ def calibrate(
         d_mle = defence_mle.get(team_uid)
 
         if a_mle is not None and attack_prior is not None:
+            # attack_mle/defence_mle are built from the same {t: ... for t in teams}
+            # comprehension (fit_dixon_coles) and attack_prior/defence_prior from the same
+            # `elo is not None` ternary above -- always co-populated in pairs, never one
+            # without the other.
+            assert d_mle is not None and defence_prior is not None
             final_attack = weight_own * a_mle + (1 - weight_own) * attack_prior
             final_defence = weight_own * d_mle + (1 - weight_own) * defence_prior
         elif attack_prior is not None:
             final_attack, final_defence = attack_prior, defence_prior
         elif a_mle is not None:
+            assert d_mle is not None
             final_attack, final_defence = a_mle, d_mle
         else:
             print(

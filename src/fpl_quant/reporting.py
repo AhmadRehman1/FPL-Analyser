@@ -214,9 +214,14 @@ def build_report(
     xi_uids = {p["player_uid"] for p in squad if p["in_xi"]}
     captain = next((p for p in squad if p["is_captain"]), None)
 
-    minutes_model_version = con.execute(
+    minutes_model_version_row = con.execute(
         "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [uncertainty_model_version]
-    ).fetchone()[0]
+    ).fetchone()
+    assert minutes_model_version_row is not None, (
+        f"uncertainty_model_version={uncertainty_model_version} came from this squad_optimizer_runs "
+        "row and must already exist in uncertainty_model_versions"
+    )
+    minutes_model_version = minutes_model_version_row[0]
     # Real bug fixed here: this previously took max(model_version) for the squad_optimizer_run_id
     # alone, with no check that the Monte Carlo run actually used the same ep_model_version/
     # uncertainty_model_version this report is otherwise built from. monte_carlo_run_versions
@@ -229,11 +234,13 @@ def build_report(
     # among those that actually match) makes the empirical section either genuinely consistent
     # with the rest of the report, or explicitly absent (mc_model_version=None) rather than
     # silently wrong.
-    mc_model_version = con.execute(
+    mc_model_version_row = con.execute(
         "SELECT max(model_version) FROM monte_carlo_run_versions "
         "WHERE squad_optimizer_run_id = ? AND ep_model_version = ? AND uncertainty_model_version = ?",
         [squad_optimizer_run_id, ep_model_version, uncertainty_model_version],
-    ).fetchone()[0]
+    ).fetchone()
+    assert mc_model_version_row is not None, "max(...) with no GROUP BY always returns exactly one row"
+    mc_model_version = mc_model_version_row[0]
 
     total_ep = 0.0
     category_breakdown, risk_analytic, risk_empirical, evidence_provenance, understat_signal = {}, {}, {}, {}, {}
@@ -299,6 +306,12 @@ def build_report(
         uid = p["player_uid"]
         evidence_weight = None
         if evidence_weight_normalization is not None:
+            # evidence_weight_normalization is only ever set (above) inside the `None not in
+            # (evidence_decay_params_version, evidence_fact_multiplier_params_version,
+            # report_asof)` guard, so all three are guaranteed not-None here too.
+            assert report_asof is not None
+            assert evidence_decay_params_version is not None
+            assert evidence_fact_multiplier_params_version is not None
             evidence_weight = eb.aggregate_evidence_weight(
                 con, "player", uid, cc.CONSENSUS_EVIDENCE_CLAIM_TYPES, report_asof,
                 evidence_decay_params_version, evidence_fact_multiplier_params_version,
@@ -529,9 +542,11 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
     """
     n_steps, seasons, metrics = None, [], []
     if backtest_run_id is not None:
-        n_steps = con.execute(
+        n_steps_row = con.execute(
             "SELECT count(*) FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [backtest_run_id],
-        ).fetchone()[0]
+        ).fetchone()
+        assert n_steps_row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+        n_steps = n_steps_row[0]
         seasons = [
             r[0] for r in con.execute(
                 "SELECT DISTINCT season FROM backtest_gameweek_steps WHERE backtest_run_id = ? ORDER BY season",

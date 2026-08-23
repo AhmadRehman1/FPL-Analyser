@@ -16,6 +16,7 @@ directly.
 """
 
 from datetime import date
+from typing import Any
 
 import duckdb
 import pyscipopt as scip
@@ -334,7 +335,7 @@ def solve(
     # linear terms in the SAME objective, not a separate epsilon-window mechanism.
     if posture is not None and posture not in ("protect", "chase"):
         raise ValueError(f"posture must be 'protect' or 'chase', got {posture!r}")
-    posture_sign = {"protect": 1.0, "chase": -1.0}.get(posture, 0.0)
+    posture_sign = {"protect": 1.0, "chase": -1.0}.get(posture, 0.0) if posture is not None else 0.0
 
     if eo_weight_kappa > 0:
         if posture is None:
@@ -455,6 +456,10 @@ def run(
 
     eo_by_uid, posture, eo_weight_kappa = None, None, 0.0
     if ownership_params_version is not None:
+        # The XOR guard above (ownership_params_version is None) != (risk_posture_params_version
+        # is None) already ruled out risk_posture_params_version being None whenever
+        # ownership_params_version isn't.
+        assert risk_posture_params_version is not None
         captaincy_concentration, _ = params_mod.resolve_param(
             con, "ownership_params", "captaincy_concentration", ownership_params_version
         )
@@ -471,13 +476,19 @@ def run(
                 "real EO weights to build its synthetic field portfolio"
             )
         field_cov_kappa, _ = params_mod.resolve_param(con, "field_covariance_params", "kappa", field_covariance_params_version)
-        scoring_params_version = con.execute(
+        scoring_params_row = con.execute(
             "SELECT scoring_matrix_params_version FROM ep_model_versions WHERE model_version = ?", [ep_model_version]
-        ).fetchone()[0]
-        rho_residual_params_version = con.execute(
+        ).fetchone()
+        assert scoring_params_row is not None, f"ep_model_version={ep_model_version} must already exist in ep_model_versions"
+        scoring_params_version = scoring_params_row[0]
+        rho_residual_row = con.execute(
             "SELECT rho_residual_params_version FROM uncertainty_model_versions WHERE model_version = ?",
             [uncertainty_model_version],
-        ).fetchone()[0]
+        ).fetchone()
+        assert rho_residual_row is not None, (
+            f"uncertainty_model_version={uncertainty_model_version} must already exist in uncertainty_model_versions"
+        )
+        rho_residual_params_version = rho_residual_row[0]
         field_cov_by_uid = field_covariance_mod.compute_field_covariance(
             con, candidates, target_season, target_gameweek, ep_model_version, scoring_params_version,
             rho_residual_params_version, eo_by_uid, calibration_asof_date,
@@ -494,7 +505,7 @@ def run(
     if concentration_risk_params_version is not None:
         concentration_kappa, _ = params_mod.resolve_param(con, "concentration_risk_params", "kappa", concentration_risk_params_version)
 
-    solve_kwargs = dict(
+    solve_kwargs: dict[str, Any] = dict(
         eo_by_uid=eo_by_uid, posture=posture, eo_weight_kappa=eo_weight_kappa,
         field_cov_by_uid=field_cov_by_uid, field_cov_kappa=field_cov_kappa,
         p_start_by_uid=p_start_by_uid, min_bench_p_start_probability=min_bench_p_start_probability,
@@ -543,7 +554,7 @@ def run(
                 f"is a hard stop, not a warning."
             )
 
-    run_id = con.execute(
+    run_id_row = con.execute(
         """
         INSERT INTO squad_optimizer_runs
             (calibration_asof_date, target_season, target_gameweek, ep_model_version,
@@ -559,7 +570,9 @@ def run(
          result_real["status"], result_real["objective"],
          ownership_params_version, risk_posture_params_version, field_covariance_params_version,
          bench_quality_params_version, concentration_risk_params_version, result_real["mip_gap"]],
-    ).fetchone()[0]
+    ).fetchone()
+    assert run_id_row is not None, "INSERT ... RETURNING for a single row always returns exactly one row"
+    run_id = run_id_row[0]
 
     if not divergence_passed:
         # the run itself is logged (so the failure is auditable), but no squad selection is
@@ -624,7 +637,8 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
 
     from . import reconcile as reconcile_mod
     found = reconcile_mod._season_root_table(con, target_season, "teams.csv")
-    club_counts_squad, club_counts_xi = {}, {}
+    club_counts_squad: dict[str, int] = {}
+    club_counts_xi: dict[str, int] = {}
     if found:
         rows = con.execute(
             """

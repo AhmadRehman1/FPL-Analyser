@@ -45,7 +45,9 @@ def _parse_flexible_date(val) -> date | None:
 
 def register_new_sources(con: duckdb.DuckDBPyConnection, wb: openpyxl.Workbook, params_version: int) -> int:
     existing = {r[0] for r in con.execute("SELECT source_name FROM sources").fetchall()}
-    max_citations = con.execute("SELECT max(citation_count) FROM sources").fetchone()[0] or 1
+    max_citations_row = con.execute("SELECT max(citation_count) FROM sources").fetchone()
+    assert max_citations_row is not None, "MAX(...) with no GROUP BY always returns exactly one row"
+    max_citations = max_citations_row[0] or 1
 
     names: set[str] = set()
     for tab in ("Transfers", "Injuries", "SetPieceTakers", "PriceNotes"):

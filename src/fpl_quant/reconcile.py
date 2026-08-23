@@ -247,7 +247,9 @@ def build_fact_match(con: duckdb.DuckDBPyConnection) -> int:
         ON CONFLICT (match_id) DO NOTHING
         """
     )
-    return con.execute("SELECT count(*) FROM fact_match").fetchone()[0]
+    row = con.execute("SELECT count(*) FROM fact_match").fetchone()
+    assert row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+    return row[0]
 
 
 # ------------------------------------------------------- player-match stats ----
@@ -293,7 +295,9 @@ def build_fact_player_match_stats(con: duckdb.DuckDBPyConnection) -> int:
                 ON CONFLICT (player_uid, match_id) DO NOTHING
                 """
             )
-    total = con.execute("SELECT count(*) FROM fact_player_match_stats").fetchone()[0]
+    row = con.execute("SELECT count(*) FROM fact_player_match_stats").fetchone()
+    assert row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+    total = row[0]
     return total
 
 
@@ -421,7 +425,9 @@ def build_fact_player_season_stats(con: duckdb.DuckDBPyConnection) -> int:
                 _ingested_at = excluded._ingested_at
             """
         )
-    return con.execute("SELECT count(*) FROM fact_player_season_stats").fetchone()[0]
+    row = con.execute("SELECT count(*) FROM fact_player_season_stats").fetchone()
+    assert row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+    return row[0]
 
 
 # ------------------------------------------------------------- semantics ----
@@ -484,12 +490,18 @@ def reconcile_all(con: duckdb.DuckDBPyConnection, xlsx_path: str) -> dict:
     n_pms = build_fact_player_match_stats(con)
     n_pss = build_fact_player_season_stats(con)
     seed_column_semantics(con)
+
+    def _count(table: str) -> int:
+        row = con.execute(f"SELECT count(*) FROM {table}").fetchone()
+        assert row is not None, "COUNT(*) with no GROUP BY always returns exactly one row"
+        return row[0]
+
     return {
-        "teams": con.execute("SELECT count(*) FROM dim_team").fetchone()[0],
-        "team_aliases": con.execute("SELECT count(*) FROM team_alias").fetchone()[0],
+        "teams": _count("dim_team"),
+        "team_aliases": _count("team_alias"),
         "club_name_map_aliases_applied": club_aliases,
-        "players": con.execute("SELECT count(*) FROM dim_player").fetchone()[0],
-        "player_aliases": con.execute("SELECT count(*) FROM player_alias").fetchone()[0],
+        "players": _count("dim_player"),
+        "player_aliases": _count("player_alias"),
         "matches": n_matches,
         "player_match_stats": n_pms,
         "player_season_stats": n_pss,

@@ -16,6 +16,7 @@ project's established convention (ingest_understat.py, ingest_fpl_entry_picks.py
 """
 
 from datetime import datetime, timezone
+from typing import Any
 
 import requests
 
@@ -43,7 +44,9 @@ FPL_OVERALL_LEAGUE_ID = 314
 # fetch -- isolated network I/O, the one surface real verification and test mocking touch
 # ============================================================
 
-def _fetch_json(url: str) -> dict:
+def _fetch_json(url: str) -> Any:
+    """Return type is genuinely payload-dependent (an object for most endpoints, an array for
+    /fixtures/) -- callers annotate their own expected shape (see fetch_fixtures below)."""
     resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
     resp.raise_for_status()
     return resp.json()
@@ -356,16 +359,14 @@ def build_league_ownership(
                     "player_id": pick["element"], "web_name": players_by_id.get(pick["element"], {}).get("web_name"),
                 })
 
-    most_owned = sorted(
-        (
-            {
-                "player_id": pid, "web_name": players_by_id.get(pid, {}).get("web_name"), "n_owners": n,
-                "pct_of_league": round(n / n_counted * 100, 1) if n_counted else None,
-            }
-            for pid, n in ownership_counts.items()
-        ),
-        key=lambda row: -row["n_owners"],
-    )[:10]
+    top_owned = sorted(ownership_counts.items(), key=lambda item: -item[1])[:10]
+    most_owned = [
+        {
+            "player_id": pid, "web_name": players_by_id.get(pid, {}).get("web_name"), "n_owners": n,
+            "pct_of_league": round(n / n_counted * 100, 1) if n_counted else None,
+        }
+        for pid, n in top_owned
+    ]
 
     return {"n_entries_sampled": n_counted, "most_owned": most_owned, "captains": captains}
 

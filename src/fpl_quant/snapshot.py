@@ -50,7 +50,7 @@ def get_claims_asof(
         WHERE (c.observed_date IS NULL OR c.observed_date <= ?)
           AND (c.superseded_by IS NULL OR s.ingested_date > ?)
     """
-    params = [asof, asof]
+    params: list[object] = [asof, asof]
     if enforce_ingested_date:
         sql += " AND c.ingested_date <= ?"
         params.append(asof)
