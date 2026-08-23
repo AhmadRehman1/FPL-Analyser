@@ -1,0 +1,16 @@
+# Exact pins for every dependency in requirements.txt, generated from the environment the
+# full test suite (483 passed, 12 skipped) was last verified green against. CI installs from
+# this file, not requirements.txt, so a routine `pip install` can never silently pull in a
+# newer SCIP/DuckDB/etc. build whose solver tie-breaking or FK behavior differs from what the
+# suite was actually run against (see README's Priority-0 nondeterminism history). Dependabot
+# is expected to open weekly bump PRs against this file -- review and re-verify the full suite
+# before merging any of them, never auto-merge.
+duckdb==1.5.5
+pandas==3.0.5
+numpy==2.4.6
+scipy==1.17.1
+openpyxl==3.1.5
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+PySCIPOpt==6.2.1
+requests==2.34.2

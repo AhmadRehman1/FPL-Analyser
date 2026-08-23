@@ -18,6 +18,7 @@ directly.
 from datetime import date
 
 import duckdb
+import numpy as np
 import pyscipopt as scip
 
 from . import field_covariance as field_covariance_mod
@@ -36,6 +37,40 @@ class DivergenceCheckFailedError(Exception):
     squad, proving the quadratic risk term is not affecting the solve at all. Per M5's own
     frozen spec this is a hard stop, not a warning -- implementation must investigate
     before trusting any output from this optimizer."""
+
+
+def _warn_if_sigma_not_psd(candidates: list[dict], sigma_pairs: dict) -> bool:
+    """Warn-only PSD check on the candidate-pool Sigma assembled from `var` (diagonal) and
+    `sigma_pairs` (off-diagonal), run right before the MIQP epigraph reformulation below --
+    `t >= w'Sigma*w` is only a valid convex constraint when Sigma is PSD. Deliberately never
+    raises or projects Sigma onto the PSD cone: several existing solve() unit-test fixtures
+    intentionally pass a covariance too large relative to the paired variances (not PSD) to
+    exercise other, unrelated code paths, and this module's real backstop against a broken
+    risk term is the divergence check in run(), not this function. This exists purely so a
+    non-PSD Sigma is a diagnosable, named warning instead of an opaque SCIP solver failure.
+    Returns True when PSD (for tests), False when the warning fired.
+    """
+    uids = [c["player_uid"] for c in candidates]
+    idx = {uid: i for i, uid in enumerate(uids)}
+    n = len(uids)
+    sigma = np.zeros((n, n))
+    for c in candidates:
+        sigma[idx[c["player_uid"]], idx[c["player_uid"]]] = c["var"]
+    for (a, b), cov in sigma_pairs.items():
+        if a in idx and b in idx:
+            sigma[idx[a], idx[b]] = cov
+            sigma[idx[b], idx[a]] = cov
+
+    min_eig = float(np.linalg.eigvalsh(sigma).min())
+    if min_eig < -1e-8:
+        print(
+            f"::warning::squad_optimizer.solve: assembled Sigma is not PSD "
+            f"(min eigenvalue={min_eig:.6g} over {n} candidates) -- the risk epigraph "
+            f"constraint t >= w'Sigma*w is not guaranteed convex for this solve; SCIP may "
+            f"reject or mis-solve it."
+        )
+        return False
+    return True
 
 
 def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
@@ -296,6 +331,7 @@ def solve(
     linear_ep += scip.quicksum(captain[c["player_uid"]] * c["mu"] for c in candidates)
 
     if lam > 0:
+        _warn_if_sigma_not_psd(candidates, sigma_pairs)
         # Effective scoring weight per player is w_i = xi_i + captain_i (1 for a normal XI
         # player, 2 for the captain, since captain[uid] <= xi[uid] is already enforced above)
         # -- exactly mirrors how linear_ep itself is built two lines up. The risk term must

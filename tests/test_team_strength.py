@@ -68,6 +68,57 @@ def test_fit_dixon_coles_zero_centered_attack_mean():
     assert abs(mean_attack) < 1e-6
 
 
+def test_fit_dixon_coles_is_silent_on_a_normal_well_behaved_fit(capsys):
+    """Negative control for the two new warning paths below: a normal rho in the real
+    calibrated range (-0.13) and a fit with real strength variation must not warn."""
+    uids = {"A": "team_a", "B": "team_b", "C": "team_c", "D": "team_d"}
+    results = [
+        ("A", "B", 3, 0), ("B", "A", 0, 2), ("A", "C", 4, 1), ("C", "A", 0, 3),
+        ("A", "D", 5, 0), ("D", "A", 0, 4), ("B", "C", 1, 1), ("C", "B", 1, 1),
+    ]
+    matches = _round_robin_matches(uids, results)
+    ts.fit_dixon_coles(matches, xi=0.0018, rho=-0.13, asof_date=date(2025, 6, 1), reference_team_uid=uids["A"])
+    assert capsys.readouterr().out == ""
+
+
+def test_fit_dixon_coles_warns_on_optimizer_non_convergence(monkeypatch, capsys):
+    """A2.3/A3 guardrail: scipy.optimize.minimize's own result.success was previously
+    discarded entirely (result unpacked with `_opt` and never inspected) -- a real fit could
+    silently return a non-converged local point with no visible signal anywhere."""
+    real_minimize = ts.minimize
+
+    def fake_minimize(*args, **kwargs):
+        result = real_minimize(*args, **kwargs)
+        result.success = False
+        result.message = "forced failure for test"
+        return result
+
+    monkeypatch.setattr(ts, "minimize", fake_minimize)
+
+    uids = {"A": "team_a", "B": "team_b"}
+    results = [("A", "B", 2, 1), ("B", "A", 1, 1)]
+    matches = _round_robin_matches(uids, results)
+    ts.fit_dixon_coles(matches, xi=0.0018, rho=-0.13, asof_date=date(2025, 6, 1), reference_team_uid=uids["A"])
+
+    out = capsys.readouterr().out
+    assert "::warning::team_strength.fit_dixon_coles" in out
+    assert "did not converge" in out
+
+
+def test_fit_dixon_coles_warns_when_tau_hits_the_floor(capsys):
+    """rho far outside any real calibrated range (rho=5.0, vs the real ~-0.13) combined with a
+    real 0-0 low-score result forces tau(0,0)=1-lam_h*lam_a*rho deeply negative, i.e. below
+    the 1e-10 floor -- this must be a visible warning, not a silently-clipped internal detail."""
+    uids = {"A": "team_a", "B": "team_b"}
+    results = [("A", "B", 0, 0), ("B", "A", 1, 1)]
+    matches = _round_robin_matches(uids, results)
+    ts.fit_dixon_coles(matches, xi=0.0018, rho=5.0, asof_date=date(2025, 6, 1), reference_team_uid=uids["A"])
+
+    out = capsys.readouterr().out
+    assert "::warning::team_strength.fit_dixon_coles" in out
+    assert "hit the 1e-10 floor" in out
+
+
 def test_compute_seasons_of_topflight_data(con):
     uids = _seed_teams(con, ["A", "B", "X", "C"])
     now = datetime.now(timezone.utc)

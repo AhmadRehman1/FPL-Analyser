@@ -1,9 +1,13 @@
-duckdb>=1.0
-pandas>=2.0
-numpy>=1.26
-scipy>=1.11
-openpyxl>=3.1
-pytest>=8.0
-python-dateutil>=2.9
-pyscipopt>=6.2
-requests>=2.31
+# Floors raised to the versions the full suite is actually verified against (see
+# requirements.lock, which CI installs from). Kept as a >= file (rather than deleted) for
+# anyone installing outside CI who wants the flexibility; requirements.lock is the
+# reproducible source of truth.
+duckdb>=1.5.5
+pandas>=3.0.5
+numpy>=2.4.6
+scipy>=1.17.1
+openpyxl>=3.1.5
+pytest>=9.1.1
+python-dateutil>=2.9.0
+pyscipopt>=6.2.1
+requests>=2.34.2

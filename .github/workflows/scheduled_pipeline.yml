@@ -64,7 +64,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.lock
 
       # data/external/ is gitignored (see README's own "Design notes" on why) -- provisioned
       # fresh each run rather than committed, since the FPL-Core-Insights extract is large and
@@ -144,12 +144,48 @@ jobs:
       # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
       # a one-off re-check) without needing a code change -- the two real accounts above always
       # run regardless of this input.
+      #
+      # SECURITY: workflow_dispatch inputs are collaborator-only to trigger (unlike
+      # on_demand_report.yml's public issue trigger), but they're still free-form text a human
+      # typed into a form -- never spliced directly into `run:`. Parsed + hard-sanitized to
+      # digits-only via `env:` first, matching on_demand_report.yml's pattern, so a stray
+      # non-numeric character (typo, accidental shell metacharacter) fails loud here instead of
+      # reaching the script as an unvalidated argument.
+      - name: Parse and sanitize ad-hoc entry_id/event
+        id: adhoc
+        if: github.event.inputs.real_squad_entry_id != ''
+        env:
+          RAW_ENTRY_ID: ${{ github.event.inputs.real_squad_entry_id }}
+          RAW_EVENT: ${{ github.event.inputs.real_squad_event }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import re
+
+          raw_entry_id = os.environ.get("RAW_ENTRY_ID") or ""
+          raw_event = os.environ.get("RAW_EVENT") or ""
+
+          entry_match = re.fullmatch(r"\d{1,10}", raw_entry_id.strip())
+          if not entry_match or int(entry_match.group(0)) <= 0:
+              print("::error::real_squad_entry_id must be 1-10 digits, got: " + repr(raw_entry_id))
+              raise SystemExit(1)
+
+          event_match = re.fullmatch(r"\d{1,3}", raw_event.strip())
+          if not event_match or int(event_match.group(0)) <= 0:
+              print("::error::real_squad_event must be 1-3 digits, got: " + repr(raw_event))
+              raise SystemExit(1)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"entry_id={entry_match.group(0)}\n")
+              f.write(f"event={event_match.group(0)}\n")
+          PYEOF
+
       - name: Plan transfers for an ad-hoc real manager's squad (manual dispatch only)
         if: github.event.inputs.real_squad_entry_id != ''
         run: |
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
-            "${{ github.event.inputs.real_squad_entry_id }}" \
-            "${{ github.event.inputs.real_squad_event }}"
+            "${{ steps.adhoc.outputs.entry_id }}" \
+            "${{ steps.adhoc.outputs.event }}"
 
       # App conversion, Phase 1: real, live data for the PWA's Team/Profile/Leagues/Fixtures/
       # Transfers-browse screens (data/dashboard/app_*.json) -- see app_export.py's own module

@@ -92,6 +92,33 @@ def test_captain_points_double_counted_in_objective():
     assert result["objective"] == pytest.approx(expected)
 
 
+def test_warn_if_sigma_not_psd_fires_on_invalid_correlation(capsys):
+    """def0/def1 both have var=1.0 (see _synthetic_pool), so a covariance of 2.0 implies a
+    correlation of 2.0 -- mathematically impossible, i.e. Sigma is not PSD. Warn-only: this
+    must not raise, since callers may legitimately pass an approximate/stale Sigma."""
+    pool = _synthetic_pool()
+    result = so._warn_if_sigma_not_psd(pool, {("def0", "def1"): 2.0})
+    assert result is False
+    out = capsys.readouterr().out
+    assert "::warning::squad_optimizer.solve" in out
+    assert "not PSD" in out
+
+
+def test_warn_if_sigma_not_psd_silent_on_valid_covariance(capsys):
+    pool = _synthetic_pool()
+    result = so._warn_if_sigma_not_psd(pool, {("def0", "def1"): 0.3})
+    assert result is True
+    assert capsys.readouterr().out == ""
+
+
+def test_solve_warns_when_sigma_pairs_not_psd(capsys):
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 2.0, ("mid0", "mid1"): 1.5}
+    so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3)
+    out = capsys.readouterr().out
+    assert "::warning::squad_optimizer.solve" in out
+
+
 def test_solve_returns_identical_output_across_repeated_calls():
     """Priority 0 regression test: a real squad recommendation once flip-flopped between
     formations/captains across repeated runs against IDENTICAL underlying data. solve() must
