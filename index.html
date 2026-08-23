@@ -4,183 +4,297 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FPL Quant</title>
-<meta name="description" content="Real, model-computed FPL transfer and chip-timing recommendations for two real accounts.">
+<meta name="description" content="Real, model-computed FPL transfer and chip-timing recommendations, plus a live team/fixtures/leagues view, for two real accounts.">
 
+<link rel="manifest" href="manifest.json">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FPL Quant">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#3a6b3f">
+<meta name="theme-color" content="#2b5230">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png">
 
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap">
 <style>
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0;
-    background: oklch(0.29 0.065 152);
-    color: oklch(0.2 0.01 90);
-    font-family: "Barlow", sans-serif;
-    -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
+  :root{
+    --bg-deep: oklch(0.29 0.065 152);
+    --card: oklch(0.985 0.004 90);
+    --card-2: oklch(0.955 0.006 90);
+    --ink: oklch(0.2 0.01 90);
+    --ink-dim: oklch(0.5 0.01 90);
+    --ink-dim2: oklch(0.55 0.01 90);
+    --on-dark: oklch(0.98 0.005 90);
+    --on-dark-dim: oklch(0.85 0.03 150);
+    --green: oklch(0.38 0.12 150);
+    --green-soft: oklch(0.93 0.15 145);
+    --green-soft-2: oklch(0.9 0.15 145);
+    --blue-soft: oklch(0.93 0.13 250);
+    --blue-soft-2: oklch(0.9 0.13 250);
+    --gold: oklch(0.94 0.1 85);
+    --gold-ink: oklch(0.36 0.13 60);
+    --red: oklch(0.52 0.19 25);
+    --amber: oklch(0.75 0.14 75);
+    --fdr-easy: oklch(0.72 0.16 145);
+    --fdr-mid: oklch(0.8 0.14 85);
+    --fdr-hard: oklch(0.6 0.2 25);
+    --divider: oklch(0.92 0.005 90);
+    --tabbar-bg: oklch(0.2 0.05 152 / 0.94);
+    --live: oklch(0.94 0.18 130);
   }
-  body {
-    position: relative;
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html, body{margin:0;background:var(--bg-deep);color:var(--ink);font-family:"Barlow",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  body{
+    position:relative;
     background:
       radial-gradient(140% 60% at 10% -10%, oklch(0.52 0.12 150 / 0.85), transparent 55%),
       radial-gradient(120% 55% at 105% 0%, oklch(0.4 0.1 155 / 0.75), transparent 50%),
-      oklch(0.29 0.065 152);
-    background-attachment: fixed;
-    padding-bottom: env(safe-area-inset-bottom);
+      var(--bg-deep);
+    background-attachment:fixed;
   }
-  body::before {
-    content: "";
-    position: fixed; inset: 0; pointer-events: none; z-index: 1;
-    opacity: 0.045; mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:0.045;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
-  .pitch-lines {
-    position: fixed; top: -60px; right: -80px; width: 340px; height: 340px;
-    opacity: 0.13; z-index: 0; pointer-events: none;
+  a{color:oklch(0.6 0.18 40);}
+  button{font-family:inherit;}
+  h1,h2,h3{margin:0;}
+  .num, .brand h1, .tab-label-active{font-family:"Anton",sans-serif;font-weight:400;}
+
+  /* ---- header ---- */
+  header.topbar{padding:calc(env(safe-area-inset-top) + 20px) 16px 8px;position:relative;z-index:3;}
+  .brand-row{max-width:460px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .brand-row h1{font-family:"Anton",sans-serif;font-size:22px;color:var(--on-dark);line-height:1;text-shadow:0 2px 14px oklch(0.15 0.06 150/0.55);}
+  .header-actions{display:flex;align-items:center;gap:8px;}
+  select#account-switcher{
+    appearance:none;background:oklch(0.98 0.005 90/0.14);border:1px solid oklch(0.98 0.005 90/0.3);
+    color:var(--on-dark);font-family:"Barlow",sans-serif;font-weight:600;font-size:11.5px;
+    border-radius:999px;padding:7px 26px 7px 12px;max-width:150px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='white' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 10px center;
   }
-  a { color: oklch(0.6 0.18 40); }
-  a:hover { color: oklch(0.66 0.18 40); }
-
-  header { padding: calc(env(safe-area-inset-top) + 26px) 16px 4px; position: relative; z-index: 2; }
-  .brand { max-width: 420px; margin: 0 auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
-  .brand > div:first-child { min-width: 0; }
-  .live { flex-shrink: 0; }
-  .brand h1 {
-    margin: 0; font-family: "Anton", sans-serif; font-weight: 400; font-size: 27px; letter-spacing: 0.005em;
-    color: oklch(0.98 0.005 90); text-shadow: 0 2px 14px oklch(0.15 0.06 150 / 0.55); line-height: 1;
+  .avatar-btn{
+    width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,oklch(0.7 0.14 80),oklch(0.55 0.16 60));
+    color:oklch(0.2 0.05 60);border:1.5px solid oklch(1 0 0/0.5);font-weight:700;font-size:12px;flex-shrink:0;
   }
-  .brand .ts { font-size: 10.5px; color: oklch(0.85 0.03 150); margin-top: 3px; }
-  .live { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: oklch(0.94 0.18 130); text-transform: uppercase; }
-  .live .dot { width: 6px; height: 6px; border-radius: 50%; background: oklch(0.94 0.18 130); box-shadow: 0 0 0 3px oklch(0.94 0.18 130 / 0.25); animation: pulse 1.8s ease-in-out infinite; }
-  @keyframes pulse { 50% { opacity: 0.4; } }
+  .live-pill{max-width:460px;margin:6px auto 0;display:flex;align-items:center;justify-content:space-between;padding:0 2px;}
+  .ts{font-size:10.5px;color:var(--on-dark-dim);}
+  .live{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;letter-spacing:0.08em;color:var(--live);text-transform:uppercase;}
+  .live .dot{width:6px;height:6px;border-radius:50%;background:var(--live);box-shadow:0 0 0 3px oklch(0.94 0.18 130/0.25);animation:pulse 1.8s ease-in-out infinite;}
+  @keyframes pulse{50%{opacity:0.4;}}
 
-  main { max-width: 420px; margin: 0 auto; padding: 20px 16px 50px; position: relative; z-index: 2; }
+  /* ---- layout ---- */
+  main{max-width:460px;margin:0 auto;position:relative;z-index:2;}
+  .screen{display:none;padding:14px 16px 110px;}
+  .screen.active{display:block;}
+  .section{margin-bottom:20px;}
+  .section-title{font-size:13.5px;font-weight:700;color:var(--on-dark);margin:0 0 10px;display:flex;align-items:center;justify-content:space-between;}
+  .section-title .link-sm{font-size:11.5px;font-weight:700;color:var(--on-dark-dim);}
 
-  .account-strip { display: flex; align-items: center; gap: 8px; margin: 26px 0 12px; }
-  .account-strip:first-child { margin-top: 4px; }
-  .account-strip .name { font-weight: 700; font-size: 14.5px; color: oklch(0.98 0.005 90); min-width: 0; overflow-wrap: break-word; }
-  .account-strip .gw-tag {
-    background: oklch(0.98 0.005 90 / 0.16); border: 1px solid oklch(0.98 0.005 90 / 0.3);
-    color: oklch(0.98 0.005 90); font-weight: 700; font-size: 10.5px; letter-spacing: 0.04em;
-    padding: 3px 9px; border-radius: 999px; margin-left: auto; flex-shrink: 0;
-  }
+  .card{background:var(--card);border-radius:20px;padding:18px 18px 16px;margin-bottom:12px;box-shadow:0 14px 34px oklch(0.14 0.05 150/0.4), 0 1px 0 oklch(1 0 0/0.6) inset;}
+  .card-title{font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:12px;}
 
-  .card {
-    background: oklch(0.985 0.004 90); border-radius: 20px; padding: 20px 20px 18px;
-    margin-bottom: 14px; box-shadow: 0 14px 34px oklch(0.14 0.05 150 / 0.4), 0 1px 0 oklch(1 0 0 / 0.6) inset;
-  }
+  .empty-state{text-align:center;color:var(--on-dark-dim);font-size:12.5px;padding:20px 10px;}
 
-  .verdict {
-    background: linear-gradient(155deg, oklch(0.93 0.15 145), oklch(0.9 0.15 145));
-    border-radius: 13px; padding: 13px 16px; margin-bottom: 15px;
-    display: flex; justify-content: space-between; align-items: center;
-  }
-  .verdict.transfer-now { background: linear-gradient(155deg, oklch(0.93 0.13 250), oklch(0.9 0.13 250)); }
-  .verdict .action { font-family: "Anton", sans-serif; font-weight: 400; font-size: 16px; letter-spacing: 0.01em; color: oklch(0.3 0.1 150); min-width: 0; }
-  .verdict.transfer-now .action { color: oklch(0.32 0.1 250); }
-  .verdict .nums { font-size: 10.5px; color: oklch(0.4 0.05 150); font-weight: 600; text-align: right; line-height: 1.35; flex-shrink: 0; white-space: nowrap; }
-  .verdict.transfer-now .nums { color: oklch(0.38 0.05 250); }
+  /* ---- skeleton / loading ---- */
+  .skel{background:linear-gradient(100deg, oklch(0.93 0.005 90) 35%, oklch(0.97 0.004 90) 50%, oklch(0.93 0.005 90) 65%);background-size:200% 100%;animation:shimmer 1.6s ease-in-out infinite;border-radius:8px;}
+  @keyframes shimmer{to{background-position:-200% 0;}}
+  .skel-line{height:13px;margin-bottom:10px;}
+  .skel-block{height:80px;border-radius:16px;margin-bottom:12px;}
 
-  .rec-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: oklch(0.55 0.01 90); margin-bottom: 8px; }
-  .rec { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1.5px solid oklch(0.92 0.005 90); font-size: 13px; font-weight: 500; gap: 8px; }
-  .rec:first-of-type { border-top: none; padding-top: 0; }
-  .rec .move { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; flex: 1; }
-  .rec .club-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 2px oklch(1 0 0 / 0.6); }
-  .rec .out { color: oklch(0.52 0.19 25); font-weight: 700; text-decoration: line-through; text-decoration-color: oklch(0.52 0.19 25 / 0.4); }
-  .rec .in { color: oklch(0.38 0.12 150); font-weight: 700; }
-  .rec .net { font-family: "Anton", sans-serif; font-weight: 400; font-size: 16px; color: oklch(0.38 0.12 150); flex-shrink: 0; white-space: nowrap; }
+  /* ---- stat tiles ---- */
+  .stat-row{display:flex;gap:9px;margin-bottom:14px;}
+  .stat-tile{flex:1;background:var(--card-2);border-radius:14px;padding:10px 10px;display:flex;flex-direction:column;gap:2px;}
+  .stat-tile .k{font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-dim2);font-weight:700;}
+  .stat-tile .v{font-family:"Anton",sans-serif;font-size:16px;color:var(--ink);}
+  .stat-tile .v.g{color:var(--green);}
 
-  .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 16px; }
-  .chip { background: oklch(0.955 0.006 90); border-radius: 11px; padding: 9px 4px 8px; text-align: center; }
-  .chip.top { background: oklch(0.94 0.1 85); }
-  .chip .k { font-size: 9.5px; font-weight: 700; color: oklch(0.5 0.01 90); letter-spacing: 0.02em; }
-  .chip .v { font-family: "Anton", sans-serif; font-weight: 400; font-size: 17px; margin-top: 2px; color: oklch(0.34 0.09 40); }
-  .chip.top .v { color: oklch(0.36 0.13 60); }
+  /* ---- verdict banner ---- */
+  .verdict{background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));border-radius:13px;padding:13px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
+  .verdict.transfer-now{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));}
+  .verdict .action{font-family:"Anton",sans-serif;font-size:15px;color:oklch(0.3 0.1 150);min-width:0;}
+  .verdict.transfer-now .action{color:oklch(0.32 0.1 250);}
+  .verdict .nums{font-size:10.5px;color:oklch(0.4 0.05 150);font-weight:600;text-align:right;line-height:1.35;flex-shrink:0;white-space:nowrap;}
+  .verdict.transfer-now .nums{color:oklch(0.38 0.05 250);}
 
-  .swing-card { background: oklch(0.985 0.004 90); border-radius: 20px; padding: 20px; box-shadow: 0 14px 34px oklch(0.14 0.05 150 / 0.4), 0 1px 0 oklch(1 0 0 / 0.6) inset; margin-bottom: 4px; }
-  .swing-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; gap: 8px; }
-  .swing-title { font-weight: 700; font-size: 13.5px; min-width: 0; }
-  .swing-range { font-size: 10px; color: oklch(0.55 0.01 90); font-weight: 600; flex-shrink: 0; white-space: nowrap; }
-  .swing-sub { font-size: 11px; color: oklch(0.55 0.01 90); margin-bottom: 14px; }
-  .swing-row { display: flex; align-items: center; gap: 9px; margin-bottom: 6px; }
-  .swing-row .gw { width: 32px; font-size: 10px; font-weight: 700; color: oklch(0.5 0.01 90); text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-  .swing-track { flex: 1; height: 10px; background: oklch(0.93 0.006 90); border-radius: 5px; position: relative; }
-  .swing-fill { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
-  .swing-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1.5px; background: oklch(0.82 0.005 90); }
+  /* ---- rec list ---- */
+  .rec{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1.5px solid var(--divider);font-size:12.5px;font-weight:500;gap:8px;}
+  .rec:first-of-type{border-top:none;padding-top:0;}
+  .rec .move{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;flex:1;}
+  .club-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 2px oklch(1 0 0/0.6);display:inline-block;}
+  .rec .out{color:var(--red);font-weight:700;text-decoration:line-through;text-decoration-color:oklch(0.52 0.19 25/0.4);}
+  .rec .in{color:oklch(0.38 0.12 150);font-weight:700;}
+  .rec .net{font-family:"Anton",sans-serif;font-size:15px;color:oklch(0.38 0.12 150);flex-shrink:0;white-space:nowrap;}
 
-  .callouts { display: flex; gap: 10px; margin-top: 16px; }
-  .callout { flex: 1; border-radius: 13px; padding: 12px 14px; }
-  .callout.good { background: linear-gradient(155deg, oklch(0.93 0.15 145), oklch(0.9 0.15 145)); }
-  .callout.bad { background: linear-gradient(155deg, oklch(0.93 0.1 30), oklch(0.9 0.1 30)); }
-  .callout .k { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.7; }
-  .callout .v { font-family: "Anton", sans-serif; font-weight: 400; font-size: 17px; margin-top: 3px; }
-  .callout.good .v { color: oklch(0.3 0.1 150); }
-  .callout.bad .v { color: oklch(0.4 0.16 30); }
-  .clubs-used { font-size: 10.5px; color: oklch(0.55 0.01 90); margin-top: 12px; line-height: 1.5; }
+  /* ---- chip grid ---- */
+  .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
+  .chip-tile{background:var(--card-2);border-radius:11px;padding:9px 4px 8px;text-align:center;}
+  .chip-tile.top{background:var(--gold);}
+  .chip-tile .k{font-size:9px;font-weight:700;color:var(--ink-dim2);letter-spacing:0.02em;}
+  .chip-tile .v{font-family:"Anton",sans-serif;font-size:16px;margin-top:2px;color:oklch(0.34 0.09 40);}
+  .chip-tile.top .v{color:var(--gold-ink);}
 
-  .foot-note {
-    font-size: 10.5px; line-height: 1.6; color: oklch(0.92 0.03 150); margin-top: 8px;
-    padding: 13px 15px; border-radius: 13px; background: oklch(0.98 0.005 90 / 0.1);
-    border: 1px solid oklch(0.98 0.005 90 / 0.18);
-  }
-  .foot-note b { color: oklch(1 0 0); }
+  /* ---- team card (home) ---- */
+  .team-card{background:linear-gradient(160deg,oklch(0.93 0.03 150),oklch(0.9 0.03 150) 70%);border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;}
+  .pitch-mini{width:52px;height:52px;border-radius:12px;background:linear-gradient(180deg,oklch(0.4 0.11 150),oklch(0.3 0.09 150));position:relative;flex-shrink:0;overflow:hidden;border:1px solid oklch(0.5 0.1 150/0.4);}
+  .pitch-mini .ln{position:absolute;background:oklch(0.9 0.02 150/0.35);}
+  .team-card-body{flex:1;min-width:0;}
+  .team-card-name{font-weight:700;font-size:13.5px;}
+  .team-card-sub{font-size:11px;color:var(--ink-dim);margin-top:2px;}
 
-  footer { text-align: center; font-size: 10.5px; color: oklch(0.85 0.03 150); padding: 6px 20px 30px; position: relative; z-index: 2; }
-  footer a { color: oklch(0.97 0.1 130); }
+  /* ---- horizontal player chips ---- */
+  .hscroll{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:0 16px 2px;}
+  .player-chip{flex:0 0 84px;background:var(--card);border-radius:15px;padding:11px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;box-shadow:0 8px 20px oklch(0.14 0.05 150/0.3);}
+  .p-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 0 2px oklch(1 0 0/0.6);}
+  .p-name{font-size:10.5px;font-weight:700;text-align:center;line-height:1.2;}
+  .p-team{font-size:8.5px;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;}
+  .p-pts{font-family:"Anton",sans-serif;font-size:14px;color:var(--green);}
 
-  /* loading skeleton */
-  .skel { background: linear-gradient(100deg, oklch(0.93 0.005 90) 35%, oklch(0.97 0.004 90) 50%, oklch(0.93 0.005 90) 65%); background-size: 200% 100%; animation: shimmer 1.6s ease-in-out infinite; border-radius: 8px; }
-  @keyframes shimmer { to { background-position: -200% 0; } }
-  .skel-line { height: 13px; margin-bottom: 10px; }
-  .skel-verdict { height: 46px; border-radius: 13px; margin-bottom: 15px; }
-  .skel-chip { height: 44px; border-radius: 11px; }
-  .skel-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 16px; }
+  /* ---- league mini table ---- */
+  .league-tiles{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:0 16px 4px;}
+  .l-tile{flex:0 0 132px;background:linear-gradient(150deg,oklch(0.3 0.09 152),oklch(0.22 0.06 155));border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:12px;color:var(--on-dark);}
+  .l-tile-name{font-size:11.5px;font-weight:700;line-height:1.25;}
+  .l-tile-foot{display:flex;align-items:baseline;justify-content:space-between;}
+  .l-tile-rank{font-family:"Anton",sans-serif;font-size:17px;}
+  .l-tile-of{font-size:9.5px;color:var(--on-dark-dim);}
 
-  /* error state */
-  .error-body { text-align: center; padding: 10px 6px 4px; }
-  .error-title { font-weight: 700; font-size: 14.5px; margin: 12px 0 5px; }
-  .error-sub { font-size: 12px; color: oklch(0.5 0.01 90); line-height: 1.5; max-width: 300px; margin: 0 auto 16px; }
-  .error-retry {
-    display: inline-flex; align-items: center; gap: 6px; background: oklch(0.3 0.07 152); color: oklch(0.98 0.005 90);
-    font-weight: 700; font-size: 12px; padding: 9px 16px; border-radius: 999px; border: none; cursor: pointer;
-  }
+  .table-card{background:var(--card);border-radius:18px;padding:4px 14px 6px;}
+  .table-head{display:flex;padding:11px 4px 9px;font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-dim2);font-weight:700;border-bottom:1px solid var(--divider);}
+  .col-rk{width:38px;}
+  .col-name{flex:1;}
+  .col-pts{width:48px;text-align:right;}
+  .t-row{display:flex;align-items:center;padding:11px 4px;border-bottom:1px solid var(--divider);}
+  .t-row:last-child{border-bottom:none;}
+  .t-row.you{background:linear-gradient(90deg,oklch(0.9 0.1 150/0.3),transparent);margin:0 -10px;padding:11px 14px;border-radius:12px;border-bottom:none;}
+  .t-rk{width:38px;display:flex;align-items:center;gap:4px;font-family:"Anton",sans-serif;font-size:12.5px;}
+  .t-name-wrap{flex:1;display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .t-name{font-size:12.5px;font-weight:700;}
+  .t-team{font-size:10px;color:var(--ink-dim2);}
+  .t-pts{width:48px;text-align:right;font-size:12.5px;font-weight:700;}
+
+  /* ---- pitch view (team tab) ---- */
+  .pitch-wrap{border-radius:22px;overflow:hidden;position:relative;background:radial-gradient(120% 60% at 50% 0%,oklch(0.32 0.10 150),oklch(0.24 0.09 150) 55%,oklch(0.18 0.07 150));border:1px solid oklch(0.5 0.1 150/0.4);}
+  .pitch-stripe{position:absolute;inset:0;background-image:repeating-linear-gradient(180deg,oklch(1 0 0/0.035) 0 40px,transparent 40px 80px);}
+  .pitch-lines{position:absolute;inset:0;}
+  .pitch-lines .ln{position:absolute;border:1.5px solid oklch(1 0 0/0.30);}
+  .pitch-lines .circle{position:absolute;border:1.5px solid oklch(1 0 0/0.30);border-radius:50%;}
+  .pitch-rows{position:relative;padding:20px 8px 14px;display:flex;flex-direction:column;gap:22px;z-index:1;}
+  .prow{display:flex;justify-content:space-around;}
+  .pcard{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;position:relative;}
+  .p-avatar-lg{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid oklch(1 0 0/0.55);box-shadow:0 3px 10px oklch(0 0 0/0.35);}
+  .cap-badge{position:absolute;top:-4px;right:8px;width:17px;height:17px;border-radius:50%;background:var(--amber);color:#241a00;font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;font-family:"Anton",sans-serif;border:2px solid oklch(0.24 0.09 150);}
+  .p-tag{background:oklch(0.10 0.02 150/0.75);color:white;border-radius:8px;padding:2px 7px;font-size:10px;font-weight:700;white-space:nowrap;}
+  .p-pts-tag{background:var(--green);color:white;border-radius:8px;padding:1px 6px;font-size:10px;font-weight:800;}
+
+  .bench-section{margin-top:14px;}
+  .bench-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--on-dark-dim);font-weight:700;margin-bottom:8px;}
+  .bench-row{display:flex;gap:8px;background:var(--card);border-radius:16px;padding:12px 8px;}
+  .bcard{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .b-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+  .b-name{font-size:10px;font-weight:700;}
+  .b-pts{font-size:9.5px;color:var(--ink-dim2);}
+
+  /* ---- fixtures ---- */
+  .gw-switch{display:flex;align-items:center;gap:10px;background:oklch(0.98 0.005 90/0.14);border:1px solid oklch(0.98 0.005 90/0.3);border-radius:100px;padding:5px 6px;}
+  .gw-btn{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--on-dark);}
+  .gw-btn:disabled{opacity:0.3;}
+  .gw-label{font-size:12px;font-weight:700;min-width:44px;text-align:center;color:var(--on-dark);}
+  .day-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--on-dark-dim);font-weight:700;margin:14px 0 8px;}
+  .day-label:first-child{margin-top:2px;}
+  .fx-card{background:var(--card);border-radius:16px;padding:13px 15px;display:flex;flex-direction:column;gap:9px;margin-bottom:9px;}
+  .fx-main{display:flex;align-items:center;}
+  .fx-team{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .fx-abbr{font-size:11px;font-weight:800;font-family:"Anton",sans-serif;color:var(--ink);}
+  .fx-mid{flex:0 0 60px;display:flex;flex-direction:column;align-items:center;gap:1px;}
+  .fx-time{font-size:12px;font-weight:700;}
+  .fx-vs{font-size:9px;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;}
+  .fdr-row{display:flex;justify-content:space-between;gap:8px;}
+  .fdr-chip{flex:1;font-size:9.5px;font-weight:800;border-radius:6px;padding:3px 6px;text-align:center;color:#0B0B12;}
+
+  /* ---- transfers screen ---- */
+  .filter-row{display:flex;gap:7px;margin:0 -16px 12px;padding:0 16px;overflow-x:auto;}
+  .filter-chip{flex-shrink:0;padding:7px 13px;border-radius:100px;font-size:11.5px;font-weight:700;background:var(--card-2);color:var(--ink-dim);border:none;}
+  .filter-chip.active{background:var(--green);color:white;}
+  .search-input{width:100%;padding:11px 14px;border-radius:13px;border:none;background:var(--card);font-size:13px;margin-bottom:12px;font-family:inherit;color:var(--ink);}
+  .search-input::placeholder{color:var(--ink-dim2);}
+  .p-row{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:14px;padding:11px 13px;margin-bottom:8px;}
+  .p-row .p-avatar-sm{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .p-info{flex:1;min-width:0;}
+  .p-info .p-name-row{font-size:12.5px;font-weight:700;}
+  .p-info .p-meta{font-size:10.5px;color:var(--ink-dim);}
+  .p-form-col{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex-shrink:0;}
+  .p-price{font-family:"Anton",sans-serif;font-size:13px;}
+  .p-own{font-size:9.5px;color:var(--ink-dim2);}
+
+  /* ---- tabbar ---- */
+  .tabbar{position:fixed;left:0;right:0;bottom:0;height:calc(78px + env(safe-area-inset-bottom));background:var(--tabbar-bg);backdrop-filter:blur(10px);border-top:1px solid oklch(0.98 0.005 90/0.15);display:flex;z-index:5;}
+  .tab{flex:1;border:none;background:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;padding-top:10px;color:var(--on-dark-dim);}
+  .tab.active{color:var(--live);}
+  .tab svg{width:22px;height:22px;}
+  .tab span{font-size:9.5px;font-weight:700;}
+
+  /* ---- sheet overlay ---- */
+  .sheet-overlay{position:fixed;inset:0;z-index:20;background:oklch(0.1 0.02 150/0.55);display:flex;align-items:flex-end;}
+  .sheet-overlay[hidden]{display:none;}
+  .sheet{background:var(--bg-deep);width:100%;max-height:92vh;overflow-y:auto;border-radius:22px 22px 0 0;padding:14px 16px calc(28px + env(safe-area-inset-bottom));position:relative;box-shadow:0 -10px 40px oklch(0.1 0.02 150/0.4);}
+  .sheet-grabber{width:36px;height:4px;background:oklch(0.98 0.005 90/0.3);border-radius:3px;margin:0 auto 14px;}
+  .sheet-close{position:absolute;top:14px;right:16px;width:30px;height:30px;border-radius:50%;background:oklch(0.98 0.005 90/0.14);border:none;color:var(--on-dark);font-size:16px;}
+
+  .player-hero{display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 0 16px;}
+  .player-hero .p-avatar-xl{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid oklch(1 0 0/0.5);}
+  .player-hero .name{font-family:"Anton",sans-serif;font-size:19px;color:var(--on-dark);}
+  .player-hero .sub{font-size:12px;color:var(--on-dark-dim);font-weight:600;}
+  .player-hero .price{font-family:"Anton",sans-serif;font-size:14px;color:var(--live);}
+
+  .stat-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;}
+  .g-tile{background:var(--card);border-radius:13px;padding:11px 4px;display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .g-tile .g-label{font-size:8.5px;text-transform:uppercase;letter-spacing:0.03em;color:var(--ink-dim2);font-weight:700;text-align:center;}
+  .g-tile .g-value{font-family:"Anton",sans-serif;font-size:15px;color:var(--ink);}
+
+  .stat-list{background:var(--card);border-radius:16px;padding:4px 14px;margin-bottom:16px;}
+  .sl-row{display:flex;justify-content:space-between;padding:11px 0;border-top:1px solid var(--divider);font-size:12.5px;}
+  .sl-row:first-child{border-top:none;}
+  .sl-label{color:var(--ink-dim);font-weight:600;}
+  .sl-value{font-weight:700;}
+
+  .fdr-strip{display:flex;gap:7px;}
+  .fdr-strip .fdr-item{flex:1;background:var(--card);border-radius:11px;padding:9px 5px;display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .fdr-strip .fdr-opp{font-size:9.5px;font-weight:700;color:var(--ink-dim);}
+  .fdr-strip .fdr-num{width:20px;height:20px;border-radius:6px;color:#0B0B12;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+
+  .profile-menu-link{display:block;text-align:center;background:var(--card);border-radius:14px;padding:13px;font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:10px;text-decoration:none;}
+
+  footer{text-align:center;font-size:10px;color:var(--on-dark-dim);padding:6px 20px 110px;position:relative;z-index:2;max-width:460px;margin:0 auto;}
+  footer a{color:oklch(0.97 0.1 130);}
 </style>
 </head>
 <body>
 
-<svg class="pitch-lines" viewBox="0 0 340 340" fill="none" stroke="white" stroke-width="2" aria-hidden="true">
-  <rect x="20" y="20" width="300" height="300" rx="4"/>
-  <circle cx="170" cy="170" r="55"/>
-  <path d="M20 110 h60 v100 h-60 z"/>
-  <path d="M320 110 h-60 v100 h60 z"/>
+<svg style="position:fixed;top:-60px;right:-80px;width:300px;height:300px;opacity:0.1;z-index:0;pointer-events:none;" viewBox="0 0 340 340" fill="none" stroke="white" stroke-width="2" aria-hidden="true">
+  <rect x="20" y="20" width="300" height="300" rx="4"/><circle cx="170" cy="170" r="55"/>
+  <path d="M20 110 h60 v100 h-60 z"/><path d="M320 110 h-60 v100 h60 z"/>
 </svg>
 
-<header>
-  <div class="brand">
-    <div>
-      <h1>FPL Quant</h1>
-      <div class="ts" id="updated-at">loading&hellip;</div>
+<header class="topbar">
+  <div class="brand-row">
+    <h1>FPL Quant</h1>
+    <div class="header-actions">
+      <select id="account-switcher"></select>
+      <button class="avatar-btn" id="avatar-btn" onclick="location.hash='profile'">--</button>
     </div>
-    <div class="live"><span class="dot"></span>Live run</div>
+  </div>
+  <div class="live-pill">
+    <div class="ts" id="updated-at">loading&hellip;</div>
+    <div class="live"><span class="dot"></span>Live</div>
   </div>
 </header>
 
-<main id="app">
-  <div class="account-strip"><span class="name">&nbsp;</span></div>
-  <div class="card">
-    <div class="skel skel-verdict"></div>
-    <div class="skel skel-line" style="width: 40%;"></div>
-    <div class="skel skel-line" style="width: 85%;"></div>
-    <div class="skel skel-line" style="width: 78%; margin-bottom: 0;"></div>
-    <div class="skel-chips">
-      <div class="skel skel-chip"></div><div class="skel skel-chip"></div>
-      <div class="skel skel-chip"></div><div class="skel skel-chip"></div>
-    </div>
-  </div>
+<main>
+  <section class="screen active" data-tab="home"><div class="content" id="home-content"><div class="skel skel-block"></div><div class="skel skel-block"></div></div></section>
+  <section class="screen" data-tab="team"><div class="content" id="team-content"></div></section>
+  <section class="screen" data-tab="transfers"><div class="content" id="transfers-content"></div></section>
+  <section class="screen" data-tab="fixtures"><div class="content" id="fixtures-content"></div></section>
+  <section class="screen" data-tab="leagues"><div class="content" id="leagues-content"></div></section>
 </main>
 
 <footer>
@@ -188,8 +302,45 @@
   refreshed automatically before every real gameweek deadline.
 </footer>
 
+<nav class="tabbar">
+  <button class="tab" data-tab="home" onclick="location.hash='home'">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+    <span>Home</span>
+  </button>
+  <button class="tab" data-tab="team" onclick="location.hash='team'">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4l4-1 4 1 4 3-3 4-1-1v11H8V10l-1 1-3-4 4-3z"/></svg>
+    <span>Team</span>
+  </button>
+  <button class="tab" data-tab="transfers" onclick="location.hash='transfers'">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 20l-4-4 4-4"/></svg>
+    <span>Transfers</span>
+  </button>
+  <button class="tab" data-tab="fixtures" onclick="location.hash='fixtures'">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="3"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
+    <span>Fixtures</span>
+  </button>
+  <button class="tab" data-tab="leagues" onclick="location.hash='leagues'">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4z"/><path d="M8 5H5a3 3 0 0 0 3 5M16 5h3a3 3 0 0 1-3 5"/><path d="M12 13v4M9 20h6"/></svg>
+    <span>Leagues</span>
+  </button>
+</nav>
+
+<div class="sheet-overlay" id="sheet-overlay" hidden>
+  <div class="sheet">
+    <div class="sheet-grabber"></div>
+    <button class="sheet-close" onclick="history.back()">&times;</button>
+    <div id="sheet-content"></div>
+  </div>
+</div>
+
 <script>
 const REPO_RAW = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
+
+const ACCOUNTS = [
+  { id: 7139944, label: "ChatGPT template team" },
+  { id: 1305242, label: "Main account" },
+];
+const TABS = ["home", "team", "transfers", "fixtures", "leagues"];
 
 // Real Premier League primary colors -- public club brand colors, not invented.
 const CLUB_COLORS = {
@@ -205,6 +356,18 @@ const CLUB_COLORS = {
   "Spurs": "oklch(0.3 0.08 260)", "Sunderland": "oklch(0.5 0.2 25)",
 };
 const clubColor = (name) => CLUB_COLORS[name] || "oklch(0.6 0.01 90)";
+const FDR_COLOR = (d) => d == null ? "oklch(0.85 0.005 90)" : d <= 2 ? "var(--fdr-easy)" : d === 3 ? "var(--fdr-mid)" : "var(--fdr-hard)";
+
+const jerseyIcon = (fill) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B0B12" stroke-width="2"><path d="M12 3l3 2h4l-1 5-2 1v10H8V11L6 10 5 5h4l3-2z"/></svg>`;
+
+const state = {
+  accountId: Number(localStorage.getItem("fq_account_id")) || ACCOUNTS[1].id,
+  players: null, playersById: null,
+  fixtures: null, roadmap: null,
+  team: null, profile: null, leagues: null, realSquad: null,
+  lastTab: "home",
+  transferFilter: { position: "All", query: "" },
+};
 
 async function fetchJSON(path) {
   const res = await fetch(`${REPO_RAW}/${path}?t=${Date.now()}`, { cache: "no-store" });
@@ -212,10 +375,95 @@ async function fetchJSON(path) {
   return res.json();
 }
 
-function fmtTime(iso) {
+function fmtTime(iso, opts) {
   if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, opts || { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
+function fmtMoney(v) { return v == null ? "&mdash;" : `£${v.toFixed(1)}m`; }
+function fmtCompact(n) {
+  if (n == null) return "&mdash;";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "m";
+  if (n >= 1_000) return Math.round(n / 1000) + "k";
+  return String(n);
+}
+function initials(name) {
+  if (!name) return "--";
+  return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+}
+
+// ============================================================
+// data loading
+// ============================================================
+
+async function loadShared() {
+  const [playersPayload, fixturesPayload, roadmap] = await Promise.all([
+    fetchJSON("data/dashboard/app_players.json"),
+    fetchJSON("data/dashboard/app_fixtures.json"),
+    fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
+  ]);
+  state.players = playersPayload.players;
+  state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
+  state.fixtures = fixturesPayload.gameweeks;
+  state.roadmap = roadmap;
+  document.getElementById("updated-at").textContent = `Last run: ${fmtTime(playersPayload.generated_at)}`;
+}
+
+async function loadAccount(id) {
+  const [team, profile, leagues, realSquad] = await Promise.all([
+    fetchJSON(`data/dashboard/app_team_${id}.json`).catch(() => null),
+    fetchJSON(`data/dashboard/app_profile_${id}.json`).catch(() => null),
+    fetchJSON(`data/dashboard/app_leagues_${id}.json`).catch(() => null),
+    fetchJSON(`data/dashboard/real_squad_${id}.json`).catch(() => null),
+  ]);
+  state.team = team; state.profile = profile; state.leagues = leagues; state.realSquad = realSquad;
+  document.getElementById("avatar-btn").textContent = initials(profile ? profile.manager_name : team ? team.team_name : "");
+}
+
+function populateAccountSwitcher() {
+  const sel = document.getElementById("account-switcher");
+  sel.innerHTML = ACCOUNTS.map(a => `<option value="${a.id}" ${a.id === state.accountId ? "selected" : ""}>${a.label}</option>`).join("");
+  sel.onchange = async () => {
+    state.accountId = Number(sel.value);
+    localStorage.setItem("fq_account_id", state.accountId);
+    await loadAccount(state.accountId);
+    renderCurrentTab();
+  };
+}
+
+// ============================================================
+// router
+// ============================================================
+
+function closeSheet() { document.getElementById("sheet-overlay").hidden = true; }
+
+function route() {
+  const hash = (location.hash || "#home").slice(1);
+  if (hash.startsWith("player-")) {
+    openPlayerSheet(Number(hash.slice(7)));
+    return;
+  }
+  if (hash === "profile") {
+    openProfileSheet();
+    return;
+  }
+  closeSheet();
+  const tab = TABS.includes(hash) ? hash : "home";
+  state.lastTab = tab;
+  document.querySelectorAll(".screen").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
+  document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
+  renderCurrentTab();
+}
+
+function renderCurrentTab() {
+  const renderers = { home: renderHome, team: renderTeam, transfers: renderTransfers, fixtures: renderFixtures, leagues: renderLeagues };
+  renderers[state.lastTab]();
+}
+
+window.addEventListener("hashchange", route);
+
+// ============================================================
+// HOME
+// ============================================================
 
 function verdictBlock(hold) {
   if (!hold) return "";
@@ -227,16 +475,11 @@ function verdictBlock(hold) {
     </div>`;
 }
 
-function clubDot(name) {
-  if (!name) return "";
-  return `<span class="club-dot" style="background:${clubColor(name)}"></span>`;
-}
-
-function recListBlock(recs) {
-  if (!recs || !recs.length) return `<p style="color:var(--text-dim);font-size:13px;">No transfer recommendations available.</p>`;
-  return `<div class="rec-label">Top transfer targets</div>` + recs.slice(0, 3).map(r => `
+function recListBlock(recs, limit) {
+  if (!recs || !recs.length) return `<p class="empty-state">No transfer recommendations available.</p>`;
+  return recs.slice(0, limit || 3).map(r => `
     <div class="rec">
-      <span class="move">${clubDot(r.player_out_club)}<span class="out">${r.player_out}</span> &rarr; ${clubDot(r.player_in_club)}<span class="in">${r.player_in}</span></span>
+      <span class="move"><span class="club-dot" style="background:${clubColor(r.player_out_club)}"></span><span class="out">${r.player_out}</span> &rarr; <span class="club-dot" style="background:${clubColor(r.player_in_club)}"></span><span class="in">${r.player_in}</span></span>
       <span class="net">+${r.net.toFixed(1)}</span>
     </div>`).join("");
 }
@@ -246,107 +489,481 @@ function chipRowBlock(chips) {
   const short = { wildcard: "WC", free_hit: "FH", triple_captain: "TC", bench_boost: "BB" };
   const maxScore = Math.max(...chips.map(c => c.score ?? -Infinity));
   return `<div class="chips">` + chips.map(c => `
-    <div class="chip ${c.score === maxScore ? "top" : ""}">
+    <div class="chip-tile ${c.score === maxScore ? "top" : ""}">
       <div class="k">${short[c.chip_type] || c.chip_type}</div>
       <div class="v">${c.score != null ? c.score.toFixed(1) : "&mdash;"}</div>
     </div>`).join("") + `</div>`;
 }
 
-function accountCard(squad) {
-  return `
-    <div class="account-strip">
-      <span class="name">${squad.label}</span>
-      <span class="gw-tag">GW ${squad.plan_for_gameweek}</span>
+function deadlineCountdown() {
+  const upcoming = state.fixtures.find(gw => gw.is_current) || state.fixtures.find(gw => new Date(gw.deadline_time) > new Date());
+  return upcoming ? upcoming.deadline_time : null;
+}
+
+function formationOf(squad) {
+  const order = { GKP: 0, DEF: 1, MID: 2, FWD: 3 };
+  const xi = squad.filter(p => p.in_xi);
+  const counts = { DEF: 0, MID: 0, FWD: 0 };
+  xi.forEach(p => { if (counts[p.position] !== undefined) counts[p.position]++; });
+  return `${counts.DEF}-${counts.MID}-${counts.FWD}`;
+}
+
+function renderHome() {
+  const el = document.getElementById("home-content");
+  if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
+
+  const captain = state.team.squad.find(p => p.is_captain);
+  const topPerformers = [...state.team.squad].sort((a, b) => b.event_points - a.event_points).slice(0, 5);
+  const deadline = deadlineCountdown();
+  const leagueTable = state.leagues && state.leagues.tables[0];
+
+  el.innerHTML = `
+    <div class="section">
+      <div class="card" style="padding-top:14px;">
+        <div class="card-title">Gameweek ${state.team.gameweek ?? ""}${deadline ? ` &middot; deadline ${fmtTime(deadline)}` : ""}</div>
+        ${verdictBlock(state.realSquad && state.realSquad.hold_vs_transfer_now)}
+        <div class="rec-label" style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-dim2);margin-bottom:8px;">Top transfer target</div>
+        ${recListBlock(state.realSquad && state.realSquad.transfer_recommendations, 1)}
+        ${chipRowBlock(state.realSquad && state.realSquad.chip_evaluations)}
+      </div>
     </div>
-    <div class="card">
-      ${verdictBlock(squad.hold_vs_transfer_now)}
-      ${recListBlock(squad.transfer_recommendations)}
-      ${chipRowBlock(squad.chip_evaluations)}
+
+    <div class="stat-row">
+      <div class="stat-tile"><div class="k">GW Points</div><div class="v g">${state.team.gameweek_points ?? "&mdash;"}</div></div>
+      <div class="stat-tile"><div class="k">Overall Rank</div><div class="v">${state.profile && state.profile.overall_rank ? state.profile.overall_rank.toLocaleString() : "&mdash;"}</div></div>
+      <div class="stat-tile"><div class="k">Team Value</div><div class="v">${fmtMoney(state.team.team_value)}</div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span>Your team</span><span class="link-sm" onclick="location.hash='team'">View pitch &rsaquo;</span></div>
+      <div class="team-card">
+        <div class="pitch-mini"><div class="ln" style="left:50%;top:0;bottom:0;width:1px;"></div><div class="ln" style="left:18%;top:40%;width:64%;height:1px;"></div></div>
+        <div class="team-card-body">
+          <div class="team-card-name">${state.team.team_name || ""}</div>
+          <div class="team-card-sub">${formationOf(state.team.squad)}${captain ? ` &middot; Captain: ${captain.web_name}` : ""} &middot; ${state.team.gameweek_points ?? 0} pts this GW</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><span>Top performers this GW</span></div>
+      <div class="hscroll">
+        ${topPerformers.map(p => `
+          <div class="player-chip" onclick="location.hash='player-${p.player_id}'">
+            <div class="p-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+            <div class="p-name">${p.web_name}</div>
+            <div class="p-team">${p.team || ""} &middot; ${p.position || ""}</div>
+            <div class="p-pts">${p.event_points} pts</div>
+          </div>`).join("")}
+      </div>
+    </div>
+
+    ${leagueTable ? `
+    <div class="section">
+      <div class="section-title"><span>${leagueTable.name}</span><span class="link-sm" onclick="location.hash='leagues'">Full table &rsaquo;</span></div>
+      <div class="table-card">
+        ${leagueTable.standings.slice(0, 3).map(r => `
+          <div class="t-row ${r.is_you ? "you" : ""}">
+            <div class="t-rk">${r.rank}</div>
+            <div class="t-name-wrap"><div class="t-name">${r.player_name}${r.is_you ? " (you)" : ""}</div><div class="t-team">${r.entry_name || ""}</div></div>
+            <div class="t-pts">${r.total}</div>
+          </div>`).join("")}
+      </div>
+    </div>` : ""}
+
+    <div class="foot-note" style="font-size:10.5px;line-height:1.6;color:var(--on-dark-dim);margin-top:8px;padding:13px 15px;border-radius:13px;background:oklch(0.98 0.005 90/0.1);border:1px solid oklch(0.98 0.005 90/0.18);">
+      <b style="color:oklch(1 0 0);">Real, but not tuned yet:</b> transfer/chip recommendations come from the project's
+      v1 quant model (un-recalibrated, not yet backtested against real results). Everything else on this screen
+      (points, rank, squad, league standings) is fetched live from the official FPL API.
+    </div>
+  `;
+}
+
+// ============================================================
+// TEAM
+// ============================================================
+
+function pitchRow(players) {
+  return `<div class="prow">${players.map(p => `
+    <div class="pcard" onclick="location.hash='player-${p.player_id}'">
+      <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      ${p.is_captain ? `<div class="cap-badge">C</div>` : p.is_vice_captain ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
+      <div class="p-tag">${p.web_name}</div>
+      <div class="p-pts-tag">${p.event_points}</div>
+    </div>`).join("")}</div>`;
+}
+
+function renderTeam() {
+  const el = document.getElementById("team-content");
+  if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
+  const squad = state.team.squad;
+  const xi = squad.filter(p => p.in_xi);
+  const bench = squad.filter(p => !p.in_xi).sort((a, b) => a.squad_position - b.squad_position);
+  const byPos = (pos) => xi.filter(p => p.position === pos).sort((a, b) => a.squad_position - b.squad_position);
+
+  el.innerHTML = `
+    <div class="section-title" style="margin-bottom:12px;"><span>${state.team.team_name || "My Team"}</span><span class="link-sm">GW ${state.team.gameweek ?? ""}</span></div>
+    <div class="stat-row">
+      <div class="stat-tile"><div class="k">Points</div><div class="v g">${state.team.gameweek_points ?? "&mdash;"}</div></div>
+      <div class="stat-tile"><div class="k">Bank</div><div class="v">${fmtMoney(state.team.bank)}</div></div>
+      <div class="stat-tile"><div class="k">Value</div><div class="v">${fmtMoney(state.team.team_value)}</div></div>
+      <div class="stat-tile"><div class="k">Free Transfers</div><div class="v">${state.team.free_transfers ?? "&mdash;"}</div></div>
+    </div>
+    <div class="pitch-wrap">
+      <div class="pitch-stripe"></div>
+      <div class="pitch-lines">
+        <div class="ln" style="left:8px;right:8px;top:8px;bottom:8px;"></div>
+        <div class="ln" style="left:8px;right:8px;top:50%;height:0;"></div>
+        <div class="circle" style="width:70px;height:70px;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
+        <div class="ln" style="left:26%;right:26%;top:8px;height:40px;border-top:0;"></div>
+        <div class="ln" style="left:26%;right:26%;bottom:8px;height:40px;border-bottom:0;"></div>
+      </div>
+      <div class="pitch-rows">
+        ${pitchRow(byPos("GKP"))}
+        ${pitchRow(byPos("DEF"))}
+        ${pitchRow(byPos("MID"))}
+        ${pitchRow(byPos("FWD"))}
+      </div>
+    </div>
+    <div class="bench-section">
+      <div class="bench-label">Bench</div>
+      <div class="bench-row">
+        ${bench.map(p => `
+          <div class="bcard" onclick="location.hash='player-${p.player_id}'">
+            <div class="b-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+            <div class="b-name">${p.web_name}</div>
+            <div class="b-pts">${p.position} &middot; ${p.event_points}</div>
+          </div>`).join("")}
+      </div>
+    </div>
+    <a class="profile-menu-link" style="margin-top:14px;" href="https://fantasy.premierleague.com/entry/${state.team.entry_id}/event/${state.team.gameweek}" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
+  `;
+}
+
+// ============================================================
+// TRANSFERS
+// ============================================================
+
+function playerRow(p) {
+  return `
+    <div class="p-row" onclick="location.hash='player-${p.id}'">
+      <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      <div class="p-info">
+        <div class="p-name-row">${p.web_name}</div>
+        <div class="p-meta">${p.team || ""} &middot; ${p.position || ""} &middot; Form ${p.form ?? "&mdash;"}</div>
+      </div>
+      <div class="p-form-col">
+        <div class="p-price">${fmtMoney(p.price)}</div>
+        <div class="p-own">${p.selected_by_percent ?? "&mdash;"}% owned</div>
+      </div>
     </div>`;
+}
+
+function filteredPlayers() {
+  const { position, query } = state.transferFilter;
+  return state.players
+    .filter(p => position === "All" || p.position === position)
+    .filter(p => !query || p.web_name.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => (b.form ?? -1) - (a.form ?? -1));
+}
+
+function renderTransferList() {
+  const listEl = document.getElementById("transfer-list");
+  if (!listEl) return;
+  const rows = filteredPlayers().slice(0, 40);
+  listEl.innerHTML = rows.map(playerRow).join("") || `<p class="empty-state">No players match.</p>`;
+}
+
+function setTransferFilter(position) {
+  state.transferFilter.position = position;
+  document.querySelectorAll(".filter-chip[data-pos]").forEach(el => el.classList.toggle("active", el.dataset.pos === position));
+  renderTransferList();
+}
+
+function renderTransfers() {
+  const el = document.getElementById("transfers-content");
+  const recs = state.realSquad;
+  el.innerHTML = `
+    <div class="section">
+      <div class="card">
+        <div class="card-title">Model recommendation</div>
+        ${verdictBlock(recs && recs.hold_vs_transfer_now)}
+        ${recListBlock(recs && recs.transfer_recommendations, 5)}
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title"><span>Browse players</span></div>
+      <input class="search-input" id="player-search" type="search" placeholder="Search players&hellip;" value="${state.transferFilter.query}">
+      <div class="filter-row">
+        ${["All", "GKP", "DEF", "MID", "FWD"].map(pos => `<button class="filter-chip ${pos === state.transferFilter.position ? "active" : ""}" data-pos="${pos}" onclick="setTransferFilter('${pos}')">${pos}</button>`).join("")}
+      </div>
+      <div id="transfer-list"></div>
+    </div>
+  `;
+  document.getElementById("player-search").oninput = (e) => { state.transferFilter.query = e.target.value; renderTransferList(); };
+  renderTransferList();
+}
+
+// ============================================================
+// FIXTURES
+// ============================================================
+
+let fixturesGwIndex = null;
+
+function fdrChip(side) {
+  return `<div class="fdr-chip" style="background:${FDR_COLOR(side.difficulty)}">${side.short_name || "?"} &middot; FDR ${side.difficulty ?? "-"}</div>`;
+}
+
+function groupByDay(fixtures) {
+  const groups = {};
+  fixtures.forEach(f => {
+    const key = f.kickoff_time ? fmtTime(f.kickoff_time, { weekday: "long", day: "numeric", month: "short" }) : "Date TBC";
+    (groups[key] = groups[key] || []).push(f);
+  });
+  return groups;
+}
+
+function renderFixturesGw() {
+  const el = document.getElementById("fixtures-list");
+  if (!el) return;
+  const gw = state.fixtures[fixturesGwIndex];
+  document.getElementById("fixtures-gw-label").textContent = `GW ${gw.gameweek}`;
+  document.getElementById("fixtures-prev").disabled = fixturesGwIndex === 0;
+  document.getElementById("fixtures-next").disabled = fixturesGwIndex === state.fixtures.length - 1;
+
+  const groups = groupByDay(gw.fixtures);
+  el.innerHTML = Object.entries(groups).map(([day, fixtures]) => `
+    <div class="day-label">${day}</div>
+    ${fixtures.map(f => `
+      <div class="fx-card">
+        <div class="fx-main">
+          <div class="fx-team"><div class="fx-abbr">${f.home.short_name || "?"}</div></div>
+          <div class="fx-mid"><div class="fx-time">${f.kickoff_time ? fmtTime(f.kickoff_time, { hour: "2-digit", minute: "2-digit" }) : "TBC"}</div><div class="fx-vs">vs</div></div>
+          <div class="fx-team"><div class="fx-abbr">${f.away.short_name || "?"}</div></div>
+        </div>
+        <div class="fdr-row">${fdrChip(f.home)}${fdrChip(f.away)}</div>
+      </div>`).join("")}
+  `).join("") || `<p class="empty-state">No fixtures scheduled.</p>`;
+}
+
+function shiftFixturesGw(delta) {
+  fixturesGwIndex = Math.max(0, Math.min(state.fixtures.length - 1, fixturesGwIndex + delta));
+  renderFixturesGw();
 }
 
 function swingRoadmapCard(account, maxAbs) {
   const rows = account.weekly_swing.map(w => {
     const v = w.avg_squad_swing;
     const pct = v == null ? 0 : Math.min(48, Math.abs(v) / maxAbs * 48);
-    const side = v == null ? "" : (v < 0 ? `left:50%; width:${pct}%;` : `right:50%; width:${pct}%;`);
+    const side = v == null ? "" : (v < 0 ? `left:50%;width:${pct}%;` : `right:50%;width:${pct}%;`);
     const color = v == null ? "transparent" : (v < 0 ? "oklch(0.56 0.15 150)" : "oklch(0.62 0.19 30)");
-    return `
-      <div class="swing-row">
-        <span class="gw">GW${w.gameweek}</span>
-        <div class="swing-track"><div class="swing-mid"></div><div class="swing-fill" style="${side} background:${color};"></div></div>
-      </div>`;
+    return `<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px;">
+      <span style="width:32px;font-size:10px;font-weight:700;color:var(--ink-dim2);text-align:right;">GW${w.gameweek}</span>
+      <div style="flex:1;height:10px;background:var(--card-2);border-radius:5px;position:relative;">
+        <div style="position:absolute;left:50%;top:-3px;bottom:-3px;width:1.5px;background:var(--divider);"></div>
+        <div style="position:absolute;top:0;bottom:0;border-radius:5px;${side}background:${color};"></div>
+      </div></div>`;
   }).join("");
-
   const best = account.best_bench_boost_triple_captain_window;
   const worst = account.toughest_window_wildcard_candidate;
-
   return `
-    <div class="swing-card">
-      <div class="swing-head"><span class="swing-title">Fixture swing</span><span class="swing-range">GW${account.weekly_swing[0].gameweek}&ndash;${account.weekly_swing[account.weekly_swing.length - 1].gameweek}</span></div>
-      <div class="swing-sub">Negative = easier run for this squad&rsquo;s clubs</div>
-      ${rows}
-      <div class="callouts">
-        <div class="callout good"><div class="k">Easiest run</div><div class="v">${best ? `GW${best.gameweek}` : "&mdash;"}</div></div>
-        <div class="callout bad"><div class="k">Toughest run</div><div class="v">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+        <span class="card-title" style="margin:0;">Fixture swing roadmap</span>
+        <span style="font-size:10px;color:var(--ink-dim2);font-weight:600;">GW${account.weekly_swing[0].gameweek}&ndash;${account.weekly_swing[account.weekly_swing.length - 1].gameweek}</span>
       </div>
-      <div class="clubs-used">${account.squad_clubs.join(", ")}</div>
+      <div style="font-size:11px;color:var(--ink-dim);margin-bottom:12px;">Negative = easier run for this squad's clubs</div>
+      ${rows}
+      <div style="display:flex;gap:10px;margin-top:14px;">
+        <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));">
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Easiest run</div>
+          <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.3 0.1 150);margin-top:2px;">${best ? `GW${best.gameweek}` : "&mdash;"}</div>
+        </div>
+        <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));">
+          <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Toughest run</div>
+          <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.4 0.16 30);margin-top:2px;">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div>
+        </div>
+      </div>
     </div>`;
 }
 
-async function render() {
-  const app = document.getElementById("app");
-  try {
-    const [chatgpt, main, roadmap] = await Promise.all([
-      fetchJSON("data/dashboard/real_squad_7139944.json"),
-      fetchJSON("data/dashboard/real_squad_1305242.json"),
-      fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
-    ]);
+function renderFixtures() {
+  const el = document.getElementById("fixtures-content");
+  if (fixturesGwIndex === null) {
+    const idx = state.fixtures.findIndex(gw => gw.is_current);
+    fixturesGwIndex = idx >= 0 ? idx : 0;
+  }
+  const account = state.roadmap && state.roadmap.accounts.find(a => a.entry_id === state.accountId);
+  let maxAbs = 0.05;
+  if (state.roadmap) {
+    const allSwings = state.roadmap.accounts.flatMap(a => a.weekly_swing.map(w => w.avg_squad_swing)).filter(v => v != null);
+    maxAbs = Math.max(0.05, ...allSwings.map(Math.abs));
+  }
+  el.innerHTML = `
+    <div class="section-title" style="margin-bottom:12px;">
+      <span>Fixtures</span>
+      <div class="gw-switch">
+        <button class="gw-btn" id="fixtures-prev" onclick="shiftFixturesGw(-1)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <span class="gw-label" id="fixtures-gw-label"></span>
+        <button class="gw-btn" id="fixtures-next" onclick="shiftFixturesGw(1)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+    </div>
+    <div id="fixtures-list"></div>
+    ${account ? `<div class="section" style="margin-top:6px;">${swingRoadmapCard(account, maxAbs)}</div>` : ""}
+  `;
+  renderFixturesGw();
+}
 
-    document.getElementById("updated-at").textContent = `Last real run: ${fmtTime(chatgpt.generated_at)}`;
+// ============================================================
+// LEAGUES
+// ============================================================
 
-    let html = accountCard(chatgpt) + accountCard(main);
+function renderLeagues() {
+  const el = document.getElementById("leagues-content");
+  if (!state.leagues || !state.leagues.tiles.length) { el.innerHTML = `<p class="empty-state">No league data available for this account.</p>`; return; }
+  el.innerHTML = `
+    <div class="league-tiles">
+      ${state.leagues.tiles.map(t => `
+        <div class="l-tile">
+          <div class="l-tile-name">${t.name}</div>
+          <div class="l-tile-foot"><div class="l-tile-rank">${fmtCompact(t.rank)}</div><div class="l-tile-of">${t.total_entries ? `of ${fmtCompact(t.total_entries)}` : ""}</div></div>
+        </div>`).join("")}
+    </div>
+    ${state.leagues.tables.map(table => `
+      <div class="section" style="margin-top:16px;">
+        <div class="section-title"><span>${table.name}</span></div>
+        <div class="table-card">
+          <div class="table-head"><div class="col-rk">Rk</div><div class="col-name">Manager</div><div class="col-pts">Pts</div></div>
+          ${table.standings.map(r => `
+            <div class="t-row ${r.is_you ? "you" : ""}">
+              <div class="t-rk" style="${r.is_you ? "color:var(--green);" : ""}">${r.rank}</div>
+              <div class="t-name-wrap"><div class="t-name">${r.player_name}${r.is_you ? " (you)" : ""}</div><div class="t-team">${r.entry_name || ""}</div></div>
+              <div class="t-pts" style="${r.is_you ? "color:var(--green);" : ""}">${r.total}</div>
+            </div>`).join("")}
+        </div>
+      </div>`).join("")}
+  `;
+}
 
-    if (roadmap) {
-      const allSwings = roadmap.accounts.flatMap(a => a.weekly_swing.map(w => w.avg_squad_swing)).filter(v => v != null);
-      const maxAbs = Math.max(0.05, ...allSwings.map(Math.abs));
-      html += roadmap.accounts.map((a, i) => `
-        <div class="account-strip"><span class="name">${a.label}</span></div>
-        ${swingRoadmapCard(a, maxAbs)}
-      `).join("");
+// ============================================================
+// PLAYER SHEET
+// ============================================================
+
+function fixturesForClub(shortName, fromGw, count) {
+  const out = [];
+  for (const gw of state.fixtures) {
+    if (gw.gameweek < fromGw) continue;
+    for (const f of gw.fixtures) {
+      if (f.home.short_name === shortName) out.push({ opp: f.away.short_name, difficulty: f.home.difficulty, home: true });
+      else if (f.away.short_name === shortName) out.push({ opp: f.home.short_name, difficulty: f.away.difficulty, home: false });
     }
+    if (out.length >= count) break;
+  }
+  return out.slice(0, count);
+}
 
-    html += `
-      <div class="foot-note">
-        <b>Real, but not tuned yet:</b> every model parameter behind these numbers is still an
-        un-recalibrated v1 default (not yet backtested against real results). The fixture-swing
-        roadmap reflects <b>today's</b> squad composition &mdash; transfers made along the way
-        will change which teams it's actually tracking by the time later gameweeks arrive. Chip
-        scores each clear their own value bar independently, not a signal to fire multiple at once.
-      </div>`;
+function openPlayerSheet(id) {
+  const p = state.playersById && state.playersById[id];
+  const content = document.getElementById("sheet-content");
+  if (!p) { content.innerHTML = `<p class="empty-state">Player not found.</p>`; }
+  else {
+    const currentGw = (state.team && state.team.gameweek) || (state.fixtures.find(g => g.is_current) || {}).gameweek || 1;
+    const upcoming = fixturesForClub(p.team, currentGw, 4);
+    content.innerHTML = `
+      <div class="player-hero">
+        <div class="p-avatar-xl" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+        <div class="name">${p.web_name}</div>
+        <div class="sub">${p.team_name || ""} &middot; ${p.position || ""}</div>
+        <div class="price">${fmtMoney(p.price)}</div>
+      </div>
+      <div class="stat-grid4">
+        <div class="g-tile"><div class="g-label">Total Pts</div><div class="g-value">${p.total_points}</div></div>
+        <div class="g-tile"><div class="g-label">Form</div><div class="g-value" style="color:var(--green);">${p.form ?? "&mdash;"}</div></div>
+        <div class="g-tile"><div class="g-label">Owned</div><div class="g-value">${p.selected_by_percent ?? "&mdash;"}%</div></div>
+        <div class="g-tile"><div class="g-label">PPG</div><div class="g-value">${p.points_per_game ?? "&mdash;"}</div></div>
+      </div>
+      <div class="section-title" style="color:var(--on-dark);"><span>Season breakdown</span></div>
+      <div class="stat-list">
+        <div class="sl-row"><div class="sl-label">Minutes played</div><div class="sl-value">${p.minutes}</div></div>
+        <div class="sl-row"><div class="sl-label">Goals</div><div class="sl-value">${p.goals_scored}</div></div>
+        <div class="sl-row"><div class="sl-label">Assists</div><div class="sl-value">${p.assists}</div></div>
+        <div class="sl-row"><div class="sl-label">Clean sheets</div><div class="sl-value">${p.clean_sheets}</div></div>
+        <div class="sl-row"><div class="sl-label">Bonus points</div><div class="sl-value">${p.bonus}</div></div>
+        <div class="sl-row"><div class="sl-label">ICT Index</div><div class="sl-value">${p.ict_index ?? "&mdash;"}</div></div>
+        <div class="sl-row"><div class="sl-label">Yellow / red cards</div><div class="sl-value">${p.yellow_cards} / ${p.red_cards}</div></div>
+      </div>
+      ${upcoming.length ? `
+      <div class="section-title" style="color:var(--on-dark);"><span>Upcoming fixtures</span></div>
+      <div class="fdr-strip">
+        ${upcoming.map(u => `<div class="fdr-item"><div class="fdr-opp">${u.opp} (${u.home ? "H" : "A"})</div><div class="fdr-num" style="background:${FDR_COLOR(u.difficulty)}">${u.difficulty ?? "-"}</div></div>`).join("")}
+      </div>` : ""}
+    `;
+  }
+  document.getElementById("sheet-overlay").hidden = false;
+}
 
-    app.innerHTML = html;
+// ============================================================
+// PROFILE SHEET
+// ============================================================
+
+function openProfileSheet() {
+  const content = document.getElementById("sheet-content");
+  const profile = state.profile;
+  if (!profile) { content.innerHTML = `<p class="empty-state">No profile data available for this account.</p>`; }
+  else {
+    content.innerHTML = `
+      <div class="player-hero">
+        <div class="p-avatar-xl" style="background:linear-gradient(135deg,oklch(0.7 0.14 80),oklch(0.55 0.16 60));">${initials(profile.manager_name)}</div>
+        <div class="name">${profile.team_name || ""}</div>
+        <div class="sub">${profile.manager_name || ""}</div>
+      </div>
+      <div class="stat-grid4" style="grid-template-columns:repeat(3,1fr);">
+        <div class="g-tile"><div class="g-label">Total Points</div><div class="g-value">${profile.total_points ?? "&mdash;"}</div></div>
+        <div class="g-tile"><div class="g-label">Best GW</div><div class="g-value">${profile.best_gameweek ? profile.best_gameweek.points : "&mdash;"}</div></div>
+        <div class="g-tile"><div class="g-label">Best Rank</div><div class="g-value">${profile.best_overall_rank ? profile.best_overall_rank.toLocaleString() : "&mdash;"}</div></div>
+      </div>
+      <div class="section-title" style="color:var(--on-dark);"><span>Chips</span></div>
+      <div class="chips" style="margin-bottom:16px;">
+        ${profile.chips.map(c => `
+          <div class="chip-tile ${!c.used ? "top" : ""}">
+            <div class="k">${c.display_name}</div>
+            <div class="v" style="font-size:11px;">${c.used ? `Used GW${c.used_gameweek}` : "Available"}</div>
+          </div>`).join("")}
+      </div>
+      <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
+      <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>
+    `;
+  }
+  document.getElementById("sheet-overlay").hidden = false;
+}
+
+// ============================================================
+// boot
+// ============================================================
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+
+async function init() {
+  try {
+    await loadShared();
+    await loadAccount(state.accountId);
+    populateAccountSwitcher();
+    route();
   } catch (err) {
-    app.innerHTML = `
+    document.getElementById("home-content").innerHTML = `
       <div class="card">
-        <div class="error-body">
-          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-            <circle cx="20" cy="20" r="18" stroke="oklch(0.6 0.19 30)" stroke-width="2.2"/>
-            <path d="M20 12v10" stroke="oklch(0.6 0.19 30)" stroke-width="2.4" stroke-linecap="round"/>
-            <circle cx="20" cy="27.5" r="1.6" fill="oklch(0.6 0.19 30)"/>
-          </svg>
-          <div class="error-title">Couldn't load live data</div>
-          <div class="error-sub">${err.message}. The scheduled pipeline may not have run yet, or GitHub's raw-content cache hasn't caught up &mdash; try again shortly.</div>
-          <button class="error-retry" onclick="render()">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7M21 4v5h-5"/></svg>
-            Retry
-          </button>
+        <div style="text-align:center;padding:10px 6px 4px;">
+          <div style="font-weight:700;font-size:14.5px;margin:12px 0 5px;">Couldn't load live data</div>
+          <div style="font-size:12px;color:var(--ink-dim);line-height:1.5;max-width:300px;margin:0 auto 16px;">${err.message}. The scheduled pipeline may not have run yet, or GitHub's raw-content cache hasn't caught up &mdash; try again shortly.</div>
+          <button onclick="location.reload()" style="display:inline-flex;align-items:center;gap:6px;background:oklch(0.3 0.07 152);color:white;font-weight:700;font-size:12px;padding:9px 16px;border-radius:999px;border:none;">Retry</button>
         </div>
       </div>`;
   }
 }
 
-render();
+init();
 </script>
 
 </body>
