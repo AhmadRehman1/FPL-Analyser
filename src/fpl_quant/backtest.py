@@ -16,7 +16,8 @@ enforcement mechanism below (asof_scope) has to actually work, not just be plaus
 import json
 import math
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 import duckdb
 import numpy as np
@@ -1206,6 +1207,71 @@ def propose_recalibration(
     ).fetchone()[0]
 
 
+def write_recalibration_seed_file(con: duckdb.DuckDBPyConnection, backtest_run_id: int, seed_dir: Path | str) -> Path:
+    """Writes every recalibration_proposals row for this backtest_run_id to a committed JSON
+    file (seed_dir/seeds_<backtest_run_id>.json) -- a durable copy of what a real backtest run
+    found, independent of the DuckDB file itself.
+
+    The exact gap this closes: fact_type_multiplier_params v8 / minutes_model_shrinkage_params
+    v10's real winning values only ever existed as param_versions rows inside a local
+    db/fpl_quant_v2.duckdb that was later lost, with no other durable record of what those
+    values actually were (see README's Design notes and run_ingestion.py's own comment on the
+    same incident) -- a git-committed seed file survives exactly that failure mode.
+
+    Written status is a live read of recalibration_proposals.status at call time, not frozen at
+    'pending' -- review_recalibration.py's set_status() re-calls this after a human
+    confirms/rejects a proposal, so the committed file and the DB never drift out of sync.
+    load_confirmed_recalibration_seeds() only ever reads 'confirmed' entries back out, so a
+    'pending' or 'rejected' proposal captured here is disclosed provenance, not an activated
+    default -- the same human-gate discipline recalibration_proposals.status already enforces
+    in the DB, applied identically to its file-backed copy.
+    """
+    rows = con.execute(
+        "SELECT proposal_id, param_family, param_key, dimensions, old_params_version, new_params_version, "
+        "old_value, new_value, metric_name, metric_before, metric_after, status, reviewed_by, reviewed_at "
+        "FROM recalibration_proposals WHERE backtest_run_id = ? ORDER BY proposal_id",
+        [backtest_run_id],
+    ).fetchall()
+    proposals = []
+    for (proposal_id, family, key, dims, old_v, new_v, old_val, new_val, metric_name,
+         metric_before, metric_after, status, reviewed_by, reviewed_at) in rows:
+        proposals.append({
+            "proposal_id": proposal_id, "param_family": family, "param_key": key,
+            "dimensions": json.loads(dims) if dims else None,
+            "old_params_version": old_v, "new_params_version": new_v,
+            "old_value": old_val, "new_value": new_val,
+            "metric_name": metric_name, "metric_before": metric_before, "metric_after": metric_after,
+            "status": status, "reviewed_by": reviewed_by,
+            "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
+        })
+    seed_dir = Path(seed_dir)
+    seed_dir.mkdir(parents=True, exist_ok=True)
+    out_path = seed_dir / f"seeds_{backtest_run_id}.json"
+    out_path.write_text(json.dumps(
+        {"backtest_run_id": backtest_run_id, "written_at": datetime.now(timezone.utc).isoformat(), "proposals": proposals},
+        indent=2, sort_keys=True,
+    ) + "\n")
+    return out_path
+
+
+def load_confirmed_recalibration_seeds(seed_dir: Path | str) -> list[dict]:
+    """Reads every seeds_*.json file in seed_dir and returns only 'confirmed' proposals -- the
+    set safe to auto-write into a fresh/empty DB (see run_ingestion.py's own use of this). A
+    'pending' or 'rejected' entry is real, disclosed history, but never auto-activated here.
+    Returns [] (not an error) when seed_dir doesn't exist yet -- a fresh checkout with no
+    recalibration run behind it is a normal, expected state, not a failure."""
+    seed_dir = Path(seed_dir)
+    if not seed_dir.is_dir():
+        return []
+    confirmed = []
+    for path in sorted(seed_dir.glob("seeds_*.json")):
+        payload = json.loads(path.read_text())
+        for proposal in payload.get("proposals", []):
+            if proposal.get("status") == "confirmed":
+                confirmed.append(proposal)
+    return confirmed
+
+
 def refit_xi_rho(
     con: duckdb.DuckDBPyConnection,
     fit_seasons: tuple[str, ...] = ("2024-2025", "2025-2026"),
@@ -1714,6 +1780,7 @@ def recalibrate(
     refit_kappa_tc_flag: bool = False,
     minutes_select_seasons: tuple[str, ...] = ("2024-2025",),
     minutes_holdout_flag: bool = True,
+    seed_dir: Path | str | None = None,
 ) -> list[int]:
     """Runs whichever refit techniques are enabled against this backtest_run_id's results and
     writes one propose_recalibration() row per changed parameter -- never activates anything
@@ -1743,6 +1810,13 @@ def recalibrate(
     2025-2026 -- chronologically later, never touched by the descent), and the proposal's
     logged before/after metric is the holdout score, not the in-sample one the descent
     actually climbed. Off reverts to the prior in-sample-only behavior.
+
+    seed_dir (optional, default None -- exact no-op, prior behavior unchanged): when given,
+    every proposal_recalibration() call above also lands in a committed JSON seed file (see
+    write_recalibration_seed_file()) after this function finishes, independent of whatever
+    happens to the DuckDB file that holds the same rows. Written unconditionally when set (even
+    with zero new proposals) -- "we ran this and nothing changed" is real, worth-recording
+    information too, not just a non-event.
     """
     proposal_ids = []
     eval_steps = _eval_steps_for(con, backtest_run_id)
@@ -1831,6 +1905,9 @@ def recalibrate(
                 "realized_sharpe", result["grid"][current_kappa_tc]["realized_sharpe"], result["grid"][result["best_kappa_tc"]]["realized_sharpe"],
                 old_params_version=current_kappa_tc_version, effective_date=effective_date,
             ))
+
+    if seed_dir is not None:
+        write_recalibration_seed_file(con, backtest_run_id, seed_dir)
 
     return proposal_ids
 

@@ -23,6 +23,15 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest, db  # noqa: E402
 
+# Phase B1 hardening: recalibrate()'s seed_dir writes a durable, git-committed copy of every
+# proposal this run makes (data/recalibration/seeds_<backtest_run_id>.json), independent of
+# the gitignored DuckDB file that also holds the same recalibration_proposals rows -- the
+# exact artifact whose loss previously meant fact_type_multiplier_params v8/
+# minutes_model_shrinkage_params v10's real winning values were gone for good (see README's
+# Design notes). Still requires scripts/review_recalibration.py's human confirm/reject gate
+# before anything here is auto-loaded back by run_ingestion.py.
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
+
 # Every param family below is currently seeded at version=1 by scripts/run_ingestion.py.
 PARAM_VERSIONS = dict(
     xi_params_version=1, rho_params_version=1,
@@ -100,6 +109,7 @@ def main() -> None:
         minutes_param_grids=MINUTES_PARAM_GRIDS,
         current_kappa_tc_version=1,
         refit_kappa_tc_flag=True,
+        seed_dir=RECALIBRATION_SEED_DIR,
     )
     print(f"[recalibrate] {time.time() - t0:.1f}s -> {len(proposal_ids)} pending proposals: {proposal_ids}")
 

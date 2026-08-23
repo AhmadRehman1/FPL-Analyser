@@ -711,6 +711,123 @@ def test_propose_recalibration_handles_missing_old_version_gracefully(con):
 
 
 # ============================================================
+# write_recalibration_seed_file / load_confirmed_recalibration_seeds -- Phase B1 hardening
+# (durable, git-committed copy of a recalibration run, independent of the DuckDB file itself)
+# ============================================================
+
+def test_write_recalibration_seed_file_captures_proposal_fields(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+
+    out_path = bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+    assert out_path == tmp_path / f"seeds_{backtest_run_id}.json"
+    payload = json.loads(out_path.read_text())
+    assert payload["backtest_run_id"] == backtest_run_id
+    [proposal] = payload["proposals"]
+    assert proposal["param_family"] == "model_decay_params"
+    assert proposal["param_key"] == "xi"
+    assert proposal["new_value"] == pytest.approx(0.003)
+    assert proposal["status"] == "pending"
+
+
+def test_load_confirmed_recalibration_seeds_excludes_pending_and_rejected(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    confirmed_id = bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    rejected_id = bt.propose_recalibration(
+        con, backtest_run_id, "risk_aversion_params", "lambda_value", 0.5,
+        metric_name="realized_sharpe", metric_before=0.0, metric_after=-1.0, old_params_version=None,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [confirmed_id])
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [rejected_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    seeds = bt.load_confirmed_recalibration_seeds(tmp_path)
+    assert len(seeds) == 1
+    assert seeds[0]["param_family"] == "model_decay_params"
+    assert seeds[0]["status"] == "confirmed"
+
+
+def test_load_confirmed_recalibration_seeds_reads_across_multiple_seed_files(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    run_a = _seed_backtest_run(con, notes="run a")
+    run_b = _seed_backtest_run(con, notes="run b")
+    p1 = bt.propose_recalibration(
+        con, run_a, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    p2 = bt.propose_recalibration(
+        con, run_b, "correlation_params", "rho_residual", 0.0,
+        metric_name="rho_hat", metric_before=0.15, metric_after=0.0, old_params_version=None,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id IN (?, ?)", [p1, p2])
+    bt.write_recalibration_seed_file(con, run_a, tmp_path)
+    bt.write_recalibration_seed_file(con, run_b, tmp_path)
+
+    seeds = bt.load_confirmed_recalibration_seeds(tmp_path)
+    families = {s["param_family"] for s in seeds}
+    assert families == {"model_decay_params", "correlation_params"}
+
+
+def test_load_confirmed_recalibration_seeds_empty_when_dir_missing(tmp_path):
+    assert bt.load_confirmed_recalibration_seeds(tmp_path / "does_not_exist") == []
+
+
+def test_recalibrate_seed_dir_none_is_a_no_op(con, monkeypatch):
+    """Frozen-contract default: an existing caller that never passes seed_dir gets byte-
+    identical behavior to before this parameter existed -- write_recalibration_seed_file()
+    must never even be called, not just "called with no visible effect"."""
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    backtest_run_id = _seed_backtest_run(con)
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("write_recalibration_seed_file must not be called when seed_dir is None")
+
+    monkeypatch.setattr(bt, "write_recalibration_seed_file", _fail)
+    bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+        refit_minutes_flag=False, refit_lambda_flag=False,
+    )
+
+
+def test_recalibrate_writes_seed_file_when_seed_dir_given(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "correlation_params", 1, "2026-08-10", "rho_residual", value_numeric=0.15)
+    backtest_run_id = _seed_backtest_run(con)
+    bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+        refit_minutes_flag=False, refit_lambda_flag=False, seed_dir=tmp_path,
+    )
+    out_path = tmp_path / f"seeds_{backtest_run_id}.json"
+    assert out_path.exists()
+    payload = json.loads(out_path.read_text())
+    assert payload["proposals"] == []  # every refit_*_flag disabled -- nothing to propose, still written
+
+
+# ============================================================
 # refit_xi_rho -- profile-likelihood grid search
 # ============================================================
 

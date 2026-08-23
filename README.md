@@ -385,8 +385,13 @@ src/fpl_quant/
                                      week-over-week diff report (snapshot_for_diff/diff_reports)
                                      live here too
 scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live gameweek)
+scripts/record_provenance.py    -- Phase A5: records this run's fragile upstream inputs (repo/
+                                     FPL-Core-Insights commit SHAs, evidence-workbook
+                                     sha256+size, installed package versions) to
+                                     data/report_history/provenance_<asof>.json
 scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
 scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
+                                     (also keeps data/recalibration/seeds_*.json in sync -- Phase B1)
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
 scripts/run_transfer_planner_for_real_squad.py -- M8: same, but bootstrapped from a real
                                      manager's actual live FPL squad (fetched by entry ID),
@@ -427,12 +432,23 @@ data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
                                    FPL_202627_Master_Evidence_Database.xlsx, and
                                    FPL_Evidence_Claims_Research_Pull.xlsx go here
 data/report_history/           -- Priority 8c: small, committed per-gameweek report snapshots
-                                   (JSON) -- NOT gitignored, this is the point of persisting them
+                                   (JSON) -- NOT gitignored, this is the point of persisting them.
+                                   Also holds provenance_<asof>.json (Phase A5: repo/FPL-Core-
+                                   Insights commit SHAs, evidence-workbook sha256+size, installed
+                                   package versions -- scripts/record_provenance.py)
 data/dashboard/                 -- committed JSON the live dashboard (index.html) fetches:
                                    real_squad_<entry_id>.json (both real accounts' current
                                    transfer/hold/chip verdict) and chip_timing_roadmap.json
                                    (first-half fixture-swing signal) -- written by the
                                    scheduled workflow's real-squad and chip-timing steps
+data/recalibration/             -- Phase B1: committed seeds_<backtest_run_id>.json per real M7
+                                   recalibration run (backtest.write_recalibration_seed_file()),
+                                   a durable copy independent of the gitignored DuckDB file that
+                                   also holds the same recalibration_proposals rows -- NOT
+                                   gitignored, this is the point of persisting them. Only
+                                   'confirmed' entries are ever auto-loaded back
+                                   (load_confirmed_recalibration_seeds(), used by
+                                   run_ingestion.py)
 index.html                      -- the live mobile dashboard itself, served via GitHub Pages
                                    (Settings -> Pages -> Deploy from a branch -> master -> / root).
                                    Self-contained (no build step, no external dependencies),
@@ -1150,15 +1166,30 @@ for the existing (real-data) `lambda_value` finding above.
   `ParamNotFoundError` immediately on `team_strength.calibrate()`. Fixed two different ways
   depending on whether the winning value was actually recoverable: `xi`=0.005 and
   `rho_residual`=0.0 are both explicitly documented above (real, confirmed numbers, not a
-  guess), so they're re-written as their own immutable v2 rows directly in `run_ingestion.py`
-  now -- the real recalibration result, just re-materialized instead of re-derived.
+  guess) and re-written as their own immutable v2 rows -- originally as two hardcoded literals
+  directly in `run_ingestion.py`, since generalized (Phase B1 hardening) into a durable,
+  git-committed seed-file mechanism instead: `backtest.write_recalibration_seed_file()` writes
+  every `recalibration_proposals` row for a backtest run to
+  `data/recalibration/seeds_<backtest_run_id>.json`, independent of the DuckDB file that also
+  holds those rows (the exact artifact whose loss caused this incident in the first place);
+  `scripts/review_recalibration.py`'s confirm/reject flow re-writes that same file on every
+  status change, so the committed copy and the DB's own `recalibration_proposals.status` never
+  drift apart; `run_ingestion.py` now loads every `'confirmed'` seed from that directory
+  generically via `backtest.load_confirmed_recalibration_seeds()` rather than a growing list of
+  hardcoded literals, one per historically-recalibrated family. `xi`=0.005/`rho_residual`=0.0
+  themselves are hand-recorded into that same JSON shape in
+  `data/recalibration/seeds_historical_commit_7bf7604.json` (the original
+  `recalibration_proposals` rows that would have produced this file no longer exist to
+  regenerate it from -- re-typed from this file's own already-documented numbers, not
+  fabricated or guessed) so both re-materialized families now go through the identical,
+  reusable mechanism instead of one-off special-cased code.
   `fact_type_multiplier_params`/`minutes_model_shrinkage_params`'s actual winning v8/v10
   *values* were never recorded anywhere outside that lost database (only the version numbers
   a multi-round block coordinate descent landed on, not what they resolved to) -- rolled back
   to their honest, freshly-reproducible v1 baseline rather than fabricated, with the real fix
-  (re-run `backtest.refit_minutes_and_evidence_params()` for real and this time persist the
-  result somewhere durable, e.g. Drive-fetched into CI the same way the evidence workbooks are)
-  named here as a flagged follow-up, not silently done.
+  (re-run `backtest.refit_minutes_and_evidence_params()` for real, this time via `recalibrate()`
+  with `seed_dir=` set so the result lands in the same durable, git-committed seed-file
+  mechanism the fix above establishes) named here as a flagged follow-up, not silently done.
 - **A second real gap the same live run surfaced, one layer deeper: `team_strength.calibrate()`
   assumed the target season's own Elo data is always populated.** FPL-Core-Insights'
   `2026-2027/teams.csv` genuinely ships an `elo` column, but it's entirely blank for all 20
