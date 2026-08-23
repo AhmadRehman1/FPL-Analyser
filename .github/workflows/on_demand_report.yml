@@ -16,10 +16,12 @@ name: On-demand manager report (multi-user, no new hosting)
 #
 # SECURITY: the issue body/title are fully untrusted public input (anyone can open one). Nothing
 # derived from them is ever spliced via ${{ }} into a run:/script: body -- only passed through
-# `env:` and read back as an environment variable, and entry_id/label are hard-sanitized to a
-# narrow charset in the parse step before anything downstream touches them. Not instant: expect
-# ~1-2 minutes (DB restore + a real M8/M9 solve). `concurrency` below serializes requests rather
-# than letting an unbounded public queue run in parallel.
+# `env:` and read back as a shell/environment variable, and entry_id/label are hard-sanitized to
+# a narrow charset in the parse step before anything downstream touches them. Belt-and-suspenders:
+# the env: routing means a future loosening of that sanitization charset can't reopen a YAML/shell
+# injection path just because it happens to still be shell-metacharacter-safe today. Not instant:
+# expect ~1-2 minutes (DB restore + a real M8/M9 solve). `concurrency` below serializes requests
+# rather than letting an unbounded public queue run in parallel.
 
 on:
   issues:
@@ -35,7 +37,21 @@ concurrency:
 
 jobs:
   handle-request:
-    if: startsWith(github.event.issue.title, '[add-manager]')
+    # Gated to repo collaborators: this workflow's sanitization (see the SECURITY note above)
+    # closes the injection angle, but an unauthenticated public trigger still lets anyone spam
+    # issues to fetch+commit arbitrary entry_ids and burn Actions minutes on a ~1-2 minute job
+    # each time. author_association is GitHub's own computed relationship between the issue's
+    # author and this repo (OWNER/COLLABORATOR/MEMBER for a genuine collaborator, CONTRIBUTOR/
+    # NONE/FIRST_TIME_CONTRIBUTOR/etc for the general public) -- can't be spoofed by issue body
+    # content since it's derived server-side from the actual GitHub account that opened the
+    # issue. Trade-off accepted deliberately: this narrows "anyone can add their team" (this
+    # workflow's original documented purpose, see the top-of-file comment) down to repo
+    # collaborators only -- a maintainer would need to add a manager as a collaborator (or, for
+    # a fully public self-serve flow again later, layer on a maintainer-applied approval label
+    # or an entry_id allowlist instead) rather than this staying open to the general public.
+    if: |
+      startsWith(github.event.issue.title, '[add-manager]') &&
+      contains(fromJSON('["OWNER", "COLLABORATOR", "MEMBER"]'), github.event.issue.author_association)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout FPL-Analyser
@@ -76,8 +92,10 @@ jobs:
               f.write(f"label={safe_label}\n")
           PYEOF
 
+      # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
+      # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here).
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.lock
 
       - name: Restore the most recent ingested DB
         id: cache
@@ -96,14 +114,30 @@ jobs:
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
 
+      # See scheduled_pipeline.yml's own "Materialize evidence workbooks" step for why: retry
+      # on a transient Drive hiccup, and sanity-check the download isn't actually Google's
+      # virus-scan interstitial page.
       - name: Materialize evidence workbooks [cache miss fallback]
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p data/external
-          curl -sSL "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
-            -o "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
-          curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
-            -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size
+            size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then
+              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page, not the real workbook"
+              exit 1
+            fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then
+              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook (Google Drive virus-scan interstitial?)"
+              exit 1
+            fi
+          }
+          fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
       - name: Run ingestion (M0-M6) [cache miss fallback]
         if: steps.cache.outputs.cache-hit != 'true'
@@ -129,29 +163,38 @@ jobs:
           PYEOF
 
       # entry_id/event are already hard-validated as pure digits above, and label is
-      # hard-sanitized to a narrow charset -- safe to pass as ordinary quoted shell arguments.
+      # hard-sanitized to a narrow charset -- but routed through env: rather than spliced via
+      # ${{ }} regardless, per this workflow's own top-of-file SECURITY note.
       - name: Plan transfers for the requested manager
         id: plan
         continue-on-error: true
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
+          EVENT: ${{ steps.gw.outputs.event }}
+          LABEL: ${{ steps.parse.outputs.label }}
         run: |
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
-            "${{ steps.parse.outputs.entry_id }}" "${{ steps.gw.outputs.event }}" \
-            "${{ steps.parse.outputs.label }}"
+            "$ENTRY_ID" "$EVENT" "$LABEL"
 
       - name: Export live app data for the requested manager
         if: steps.plan.outcome == 'success'
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
+          EVENT: ${{ steps.gw.outputs.event }}
+          LABEL: ${{ steps.parse.outputs.label }}
         run: |
-          PYTHONPATH=src python scripts/export_app_data.py \
-            "${{ steps.parse.outputs.entry_id }}:${{ steps.gw.outputs.event }}:${{ steps.parse.outputs.label }}"
+          PYTHONPATH=src python scripts/export_app_data.py "$ENTRY_ID:$EVENT:$LABEL"
 
       - name: Commit the new manager's dashboard data
         if: steps.plan.outcome == 'success'
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/dashboard/
           git diff --cached --quiet && exit 0
-          git commit -m "chore: add manager ${{ steps.parse.outputs.entry_id }} [skip ci]"
+          git commit -m "chore: add manager $ENTRY_ID [skip ci]"
           for attempt in 1 2 3 4 5; do
             if git push; then
               exit 0

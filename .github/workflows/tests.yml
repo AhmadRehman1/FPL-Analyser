@@ -31,8 +31,18 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
+      # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here; an
+      # unpinned install could silently reintroduce squad_optimizer.solve()'s determinism bug).
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.lock
+
+      # Fail-fast canary stage: test_schema_invariants.py (asof-scope/schema discipline) and
+      # test_squad_optimizer.py (SCIP determinism + PSD guardrails) are cheap and catch the two
+      # bug classes the README calls out most often, so a broken canary fails in seconds
+      # instead of waiting through the full suite.
+      - name: Fail-fast canary tests (determinism + asof-scope invariants)
+        run: PYTHONPATH=src python -m pytest tests/test_schema_invariants.py tests/test_squad_optimizer.py -q
 
       - name: Run test suite
         run: PYTHONPATH=src python -m pytest tests/ -v

@@ -1,0 +1,19 @@
+# Exact pins for the versions the full test suite (tests/) passes against.
+#
+# Why pinned: squad_optimizer.solve() relies on SCIP's tie-breaking behavior for
+# deterministic MIQP solutions, and DuckDB's foreign-key/constraint enforcement has
+# shifted across releases. An unpinned `pip install -r requirements.txt` can silently
+# reintroduce solver nondeterminism or schema-constraint drift. CI installs this file,
+# not requirements.txt.
+#
+# To refresh: create a clean venv, `pip install -r requirements.txt` with no upper
+# bounds, run `pytest tests/ -q` until green, then `pip freeze` the packages below.
+duckdb==1.5.5
+pandas==3.0.5
+numpy==2.4.6
+scipy==1.17.1
+openpyxl==3.1.5
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+PySCIPOpt==6.2.1
+requests==2.34.2

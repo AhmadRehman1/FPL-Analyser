@@ -14,6 +14,15 @@ season_cumulative_metrics() -- both real evidence from a real run, not assumed. 
 step is a genuine SCIP MIQP solve plus a Monte Carlo simulation (same per-step cost as
 scripts/run_backtest.py's own steps), so a wide gameweek window or grid is a real time cost,
 not free -- size START_GAMEWEEK/END_GAMEWEEK/the grids to what you're willing to wait for.
+
+Also runs backtest.beats_baseline() over the SAME window (Phase B2 hardening): does the whole
+M1-M6 architecture actually outperform picking by recent form, by ownership popularity, or the
+ownership-weighted average manager -- measured, not just asserted. This is the real evidence
+the README's own "65 of 71 parameters still invented" transparency section was missing: an
+honest architecture disclosure says what's invented, but says nothing about whether the
+machinery pays off against something simpler. A negative result here (the model losing to a
+baseline) is exactly as worth printing as a positive one -- this script does not filter or
+spin either way.
 """
 
 import sys
@@ -55,6 +64,29 @@ def main() -> None:
     metrics = backtest.season_cumulative_metrics(result["weekly_points"])
     print(f"  total_points={metrics['total_points']:.1f} mean={metrics['mean_points']:.1f} "
           f"realized_sharpe={metrics['realized_sharpe']:.3f} max_drawdown={metrics['max_drawdown']:.1f}")
+
+    t0 = time.time()
+    baseline_version_keys = (
+        "xi_params_version", "rho_params_version", "decay_params_version", "adjustment_params_version",
+        "shrinkage_params_version", "fact_multiplier_params_version", "scoring_params_version",
+        "bps_params_version", "tau_params_version",
+    )
+    beats = backtest.beats_baseline(
+        con, TARGET_SEASON, START_GAMEWEEK, END_GAMEWEEK,
+        model_gameweeks=result["gameweeks"], model_weekly_points=result["weekly_points"],
+        ownership_params_version=1,
+        **{k: v for k, v in PARAM_VERSIONS.items() if k in baseline_version_keys},
+    )
+    print(f"[beats_baseline] {time.time() - t0:.1f}s")
+    print(f"  model: total_points={beats['model']['total_points']:.1f} over {beats['model']['n_gameweeks']} gameweeks")
+    for name in ("recent_points", "ownership_popularity", "crowd"):
+        b = beats[name]
+        verdict = "beats" if b["model_beats_baseline_by"] > 0 else "LOSES TO" if b["model_beats_baseline_by"] < 0 else "ties"
+        print(
+            f"  {name}: total_points={b['total_points']:.1f} over {b['n_gameweeks']} gameweeks "
+            f"({b['n_gameweeks_skipped']} skipped) -- model {verdict} it by {b['model_beats_baseline_by']:.1f} "
+            f"over the {b['n_gameweeks']} comparable gameweek(s)"
+        )
 
     # lambda=0.0 is not a valid grid candidate for this harness -- see
     # report_season_simulation_sensitivity()'s own docstring (it always goes through the real,

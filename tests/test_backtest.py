@@ -627,6 +627,110 @@ def test_avg_manager_benchmark_points_none_when_no_ownership_data(con):
     assert bt._avg_manager_benchmark_points(con, "2025-2026", 10, ep_mv, ownership_params_version=1) is None
 
 
+# ============================================================
+# _naive_candidate_pool / beats_baseline -- Phase B2 hardening (does the architecture actually
+# beat simpler alternatives, measured, not just asserted)
+# ============================================================
+
+def _seed_naive_pool_player(con, uid, position, club_code, price, event_points_by_gw=None, selected_by_percent=None):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, position])
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES (?, ?, ?, '2025-2026', ?)", [uid, uid.lower(), club_code, uid],
+    )
+    for gw, points in (event_points_by_gw or {}).items():
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, event_points, "
+            "selected_by_percent, _ingested_at) VALUES (?, '2025-2026', ?, ?, ?, ?, current_timestamp)",
+            [uid, gw, price, points, selected_by_percent],
+        )
+
+
+def test_naive_candidate_pool_recent_points_averages_the_lookback_window(con):
+    _seed_naive_pool_player(con, "p1", "Midfielder", "1", 5.5, event_points_by_gw={1: 2, 2: 8, 3: 5})
+    pool = bt._naive_candidate_pool(con, "2025-2026", "recent_points", lookback_gameweeks=3)
+    [candidate] = pool
+    assert candidate["mu"] == pytest.approx((2 + 8 + 5) / 3)
+    assert candidate["price"] == pytest.approx(5.5)
+    assert candidate["var"] == 0.0
+
+
+def test_naive_candidate_pool_recent_points_respects_lookback_window(con):
+    _seed_naive_pool_player(con, "p1", "Midfielder", "1", 5.5, event_points_by_gw={1: 100, 2: 8, 3: 5})
+    pool = bt._naive_candidate_pool(con, "2025-2026", "recent_points", lookback_gameweeks=2)
+    [candidate] = pool
+    assert candidate["mu"] == pytest.approx((8 + 5) / 2)  # gw1's 100 is outside the 2-gameweek lookback
+
+
+def test_naive_candidate_pool_ownership_uses_most_recent_selected_by_percent(con):
+    _seed_naive_pool_player(con, "p1", "Forward", "1", 6.0, event_points_by_gw={1: 3, 2: 4}, selected_by_percent=None)
+    con.execute("UPDATE fact_player_season_stats SET selected_by_percent = 12.0 WHERE player_uid = 'p1' AND gw = 1")
+    con.execute("UPDATE fact_player_season_stats SET selected_by_percent = 40.0 WHERE player_uid = 'p1' AND gw = 2")
+    pool = bt._naive_candidate_pool(con, "2025-2026", "ownership")
+    [candidate] = pool
+    assert candidate["mu"] == pytest.approx(40.0)
+
+
+def test_naive_candidate_pool_excludes_players_missing_the_signal(con):
+    _seed_naive_pool_player(con, "p1", "Midfielder", "1", 5.0, event_points_by_gw={1: 5})  # no ownership data
+    pool = bt._naive_candidate_pool(con, "2025-2026", "ownership")
+    assert pool == []
+
+
+def test_naive_candidate_pool_invalid_signal_raises():
+    with pytest.raises(ValueError):
+        bt._naive_candidate_pool(object(), "2025-2026", "not_a_real_signal")
+
+
+_BEATS_BASELINE_VERSION_KEYS = (
+    "xi_params_version", "rho_params_version", "decay_params_version", "adjustment_params_version",
+    "shrinkage_params_version", "fact_multiplier_params_version", "scoring_params_version",
+    "bps_params_version", "tau_params_version",
+)
+
+
+def test_beats_baseline_rejects_mismatched_model_lengths(con):
+    with pytest.raises(ValueError):
+        bt.beats_baseline(
+            con, "2025-2026", 2, 3, model_gameweeks=[2, 3], model_weekly_points=[10.0],
+            **{k: v for k, v in _SEASON_SIM_VERSIONS.items() if k in _BEATS_BASELINE_VERSION_KEYS},
+            ownership_params_version=1,
+        )
+
+
+def test_beats_baseline_scores_real_baselines_over_the_model_window(con):
+    _seed_season_simulation_league(con)
+    # ownership_popularity needs selected_by_percent, which _seed_season_simulation_league
+    # doesn't set -- backfilled here so that baseline has real data to pick a squad from too.
+    con.execute("UPDATE fact_player_season_stats SET selected_by_percent = 10.0 + (now_cost * 3)")
+
+    sim = bt.run_season_simulation(con, "2025-2026", start_gameweek=2, end_gameweek=4, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS)
+
+    result = bt.beats_baseline(
+        con, "2025-2026", start_gameweek=2, end_gameweek=4,
+        model_gameweeks=sim["gameweeks"], model_weekly_points=sim["weekly_points"],
+        ownership_params_version=1,
+        **{k: v for k, v in _SEASON_SIM_VERSIONS.items() if k in _BEATS_BASELINE_VERSION_KEYS},
+    )
+
+    assert set(result.keys()) == {"model", "recent_points", "ownership_popularity", "crowd"}
+    assert result["model"]["total_points"] == pytest.approx(sum(sim["weekly_points"]))
+    assert result["model"]["n_gameweeks"] == 3
+
+    for name in ("recent_points", "ownership_popularity", "crowd"):
+        entry = result[name]
+        assert entry["n_gameweeks"] + entry["n_gameweeks_skipped"] == 3
+        assert entry["n_gameweeks"] >= 1  # this fixture has 18 real, priced/positioned candidates -- always solvable
+        if entry["n_gameweeks"] == 3:
+            # no skipped gameweeks -- the comparable total IS the full total, so the delta must
+            # equal exactly the two totals it's computed from (apples-to-apples, not a partial-
+            # coverage adjustment silently kicking in).
+            assert entry["model_beats_baseline_by"] == pytest.approx(
+                entry["model_total_points_same_gameweeks"] - entry["total_points"]
+            )
+            assert entry["model_total_points_same_gameweeks"] == pytest.approx(result["model"]["total_points"])
+
+
 def test_score_gameweek_records_beats_crowd_metrics_when_opted_in(con):
     ep_mv, mm_mv, ts_mv, so_run_id = _seed_beats_crowd_scenario(con)
     backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
@@ -708,6 +812,123 @@ def test_propose_recalibration_handles_missing_old_version_gracefully(con):
     )
     row = con.execute("SELECT old_value, old_params_version FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]).fetchone()
     assert row == (None, None)
+
+
+# ============================================================
+# write_recalibration_seed_file / load_confirmed_recalibration_seeds -- Phase B1 hardening
+# (durable, git-committed copy of a recalibration run, independent of the DuckDB file itself)
+# ============================================================
+
+def test_write_recalibration_seed_file_captures_proposal_fields(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+
+    out_path = bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+    assert out_path == tmp_path / f"seeds_{backtest_run_id}.json"
+    payload = json.loads(out_path.read_text())
+    assert payload["backtest_run_id"] == backtest_run_id
+    [proposal] = payload["proposals"]
+    assert proposal["param_family"] == "model_decay_params"
+    assert proposal["param_key"] == "xi"
+    assert proposal["new_value"] == pytest.approx(0.003)
+    assert proposal["status"] == "pending"
+
+
+def test_load_confirmed_recalibration_seeds_excludes_pending_and_rejected(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    confirmed_id = bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    rejected_id = bt.propose_recalibration(
+        con, backtest_run_id, "risk_aversion_params", "lambda_value", 0.5,
+        metric_name="realized_sharpe", metric_before=0.0, metric_after=-1.0, old_params_version=None,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [confirmed_id])
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [rejected_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    seeds = bt.load_confirmed_recalibration_seeds(tmp_path)
+    assert len(seeds) == 1
+    assert seeds[0]["param_family"] == "model_decay_params"
+    assert seeds[0]["status"] == "confirmed"
+
+
+def test_load_confirmed_recalibration_seeds_reads_across_multiple_seed_files(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    run_a = _seed_backtest_run(con, notes="run a")
+    run_b = _seed_backtest_run(con, notes="run b")
+    p1 = bt.propose_recalibration(
+        con, run_a, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    p2 = bt.propose_recalibration(
+        con, run_b, "correlation_params", "rho_residual", 0.0,
+        metric_name="rho_hat", metric_before=0.15, metric_after=0.0, old_params_version=None,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id IN (?, ?)", [p1, p2])
+    bt.write_recalibration_seed_file(con, run_a, tmp_path)
+    bt.write_recalibration_seed_file(con, run_b, tmp_path)
+
+    seeds = bt.load_confirmed_recalibration_seeds(tmp_path)
+    families = {s["param_family"] for s in seeds}
+    assert families == {"model_decay_params", "correlation_params"}
+
+
+def test_load_confirmed_recalibration_seeds_empty_when_dir_missing(tmp_path):
+    assert bt.load_confirmed_recalibration_seeds(tmp_path / "does_not_exist") == []
+
+
+def test_recalibrate_seed_dir_none_is_a_no_op(con, monkeypatch):
+    """Frozen-contract default: an existing caller that never passes seed_dir gets byte-
+    identical behavior to before this parameter existed -- write_recalibration_seed_file()
+    must never even be called, not just "called with no visible effect"."""
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    backtest_run_id = _seed_backtest_run(con)
+
+    def _fail(*args, **kwargs):
+        raise AssertionError("write_recalibration_seed_file must not be called when seed_dir is None")
+
+    monkeypatch.setattr(bt, "write_recalibration_seed_file", _fail)
+    bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+        refit_minutes_flag=False, refit_lambda_flag=False,
+    )
+
+
+def test_recalibrate_writes_seed_file_when_seed_dir_given(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "correlation_params", 1, "2026-08-10", "rho_residual", value_numeric=0.15)
+    backtest_run_id = _seed_backtest_run(con)
+    bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+        refit_minutes_flag=False, refit_lambda_flag=False, seed_dir=tmp_path,
+    )
+    out_path = tmp_path / f"seeds_{backtest_run_id}.json"
+    assert out_path.exists()
+    payload = json.loads(out_path.read_text())
+    assert payload["proposals"] == []  # every refit_*_flag disabled -- nothing to propose, still written
 
 
 # ============================================================

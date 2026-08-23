@@ -30,6 +30,7 @@ that a bare "run on every ingestion" wiring wouldn't respect. A separate, delibe
 lower-cadence caller is the right shape for this -- see the design doc's Phase A framing.
 """
 
+import time
 from datetime import datetime
 
 import duckdb
@@ -43,15 +44,35 @@ FPL_API_BASE = "https://fantasy.premierleague.com/api"
 # Python packages, etc. all key off 314 for the game-wide Overall league).
 FPL_OVERALL_LEAGUE_ID = 314
 
+# See app_export._fetch_json's own docstring -- same retry rationale, duplicated rather than
+# shared per this project's established one-fetch-function-per-ingestion-module convention
+# (this module's own docstring: "_fetch_json() is isolated specifically so verification is a
+# one-line swap").
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
 
 # ============================================================
 # fetch -- isolated network I/O, the one surface real verification and test mocking touch
 # ============================================================
 
-def _fetch_json(url: str) -> dict:
-    resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-    resp.raise_for_status()
-    return resp.json()
+def _fetch_json(url: str, *, max_attempts: int = 4, base_backoff_seconds: float = 1.0) -> dict:
+    for attempt in range(max_attempts):
+        try:
+            resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(base_backoff_seconds * (2 ** attempt))
+            continue
+
+        if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < max_attempts - 1:
+            retry_after = resp.headers.get("Retry-After")
+            delay = float(retry_after) if retry_after and retry_after.isdigit() else base_backoff_seconds * (2 ** attempt)
+            time.sleep(delay)
+            continue
+
+        resp.raise_for_status()
+        return resp.json()
 
 
 # ============================================================

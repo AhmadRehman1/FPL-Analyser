@@ -324,6 +324,36 @@ def test_higher_lambda_reduces_or_holds_objective_with_real_variance():
     assert r0["objective"] >= r_real["objective"] - 1e-6  # risk penalty can only reduce the achievable score
 
 
+def test_psd_warning_fires_on_non_psd_sigma(capsys):
+    """def0/def1 both have var=1.0 (the _synthetic_pool default); a cov of 5.0 between them
+    violates Cauchy-Schwarz (cov^2=25 > var_a*var_b=1), so the restricted 2x2 submatrix
+    [[1,5],[5,1]] has eigenvalues 1+/-5 -- genuinely not PSD, not just numerically borderline."""
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 5.0}
+    so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3)
+    out = capsys.readouterr().out
+    assert "::warning::" in out
+    assert "not PSD" in out
+
+
+def test_psd_warning_does_not_fire_on_psd_sigma(capsys):
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 0.3, ("mid0", "mid1"): 0.2}  # well within Cauchy-Schwarz for var=1.0
+    so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3)
+    out = capsys.readouterr().out
+    assert "::warning::" not in out
+
+
+def test_psd_warning_does_not_raise_or_change_solve_behavior():
+    """Warn-only: a non-PSD Sigma must not raise, and must not make solve() itself fail --
+    this module's own test fixtures deliberately use non-PSD toy covariances (see the test
+    above), so a raise here would break the established fixture pattern."""
+    pool = _synthetic_pool()
+    sigma_pairs = {("def0", "def1"): 5.0}
+    result = so.solve(pool, sigma_pairs, lam=0.15, guardrail_cap=3)
+    assert result["status"] == "optimal"
+
+
 def test_divergence_check_fails_when_variance_is_a_stub_zero():
     """The exact historical failure mode named in M5's own spec: a stub/zero covariance
     matrix makes lambda irrelevant, so both solves land on the same squad."""

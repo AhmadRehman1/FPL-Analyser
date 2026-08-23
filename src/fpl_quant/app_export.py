@@ -15,11 +15,17 @@ independently verified live fetch in THIS environment. Every fetch_* function is
 project's established convention (ingest_understat.py, ingest_fpl_entry_picks.py).
 """
 
+import time
 from datetime import datetime, timezone
 
 import requests
 
 FPL_API_BASE = "https://fantasy.premierleague.com/api"
+
+# 429 (rate limited) and the 5xx server-error family -- live_tracking.yml's cron fires every
+# 10 minutes during matchdays, which is exactly the traffic pattern that trips a rate limit;
+# these are the codes worth a retry rather than an immediate hard failure.
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 POSITION_LABELS = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}
 
@@ -43,10 +49,35 @@ FPL_OVERALL_LEAGUE_ID = 314
 # fetch -- isolated network I/O, the one surface real verification and test mocking touch
 # ============================================================
 
-def _fetch_json(url: str) -> dict:
-    resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-    resp.raise_for_status()
-    return resp.json()
+def _fetch_json(url: str, *, max_attempts: int = 4, base_backoff_seconds: float = 1.0) -> dict:
+    """Retries on 429/5xx (see _RETRYABLE_STATUS_CODES) and on a connection-level
+    failure/timeout, with exponential backoff -- honors a 429 response's own Retry-After
+    header when present, since that's the server's own explicit "wait this long" signal
+    rather than a guess. Any other status (a real 4xx like 404) raises immediately via
+    raise_for_status(), unretried -- retrying a client error that isn't going to change on
+    its own would just waste the attempt budget. This sandbox's own network policy blocks
+    fantasy.premierleague.com (see module docstring), so the retry path itself is exercised by
+    test_app_export.py's own injected-failure-then-success mock of requests.get, not verified
+    against a live rate-limit event -- the mechanism (backoff doubling per attempt,
+    Retry-After honored, non-retryable errors raised immediately) is real, tested code
+    regardless."""
+    for attempt in range(max_attempts):
+        try:
+            resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(base_backoff_seconds * (2 ** attempt))
+            continue
+
+        if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < max_attempts - 1:
+            retry_after = resp.headers.get("Retry-After")
+            delay = float(retry_after) if retry_after and retry_after.isdigit() else base_backoff_seconds * (2 ** attempt)
+            time.sleep(delay)
+            continue
+
+        resp.raise_for_status()
+        return resp.json()
 
 
 def fetch_bootstrap_static(*, payload: dict | None = None) -> dict:

@@ -63,8 +63,10 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
+      # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here).
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.lock
 
       # data/external/ is gitignored (see README's own "Design notes" on why) -- provisioned
       # fresh each run rather than committed, since the FPL-Core-Insights extract is large and
@@ -93,13 +95,40 @@ jobs:
       # Google interstitials a virus-scan warning page instead of a direct download for files
       # over ~25MB; both files here (well under 1MB) shouldn't hit that, but re-check if a
       # future, larger version of either workbook starts failing here.
+      # --fail/--retry: a bare curl here previously had no retry at all -- one transient Drive
+      # hiccup failed the whole ~20-25 minute run. --retry-all-errors covers a transient HTTP
+      # error code, not just a connection drop. The size/HTML sniff below catches the other
+      # real failure mode this step can hit silently: a "successful" 200 response that's
+      # actually Google's virus-scan interstitial page (see the comment above), which curl
+      # alone has no way to distinguish from a real .xlsx download.
       - name: Materialize evidence workbooks
         run: |
           mkdir -p data/external
-          curl -sSL "https://drive.google.com/uc?export=download&id=1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" \
-            -o "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
-          curl -sSL "https://drive.google.com/uc?export=download&id=190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" \
-            -o "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size
+            size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then
+              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page, not the real workbook"
+              exit 1
+            fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then
+              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook (Google Drive virus-scan interstitial?)"
+              exit 1
+            fi
+          }
+          fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      # Records what this run's fragile upstream inputs (FPL-Core-Insights commit, evidence
+      # workbook contents, installed package versions) actually WERE, next to the report
+      # snapshots this same run commits below -- see the script's own module docstring for why
+      # (the lost-local-DB incident is exactly the kind of gap this closes). Best-effort and
+      # never raises: an absent input is reported via ::warning:: rather than failing the run.
+      - name: Record source provenance manifest
+        run: PYTHONPATH=src python scripts/record_provenance.py
 
       - name: Run ingestion (M0-M6)
         run: PYTHONPATH=src python scripts/run_ingestion.py
@@ -143,13 +172,43 @@ jobs:
 
       # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
       # a one-off re-check) without needing a code change -- the two real accounts above always
-      # run regardless of this input.
+      # run regardless of this input. workflow_dispatch inputs are an insider-only threat
+      # (triggering a manual run already requires push access to this repo), but sanitized to
+      # digits-only and routed via env: anyway -- same pattern on_demand_report.yml uses for its
+      # genuinely public, untrusted issue-body input, rather than splicing ${{ }} straight into
+      # run: for one input type and not the other.
+      - name: Sanitize ad-hoc real_squad inputs
+        id: real_squad
+        if: github.event.inputs.real_squad_entry_id != ''
+        env:
+          RAW_ENTRY_ID: ${{ github.event.inputs.real_squad_entry_id }}
+          RAW_EVENT: ${{ github.event.inputs.real_squad_event }}
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import re
+
+          entry_id = (os.environ.get("RAW_ENTRY_ID") or "").strip()
+          event = (os.environ.get("RAW_EVENT") or "").strip()
+          if not re.fullmatch(r"\d{1,10}", entry_id) or int(entry_id) <= 0:
+              print(f"::error::real_squad_entry_id must be a positive integer, got {entry_id!r}")
+              raise SystemExit(1)
+          if not re.fullmatch(r"\d{1,3}", event) or int(event) <= 0:
+              print(f"::error::real_squad_event must be a positive integer, got {event!r}")
+              raise SystemExit(1)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"entry_id={entry_id}\n")
+              f.write(f"event={event}\n")
+          PYEOF
+
       - name: Plan transfers for an ad-hoc real manager's squad (manual dispatch only)
         if: github.event.inputs.real_squad_entry_id != ''
+        env:
+          ENTRY_ID: ${{ steps.real_squad.outputs.entry_id }}
+          EVENT: ${{ steps.real_squad.outputs.event }}
         run: |
-          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
-            "${{ github.event.inputs.real_squad_entry_id }}" \
-            "${{ github.event.inputs.real_squad_event }}"
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py "$ENTRY_ID" "$EVENT"
 
       # App conversion, Phase 1: real, live data for the PWA's Team/Profile/Leagues/Fixtures/
       # Transfers-browse screens (data/dashboard/app_*.json) -- see app_export.py's own module
