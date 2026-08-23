@@ -24,6 +24,16 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import decision_engine as de  # noqa: E402
 from fpl_quant import db, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
+from fpl_quant import price_changes as pc  # noqa: E402
+
+# Review B3/Feature 5 (informational only -- see price_changes.py's own module docstring):
+# an invented v1 default for how large a net-transfer swing must be, at this checkpoint's
+# ownership level, to plausibly trigger a real FPL price change. Flagged for the same
+# eventual recalibration-against-real-data treatment as every other unpinned magnitude in
+# this project -- there is no historical FPL price-change ground truth ingested anywhere
+# here to calibrate against yet.
+PRICE_CHANGE_RISE_THRESHOLD = 50_000
+PRICE_CHANGE_FALL_THRESHOLD = 50_000
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -52,11 +62,17 @@ def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
     ]
 
 
-def _explain_paragraph(entry_id: int, gw: int, decision: de.Decision) -> str:
+def _explain_paragraph(entry_id: int, gw: int, decision: de.Decision, price_hint: pc.PriceForecast | None) -> str:
     lines = [f"Entry {entry_id}, GW{gw}: recommended action is '{decision.action}'."]
     if decision.swaps:
         s = decision.swaps[0]
         lines.append(f"Why: {s.out_player_uid} -> {s.in_player_uid} ({s.reason}), projected gain {decision.ep_lift:+.2f} EP over the horizon.")
+        if price_hint is not None and price_hint.direction == "rise":
+            lines.append(
+                f"Price-timing hint (informational only, never part of the ranking above): "
+                f"make this transfer tonight -- {s.in_player_uid} is projected to rise "
+                f"{price_hint.delta_pence / 10:.1f}m by deadline (confidence {price_hint.confidence:.0%})."
+            )
     else:
         lines.append(f"Why: no move clears the model's own threshold this week (projected gain {decision.ep_lift:+.2f} EP).")
     lines.append(f"Downside: 5th-95th percentile squad total is [{decision.downside_ci[0]:.1f}, {decision.downside_ci[1]:.1f}].")
@@ -108,18 +124,32 @@ def main() -> None:
         ts_mv, mm_mv, **PARAM_VERSIONS,
     )
 
+    # Feature 5 (informational only -- see price_changes.py's own module docstring): computed
+    # SEPARATELY from decision_engine's own ranking, never fed back into it. Only surfaced for
+    # the recommended swap's incoming player, if any -- the one place a manager would actually
+    # act on timing advice.
+    price_hint = None
+    if decision.swaps:
+        forecasts = pc.forecast_price_changes(
+            con, target_season=TARGET_SEASON, as_of_gameweek=current_event,
+            rise_threshold=PRICE_CHANGE_RISE_THRESHOLD, fall_threshold=PRICE_CHANGE_FALL_THRESHOLD,
+            data_asof=calibration_asof_date,
+        )
+        price_hint = next((f for f in forecasts if f.player_uid == decision.swaps[0].in_player_uid), None)
+
     data_asof = calibration_asof_date.isoformat()
     payload = dataclasses.asdict(decision)
     payload["entry_id"] = entry_id
     payload["gw"] = plan_for_gameweek
     payload["data_asof"] = data_asof
+    payload["price_hint"] = dataclasses.asdict(price_hint) if price_hint is not None else None
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     out_path = DASHBOARD_DIR / f"decision_{entry_id}_{plan_for_gameweek}_{data_asof}.json"
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
     print(f"[explain_my_move] wrote {out_path}")
     print()
-    print(_explain_paragraph(entry_id, plan_for_gameweek, decision))
+    print(_explain_paragraph(entry_id, plan_for_gameweek, decision, price_hint))
 
     con.close()
 
