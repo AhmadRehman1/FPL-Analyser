@@ -2,14 +2,13 @@ name: Live in-match tracking (Final Third, roadmap item 1)
 
 # Provisional bonus points + a sample-based live rank estimate while real Premier League
 # fixtures are actually being played. Deliberately a BROAD schedule (every 10 minutes across
-# typical PL matchday windows), not a precise per-fixture-kickoff cron the way
-# scheduled_pipeline.yml's deadline schedule is -- that precision needs real kickoff times
-# fetched from bootstrap-static/fixtures, which this sandbox's network policy blocks (same
-# limitation every live-fetch module in this project already documents). A future session with
-# real network access could build a print_live_windows.py analog to print_fpl_deadlines.py and
-# tighten this the same way; until then, scripts/export_live_data.py's own is_any_fixture_live()
-# check makes an off-target run cheap (a couple of API calls, then exit) rather than wasteful --
-# and this repo is public, so GitHub Actions minutes are free and unlimited regardless.
+# typical PL matchday windows) rather than a precise per-fixture-kickoff cron -- that precision
+# needs real kickoff times fetched from bootstrap-static/fixtures, which this sandbox's network
+# policy blocks (same limitation every live-fetch module in this project already documents). A
+# future session with real network access could build a small print-real-kickoff-windows tool
+# and tighten this; until then, scripts/export_live_data.py's own is_any_fixture_live() check
+# makes an off-target run cheap (a couple of API calls, then exit) rather than wasteful -- and
+# this repo is public, so GitHub Actions minutes are free and unlimited regardless.
 on:
   schedule:
     - cron: "*/10 18-21 * * 5"    # Friday evening kickoffs
