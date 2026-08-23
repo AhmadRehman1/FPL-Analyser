@@ -171,6 +171,75 @@ def test_sample_poisson_vec_varies_per_element_lambda():
 
 
 # ============================================================
+# sample_binomial_vec -- multinomial goal-allocation building block (Phase B hardening)
+# ============================================================
+
+def test_sample_binomial_vec_matches_binomial_moments():
+    n = np.full(300_000, 4)
+    p = np.full(300_000, 0.3)
+    rng = np.random.default_rng(1)
+    u = rng.random(300_000)
+    counts = mc.sample_binomial_vec(n, p, u)
+    assert counts.mean() == pytest.approx(4 * 0.3, abs=0.02)
+    assert counts.var() == pytest.approx(4 * 0.3 * 0.7, abs=0.02)
+
+
+def test_sample_binomial_vec_never_exceeds_n():
+    rng = np.random.default_rng(2)
+    n = rng.integers(0, 6, size=50_000)
+    p = rng.random(50_000)
+    u = rng.random(50_000)
+    counts = mc.sample_binomial_vec(n, p, u)
+    assert np.all(counts <= n)
+    assert np.all(counts >= 0)
+
+
+def test_sample_binomial_vec_handles_zero_n():
+    n = np.zeros(100, dtype=int)
+    p = np.full(100, 0.5)
+    u = np.full(100, 0.5)
+    counts = mc.sample_binomial_vec(n, p, u)
+    assert np.all(counts == 0)
+
+
+def test_sample_binomial_vec_zero_p_never_scores():
+    n = np.full(1000, 3)
+    p = np.zeros(1000)
+    u = np.linspace(0, 1, 1000, endpoint=False)
+    counts = mc.sample_binomial_vec(n, p, u)
+    assert np.all(counts == 0)
+
+
+def test_sample_binomial_vec_p_one_always_gets_all_of_n():
+    n = np.array([0, 1, 2, 5])
+    p = np.full(4, 1.0)
+    u = np.full(4, 0.5)
+    counts = mc.sample_binomial_vec(n, p, u)
+    np.testing.assert_array_equal(counts, n)
+
+
+def test_sequential_binomial_decomposition_reproduces_multinomial_allocation():
+    """This is exactly the construction simulate_fixture's goal-allocation section uses: draw
+    player 1's share via Binomial(N, p1), player 2's share via Binomial(N-X1, p2/(1-p1)), and
+    whatever's left is implicitly the untracked "rest of the team" -- the standard sequential-
+    binomial decomposition of a multinomial. Verifies both the hard constraint (X1+X2 <= N
+    always) and that each player's long-run share converges to their multinomial proportion."""
+    rng = np.random.default_rng(7)
+    n_draws = 200_000
+    N = np.full(n_draws, 5)
+    p1_target, p2_target = 0.4, 0.25  # remainder (0.35) is the untracked "rest of team"
+
+    x1 = mc.sample_binomial_vec(N, np.full(n_draws, p1_target), rng.random(n_draws))
+    remaining_n = N - x1
+    p2_conditional = np.full(n_draws, p2_target / (1 - p1_target))
+    x2 = mc.sample_binomial_vec(remaining_n, p2_conditional, rng.random(n_draws))
+
+    assert np.all(x1 + x2 <= N)
+    assert x1.mean() == pytest.approx(5 * p1_target, abs=0.03)
+    assert x2.mean() == pytest.approx(5 * p2_target, abs=0.03)
+
+
+# ============================================================
 # sample_minutes_state_vec
 # ============================================================
 

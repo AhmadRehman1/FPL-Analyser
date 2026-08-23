@@ -45,6 +45,20 @@ fixture's Dixon-Coles bivariate Poisson. This is a strictly more correct generat
 an independent Poisson redraw would be: it makes teammates' clean-sheet outcomes the *same*
 underlying draw (not just correlated by construction) and opponents' clean-sheet/goals-
 conceded outcomes exact complements, with no extra machinery required.
+
+Per-player GOALS are conditioned on that same drawn team total (see simulate_fixture's own
+"goal allocation" section below) -- each squad player's own Poisson(Z_fixture*lambda_i) rate
+sets their SHARE of their team's realized goal count for that realization, via the standard
+sequential-binomial decomposition of a multinomial (exact when conditioning independent
+Poissons on their sum; here the "sum" is instead the real, correlated Dixon-Coles draw, so the
+conditioning is the same construction applied to a more realistic team total than a plain
+Poisson sum would give). This makes summed squad goals on a side never exceed that side's own
+drawn home_goals/away_goals, which the prior independent-per-player draw did not guarantee.
+ASSISTS remain independent per-player Poisson draws, not conditioned on anything -- an assist
+isn't a component of the team's own goal TOTAL the way a goal is (an assist is credited to a
+different player than the one who scored, so there's no analogous "sum equals a drawn total"
+constraint to enforce), and the spec's generative-mechanism paragraph only ever names goals
+as bounded by a team scoreline.
 """
 
 import hashlib
@@ -53,7 +67,7 @@ from datetime import date
 import duckdb
 import numpy as np
 import pandas as pd
-from scipy.stats import gamma, poisson
+from scipy.stats import binom, gamma, poisson
 
 from . import expected_points as ep
 from . import params as params_mod
@@ -178,6 +192,29 @@ def sample_poisson_vec(lam: np.ndarray, u: np.ndarray, max_k: int = MAX_COUNT) -
     return result
 
 
+def sample_binomial_vec(n: np.ndarray, p: np.ndarray, u: np.ndarray) -> np.ndarray:
+    """Vectorized inverse-CDF Binomial draw, one (possibly distinct) n and p per element --
+    same inverse-transform-from-u pattern as sample_poisson_vec, so a caller consuming u from
+    this module's _u_pair() gets the same antithetic-pair variance reduction goals/assists/etc
+    already get. Used to decompose a multinomial goal allocation into a sequence of conditional
+    Binomial draws (see simulate_fixture's goal-allocation section): X_1 ~ Binomial(n, p_1),
+    X_2 ~ Binomial(n-X_1, p_2/(1-p_1)), etc -- the standard construction, exact for any n
+    (not just a Poisson-distributed one)."""
+    n = np.asarray(n, dtype=int)
+    p = np.clip(np.asarray(p, dtype=float), 0.0, 1.0)
+    max_n = int(n.max()) if n.size else 0
+    cum = np.zeros_like(u, dtype=float)
+    result = np.full(u.shape, max_n, dtype=int)
+    assigned = np.zeros(u.shape, dtype=bool)
+    for k in range(max_n + 1):
+        valid_k = k <= n
+        cum = np.where(valid_k, cum + binom.pmf(k, n, p), cum)
+        newly = (~assigned) & valid_k & (u <= cum)
+        result = np.where(newly, k, result)
+        assigned |= newly
+    return np.clip(result, 0, n)
+
+
 def sample_minutes_state_vec(p0: float, p1: float, p2: float, u: np.ndarray) -> np.ndarray:
     return np.where(u < p0, "0", np.where(u < p0 + p1, "1_59", "60plus"))
 
@@ -238,7 +275,7 @@ def _team_of_for_fixture(con: duckdb.DuckDBPyConnection, home_uid: str, away_uid
 def _fixture_roster(con: duckdb.DuckDBPyConnection, ep_model_version: int, mm_model_version: int, match_id: str) -> list[dict]:
     rows = con.execute(
         """
-        SELECT o.player_uid, dp.position, o.expected_bps,
+        SELECT o.player_uid, dp.position, o.expected_bps, o.ep_goals,
                m.p_0min, m.p_1_59min, m.p_60plus_min
         FROM ep_outputs o
         JOIN dim_player dp ON dp.player_uid = o.player_uid
@@ -248,12 +285,12 @@ def _fixture_roster(con: duckdb.DuckDBPyConnection, ep_model_version: int, mm_mo
         [mm_model_version, ep_model_version, match_id],
     ).fetchall()
     out = []
-    for player_uid, position, expected_bps, p0, p1, p2 in rows:
+    for player_uid, position, expected_bps, ep_goals, p0, p1, p2 in rows:
         if position not in POSITIONS:
             continue
         out.append({
             "player_uid": player_uid, "position": position, "expected_bps": expected_bps,
-            "p_0": p0, "p_1_59": p1, "p_60plus": p2, "p_played": p1 + p2,
+            "ep_goals": ep_goals, "p_0": p0, "p_1_59": p1, "p_60plus": p2, "p_played": p1 + p2,
         })
     return out
 
@@ -291,8 +328,35 @@ def simulate_fixture(
     home_goals, away_goals = sample_from_grid(grid, _u_pair())
     z_fixture = sample_z_fixture(sigma_z_sq, _u_pair())
 
+    # Static (mean-based, not per-realization) expected goal COUNT per roster member -- the
+    # same ep_goals/goal_points conversion compute_lambda_representative() already uses.
+    # Needed below for the "rest of the team" (every non-squad scorer on a side) pool that the
+    # goal-allocation section conditions squad players' draws against; a squad player's own
+    # per-realization lam_goals (computed in the loop below) supersedes this for THEM, but
+    # non-squad participants only ever get this static rate (matching their existing static
+    # strength treatment -- see module docstring).
+    goal_pts_cache: dict[str, float] = {}
+
+    def _goal_pts(position):
+        if position not in goal_pts_cache:
+            goal_pts_cache[position] = ep._sm(con, "goal_points", scoring_params_version, position)
+        return goal_pts_cache[position]
+
+    rest_of_team_lambda = {home_uid: 0.0, away_uid: 0.0}
+    for r in roster:
+        if r["player_uid"] in squad_uids:
+            continue
+        side = team_of.get(r["player_uid"])
+        if side not in rest_of_team_lambda:
+            continue  # unresolved side for a non-squad participant -- excluded from the pool, not guessed
+        gp = _goal_pts(r["position"])
+        if gp:
+            rest_of_team_lambda[side] += (r["ep_goals"] or 0.0) / gp
+
     strengths = {}
     per_player = {}
+    lam_goals_by_uid: dict[str, np.ndarray] = {}
+    is_home_by_uid: dict[str, bool] = {}
     for r in roster:
         player_uid = r["player_uid"]
         team_uid = team_of.get(player_uid)
@@ -311,6 +375,7 @@ def simulate_fixture(
             # without knowing which side's goals are "against" them, so skip rather than guess.
             continue
         is_home_side = team_uid == home_uid
+        is_home_by_uid[player_uid] = is_home_side
         own_goals_against = away_goals if is_home_side else home_goals
 
         position = r["position"]
@@ -321,8 +386,12 @@ def simulate_fixture(
         rates = ep.player_rates_shrunk(con, player_uid, position, season_priority)
         def_rates = ep._defensive_action_rates_per_90(con, player_uid, position, season_priority)
 
+        # goals are NOT drawn here -- lam_goals is this player's own per-realization rate, but
+        # the actual draw is deferred to the goal-allocation section below, which conditions
+        # every squad player on a side jointly on that side's own drawn home_goals/away_goals
+        # (see module docstring's "Per-player GOALS are conditioned..." paragraph).
         lam_goals = rates["expected_goals_per_90"] * mean_min / 90.0 * z_fixture
-        goals = sample_poisson_vec(lam_goals, _u_pair())
+        lam_goals_by_uid[player_uid] = lam_goals
         lam_assists = rates["expected_assists_per_90"] * mean_min / 90.0 * z_fixture
         assists = sample_poisson_vec(lam_assists, _u_pair())
 
@@ -345,10 +414,32 @@ def simulate_fixture(
         strength = np.exp(r["expected_bps"] * z_fixture / tau_val) * played
         strengths[player_uid] = strength
         per_player[player_uid] = {
-            "position": position, "state": state, "goals": goals, "assists": assists,
+            "position": position, "state": state, "assists": assists,
             "clean_sheet": clean_sheet, "goals_conceded_floor": goals_conceded_floor,
             "defcon_hit": defcon_hit, "saves_count": saves_count,
         }
+
+    # ------------------------------------------------------------
+    # goal allocation: condition each side's squad players' goal draws on that side's own
+    # drawn home_goals/away_goals, via the standard sequential-binomial decomposition of a
+    # multinomial (see sample_binomial_vec's own docstring). Squad players sorted by
+    # player_uid for a deterministic allocation order -- the DRAW ORDER doesn't bias any
+    # individual player's own resulting marginal (a property of the multinomial construction),
+    # but an unordered dict/set iteration would make this module's own seeded-RNG
+    # reproducibility guarantee (spec's deterministic_seed contract) order-dependent for no
+    # reason, the same class of bug squad_optimizer.solve() was fixed for.
+    for side_uid, goals_this_side in ((home_uid, home_goals), (away_uid, away_goals)):
+        side_players = sorted(uid for uid, is_home in is_home_by_uid.items() if (side_uid == home_uid) == is_home)
+        if not side_players:
+            continue
+        remaining_goals = goals_this_side.copy()
+        remaining_lambda = rest_of_team_lambda.get(side_uid, 0.0) + sum(lam_goals_by_uid[uid] for uid in side_players)
+        for uid in side_players:
+            p_i = np.where(remaining_lambda > 1e-12, lam_goals_by_uid[uid] / np.clip(remaining_lambda, 1e-12, None), 0.0)
+            draw = sample_binomial_vec(remaining_goals, p_i, _u_pair())
+            per_player[uid]["goals"] = draw
+            remaining_goals = remaining_goals - draw
+            remaining_lambda = remaining_lambda - lam_goals_by_uid[uid]
 
     ranks = sample_plackett_luce_ranks_vec(strengths, _u_pair(), _u_pair(), _u_pair())
 

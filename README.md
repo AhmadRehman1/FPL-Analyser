@@ -618,6 +618,26 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   outcomes literally the *same* underlying event (not just parametrically correlated) and two
   opponents' clean-sheet/goals-conceded outcomes exact complements of the same scoreline, with
   no extra covariance machinery required to produce that structure.
+- **Per-player GOALS were originally drawn as independent `Poisson(Z_fixture*lambda_i)` per
+  squad player, with no constraint tying a fixture's summed squad goals to that same fixture's
+  own drawn `home_goals`/`away_goals` -- an internally inconsistent simulated match world,
+  flagged by an external review before it was fixed.** Clean sheet/goals-conceded already read
+  directly off the joint scoreline draw (previous bullet); goals themselves didn't. Fixed by
+  conditioning each side's squad players jointly on that side's own drawn goal total via the
+  standard sequential-binomial decomposition of a multinomial (`X_1 ~ Binomial(N, p_1)`,
+  `X_2 ~ Binomial(N-X_1, p_2/(1-p_1))`, etc, exact for conditioning independent Poissons on
+  their sum -- see `sample_binomial_vec()` and `simulate_fixture()`'s own "goal allocation"
+  section). The multinomial weights need the WHOLE team's scoring intensity, not just the 1-3
+  squad players who happen to be in a given fixture -- allocating 100% of a team's goals across
+  only its squad members would overstate them relative to real teammates outside the squad, so
+  every non-squad fixture participant's own static, mean-based expected goal count (`ep_goals`
+  from M3, already shrinkage/decay-adjusted -- the same conversion
+  `compute_lambda_representative()` uses) is pooled into an untracked "rest of the team" share
+  of the multinomial rather than left out of it. Assists are NOT conditioned the same way and
+  remain independent per-player Poisson draws -- an assist is credited to a different player
+  than the scorer, so there's no analogous "components sum to a drawn team total" constraint
+  the way there is for goals, and the spec's own generative-mechanism paragraph never names
+  assists as scoreline-bounded the way goals are.
 - **A real bug the first end-to-end run against real data caught**: `dict(rows)` on
   `(player_uid_a, player_uid_b, covariance)` 3-tuples raised `ValueError: dictionary update
   sequence element #0 has length 3; 2 is required` when building the M4-covariance lookup for
