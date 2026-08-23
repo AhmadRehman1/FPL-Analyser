@@ -644,6 +644,16 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   relative to a mechanistically-honest model. Flagged here for M7's calibration pass, exactly
   the kind of disagreement `monte_carlo_empirical_covariance.m4_covariance` exists to surface,
   not a discrepancy to paper over.
+- **The dilution finding above is a single central-tendency range from one manual inspection of
+  one real run -- `z_fixture_variance()` itself only calibrates `sigma_z^2` to hit
+  `rho_residual` at ONE representative lambda (`compute_lambda_representative()`'s squad-wide
+  mean, ~0.141 in the real run), so the implied correlation genuinely varies by pair (a
+  high-lambda captain-grade forward and a low-lambda rotation-risk defender don't share it).**
+  `monte_carlo.z_fixture_correlation_distribution()` (wired into M9's report as
+  `z_fixture_correlation_dilution`) now computes the real min/p25/median/p75/max spread across
+  every teammate/opponent pair directly from `monte_carlo_empirical_covariance` for whichever
+  run is being reported, rather than this file's one-time 0.017-0.078 range standing in for
+  every future run's actual spread.
 - **Full pipeline integration is verified by running the real `scripts/run_ingestion.py`
   end-to-end against the real 2024-27 data, not by a large synthetic-DB pytest fixture.**
   `tests/test_monte_carlo.py` thoroughly unit-tests every standalone function (seeding,

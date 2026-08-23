@@ -345,6 +345,13 @@ def build_report(
             evidence_decay_params_version, evidence_fact_multiplier_params_version, report_asof,
             bench_quality_params_version,
         ),
+        # Phase B hardening -- the real spread behind README's "0.02-0.08 vs rho_residual=0.15"
+        # dilution finding (see monte_carlo.z_fixture_correlation_distribution's own docstring
+        # for why a single representative-lambda calibration doesn't imply a single correlation
+        # across every teammate/opponent pair).
+        "z_fixture_correlation_dilution": (
+            monte_carlo.z_fixture_correlation_distribution(con, mc_model_version) if mc_model_version else None
+        ),
         "human_prompt": HUMAN_PROMPT,
     }
 

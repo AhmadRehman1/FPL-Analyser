@@ -571,3 +571,52 @@ def explain_player_risk_empirical(con: duckdb.DuckDBPyConnection, mc_model_versi
         "floor": q05, "q25": q25, "q75": q75, "ceiling": q95,
         "min": min_total, "max": max_total,
     }
+
+
+def z_fixture_correlation_distribution(con: duckdb.DuckDBPyConnection, mc_model_version: int) -> dict | None:
+    """M9 adapter -- Z_fixture rate-heterogeneity disclosure (Phase B hardening).
+
+    z_fixture_variance() calibrates sigma_z^2 to hit rho_residual at exactly ONE representative
+    lambda (compute_lambda_representative()'s squad-wide mean count, ~0.141 in the real GW1
+    2026-27 run). But Cov(X_i,X_j) = sigma_z^2*lambda_i*lambda_j and Var(X_i) = lambda_i +
+    sigma_z^2*lambda_i^2 (see z_fixture_variance()'s own derivation), so Corr(X_i,X_j) is
+    itself a function of the pair's individual lambdas, not a single constant -- a high-lambda
+    captain-grade forward and a low-lambda rotation-risk defender do not actually share the
+    correlation the representative-lambda calibration targets.
+
+    README's Design notes already disclose the resulting total-points dilution (M4's flat
+    rho_residual=0.15 landing at an empirical ~0.02-0.08) as a min/max range read off one
+    manual inspection of one real run. This computes the real distribution directly from
+    monte_carlo_empirical_covariance (teammate/opponent pairs only -- "independent" pairs share
+    no fixture and are 0 by construction, not part of what's being disclosed here), so every
+    run can see its own actual spread rather than reusing that one historical range. Returns
+    None if this model_version has no teammate/opponent pairs (e.g. every squad player landed
+    in a different, non-overlapping fixture that gameweek).
+    """
+    rows = con.execute(
+        """
+        SELECT c.empirical_covariance, sa.var_total AS var_a, sb.var_total AS var_b
+        FROM monte_carlo_empirical_covariance c
+        JOIN monte_carlo_player_summary sa ON sa.model_version = c.model_version AND sa.player_uid = c.player_uid_a
+        JOIN monte_carlo_player_summary sb ON sb.model_version = c.model_version AND sb.player_uid = c.player_uid_b
+        WHERE c.model_version = ? AND c.relationship IN ('teammate', 'opponent')
+        """,
+        [mc_model_version],
+    ).fetchall()
+    correlations = [
+        empirical_cov / (var_a * var_b) ** 0.5
+        for empirical_cov, var_a, var_b in rows
+        if var_a is not None and var_b is not None and var_a > 0 and var_b > 0
+    ]
+    if not correlations:
+        return None
+    arr = np.array(correlations)
+    return {
+        "n_pairs": len(arr),
+        "min": float(arr.min()),
+        "p25": float(np.percentile(arr, 25)),
+        "median": float(np.median(arr)),
+        "mean": float(arr.mean()),
+        "p75": float(np.percentile(arr, 75)),
+        "max": float(arr.max()),
+    }

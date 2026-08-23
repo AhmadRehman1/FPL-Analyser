@@ -283,3 +283,17 @@ def test_assemble_points_saves_zero_for_non_goalkeeper(con):
     }
     result = mc._assemble_points(con, "Defender", draws, scoring_params_version=1)
     np.testing.assert_array_equal(result["pts_saves"], [0.0, 0.0, 0.0])
+
+
+# ============================================================
+# z_fixture_correlation_distribution -- Phase B rate-heterogeneity disclosure
+# ============================================================
+# Full-chain (teammate/opponent pair + non-trivial correlation spread) coverage lives in
+# test_reporting.py's test_z_fixture_correlation_dilution_* -- it already has
+# _seed_full_squad_scenario() building the entire M1-M6 FK chain this function's query joins
+# through (monte_carlo_run_versions -> squad_optimizer_runs/ep_model_versions/etc), so those
+# tests extend that fixture rather than duplicating the ~60-line chain-builder here for no-DB-
+# state coverage that doesn't need it.
+
+def test_z_fixture_correlation_distribution_none_when_model_version_has_no_rows(con):
+    assert mc.z_fixture_correlation_distribution(con, 999) is None
