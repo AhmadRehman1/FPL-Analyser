@@ -22,7 +22,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, ingest_fpl_entry_picks as ifp, squad_grade as sg, transfer_planner as tp  # noqa: E402
+from fpl_quant import db, ingest_fpl_entry_picks as ifp, reporting, squad_grade as sg, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -87,10 +87,20 @@ def main() -> None:
     data_asof = calibration_asof_date.isoformat()
     payload = dataclasses.asdict(grade)
     payload["data_asof"] = data_asof
+    # Real fix, same as explain_my_move.py: top_swaps is keyed by this project's own internal
+    # player_uid, meaningless to the PWA on its own -- resolve to real display names before
+    # writing (see reporting.py's own docstring on why this shared resolution lives there).
+    swap_uids = {uid for s in grade.top_swaps for uid in (s.out_player_uid, s.in_player_uid)}
+    names = reporting.resolve_player_names(con, swap_uids)
+    payload["top_swaps"] = reporting.humanize_swap_list(payload["top_swaps"], names)
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     out_path = DASHBOARD_DIR / f"squad_grade_{entry_id}_{data_asof}.json"
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    # Stable-named copy, same "PWA needs a fixed, predictable path" convention as
+    # app_team_<id>.json -- a static site can't discover today's date-embedded filename on
+    # its own. The dated file stays too, as the historical/audit record.
+    (DASHBOARD_DIR / f"squad_grade_{entry_id}_latest.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
     print(
         f"[grade_squad] entry_id={entry_id}: grade={grade.grade}, points_gap={grade.points_gap:.2f} "
         f"(optimal={grade.optimal_ep:.2f}, yours={grade.user_squad_ep:.2f}) -> wrote {out_path}"

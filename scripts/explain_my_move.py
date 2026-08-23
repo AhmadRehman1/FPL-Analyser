@@ -25,6 +25,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from fpl_quant import decision_engine as de  # noqa: E402
 from fpl_quant import db, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
 from fpl_quant import price_changes as pc  # noqa: E402
+from fpl_quant import reporting  # noqa: E402
 
 # Review B3/Feature 5 (informational only -- see price_changes.py's own module docstring):
 # an invented v1 default for how large a net-transfer swing must be, at this checkpoint's
@@ -139,14 +140,30 @@ def main() -> None:
 
     data_asof = calibration_asof_date.isoformat()
     payload = dataclasses.asdict(decision)
+    # Real fix: decision_engine.Decision is keyed entirely by this project's own internal
+    # player_uid (transfer_planner/squad_optimizer's native identity), which is meaningless to
+    # the PWA -- it has no DB access, and app_export.py's own screens are built around FPL's
+    # numeric element id, a genuinely different identity space. Resolve every player_uid this
+    # decision references to a real display name (see reporting.py's own docstring on why this
+    # lives there) and add it as a companion *_display/*_name field -- the raw player_uid
+    # fields are left untouched alongside it.
+    referenced_uids = reporting.uids_referenced_in_decision_payload(payload)
+    names = reporting.resolve_player_names(con, referenced_uids)
+    payload = reporting.humanize_decision_payload(payload, names)
     payload["entry_id"] = entry_id
     payload["gw"] = plan_for_gameweek
     payload["data_asof"] = data_asof
     payload["price_hint"] = dataclasses.asdict(price_hint) if price_hint is not None else None
+    if payload["price_hint"] is not None:
+        payload["price_hint"]["player_name"] = names.get(payload["price_hint"]["player_uid"], payload["price_hint"]["player_uid"])
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     out_path = DASHBOARD_DIR / f"decision_{entry_id}_{plan_for_gameweek}_{data_asof}.json"
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    # Stable-named copy, same "PWA needs a fixed, predictable path" convention as
+    # app_team_<id>.json -- a static site can't discover today's date-embedded filename on
+    # its own. The dated file stays too, as the historical/audit record.
+    (DASHBOARD_DIR / f"decision_{entry_id}_latest.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
     print(f"[explain_my_move] wrote {out_path}")
     print()
     print(_explain_paragraph(entry_id, plan_for_gameweek, decision, price_hint))

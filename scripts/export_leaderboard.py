@@ -47,6 +47,10 @@ def main() -> None:
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     out_path = DASHBOARD_DIR / f"leaderboard_{data_asof}.json"
     out_path.write_text(json.dumps(payload, indent=2))
+    # Stable-named copy, same "PWA needs a fixed, predictable path" convention as
+    # app_team_<id>.json -- a static site can't discover today's date-embedded filename on
+    # its own. The dated file stays too, as the historical/audit record.
+    (DASHBOARD_DIR / "leaderboard_latest.json").write_text(json.dumps(payload, indent=2))
     print(f"[export_leaderboard] backtest_run_id={backtest_run_id} -> wrote {out_path}")
     for row_data in result["rows"]:
         print(f"  {row_data['name']}: ep={row_data['ep']:.2f} [{row_data['ci_low']:.2f}, {row_data['ci_high']:.2f}]")

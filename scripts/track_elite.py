@@ -73,6 +73,10 @@ def main() -> None:
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     out_path = DASHBOARD_DIR / f"elite_divergence_{data_asof}.json"
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    # Stable-named copy, same "PWA needs a fixed, predictable path" convention as
+    # app_team_<id>.json -- a static site can't discover today's date-embedded filename on
+    # its own. The dated file stays too, as the historical/audit record.
+    (DASHBOARD_DIR / "elite_divergence_latest.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
     print(f"[track_elite] {len(divergences)}/{len(elite_managers)} managers tracked -> wrote {out_path}")
     for d in divergences:
         flag = "DIVERGED" if d["diverged"] else "matched"

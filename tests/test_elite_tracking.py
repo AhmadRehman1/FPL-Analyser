@@ -124,7 +124,10 @@ def test_build_elite_divergence_flags_diverged_with_a_reason(con, monkeypatch):
     row = out[0]
     assert row["entry_id"] == 999
     assert row["actual_move"] == "transfer_in:mid2->fwd1"
-    assert row["model_move"] == "transfer_in:mid2->fwd2"
+    # model_move is humanize_action()'s own "A -> B" format, deliberately different from
+    # actual_move's "transfer_in:A->B" (see build_elite_divergence()'s own docstring) -- it
+    # needs to represent the model's full non-transfer action vocabulary too (roll/wildcard/...).
+    assert row["model_move"] == "mid2 -> fwd2"
     assert row["diverged"] is True
     assert row["divergence_reason"] is not None
     assert row["provenance"] == {"model_version": "fake_v1", "data_asof": "2026-08-24"}

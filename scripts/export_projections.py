@@ -68,6 +68,11 @@ def main() -> None:
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     out_path = DASHBOARD_DIR / f"projections_{data_asof}.json"
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    # A dated file alone can't be discovered by a static-site PWA that doesn't know today's
+    # date in advance -- also write a stable-named copy at a fixed, predictable path, same
+    # "always-overwritten" convention as app_team_<id>.json/real_squad_<id>.json. The dated
+    # file is kept too, as the historical/audit record.
+    (DASHBOARD_DIR / "projections_latest.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
     print(f"[export_projections] {len(rows)} players, gameweeks={gameweeks} -> wrote {out_path}")
     if captain_ranking:
         top = captain_ranking[0]

@@ -22,6 +22,7 @@ import duckdb
 
 from . import decision_engine as de
 from . import ingest_workbook as iw
+from . import reporting
 from . import transfer_planner as tp
 from .errors import MissingModelVersionError
 
@@ -133,7 +134,6 @@ def build_elite_divergence(
 
             actual_out_uids = {u for u in (_resolve(e) for e in move.players_out) if u is not None}
             actual_in_uids = {u for u in (_resolve(e) for e in move.players_in) if u is not None}
-            actual_move_str = _format_move(sorted(actual_out_uids), sorted(actual_in_uids))
 
             squad = [
                 {"player_name": element_names.get(p["element"]), "in_xi": p["position"] <= 11,
@@ -154,9 +154,29 @@ def build_elite_divergence(
             model_in_uid = decision.swaps[0].in_player_uid if decision.swaps else None
             reason = _divergence_reason(con, target_season, current_event, actual_in_uid, model_in_uid) if diverged else None
 
+            # Real fix: actual_move/model_move were raw internal player_uid strings,
+            # meaningless to the PWA on its own -- resolve to real display names (see
+            # reporting.py's own docstring on why this shared resolution lives there) before
+            # returning. divergence logic above stays keyed by the raw uids throughout (the
+            # correct, unambiguous identity), only the OUTPUT strings get humanized here.
+            # actual_move (via _format_move) and model_move (via humanize_action) deliberately
+            # use different formats: an actual real-life move can be a genuine multi-player
+            # transfer set (_format_move supports that), while the model's own recommended
+            # action can ALSO be a non-transfer action (roll/wildcard/free_hit/bench_boost/
+            # triple_captain) that _format_move has no representation for -- humanize_action
+            # preserves that full vocabulary, at the cost of a differently-shaped transfer
+            # string ("A -> B" vs "transfer_in:A->B").
+            names = reporting.resolve_player_names(
+                con, actual_out_uids | actual_in_uids | reporting.uids_in_action(decision.action),
+            )
+            actual_move_str = _format_move(
+                sorted(names.get(u, u) for u in actual_out_uids), sorted(names.get(u, u) for u in actual_in_uids),
+            )
+            model_move_str = reporting.humanize_action(decision.action, names)
+
             out.append({
                 "entry_id": entry_id, "name": name, "actual_move": actual_move_str,
-                "model_move": decision.action, "diverged": diverged, "divergence_reason": reason,
+                "model_move": model_move_str, "diverged": diverged, "divergence_reason": reason,
                 "provenance": {
                     "model_version": decision.provenance.model_version, "data_asof": decision.provenance.data_asof,
                 },

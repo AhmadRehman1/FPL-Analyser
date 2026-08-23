@@ -511,17 +511,36 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// Every new roadmap panel (projections, squad grade, explain-my-move, leaderboard, elite
+// divergence) carries a real model_version + data_asof on its own payload -- this renders
+// that provenance as a small, consistent, muted line so a user always sees where a number
+// came from and how fresh it is, never just a bare figure with no source.
+function provenanceLine(p) {
+  if (!p || (!p.model_version && !p.data_asof)) return "";
+  return `<div style="font-size:9.5px;color:var(--ink-dim2);margin-top:8px;line-height:1.5;">
+    ${p.model_version ? `Model ${escapeHtml(p.model_version)}` : ""}${p.model_version && p.data_asof ? " &middot; " : ""}${p.data_asof ? `as of ${escapeHtml(p.data_asof)}` : ""}
+  </div>`;
+}
+
 // ============================================================
 // data loading
 // ============================================================
 
 async function loadShared() {
-  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch] = await Promise.all([
+  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence] = await Promise.all([
     fetchJSON("data/dashboard/app_players.json"),
     fetchJSON("data/dashboard/app_fixtures.json"),
     fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
     fetchJSON("data/dashboard/app_track_record.json").catch(() => null),
     fetchJSON("data/dashboard/app_price_watch.json").catch(() => null),
+    // Roadmap Feature 1/7/9: each fetched from its own stable "_latest" file (see
+    // export_projections.py/export_leaderboard.py/track_elite.py's own comments on why --
+    // the dated file alongside it is a historical record this static-site PWA has no way to
+    // discover the name of on its own). .catch(() => null) throughout: any one of these being
+    // absent (the underlying script hasn't been run yet) must never blank the rest of the app.
+    fetchJSON("data/dashboard/projections_latest.json").catch(() => null),
+    fetchJSON("data/dashboard/leaderboard_latest.json").catch(() => null),
+    fetchJSON("data/dashboard/elite_divergence_latest.json").catch(() => null),
   ]);
   state.players = playersPayload.players;
   state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
@@ -529,18 +548,37 @@ async function loadShared() {
   state.roadmap = roadmap;
   state.trackRecord = trackRecord;
   state.priceWatch = priceWatch;
+  state.projections = projections;
+  state.leaderboard = leaderboard;
+  state.eliteDivergence = eliteDivergence;
   document.getElementById("updated-at").textContent = `Last run: ${fmtTime(playersPayload.generated_at)}`;
 }
 
 async function loadAccount(id) {
-  const [team, profile, leagues, realSquad] = await Promise.all([
+  const [team, profile, leagues, realSquad, squadGrade, decision] = await Promise.all([
     fetchJSON(`data/dashboard/app_team_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_profile_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_leagues_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/real_squad_${id}.json`).catch(() => null),
+    // Roadmap Feature 2/3: same "_latest" stable-file convention as loadShared()'s own
+    // projections/leaderboard/elite-divergence fetches -- see grade_squad.py/
+    // explain_my_move.py's own comments.
+    fetchJSON(`data/dashboard/squad_grade_${id}_latest.json`).catch(() => null),
+    fetchJSON(`data/dashboard/decision_${id}_latest.json`).catch(() => null),
   ]);
   state.team = team; state.profile = profile; state.leagues = leagues; state.realSquad = realSquad;
+  state.squadGrade = squadGrade; state.decision = decision;
   document.getElementById("avatar-btn").textContent = initials(profile ? profile.manager_name : team ? team.team_name : "");
+
+  // Roadmap Feature 6: live_rank_<id>_<gw>.json is gameweek-scoped, not dated -- the PWA
+  // already knows the right gameweek (real_squad's own current_gameweek, the same "gameweek
+  // the manager's CURRENT squad is set for" run_transfer_planner_for_real_squad.py itself
+  // reads) once loadAccount's other fetches above have resolved, so no "_latest" file is
+  // needed here. Deliberately NOT fetchLiveData's un-cached pattern -- this is a real,
+  // append-only historical record (see app_export.append_live_rank_snapshot()), not a
+  // "nothing live right now" signal, so fetchJSON's normal stale-cache fallback is correct.
+  const rankGw = (realSquad && realSquad.current_gameweek) || (team && team.gameweek);
+  state.liveRank = rankGw ? await fetchJSON(`data/dashboard/live_rank_${id}_${rankGw}.json`).catch(() => null) : null;
 }
 
 function populateAccountSwitcher() {
@@ -756,6 +794,54 @@ function formationOf(squad) {
   return `${counts.DEF}-${counts.MID}-${counts.FWD}`;
 }
 
+// ---- Roadmap Feature 3, the strategic centerpiece: "Explain my move" -- the single
+// recommended action, why, its downside, what would change the model's mind, its historical
+// track record, and a close runner-up if one exists. Reads decision_<id>_latest.json --
+// absent entirely (no card) until explain_my_move.py has run for this account, same graceful
+// per-panel degradation as every other optional section here. Every player name shown is
+// already resolved server-side (see reporting.humanize_decision_payload()) -- this never
+// needs to cross-reference state.playersById, which is keyed by a different identity (FPL's
+// numeric element id, not this project's own internal player_uid decision_<id>_latest.json
+// is built from).
+function explainMoveCard() {
+  const d = state.decision;
+  if (!d) return "";
+  const primary = d.swaps && d.swaps[0];
+  const ciLow = d.downside_ci ? d.downside_ci[0] : null, ciHigh = d.downside_ci ? d.downside_ci[1] : null;
+  return `
+    <div class="section">
+      <div class="card">
+        <div class="card-title">Explain my move</div>
+        <div class="verdict" style="background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));margin-bottom:12px;">
+          <span class="action" style="color:oklch(0.32 0.1 250);">${escapeHtml(d.action_display || d.action)}</span>
+          <span class="nums" style="color:oklch(0.38 0.05 250);">${d.ep_lift >= 0 ? "+" : ""}${d.ep_lift.toFixed(2)}&nbsp;EP</span>
+        </div>
+        ${primary ? `<p style="font-size:12px;color:var(--ink-dim);line-height:1.6;margin:0 0 12px;">
+          Why: <b style="color:var(--ink);">${escapeHtml(primary.out_name)}</b> &rarr; <b style="color:var(--ink);">${escapeHtml(primary.in_name)}</b>
+          (${escapeHtml(primary.reason)}), projected ${primary.delta_ep >= 0 ? "gain" : "change"} ${primary.delta_ep >= 0 ? "+" : ""}${primary.delta_ep.toFixed(2)} EP.
+        </p>` : `<p style="font-size:12px;color:var(--ink-dim);line-height:1.6;margin:0 0 12px;">No move clears the model's own threshold this week.</p>`}
+        ${d.price_hint && d.price_hint.direction === "rise" ? `
+        <div class="flag-banner" style="margin-bottom:12px;">
+          <b>Price-timing hint</b> (informational only, never part of the ranking above): make this transfer tonight &mdash;
+          ${escapeHtml(d.price_hint.player_name)} is projected to rise ${(d.price_hint.delta_pence / 10).toFixed(1)}m by deadline
+          (confidence ${Math.round(d.price_hint.confidence * 100)}%).
+        </div>` : ""}
+        <div class="stat-list" style="margin-bottom:12px;">
+          ${ciLow != null ? `<div class="sl-row"><div class="sl-label">Downside (5th&ndash;95th pct)</div><div class="sl-value">[${ciLow.toFixed(1)}, ${ciHigh.toFixed(1)}]</div></div>` : ""}
+          <div class="sl-row"><div class="sl-label">Track record</div><div class="sl-value" style="font-size:11.5px;">${d.track_record.optimal_in_n_of_71 == null
+            ? `insufficient history (n=${d.track_record.sample_size})`
+            : `optimal ${d.track_record.optimal_in_n_of_71}/${d.track_record.sample_size} times`}</div></div>
+        </div>
+        <div style="font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">What would change my mind</div>
+        ${d.sensitivity && d.sensitivity.length ? d.sensitivity.map(s => `
+          <div class="rec"><span class="move" style="flex-wrap:wrap;">If <b style="margin:0 3px;color:var(--ink);">${escapeHtml(s.if_condition_display || s.if_condition)}</b>&nbsp;&rarr; ${escapeHtml(s.then_action_display || s.then_action)}</span><span class="net">${s.delta_ep >= 0 ? "+" : ""}${s.delta_ep.toFixed(1)}</span></div>`).join("")
+          : `<p style="font-size:11px;color:var(--ink-dim);margin:0 0 4px;">No toggled scenario flips this recommendation.</p>`}
+        ${d.runner_up ? `<p style="font-size:11px;color:var(--ink-dim);margin:10px 0 0;line-height:1.5;">Runner-up (close call): <b style="color:var(--ink);">${escapeHtml(d.runner_up.action_display || d.runner_up.action)}</b> &mdash; consider both.</p>` : ""}
+        ${provenanceLine(d.provenance)}
+      </div>
+    </div>`;
+}
+
 function liveNowBlock() {
   const live = state.live;
   if (!live) return "";
@@ -782,6 +868,45 @@ function liveNowBlock() {
     </div>`;
 }
 
+// ---- Roadmap Feature 6: rank movement across today's live window, from the append-only
+// live_rank_<id>_<gw>.json snapshot series (see app_export.append_live_rank_snapshot()).
+// Deliberately independent of liveNowBlock()/state.live ("is a fixture live RIGHT now") --
+// unlike that block, this stays visible after matches finish so a manager can still review how
+// their rank moved during the day, not just while it's actively updating. Needs at least 2
+// snapshots to show a trend at all; absent entirely otherwise (never a fabricated single-point
+// "trend").
+function rankTrajectoryBlock() {
+  const lr = state.liveRank;
+  if (!lr || !lr.snapshots || lr.snapshots.length < 2) return "";
+  const snaps = lr.snapshots.slice(-8);
+  const first = snaps[0].overall_rank, last = snaps[snaps.length - 1].overall_rank;
+  const improved = last < first, worsened = last > first;
+  const ranks = snaps.map(s => s.overall_rank);
+  const maxR = Math.max(...ranks), minR = Math.min(...ranks), span = Math.max(1, maxR - minR);
+  return `
+    <div class="section">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+          <div class="card-title" style="margin:0;">Rank movement today &middot; GW${lr.gw}</div>
+          ${lr.stale ? `<span style="font-size:9.5px;color:var(--amber);font-weight:700;text-transform:uppercase;">Stale</span>` : ""}
+        </div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+          <span style="font-family:'Anton',sans-serif;font-size:22px;color:${improved ? "var(--green)" : worsened ? "var(--red)" : "var(--ink)"};">${last.toLocaleString()}</span>
+          <span style="font-size:11px;color:var(--ink-dim);">${improved ? "&darr; improved" : worsened ? "&uarr; slipped" : "unchanged"} from ${first.toLocaleString()} earlier today</span>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:5px;height:34px;">
+          ${snaps.map(s => {
+            const h = 6 + ((maxR - s.overall_rank) / span) * 28;
+            return `<div style="flex:1;background:var(--green);border-radius:3px;height:${h.toFixed(0)}px;" title="${fmtTime(s.ts)}: rank ${s.overall_rank.toLocaleString()}"></div>`;
+          }).join("")}
+        </div>
+        <p style="font-size:10px;color:var(--ink-dim2);margin:10px 0 0;line-height:1.5;">
+          Estimated from a rival sample near your own rank, not FPL's official live rank.${lr.stale ? " Last live fetch failed -- showing the last known value." : ""}
+        </p>
+      </div>
+    </div>`;
+}
+
 function renderHome() {
   const el = document.getElementById("home-content");
   if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
@@ -794,6 +919,7 @@ function renderHome() {
 
   el.innerHTML = `
     ${liveNowBlock()}
+    ${rankTrajectoryBlock()}
     <div class="section">
       <div class="card" style="padding-top:14px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
@@ -804,6 +930,8 @@ function renderHome() {
         ${chipRowBlock(state.realSquad && state.realSquad.chip_evaluations)}
       </div>
     </div>
+
+    ${explainMoveCard()}
 
     <div class="stat-row">
       <div class="stat-tile"><div class="k">GW Points</div><div class="v g">${state.team.gameweek_points ?? "&mdash;"}</div></div>
@@ -905,6 +1033,36 @@ function flagStripBlock(rows) {
     </div>`).join("")}</div>`;
 }
 
+// ---- Roadmap Feature 2: "Rate my team" -- the manager's real squad graded against the
+// mathematically-optimal squad squad_optimizer's own MIQP solve finds, at the same fixed
+// budget (see squad_grade.py's own disclosed simplification note). Absent entirely (no card,
+// not a fabricated "N/A" grade) when squad_grade_<id>_latest.json hasn't been generated yet
+// for this account -- graceful per-panel degradation, same convention as every other optional
+// section on this screen.
+function squadGradeCard() {
+  const g = state.squadGrade;
+  if (!g) return "";
+  const gradeColor = { A: "var(--green)", B: "oklch(0.62 0.14 145)", C: "var(--amber)", D: "var(--red)" }[g.grade] || "var(--ink)";
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div class="card-title" style="margin:0;">Rate my team</div>
+        <div style="font-family:'Anton',sans-serif;font-size:28px;color:${gradeColor};line-height:1;">${g.grade}</div>
+      </div>
+      <div class="stat-list" style="margin-bottom:${g.top_swaps.length ? "12px" : "0"};">
+        <div class="sl-row"><div class="sl-label">Points behind optimal</div><div class="sl-value">${g.points_gap.toFixed(1)}</div></div>
+        <div class="sl-row"><div class="sl-label">Your squad EP</div><div class="sl-value">${g.user_squad_ep.toFixed(1)}</div></div>
+        <div class="sl-row"><div class="sl-label">Optimal squad EP</div><div class="sl-value">${g.optimal_ep.toFixed(1)}</div></div>
+      </div>
+      ${g.top_swaps.length ? `
+      <div style="font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Top upgrades toward optimal</div>
+      ${g.top_swaps.map(s => `
+        <div class="rec"><span class="move"><span class="out">${escapeHtml(s.out_name)}</span> &rarr; <span class="in">${escapeHtml(s.in_name)}</span></span><span class="net">+${s.delta_ep.toFixed(1)}</span></div>`).join("")}
+      ` : `<p style="font-size:11px;color:var(--ink-dim);margin:0;">No same-position upgrade found within the model's own candidate pool.</p>`}
+      ${provenanceLine(g.provenance)}
+    </div>`;
+}
+
 function renderTeam() {
   const el = document.getElementById("team-content");
   if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
@@ -923,6 +1081,7 @@ function renderTeam() {
       <div class="stat-tile"><div class="k">Free Transfers</div><div class="v">${state.team.free_transfers ?? "&mdash;"}</div></div>
     </div>
     ${flagStripBlock(flagged)}
+    ${squadGradeCard()}
     <div class="pitch-wrap">
       <div class="pitch-stripe"></div>
       <div class="pitch-lines">
@@ -1036,6 +1195,31 @@ function priceWatchBlock(opts) {
     </div>`;
 }
 
+// ---- Roadmap Feature 1: captaincy ranking with confidence bands, model-wide (not restricted
+// to the manager's own squad -- see projections.py's own module docstring on why the
+// confidence band is M4's per-player Cornish-Fisher quantile, not a live Monte Carlo draw:
+// MC only ever simulates one already-chosen squad's 15 players, not the whole player pool a
+// ranking like this needs). A narrower-band near-tie ranks above a wider one for the #2 (vice
+// captain) slot -- see vice_captain_reason for why, when present.
+function captainRankingBlock() {
+  const proj = state.projections;
+  if (!proj || !proj.captain_ranking || !proj.captain_ranking.length) return "";
+  return `
+    <div class="section">
+      <div class="card">
+        <div class="card-title">Top captain picks this week</div>
+        ${proj.captain_ranking.slice(0, 5).map(c => `
+          <div class="rec">
+            <span class="move"><span style="font-family:'Anton',sans-serif;font-size:13px;color:var(--ink-dim2);width:18px;display:inline-block;">${c.rank}</span>${escapeHtml(c.name)} <span style="color:var(--ink-dim2);font-weight:500;">(${escapeHtml(c.team)})</span></span>
+            <span class="net">${c.ep.toFixed(1)} <span style="font-size:9.5px;color:var(--ink-dim2);font-weight:600;">[${c.ci_low.toFixed(1)},${c.ci_high.toFixed(1)}]</span></span>
+          </div>
+          ${c.vice_captain_reason ? `<p style="font-size:10px;color:var(--ink-dim2);margin:-4px 0 6px 24px;line-height:1.4;">${escapeHtml(c.vice_captain_reason)}</p>` : ""}
+        `).join("")}
+        ${provenanceLine({ model_version: proj.model_version, data_asof: proj.data_asof })}
+      </div>
+    </div>`;
+}
+
 function renderTransfers() {
   const el = document.getElementById("transfers-content");
   const recs = state.realSquad;
@@ -1048,6 +1232,7 @@ function renderTransfers() {
         ${actionRow(transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL)}
       </div>
     </div>
+    ${captainRankingBlock()}
     ${priceWatchBlock()}
     <div class="section">
       <div class="section-title"><span>Browse players</span></div>
@@ -1203,9 +1388,49 @@ function ownershipBlock(ownership) {
     </div>`;
 }
 
+// ---- Roadmap Feature 9: elite-manager divergence, done transparently -- for each configured
+// elite manager's latest real transfer, the model's own recommendation for THAT manager's
+// squad vs what they actually did, plus a real, computed divergence reason. Deliberately never
+// framed as a recommendation ("what a top manager did" is not reasoning on its own -- see
+// elite_tracking.py's own module docstring) -- just the comparison and the reason, so the user
+// decides. Absent entirely when no elite managers are configured (data/elite_managers.json is
+// empty by default) or the tracker hasn't run yet -- never a fabricated "no elites tracked" row.
+function eliteDivergenceBlock() {
+  const ed = state.eliteDivergence;
+  if (!ed || !ed.managers || !ed.managers.length) return "";
+  return `
+    <div class="section" style="margin-top:16px;">
+      <div class="section-title"><span>What the elites did &middot; GW${ed.gw}</span></div>
+      <div class="table-card" style="padding:12px 14px;">
+        ${ed.managers.map((m, i) => `
+          <div style="padding:${i === 0 ? "0 0 10px" : "10px 0"};${i > 0 ? "border-top:1px solid var(--divider);" : ""}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;gap:8px;">
+              <span style="font-size:12.5px;font-weight:700;">${escapeHtml(m.name)}</span>
+              ${m.diverged
+                ? `<span style="font-size:9.5px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0;">Diverged</span>`
+                : `<span style="font-size:9.5px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0;">Matched model</span>`}
+            </div>
+            <div style="font-size:11px;color:var(--ink-dim);line-height:1.6;">
+              Actual: ${escapeHtml(m.actual_move)}<br>Model: ${escapeHtml(m.model_move)}
+              ${m.divergence_reason ? `<br><span style="color:var(--ink-dim2);">${escapeHtml(m.divergence_reason)}</span>` : ""}
+            </div>
+          </div>`).join("")}
+      </div>
+      <p style="font-size:10.5px;color:var(--on-dark-dim);margin:10px 2px 0;line-height:1.5;">
+        Shown for transparency, not as a recommendation &mdash; what a top manager did isn't reasoning on its own.
+      </p>
+    </div>`;
+}
+
 function renderLeagues() {
   const el = document.getElementById("leagues-content");
-  if (!state.leagues || !state.leagues.tiles.length) { el.innerHTML = `<p class="empty-state">No league data available for this account.</p>`; return; }
+  if (!state.leagues || !state.leagues.tiles.length) {
+    // Elite-manager divergence is account-independent (a global, maintainer-configured list --
+    // see data/elite_managers.json), so it's still shown even when THIS account has no private
+    // leagues of its own to display -- an empty leagues tab isn't a reason to also hide it.
+    el.innerHTML = `<p class="empty-state">No league data available for this account.</p>${eliteDivergenceBlock()}`;
+    return;
+  }
   el.innerHTML = `
     <div class="league-tiles">
       ${state.leagues.tiles.map(t => `
@@ -1228,6 +1453,7 @@ function renderLeagues() {
         </div>
         ${ownershipBlock(table.ownership)}
       </div>`).join("")}
+    ${eliteDivergenceBlock()}
   `;
 }
 
@@ -1292,6 +1518,35 @@ function openPlayerSheet(id) {
 // ============================================================
 // PROFILE SHEET
 // ============================================================
+
+// ---- Roadmap Feature 7: the model's real backtested edge (or lack of it) over three
+// baselines a manager could follow with none of this project's machinery -- see
+// backtest.beats_baseline()'s own docstring on why this reports a baseline win exactly as
+// visibly as a model win ("a leaderboard that only shows wins is not a leaderboard").
+function leaderboardBlock() {
+  const lb = state.leaderboard;
+  if (!lb || !lb.rows || !lb.rows.length) return "";
+  const modelRow = lb.rows.find(r => !r.is_baseline);
+  const baselineRows = lb.rows.filter(r => r.is_baseline);
+  if (!modelRow) return "";
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Model vs baselines</span></div>
+    <div class="stat-list" style="margin-bottom:10px;">
+      <div class="sl-row"><div class="sl-label" style="font-weight:700;color:var(--ink);">${escapeHtml(modelRow.name)}</div>
+        <div class="sl-value">${modelRow.ep.toFixed(2)} <span style="color:var(--ink-dim2);font-weight:500;">[${modelRow.ci_low.toFixed(1)}, ${modelRow.ci_high.toFixed(1)}]</span></div></div>
+      ${baselineRows.map(r => {
+        const beats = /recent/.test(r.name) ? modelRow.beats_recent_points : /price|ownership/.test(r.name) ? modelRow.beats_price_ownership : modelRow.beats_crowd;
+        return `<div class="sl-row"><div class="sl-label">${escapeHtml(r.name)}</div>
+          <div class="sl-value" style="color:${beats ? "var(--green)" : "var(--red)"};font-size:12px;">${r.ep.toFixed(2)} ${beats ? "&#10003;" : "&#10007;"}</div></div>`;
+      }).join("")}
+    </div>
+    <p style="font-size:11px;line-height:1.6;color:var(--on-dark-dim);margin:-6px 0 16px;">
+      Over ${lb.walked_gameweeks} real walk-forward backtested gameweek${lb.walked_gameweeks === 1 ? "" : "s"}.
+      ${lb.honest_losses && lb.honest_losses.length
+        ? `Honest disclosure: the model did NOT beat ${lb.honest_losses.map(escapeHtml).join(", ")} over this window.`
+        : "The model beat every baseline over this window."}
+    </p>`;
+}
 
 function trackRecordBlock() {
   const tr = state.trackRecord;
@@ -1395,6 +1650,7 @@ function openProfileSheet() {
           </div>`).join("")}
       </div>
       ${trackRecordBlock()}
+      ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>
     `;
