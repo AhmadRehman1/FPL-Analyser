@@ -32,6 +32,10 @@ DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 # leagues.classic rows, not invented here.
 USER_LEAGUE_TYPE = "x"
 MAX_LEAGUES_PER_ACCOUNT = 5
+# Bounds how many rivals' picks get fetched per league for the ownership/captaincy breakdown --
+# private leagues are typically small already, but this keeps the request count predictable
+# even for a larger one.
+MAX_ENTRIES_PER_LEAGUE_FOR_OWNERSHIP = 20
 LEAGUE_STANDINGS_PAGE_SIZE_PAGES = 1  # first page only (top ~50) -- enough for a "you + rivals" table
 
 
@@ -66,6 +70,11 @@ def main() -> None:
     (DASHBOARD_DIR / "app_fixtures.json").write_text(json.dumps(fixtures_out, indent=2))
     print(f"[write] app_fixtures.json ({len(fixtures_out['gameweeks'])} gameweeks)")
 
+    price_watch = ax.build_price_watch(player_directory)
+    price_watch["generated_at"] = ax.generated_at()
+    (DASHBOARD_DIR / "app_price_watch.json").write_text(json.dumps(price_watch, indent=2))
+    print(f"[write] app_price_watch.json ({len(price_watch['risers'])} risers, {len(price_watch['fallers'])} fallers)")
+
     for entry_id, event, label in accounts:
         print(f"\n[fetch] entry_id={entry_id} ({label})...")
         entry_summary = ax.fetch_entry_summary(entry_id)
@@ -97,7 +106,17 @@ def main() -> None:
             league["id"]: ax.fetch_league_standings(league["id"])
             for league in user_leagues
         }
-        leagues = ax.build_leagues(entry_summary, standings_by_league, total_players)
+
+        # Build-up phase: real ownership/captaincy intel for each of the user's own private
+        # leagues (not the global sample) -- reuses each league's own standings results (already
+        # fetched above) to know which entry IDs to pull picks for.
+        ownership_by_league = {}
+        for league_id, standings_payload in standings_by_league.items():
+            results = standings_payload.get("standings", {}).get("results", [])[:MAX_ENTRIES_PER_LEAGUE_FOR_OWNERSHIP]
+            entry_picks_by_id = {r["entry"]: ax.fetch_entry_picks(r["entry"], event) for r in results}
+            ownership_by_league[league_id] = ax.build_league_ownership(standings_payload, entry_picks_by_id, player_directory)
+
+        leagues = ax.build_leagues(entry_summary, standings_by_league, total_players, ownership_by_league)
         leagues["label"] = label
         leagues["generated_at"] = ax.generated_at()
         (DASHBOARD_DIR / f"app_leagues_{entry_id}.json").write_text(json.dumps(leagues, indent=2))

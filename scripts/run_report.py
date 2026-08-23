@@ -23,6 +23,7 @@ TARGET_SEASON = "2026-2027"
 # module docstring for why this lives as plain JSON in the repo rather than in the (gitignored,
 # never-persisted-across-runs) DuckDB file itself.
 REPORT_HISTORY_DIR = REPO_ROOT / "data" / "report_history"
+DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 
 # Every param family currently seeded at v1 across M1-M8 (run_ingestion.py's own list).
 ACTIVE_PARAM_VERSIONS = {
@@ -88,6 +89,16 @@ def main() -> None:
     # from the DB or scrape this script's own console output.
     latest_diff_path = REPORT_HISTORY_DIR / "latest_diff.json"
     latest_diff_path.write_text(json.dumps(diff, indent=2))
+
+    # App conversion, build-up phase: the model's own real backtested track record, for the
+    # app's Track Record screen -- see reporting.build_track_record_summary()'s own docstring
+    # for why this is two honest numbers (real backtest coverage + real parameter-transparency
+    # count) rather than one invented "accuracy %".
+    track_record = reporting.build_track_record_summary(con, report, backtest_run_id)
+    track_record["generated_at"] = datetime.now().isoformat()
+    DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    (DASHBOARD_DIR / "app_track_record.json").write_text(json.dumps(track_record, indent=2))
+    print(f"\n[dashboard] track record written to {DASHBOARD_DIR / 'app_track_record.json'}")
 
     print("\n--- section sizes (sanity check) ---")
     print(f"category_breakdown: {len(report['category_breakdown'])} players")

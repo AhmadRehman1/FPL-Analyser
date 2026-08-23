@@ -508,6 +508,59 @@ def snapshot_for_diff(report: dict) -> dict:
     }
 
 
+def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, backtest_run_id: int | None) -> dict:
+    """A real, non-marketing summary of the model's own backtested track record, for the app's
+    Track Record screen -- two honest and separate claims, not one invented "accuracy %":
+
+    (1) how many real walk-forward backtest gameweek-steps (M7) have actually been run and
+    scored, and the real per-metric averages backtest_metrics recorded for them (log score,
+    Brier score, etc -- whatever M7 actually scored, never summarized into a single number that
+    would hide what's being measured);
+
+    (2) of the parameters active in THIS report, how many have actually been through M7's
+    recalibration-proposal pipeline versus are still a literature/invented default -- reusing
+    params.transparency_panel()'s own backtested_via_m7 flag (already computed as
+    report["parameter_transparency"]), not a new claim.
+
+    backtest_run_id=None (no backtest has ever been run) returns None fields throughout rather
+    than fabricated zeros -- "no backtest yet" is a genuinely different claim from "0 steps
+    scored," and this project's convention (load_report_snapshot, fetch_entry_picks) is always
+    to keep that distinction explicit rather than collapse it.
+    """
+    n_steps, seasons, metrics = None, [], []
+    if backtest_run_id is not None:
+        n_steps = con.execute(
+            "SELECT count(*) FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [backtest_run_id],
+        ).fetchone()[0]
+        seasons = [
+            r[0] for r in con.execute(
+                "SELECT DISTINCT season FROM backtest_gameweek_steps WHERE backtest_run_id = ? ORDER BY season",
+                [backtest_run_id],
+            ).fetchall()
+        ]
+        metrics = [
+            {"metric_name": name, "mean_value": round(mean_value, 4), "n_observations": n}
+            for name, mean_value, n in con.execute(
+                "SELECT metric_name, avg(metric_value), count(*) FROM backtest_metrics "
+                "WHERE backtest_run_id = ? GROUP BY metric_name ORDER BY metric_name",
+                [backtest_run_id],
+            ).fetchall()
+        ]
+
+    transparency = report.get("parameter_transparency") or []
+    n_backtested = sum(1 for row in transparency if row["backtested_via_m7"])
+
+    return {
+        "backtest_run_id": backtest_run_id,
+        "n_gameweek_steps": n_steps,
+        "seasons_covered": seasons,
+        "metrics": metrics,
+        "parameters_total": len(transparency),
+        "parameters_backtested": n_backtested,
+        "parameters_still_invented": len(transparency) - n_backtested,
+    }
+
+
 def save_report_snapshot(report: dict, history_dir: Path | str) -> Path:
     """One file per real gameweek report -- <season>_gw<gameweek>.json, safe to re-run (a
     second save for the same gameweek just overwrites, matching the "latest run wins" shape
