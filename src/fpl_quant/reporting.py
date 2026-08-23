@@ -561,6 +561,42 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
     }
 
 
+def build_captain_recommendation(
+    tc_detail: dict | None, actual_captain_uid: str | None, player_name_by_uid: dict[str, str],
+) -> dict | None:
+    """A real, actionable "who should you captain" directive -- reuses M8's own triple_captain
+    chip evaluation (transfer_planner.evaluate_triple_captain()'s tc_score/mean_total ranking
+    over the real current XI, already computed and stored in chip_evaluations.detail on every
+    real transfer_planner.run(); nothing new modeled here). None when there's no real detail to
+    read from (e.g. that evaluator found no simulated XI players for this squad).
+
+    tc_detail: the parsed chip_evaluations.detail JSON for this run's 'triple_captain' row.
+    actual_captain_uid: the manager's real current captain (from manager_squad_holdings), or
+    None if it couldn't be resolved -- in which case this only reports the recommendation, not
+    a comparison, since there's nothing real to compare against.
+    """
+    if not tc_detail or not tc_detail.get("recommended") or not tc_detail.get("captain_candidate"):
+        return None
+    candidates_by_uid = {c["player_uid"]: c for c in tc_detail.get("all_candidates", [])}
+    recommended_uid = tc_detail["captain_candidate"]
+    recommended = candidates_by_uid.get(recommended_uid)
+    if recommended is None:
+        return None
+    current = candidates_by_uid.get(actual_captain_uid) if actual_captain_uid else None
+    matches_current = actual_captain_uid is not None and actual_captain_uid == recommended_uid
+
+    return {
+        "recommended_uid": recommended_uid,
+        "recommended_name": player_name_by_uid.get(recommended_uid),
+        "recommended_expected_points": round(recommended["mean_total"], 2),
+        "current_uid": actual_captain_uid,
+        "current_name": player_name_by_uid.get(actual_captain_uid) if actual_captain_uid else None,
+        "current_expected_points": round(current["mean_total"], 2) if current else None,
+        "matches_current": matches_current,
+        "potential_gain": round(recommended["mean_total"] - current["mean_total"], 2) if current and not matches_current else 0.0,
+    }
+
+
 def save_report_snapshot(report: dict, history_dir: Path | str) -> Path:
     """One file per real gameweek report -- <season>_gw<gameweek>.json, safe to re-run (a
     second save for the same gameweek just overwrites, matching the "latest run wins" shape
