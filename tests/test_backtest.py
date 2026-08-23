@@ -1798,3 +1798,202 @@ def test_xi_uids_by_step_excludes_bench_players(con):
 
     xi_by_step = bt._xi_uids_by_step(con, backtest_run_id)
     assert xi_by_step[("2025-2026", 10)] == {"p1", "p2"}
+
+
+# ============================================================
+# Review B2 / roadmap Feature 7: beats_baseline()
+# ============================================================
+
+def _naive_baseline_roster():
+    """15 real players (2 GK/5 DEF/5 MID/3 FWD) across 5 clubs, priced so a 100.0 budget is
+    meaningfully binding but feasible -- same sizing reasoning as squad_optimizer's own
+    _synthetic_pool. Fixed, hand-picked prices (not derived from hash()) so every test here
+    is fully deterministic."""
+    clubs = ["clubA", "clubB", "clubC", "clubD", "clubE"]
+    roster = []
+
+    def add(pid, pos, price, club):
+        roster.append({"player_uid": pid, "position": pos, "price": price, "club": club})
+
+    for i in range(2):
+        add(f"gk{i}", "Goalkeeper", 4.5 + i, clubs[i % 5])
+    for i in range(5):
+        add(f"def{i}", "Defender", 4.0 + i * 0.4, clubs[i % 5])
+    for i in range(5):
+        add(f"mid{i}", "Midfielder", 5.0 + i * 0.4, clubs[i % 5])
+    for i in range(3):
+        add(f"fwd{i}", "Forward", 6.0 + i * 0.5, clubs[i % 5])
+    return roster
+
+
+def _seed_naive_baseline_league(con, gameweeks, points_by_uid_and_gw, ownership_by_uid=None):
+    """Seeds dim_team/dim_player/player_alias/fact_match/fact_player_season_stats for
+    _naive_baseline_roster() across the given (season, gw) list. points_by_uid_and_gw:
+    {(uid, gw): event_points}. ownership_by_uid: {uid: selected_by_percent}, constant across
+    gameweeks (real FPL ownership doesn't reset week to week)."""
+    roster = _naive_baseline_roster()
+    ownership_by_uid = ownership_by_uid or {}
+    now = datetime.now()
+
+    for club in {c["club"] for c in roster}:
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [club, club])
+    for c in roster:
+        con.execute(
+            "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)",
+            [c["player_uid"], c["player_uid"], c["position"]],
+        )
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, ?, '2025-2026', ?)",
+            [c["player_uid"], c["player_uid"], c["club"], c["player_uid"]],
+        )
+
+    for season, gw in gameweeks:
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+            "finished, competition, _ingested_at) VALUES (?, ?, ?, ?, 'clubA', 'clubB', TRUE, 'Premier League', ?)",
+            [f"m_{season}_{gw}", season, gw, datetime(2025, 10, 25) + pd.Timedelta(days=7 * gw), now],
+        )
+        for c in roster:
+            points = points_by_uid_and_gw.get((c["player_uid"], gw), 2)
+            con.execute(
+                "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, selected_by_percent, "
+                "event_points, _ingested_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [c["player_uid"], season, gw, c["price"], ownership_by_uid.get(c["player_uid"]), points, now],
+            )
+    return roster
+
+
+def _seed_recorded_step_metrics(con, backtest_run_id, steps, model_points, crowd_points):
+    for (season, gw), mp, cp in zip(steps, model_points, crowd_points):
+        bt._record_metric(con, backtest_run_id, season, gw, "warm", "model_squad_realized_points", mp)
+        bt._record_metric(con, backtest_run_id, season, gw, "warm", "avg_manager_benchmark_points", cp)
+
+
+def test_best_xi_from_squad_respects_formation_quotas():
+    roster = _naive_baseline_roster()
+    metric = {c["player_uid"]: float(i) for i, c in enumerate(roster)}  # later players rank higher
+    xi = bt._best_xi_from_squad(roster, metric)
+    assert len(xi) == 11
+    by_pos = {}
+    for c in roster:
+        if c["player_uid"] in xi:
+            by_pos[c["position"]] = by_pos.get(c["position"], 0) + 1
+    assert by_pos["Goalkeeper"] == 1
+    assert 3 <= by_pos["Defender"] <= 5
+    assert 2 <= by_pos["Midfielder"] <= 5
+    assert 1 <= by_pos["Forward"] <= 3
+
+
+def test_greedy_naive_squad_respects_budget_and_club_cap():
+    roster = _naive_baseline_roster()
+    metric = {c["player_uid"]: 10.0 - i for i, c in enumerate(roster)}  # earliest players rank highest
+    pick = bt._greedy_naive_squad(roster, metric)
+    assert 1 <= len(pick["xi_uids"]) <= 11
+    assert pick["captain_uid"] in pick["xi_uids"]
+
+    by_uid = {c["player_uid"]: c for c in roster}
+    total_price = sum(by_uid[uid]["price"] for uid in pick["xi_uids"])
+    assert total_price <= bt.squad_optimizer.BUDGET  # XI-only spend is always <= the full squad's
+
+    club_counts: dict[str, int] = {}
+    for uid in pick["xi_uids"]:
+        club_counts[by_uid[uid]["club"]] = club_counts.get(by_uid[uid]["club"], 0) + 1
+    assert all(n <= 3 for n in club_counts.values())
+
+
+def test_greedy_naive_squad_captain_has_the_highest_metric_in_the_xi():
+    roster = _naive_baseline_roster()
+    metric = {c["player_uid"]: float(hash(c["player_uid"]) % 97) for c in roster}  # arbitrary but fixed
+    metric = {uid: float(v) for uid, v in sorted(metric.items())}  # determinism regardless of dict order
+    pick = bt._greedy_naive_squad(roster, metric)
+    assert metric[pick["captain_uid"]] == max(metric[uid] for uid in pick["xi_uids"])
+
+
+def test_beats_baseline_raises_when_run_id_has_no_recorded_metrics(con):
+    backtest_run_id = con.execute(
+        "INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id"
+    ).fetchone()[0]
+    with pytest.raises(ValueError, match="no model_squad_realized_points"):
+        bt.beats_baseline(con, backtest_run_id)
+
+
+def test_beats_baseline_scores_all_rows_over_the_identical_gameweek_set(con):
+    steps = [("2025-2026", 10), ("2025-2026", 11)]
+    roster = _naive_baseline_roster()
+    points_by_uid_and_gw = {}
+    for i, c in enumerate(roster):
+        for _season, gw in [("2025-2026", 9), *steps]:
+            points_by_uid_and_gw[(c["player_uid"], gw)] = (i + gw) % 12
+    ownership = {c["player_uid"]: 5.0 + i for i, c in enumerate(roster)}
+    _seed_naive_baseline_league(con, [("2025-2026", 9), *steps], points_by_uid_and_gw, ownership)
+
+    backtest_run_id = con.execute(
+        "INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id"
+    ).fetchone()[0]
+    _seed_recorded_step_metrics(con, backtest_run_id, steps, model_points=[60.0, 55.0], crowd_points=[40.0, 42.0])
+
+    result = bt.beats_baseline(con, backtest_run_id)
+
+    assert result["walked_gameweeks"] == 2
+    names = {row["name"] for row in result["rows"]}
+    assert names == {
+        "FPL-Analyser (model)", "recent-points baseline", "price/ownership baseline", "crowd-average baseline",
+    }
+    for row in result["rows"]:
+        assert row["n_gameweeks"] == 2  # every row scored over the SAME walked-gameweek set
+        assert row["ep"] == pytest.approx((row["ci_low"] + row["ci_high"]) / 2)
+
+    model_row = next(r for r in result["rows"] if r["name"] == "FPL-Analyser (model)")
+    assert model_row["ep"] == pytest.approx((60.0 + 55.0) / 2)
+    assert "is_baseline" not in model_row
+    crowd_row = next(r for r in result["rows"] if r["name"] == "crowd-average baseline")
+    assert crowd_row["ep"] == pytest.approx((40.0 + 42.0) / 2)
+    assert crowd_row["is_baseline"] is True
+    assert model_row["beats_crowd"] is True  # 57.5 > 41.0
+
+
+def test_beats_baseline_reports_honest_losses_when_a_baseline_wins(con):
+    steps = [("2025-2026", 10), ("2025-2026", 11)]
+    roster = _naive_baseline_roster()
+    points_by_uid_and_gw = {}
+    for i, c in enumerate(roster):
+        for _season, gw in [("2025-2026", 9), *steps]:
+            points_by_uid_and_gw[(c["player_uid"], gw)] = 8 + (i % 4)  # real, positive points
+    ownership = {c["player_uid"]: 5.0 + i for i, c in enumerate(roster)}
+    _seed_naive_baseline_league(con, [("2025-2026", 9), *steps], points_by_uid_and_gw, ownership)
+
+    backtest_run_id = con.execute(
+        "INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id"
+    ).fetchone()[0]
+    # Model deliberately recorded far below what any real-data-driven baseline can score here
+    # (every player scores >= 8 real points every gameweek) -- guarantees every baseline wins.
+    _seed_recorded_step_metrics(con, backtest_run_id, steps, model_points=[0.5, 0.5], crowd_points=[30.0, 30.0])
+
+    result = bt.beats_baseline(con, backtest_run_id)
+
+    model_row = next(r for r in result["rows"] if r["name"] == "FPL-Analyser (model)")
+    assert model_row["beats_recent_points"] is False
+    assert model_row["beats_price_ownership"] is False
+    assert model_row["beats_crowd"] is False
+    assert set(result["honest_losses"]) == {
+        "recent-points baseline", "price/ownership baseline", "crowd-average baseline",
+    }
+
+
+def test_recent_points_metric_never_sees_the_target_gameweeks_own_result(con):
+    """asof-safety check: if _recent_points_metric() could see gw10's OWN result while
+    computing the trailing metric USED TO PICK for gw10, a player who only scores big at gw10
+    itself would get ranked from leaked information. Seed exactly that trap -- leak_uid
+    scores 1 everywhere except a huge score at gw10 itself -- and confirm the metric computed
+    inside asof_scope(..., 10) reflects only gw9's real trailing history."""
+    roster = _naive_baseline_roster()
+    leak_uid = roster[-1]["player_uid"]
+    points_by_uid_and_gw = {(c["player_uid"], 9): 1 for c in roster}
+    points_by_uid_and_gw.update({(c["player_uid"], 10): 1 for c in roster})
+    points_by_uid_and_gw[(leak_uid, 10)] = 99  # only visible AFTER gw10's own asof cutoff
+    _seed_naive_baseline_league(con, [("2025-2026", 9), ("2025-2026", 10)], points_by_uid_and_gw)
+
+    with bt.asof_scope(con, "2025-2026", 10):
+        recent_metric = bt._recent_points_metric(con, "2025-2026")
+    assert recent_metric[leak_uid] == pytest.approx(1.0)

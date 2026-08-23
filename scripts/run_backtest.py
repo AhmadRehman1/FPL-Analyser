@@ -67,6 +67,10 @@ def main() -> None:
     backtest_run_id = backtest.run(
         con, **PARAM_VERSIONS, n_antithetic_pairs=5000, run_monte_carlo=True,
         notes="M7 full walk-forward backtest",
+        # Priority 9c opt-in: without this, score_gameweek() never records
+        # model_squad_realized_points/avg_manager_benchmark_points, and beats_baseline()
+        # (review B2/roadmap Feature 7) has nothing to read for this run_id.
+        ownership_params_version=1,
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")
 

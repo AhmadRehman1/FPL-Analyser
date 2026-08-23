@@ -1094,6 +1094,272 @@ def run_season_simulation(
     }
 
 
+# ============================================================
+# Review B2 / roadmap Feature 7: "does this architecture pay off?" -- the elaborate
+# generative pipeline's edge over simpler alternatives has so far been asserted (README's own
+# transparency framing: "65 of 71 parameters still invented"), never measured. This section
+# converts that from a disclosure into evidence: scores the model against three baselines a
+# real manager could follow with none of M1-M6, over the EXACT SAME walked-gameweek set and
+# the SAME asof_scope() discipline the real run() walk-forward already used.
+# ============================================================
+
+def _real_player_attributes(con: duckdb.DuckDBPyConnection, season: str) -> list[dict]:
+    """Real (not model-derived) player attributes for the naive baselines below: position,
+    club, latest known price, latest known ownership. Deliberately mirrors
+    squad_optimizer.fetch_candidate_pool()'s own price/ownership 'latest row before cutoff'
+    pattern, but reads no ep_outputs/uncertainty_outputs at all -- the whole point of a naive
+    baseline is that it doesn't touch this project's model. Must be called inside
+    asof_scope() so 'latest known' resolves against the asof-shadowed
+    fact_player_season_stats, never a later gameweek's price/ownership.
+    """
+    team_of = dict(con.execute(
+        "SELECT DISTINCT player_uid, team_code FROM player_alias WHERE season = ?", [season],
+    ).fetchall())
+    prices = dict(con.execute(
+        "SELECT player_uid, now_cost FROM fact_player_season_stats "
+        "WHERE season = ? AND now_cost IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [season],
+    ).fetchall())
+    ownership = dict(con.execute(
+        "SELECT player_uid, selected_by_percent FROM fact_player_season_stats "
+        "WHERE season = ? AND selected_by_percent IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [season],
+    ).fetchall())
+
+    out = []
+    for player_uid, position in con.execute("SELECT player_uid, position FROM dim_player").fetchall():
+        price = prices.get(player_uid)
+        club = team_of.get(player_uid)
+        if price is None or club is None or position not in squad_optimizer.POSITIONS:
+            continue
+        out.append({
+            "player_uid": player_uid, "position": position, "club": club, "price": price,
+            "selected_by_percent": ownership.get(player_uid),
+        })
+    return out
+
+
+def _recent_points_metric(con: duckdb.DuckDBPyConnection, season: str, lookback: int = 5) -> dict[str, float]:
+    """Real trailing mean event_points per player -- must be called inside asof_scope() so
+    this only ever sees gameweeks strictly before the one being predicted. Falls back to the
+    previous season's final `lookback` gameweeks for a player with no current-season history
+    yet (mirrors team_strength.calibrate()'s own prior-season Elo fallback, same reasoning:
+    the season's opening gameweek(s) genuinely have no in-season trailing data, but a real
+    manager isn't starting from nothing -- last season's form is real, known information)."""
+    def _trailing(season_name: str) -> list[tuple[str, float]]:
+        return con.execute(
+            """
+            SELECT player_uid, avg(event_points) FROM (
+                SELECT player_uid, event_points,
+                       row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) AS rn
+                FROM fact_player_season_stats WHERE season = ? AND event_points IS NOT NULL
+            ) WHERE rn <= ?
+            GROUP BY player_uid
+            """,
+            [season_name, lookback],
+        ).fetchall()
+
+    metric = {uid: float(v) for uid, v in _trailing(season)}
+    prev_season = _previous_season(con, season)
+    if prev_season is not None:
+        for uid, v in _trailing(prev_season):
+            metric.setdefault(uid, float(v))
+    return metric
+
+
+def _best_xi_from_squad(squad: list[dict], metric_by_uid: dict[str, float]) -> list[str]:
+    """Best formation-valid 11 (1 GK, quotas per squad_optimizer.XI_POSITION_MIN/MAX) from an
+    already-selected 15-player squad, ranked purely by metric_by_uid -- no model, matching
+    the 'naive' framing of every caller of _greedy_naive_squad() below."""
+    by_pos: dict[str, list[dict]] = {p: [] for p in squad_optimizer.POSITION_QUOTA}
+    for c in squad:
+        by_pos[c["position"]].append(c)
+    for p in by_pos:
+        by_pos[p].sort(key=lambda c: -metric_by_uid[c["player_uid"]])
+
+    xi = list(by_pos["Goalkeeper"][:1])
+    counts = {}
+    for pos in ("Defender", "Midfielder", "Forward"):
+        picks = by_pos[pos][: squad_optimizer.XI_POSITION_MIN[pos]]
+        xi.extend(picks)
+        counts[pos] = len(picks)
+
+    remaining = []
+    for pos in ("Defender", "Midfielder", "Forward"):
+        remaining.extend(by_pos[pos][squad_optimizer.XI_POSITION_MIN[pos]:])
+    remaining.sort(key=lambda c: -metric_by_uid[c["player_uid"]])
+    for c in remaining:
+        if len(xi) >= 11:
+            break
+        pos = c["position"]
+        if counts.get(pos, 0) >= squad_optimizer.XI_POSITION_MAX[pos]:
+            continue
+        xi.append(c)
+        counts[pos] = counts.get(pos, 0) + 1
+
+    return [c["player_uid"] for c in xi]
+
+
+def _greedy_naive_squad(candidates: list[dict], metric_by_uid: dict[str, float]) -> dict:
+    """Simple greedy squad construction for the naive backtest baselines below: fills each
+    position's quota with the highest-metric affordable candidates, reserving an even
+    per-remaining-slot budget share so early picks can't starve later positions, with a
+    relaxed cheapest-first second pass to complete any position the strict reservation left
+    short. Deliberately NOT the MIQP optimizer -- a 'naive' baseline is supposed to look like
+    what a real manager following one simple rule of thumb (recent form, or the template)
+    would actually assemble, not another optimal solve.
+
+    Returns {"xi_uids": frozenset[str], "captain_uid": str | None} -- squad membership beyond
+    the scored XI/captain isn't needed by the backtest scorer.
+    """
+    eligible = [c for c in candidates if metric_by_uid.get(c["player_uid"]) is not None]
+    by_pos: dict[str, list[dict]] = {p: [] for p in squad_optimizer.POSITION_QUOTA}
+    for c in eligible:
+        by_pos[c["position"]].append(c)
+    for p in by_pos:
+        by_pos[p].sort(key=lambda c: (-metric_by_uid[c["player_uid"]], c["price"], c["player_uid"]))
+
+    squad: list[dict] = []
+    picked_uids: set[str] = set()
+    spent = 0.0
+    club_counts: dict[str, int] = {}
+    total_slots = sum(squad_optimizer.POSITION_QUOTA.values())
+    slots_filled = 0
+
+    def _take(c: dict) -> None:
+        nonlocal spent, slots_filled
+        squad.append(c)
+        picked_uids.add(c["player_uid"])
+        spent += c["price"]
+        club_counts[c["club"]] = club_counts.get(c["club"], 0) + 1
+        slots_filled += 1
+
+    for pos, quota in squad_optimizer.POSITION_QUOTA.items():
+        filled_this_pos = 0
+        for c in by_pos[pos]:
+            if filled_this_pos >= quota:
+                break
+            remaining_slots = total_slots - slots_filled
+            per_slot_budget = (squad_optimizer.BUDGET - spent) / remaining_slots if remaining_slots else 0.0
+            if c["price"] > per_slot_budget and remaining_slots > 1:
+                continue
+            if club_counts.get(c["club"], 0) >= 3:
+                continue
+            _take(c)
+            filled_this_pos += 1
+        if filled_this_pos < quota:
+            # relaxed pass: cheapest-first, ignoring the even-split reservation, so a real
+            # (large) candidate pool always completes a valid squad even if the strict
+            # heuristic above was too conservative
+            for c in sorted(by_pos[pos], key=lambda c: (c["price"], c["player_uid"])):
+                if filled_this_pos >= quota:
+                    break
+                if c["player_uid"] in picked_uids or club_counts.get(c["club"], 0) >= 3:
+                    continue
+                _take(c)
+                filled_this_pos += 1
+
+    xi_uids = _best_xi_from_squad(squad, metric_by_uid)
+    captain_uid = max(xi_uids, key=lambda uid: metric_by_uid[uid]) if xi_uids else None
+    return {"xi_uids": frozenset(xi_uids), "captain_uid": captain_uid}
+
+
+def beats_baseline(con: duckdb.DuckDBPyConnection, backtest_run_id: int, *, recent_points_lookback: int = 5) -> dict:
+    """Scores the model against three baselines over the exact same walked-gameweek set
+    `backtest_run_id` already covers -- the (season, gameweek) steps that have a recorded
+    model_squad_realized_points metric (score_gameweek()'s own Priority 9c gate: requires
+    so_run_id and ownership_params_version, see run()'s docstring). Raises ValueError if
+    backtest_run_id has none (run() wasn't called with ownership_params_version set).
+
+    1. model: model_squad_realized_points, already recorded by run()+score_gameweek() for
+       this backtest_run_id -- not recomputed here.
+    2. crowd-average: avg_manager_benchmark_points, likewise already recorded (Priority 9c) --
+       the "beats the crowd" benchmark, wired here as a real leaderboard comparator.
+    3. naive recent-points: a squad picked purely by trailing mean event_points, no model.
+    4. naive price/ownership: a squad picked purely by real selected_by_percent (the
+       "template" squad).
+
+    Baselines 3/4 are computed fresh here, per walked gameweek, with squad SELECTION run
+    inside asof_scope() (so it sees only pre-deadline information) and realized-points
+    SCORING run after that context exits (so fact_player_season_stats resolves back to the
+    real, now-known result for that gameweek -- exactly how score_gameweek()'s own realized-
+    points calls are structured; scoring inside the shadow would see gw < target only and
+    silently score everyone 0).
+
+    Reports a baseline win exactly as visibly as a model win (see 'honest_losses') -- a
+    leaderboard that only shows wins is not a leaderboard.
+    """
+    steps = con.execute(
+        "SELECT season, gameweek FROM backtest_metrics "
+        "WHERE backtest_run_id = ? AND metric_name = 'model_squad_realized_points' "
+        "ORDER BY season, gameweek",
+        [backtest_run_id],
+    ).fetchall()
+    if not steps:
+        raise ValueError(
+            f"backtest_run_id={backtest_run_id} has no model_squad_realized_points metrics -- "
+            f"was run() called with ownership_params_version set (Priority 9c)?"
+        )
+
+    def _recorded(metric_name: str) -> list[float]:
+        rows = con.execute(
+            "SELECT season, gameweek, metric_value FROM backtest_metrics "
+            "WHERE backtest_run_id = ? AND metric_name = ?",
+            [backtest_run_id, metric_name],
+        ).fetchall()
+        by_step = {(s, gw): v for s, gw, v in rows}
+        return [by_step[(s, gw)] for s, gw in steps]
+
+    model_weekly = _recorded("model_squad_realized_points")
+    crowd_weekly = _recorded("avg_manager_benchmark_points")
+
+    recent_weekly: list[float] = []
+    price_ownership_weekly: list[float] = []
+    for season, gameweek in steps:
+        with asof_scope(con, season, gameweek):
+            attrs = _real_player_attributes(con, season)
+            recent_metric = _recent_points_metric(con, season, lookback=recent_points_lookback)
+            recent_pick = _greedy_naive_squad(attrs, recent_metric)
+
+            ownership_metric = {
+                c["player_uid"]: c["selected_by_percent"] for c in attrs if c["selected_by_percent"] is not None
+            }
+            ownership_pick = _greedy_naive_squad(attrs, ownership_metric)
+        # Outside the asof_scope shadow now -- see this function's own docstring for why
+        # scoring must happen here, not inside the with-block above.
+        recent_weekly.append(_realized_xi_points(con, season, gameweek, recent_pick["xi_uids"], recent_pick["captain_uid"]))
+        price_ownership_weekly.append(
+            _realized_xi_points(con, season, gameweek, ownership_pick["xi_uids"], ownership_pick["captain_uid"])
+        )
+
+    def _row(name: str, weekly: list[float], is_baseline: bool) -> dict:
+        arr = np.array(weekly, dtype=float)
+        mean = float(arr.mean())
+        std = float(arr.std(ddof=1)) if len(arr) > 1 else 0.0
+        margin = 1.96 * std / math.sqrt(len(arr)) if len(arr) > 1 else 0.0
+        row = {"name": name, "ep": mean, "ci_low": mean - margin, "ci_high": mean + margin, "n_gameweeks": len(arr)}
+        if is_baseline:
+            row["is_baseline"] = True
+        return row
+
+    model_row = _row("FPL-Analyser (model)", model_weekly, is_baseline=False)
+    baseline_rows = [
+        _row("recent-points baseline", recent_weekly, is_baseline=True),
+        _row("price/ownership baseline", price_ownership_weekly, is_baseline=True),
+        _row("crowd-average baseline", crowd_weekly, is_baseline=True),
+    ]
+
+    model_row["beats_recent_points"] = model_row["ep"] > baseline_rows[0]["ep"]
+    model_row["beats_price_ownership"] = model_row["ep"] > baseline_rows[1]["ep"]
+    model_row["beats_crowd"] = model_row["ep"] > baseline_rows[2]["ep"]
+
+    honest_losses = [row["name"] for row in baseline_rows if row["ep"] >= model_row["ep"]]
+
+    return {"walked_gameweeks": len(steps), "rows": [model_row, *baseline_rows], "honest_losses": honest_losses}
+
+
 def report_season_simulation_sensitivity(
     con: duckdb.DuckDBPyConnection,
     season: str,
