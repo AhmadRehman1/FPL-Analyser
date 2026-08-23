@@ -1,0 +1,38 @@
+name: Tests
+
+# Runs the full pytest suite on every push and pull request. Deliberately independent of
+# scheduled_pipeline.yml: it needs none of that workflow's data (FPL-Core-Insights clone,
+# evidence workbooks, a populated DuckDB) since every test builds its own throwaway in-memory/
+# tmp-path DB via tests/conftest.py's `con` fixture -- no network access, no external data,
+# no secrets. This is the check that was missing: 483 tests existed and passed locally, but
+# nothing enforced them before a change reached master.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test suite
+        run: PYTHONPATH=src python -m pytest tests/ -v
