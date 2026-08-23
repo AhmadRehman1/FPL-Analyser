@@ -16,10 +16,12 @@ name: On-demand manager report (multi-user, no new hosting)
 #
 # SECURITY: the issue body/title are fully untrusted public input (anyone can open one). Nothing
 # derived from them is ever spliced via ${{ }} into a run:/script: body -- only passed through
-# `env:` and read back as an environment variable, and entry_id/label are hard-sanitized to a
-# narrow charset in the parse step before anything downstream touches them. Not instant: expect
-# ~1-2 minutes (DB restore + a real M8/M9 solve). `concurrency` below serializes requests rather
-# than letting an unbounded public queue run in parallel.
+# `env:` and read back as a shell/environment variable, and entry_id/label are hard-sanitized to
+# a narrow charset in the parse step before anything downstream touches them. Belt-and-suspenders:
+# the env: routing means a future loosening of that sanitization charset can't reopen a YAML/shell
+# injection path just because it happens to still be shell-metacharacter-safe today. Not instant:
+# expect ~1-2 minutes (DB restore + a real M8/M9 solve). `concurrency` below serializes requests
+# rather than letting an unbounded public queue run in parallel.
 
 on:
   issues:
@@ -76,8 +78,10 @@ jobs:
               f.write(f"label={safe_label}\n")
           PYEOF
 
+      # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
+      # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here).
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.lock
 
       - name: Restore the most recent ingested DB
         id: cache
@@ -129,29 +133,38 @@ jobs:
           PYEOF
 
       # entry_id/event are already hard-validated as pure digits above, and label is
-      # hard-sanitized to a narrow charset -- safe to pass as ordinary quoted shell arguments.
+      # hard-sanitized to a narrow charset -- but routed through env: rather than spliced via
+      # ${{ }} regardless, per this workflow's own top-of-file SECURITY note.
       - name: Plan transfers for the requested manager
         id: plan
         continue-on-error: true
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
+          EVENT: ${{ steps.gw.outputs.event }}
+          LABEL: ${{ steps.parse.outputs.label }}
         run: |
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
-            "${{ steps.parse.outputs.entry_id }}" "${{ steps.gw.outputs.event }}" \
-            "${{ steps.parse.outputs.label }}"
+            "$ENTRY_ID" "$EVENT" "$LABEL"
 
       - name: Export live app data for the requested manager
         if: steps.plan.outcome == 'success'
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
+          EVENT: ${{ steps.gw.outputs.event }}
+          LABEL: ${{ steps.parse.outputs.label }}
         run: |
-          PYTHONPATH=src python scripts/export_app_data.py \
-            "${{ steps.parse.outputs.entry_id }}:${{ steps.gw.outputs.event }}:${{ steps.parse.outputs.label }}"
+          PYTHONPATH=src python scripts/export_app_data.py "$ENTRY_ID:$EVENT:$LABEL"
 
       - name: Commit the new manager's dashboard data
         if: steps.plan.outcome == 'success'
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/dashboard/
           git diff --cached --quiet && exit 0
-          git commit -m "chore: add manager ${{ steps.parse.outputs.entry_id }} [skip ci]"
+          git commit -m "chore: add manager $ENTRY_ID [skip ci]"
           for attempt in 1 2 3 4 5; do
             if git push; then
               exit 0

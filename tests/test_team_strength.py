@@ -68,6 +68,48 @@ def test_fit_dixon_coles_zero_centered_attack_mean():
     assert abs(mean_attack) < 1e-6
 
 
+def test_fit_dixon_coles_warns_on_non_convergence(monkeypatch, capsys):
+    uids = {"A": "team_a", "B": "team_b"}
+    results = [("A", "B", 2, 1), ("B", "A", 1, 1)]
+    matches = _round_robin_matches(uids, results)
+
+    class FakeResult:
+        def __init__(self, x):
+            self.x = x
+            self.success = False
+            self.message = "fake non-convergence for test"
+            self.nit = 0
+
+    monkeypatch.setattr(ts, "minimize", lambda fn, x0, method: FakeResult(x0))
+    ts.fit_dixon_coles(matches, xi=0.0018, rho=-0.13, asof_date=date(2025, 6, 1), reference_team_uid=uids["A"])
+    out = capsys.readouterr().out
+    assert "::warning::" in out
+    assert "did not converge" in out
+
+
+def test_fit_dixon_coles_warns_on_tau_floor_clipping(monkeypatch, capsys):
+    """tau(x,y;rho) going <=0 and hitting the 1e-10 floor means (xi,rho) is in an invalid-tau
+    region for the data -- forced here via a monkeypatched tau() rather than hunting for real
+    (xi,rho,data) that happens to trigger it, since the floor-clipping behavior being tested is
+    orthogonal to which real inputs would produce it."""
+    uids = {"A": "team_a", "B": "team_b"}
+    results = [("A", "B", 0, 0), ("B", "A", 1, 1)]
+    matches = _round_robin_matches(uids, results)
+    monkeypatch.setattr(ts, "tau", lambda x, y, lh, la, rho: -5.0)
+    ts.fit_dixon_coles(matches, xi=0.0018, rho=-0.13, asof_date=date(2025, 6, 1), reference_team_uid=uids["A"])
+    out = capsys.readouterr().out
+    assert "::warning::" in out
+    assert "floor" in out.lower()
+
+
+def test_fit_dixon_coles_no_warning_on_clean_fit(capsys):
+    uids = {"A": "team_a", "B": "team_b", "C": "team_c"}
+    results = [("A", "B", 2, 1), ("B", "A", 1, 1), ("A", "C", 3, 0), ("C", "A", 0, 2), ("B", "C", 1, 1)]
+    matches = _round_robin_matches(uids, results)
+    ts.fit_dixon_coles(matches, xi=0.0018, rho=-0.13, asof_date=date(2025, 6, 1), reference_team_uid=uids["A"])
+    assert "::warning::" not in capsys.readouterr().out
+
+
 def test_compute_seasons_of_topflight_data(con):
     uids = _seed_teams(con, ["A", "B", "X", "C"])
     now = datetime.now(timezone.utc)

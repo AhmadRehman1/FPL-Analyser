@@ -1,0 +1,40 @@
+name: CI
+
+# Runs the full test suite on every push/PR to master -- previously none of the 3 workflows in
+# this repo (scheduled_pipeline, on_demand_report, live_tracking) ran pytest at all, so a
+# regression only surfaced when it broke a scheduled production run. The fail-fast stage runs
+# the two canary suites first: test_schema_invariants.py (asof-scope/schema discipline) and
+# test_squad_optimizer.py (SCIP determinism + PSD guardrails) -- both are cheap and catch the
+# two bug classes the README calls out most often, so a broken canary fails the job in seconds
+# instead of waiting through the full ~3 minute suite.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
+      # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here).
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Fail-fast canary tests (determinism + asof-scope invariants)
+        run: PYTHONPATH=src python -m pytest tests/test_schema_invariants.py tests/test_squad_optimizer.py -q
+
+      - name: Full test suite
+        run: PYTHONPATH=src python -m pytest tests/ -q
