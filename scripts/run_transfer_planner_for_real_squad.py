@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
+from fpl_quant import db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -136,12 +136,31 @@ def main() -> None:
 
     print("\n--- chip evaluations ---")
     chips = con.execute(
-        "SELECT chip_type, recommended, score_or_gain FROM chip_evaluations WHERE run_id = ?", [run_id],
+        "SELECT chip_type, recommended, score_or_gain, detail FROM chip_evaluations WHERE run_id = ?", [run_id],
     ).fetchall()
     chips_out = []
-    for chip_type, recommended, score in chips:
+    tc_detail = None
+    for chip_type, recommended, score, detail in chips:
         print(f"  {chip_type}: recommended={recommended} score={score}")
         chips_out.append({"chip_type": chip_type, "recommended": bool(recommended), "score": round(score, 3) if score is not None else None})
+        if chip_type == "triple_captain" and detail:
+            tc_detail = json.loads(detail)
+
+    # A real "who should you captain" directive -- reuses the triple_captain evaluator's own
+    # already-computed ranking (see reporting.build_captain_recommendation()'s own docstring),
+    # compared against the manager's actual current captain from manager_squad_holdings.
+    actual_captain_row = con.execute(
+        "SELECT player_uid FROM manager_squad_holdings WHERE state_version = ? AND is_captain = TRUE", [state_version],
+    ).fetchone()
+    actual_captain_uid = actual_captain_row[0] if actual_captain_row else None
+    relevant_uids = [uid for uid in {actual_captain_uid, (tc_detail or {}).get("captain_candidate")} if uid]
+    name_rows = con.execute(
+        "SELECT player_uid, canonical_name FROM dim_player WHERE player_uid = ANY(?)", [relevant_uids],
+    ).fetchall() if relevant_uids else []
+    player_name_by_uid = {uid: name for uid, name in name_rows}
+    captain_recommendation = reporting.build_captain_recommendation(tc_detail, actual_captain_uid, player_name_by_uid)
+    if captain_recommendation:
+        print(f"\n--- captain recommendation ---\n  {captain_recommendation}")
 
     con.close()
 
@@ -156,6 +175,7 @@ def main() -> None:
         "transfer_recommendations": recs_out,
         "hold_vs_transfer_now": hold_out,
         "chip_evaluations": chips_out,
+        "captain_recommendation": captain_recommendation,
     }
     out_path = DASHBOARD_DIR / f"real_squad_{entry_id}.json"
     out_path.write_text(json.dumps(snapshot, indent=2))

@@ -505,6 +505,49 @@ def test_load_report_snapshot_none_when_missing(tmp_path):
 
 
 # ============================================================
+# build_captain_recommendation
+# ============================================================
+
+def _tc_detail(*candidates, recommended_uid=None):
+    """candidates: (player_uid, mean_total) pairs. recommended_uid defaults to the highest
+    mean_total, matching evaluate_triple_captain()'s own tc_score-sorted best[0]."""
+    all_candidates = [{"player_uid": uid, "mean_total": mt, "var_total": 1.0, "tc_score": mt} for uid, mt in candidates]
+    best_uid = recommended_uid or max(candidates, key=lambda c: c[1])[0]
+    return {"recommended": True, "captain_candidate": best_uid, "all_candidates": all_candidates}
+
+
+def test_build_captain_recommendation_flags_a_better_option():
+    detail = _tc_detail(("p_haaland", 9.2), ("p_salah", 6.5))
+    names = {"p_haaland": "Erling Haaland", "p_salah": "Mohamed Salah"}
+    rec = reporting.build_captain_recommendation(detail, "p_salah", names)
+    assert rec["recommended_name"] == "Erling Haaland"
+    assert rec["current_name"] == "Mohamed Salah"
+    assert rec["matches_current"] is False
+    assert rec["potential_gain"] == pytest.approx(2.7)
+
+
+def test_build_captain_recommendation_matches_current_no_gain_claimed():
+    detail = _tc_detail(("p_haaland", 9.2), ("p_salah", 6.5))
+    names = {"p_haaland": "Erling Haaland", "p_salah": "Mohamed Salah"}
+    rec = reporting.build_captain_recommendation(detail, "p_haaland", names)
+    assert rec["matches_current"] is True
+    assert rec["potential_gain"] == 0.0
+
+
+def test_build_captain_recommendation_none_when_not_recommended():
+    assert reporting.build_captain_recommendation({"recommended": False}, "p_salah", {}) is None
+    assert reporting.build_captain_recommendation(None, "p_salah", {}) is None
+
+
+def test_build_captain_recommendation_handles_unresolved_current_captain():
+    detail = _tc_detail(("p_haaland", 9.2), ("p_salah", 6.5))
+    rec = reporting.build_captain_recommendation(detail, None, {"p_haaland": "Erling Haaland"})
+    assert rec["current_name"] is None
+    assert rec["current_expected_points"] is None
+    assert rec["potential_gain"] == 0.0  # nothing real to compare against -- not a fabricated gain
+
+
+# ============================================================
 # build_track_record_summary
 # ============================================================
 

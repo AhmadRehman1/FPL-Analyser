@@ -126,6 +126,14 @@
   .rec .in{color:oklch(0.38 0.12 150);font-weight:700;}
   .rec .net{font-family:"Anton",sans-serif;font-size:15px;color:oklch(0.38 0.12 150);flex-shrink:0;white-space:nowrap;}
 
+  /* ---- action list (home directives) ---- */
+  .action-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1.5px solid var(--divider);}
+  .action-row:first-of-type{border-top:none;padding-top:0;}
+  .action-text{flex:1;min-width:0;}
+  .action-title{font-size:12.5px;font-weight:700;color:var(--ink);}
+  .action-sub{font-size:10.5px;color:var(--ink-dim);margin-top:2px;line-height:1.4;}
+  .action-cta{flex-shrink:0;background:var(--green);color:white;font-size:11px;font-weight:700;padding:9px 14px;border-radius:100px;text-decoration:none;white-space:nowrap;}
+
   /* ---- chip grid ---- */
   .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
   .chip-tile{background:var(--card-2);border-radius:11px;padding:9px 4px 8px;text-align:center;}
@@ -406,6 +414,13 @@ const jerseyIcon = (fill) => `<svg width="20" height="20" viewBox="0 0 24 24" fi
 const isFlagged = (player) => player && player.status && player.status !== "a";
 const isSevereFlag = (player) => player && ["i", "s", "u", "n"].includes(player.status);
 
+// Deep links to FPL's own editable screens -- generic, not entry_id-specific, since the
+// editable team/transfers/chip screens are always relative to whoever is actually logged into
+// the browser, not to whichever account this app happens to be viewing. This app never submits
+// changes on the user's behalf (no stored FPL credentials) -- it only points at the real screen.
+const FPL_TRANSFERS_URL = "https://fantasy.premierleague.com/transfers";
+const FPL_MY_TEAM_URL = "https://fantasy.premierleague.com/my-team";
+
 const state = {
   accountId: Number(localStorage.getItem("fq_account_id")) || ACCOUNTS[1].id,
   players: null, playersById: null,
@@ -619,9 +634,118 @@ function chipRowBlock(chips) {
     </div>`).join("") + `</div>`;
 }
 
+// ---- "Your moves this week" action list -- one directive each for transfer/captain/chip,
+// each pointing at the real official FPL screen where it's actually made. This app never
+// submits anything on the manager's behalf (no stored FPL login) -- it only tells you what
+// the model thinks and gets you one tap from acting on it yourself.
+function transferDirective(hold, topRec) {
+  if (!hold) return null;
+  if (hold.recommended_action === "hold") {
+    return {
+      title: "Hold your transfer this week",
+      sub: `Holding (${hold.hold_value.toFixed(1)}) beats using a transfer now (${hold.transfer_now_value.toFixed(1)}).`,
+      cta: "Review transfers",
+    };
+  }
+  if (!topRec) {
+    return { title: "Use a transfer this week", sub: "Model favors transferring now over holding.", cta: "Make transfer" };
+  }
+  return {
+    title: `${topRec.player_out} &rarr; ${topRec.player_in}`,
+    sub: `Net gain +${topRec.net.toFixed(1)} over holding this transfer.`,
+    cta: "Make transfer",
+  };
+}
+
+function captainDirective(cr) {
+  if (!cr) return null;
+  if (cr.matches_current) {
+    return {
+      title: `Keep the armband on ${cr.recommended_name}`,
+      sub: `Model's own top captain pick this week too &mdash; ${cr.recommended_expected_points} expected points.`,
+      cta: "Confirm captain",
+    };
+  }
+  return {
+    title: `Switch captain to ${cr.recommended_name}`,
+    sub: cr.current_name
+      ? `${cr.recommended_expected_points} expected points vs ${cr.current_expected_points} for ${cr.current_name} &mdash; +${cr.potential_gain.toFixed(1)}.`
+      : `${cr.recommended_expected_points} expected points this week.`,
+    cta: "Set captain",
+  };
+}
+
+function chipDirective(chips) {
+  if (!chips || !chips.length) return null;
+  const short = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };
+  const rec = chips.find(c => c.recommended);
+  if (!rec) return { title: "No chip recommended this week", sub: "Model says save your chips for a better window.", cta: "Review chips" };
+  return {
+    title: `Play ${short[rec.chip_type] || rec.chip_type} this week`,
+    sub: rec.score != null ? `Model edge: +${rec.score.toFixed(1)}.` : "",
+    cta: "Play chip",
+  };
+}
+
+function actionRow(directive, url) {
+  if (!directive) return "";
+  return `
+    <div class="action-row">
+      <div class="action-text">
+        <div class="action-title">${directive.title}</div>
+        ${directive.sub ? `<div class="action-sub">${directive.sub}</div>` : ""}
+      </div>
+      <a class="action-cta" href="${url}" target="_blank" rel="noopener">${directive.cta}</a>
+    </div>`;
+}
+
+function movesThisWeekCard() {
+  const rs = state.realSquad;
+  if (!rs) return "";
+  const rows = [
+    actionRow(transferDirective(rs.hold_vs_transfer_now, rs.transfer_recommendations && rs.transfer_recommendations[0]), FPL_TRANSFERS_URL),
+    actionRow(captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL),
+    actionRow(chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL),
+  ].filter(Boolean).join("");
+  if (!rows) return "";
+  return `
+    <div class="card-title">Your moves this week</div>
+    ${rows}
+    <p style="font-size:10.5px;color:var(--ink-dim2);margin:12px 0 0;line-height:1.5;">
+      These are the model's directives, not automatic &mdash; nothing is ever submitted for you.
+      Tap through to the official FPL site to actually make a change.
+    </p>`;
+}
+
 function deadlineCountdown() {
-  const upcoming = state.fixtures.find(gw => gw.is_current) || state.fixtures.find(gw => new Date(gw.deadline_time) > new Date());
+  // The next deadline still ahead of you -- not the current gameweek's own deadline, which has
+  // already passed once that gameweek's matches are underway and would make "time to deadline"
+  // actively misleading on a screen whose whole point is telling you what to do before it locks.
+  const upcoming = state.fixtures.find(gw => new Date(gw.deadline_time) > new Date());
   return upcoming ? upcoming.deadline_time : null;
+}
+
+// A ticking "Xd Yh to deadline" -- computed client-side from the real deadline_time FPL
+// publishes (see deadlineCountdown()), not a separate estimate. Kept live via tickDeadlineCountdown()
+// so a manager watching the Home screen sees it count down without needing to refresh.
+function countdownText(deadlineIso) {
+  if (!deadlineIso) return null;
+  const ms = new Date(deadlineIso).getTime() - Date.now();
+  if (ms <= 0) return "Deadline has passed";
+  const totalMin = Math.floor(ms / 60000);
+  const days = Math.floor(totalMin / 1440);
+  const hours = Math.floor((totalMin % 1440) / 60);
+  const mins = totalMin % 60;
+  if (days > 0) return `${days}d ${hours}h to deadline`;
+  if (hours > 0) return `${hours}h ${mins}m to deadline`;
+  return `${mins}m to deadline`;
+}
+
+function tickDeadlineCountdown() {
+  const el = document.getElementById("deadline-live");
+  if (!el || state.lastTab !== "home") return;
+  const text = countdownText(deadlineCountdown());
+  if (text) el.textContent = text;
 }
 
 function formationOf(squad) {
@@ -666,15 +790,17 @@ function renderHome() {
   const topPerformers = [...state.team.squad].sort((a, b) => b.event_points - a.event_points).slice(0, 5);
   const deadline = deadlineCountdown();
   const leagueTable = state.leagues && state.leagues.tables[0];
+  const flagged = flaggedSquadRows();
 
   el.innerHTML = `
     ${liveNowBlock()}
     <div class="section">
       <div class="card" style="padding-top:14px;">
-        <div class="card-title">Gameweek ${state.team.gameweek ?? ""}${deadline ? ` &middot; deadline ${fmtTime(deadline)}` : ""}</div>
-        ${verdictBlock(state.realSquad && state.realSquad.hold_vs_transfer_now)}
-        <div class="rec-label" style="font-size:10px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-dim2);margin-bottom:8px;">Top transfer target</div>
-        ${recListBlock(state.realSquad && state.realSquad.transfer_recommendations, 1)}
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+          <span class="card-title" style="margin:0;">Next up: Gameweek ${(state.realSquad && state.realSquad.plan_for_gameweek) ?? state.team.gameweek ?? ""}</span>
+          ${deadline ? `<span id="deadline-live" style="font-size:11px;font-weight:700;color:var(--ink-dim2);">${countdownText(deadline) || fmtTime(deadline)}</span>` : ""}
+        </div>
+        ${movesThisWeekCard()}
         ${chipRowBlock(state.realSquad && state.realSquad.chip_evaluations)}
       </div>
     </div>
@@ -684,6 +810,12 @@ function renderHome() {
       <div class="stat-tile"><div class="k">Overall Rank</div><div class="v">${state.profile && state.profile.overall_rank ? state.profile.overall_rank.toLocaleString() : "&mdash;"}</div></div>
       <div class="stat-tile"><div class="k">Team Value</div><div class="v">${fmtMoney(state.team.team_value)}</div></div>
     </div>
+
+    ${flagged.length ? `
+    <div class="section">
+      <div class="section-title"><span>Squad news</span><span class="link-sm" onclick="location.hash='team'">View team &rsaquo;</span></div>
+      ${flagStripBlock(flagged)}
+    </div>` : ""}
 
     <div class="section">
       <div class="section-title"><span>Your team</span><span class="link-sm" onclick="location.hash='team'">View pitch &rsaquo;</span></div>
@@ -695,6 +827,8 @@ function renderHome() {
         </div>
       </div>
     </div>
+
+    ${priceWatchBlock({ limit: 4, linkOut: true })}
 
     <div class="section">
       <div class="section-title"><span>Top performers this GW</span></div>
@@ -723,9 +857,9 @@ function renderHome() {
     </div>` : ""}
 
     <div class="foot-note" style="font-size:10.5px;line-height:1.6;color:var(--on-dark-dim);margin-top:8px;padding:13px 15px;border-radius:13px;background:oklch(0.98 0.005 90/0.1);border:1px solid oklch(0.98 0.005 90/0.18);">
-      <b style="color:oklch(1 0 0);">Real, but not tuned yet:</b> transfer/chip recommendations come from the project's
+      <b style="color:oklch(1 0 0);">Real, but not tuned yet:</b> transfer/captain/chip directives come from the project's
       v1 quant model (un-recalibrated, not yet backtested against real results). Everything else on this screen
-      (points, rank, squad, league standings) is fetched live from the official FPL API.
+      (points, rank, squad, news, league standings) is fetched live from the official FPL API.
     </div>
   `;
 }
@@ -872,9 +1006,12 @@ function setStrategyFilter(strategy) {
   renderTransferList();
 }
 
-function priceWatchBlock() {
+function priceWatchBlock(opts) {
+  const { limit, linkOut } = opts || {};
   const pw = state.priceWatch;
   if (!pw || (!pw.risers.length && !pw.fallers.length)) return "";
+  const risers = limit ? pw.risers.slice(0, limit) : pw.risers;
+  const fallers = limit ? pw.fallers.slice(0, limit) : pw.fallers;
   const row = (p) => `
     <div class="player-chip" onclick="location.hash='player-${p.id}'">
       <div class="p-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
@@ -885,9 +1022,12 @@ function priceWatchBlock() {
   return `
     <div class="section">
       <div class="card">
-        <div class="card-title">Transfer momentum today</div>
-        ${pw.risers.length ? `<div class="hscroll" style="margin-bottom:10px;">${pw.risers.map(row).join("")}</div>` : ""}
-        ${pw.fallers.length ? `<div class="hscroll">${pw.fallers.map(row).join("")}</div>` : ""}
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <div class="card-title">Transfer momentum today</div>
+          ${linkOut ? `<span class="link-sm" style="font-size:11.5px;font-weight:700;color:var(--ink-dim2);" onclick="location.hash='transfers'">See all &rsaquo;</span>` : ""}
+        </div>
+        ${risers.length ? `<div class="hscroll" style="margin-bottom:10px;">${risers.map(row).join("")}</div>` : ""}
+        ${fallers.length ? `<div class="hscroll">${fallers.map(row).join("")}</div>` : ""}
         <p style="font-size:10.5px;color:var(--ink-dim2);margin:12px 0 0;line-height:1.5;">
           Real net transfers in/out today, not a price-change prediction &mdash; FPL has never
           published its actual price algorithm.
@@ -905,6 +1045,7 @@ function renderTransfers() {
         <div class="card-title">Model recommendation</div>
         ${verdictBlock(recs && recs.hold_vs_transfer_now)}
         ${recListBlock(recs && recs.transfer_recommendations, 5)}
+        ${actionRow(transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL)}
       </div>
     </div>
     ${priceWatchBlock()}
@@ -1279,6 +1420,7 @@ async function init() {
     route();
     pollLiveData();
     setInterval(pollLiveData, LIVE_POLL_INTERVAL_MS);
+    setInterval(tickDeadlineCountdown, 60_000);
   } catch (err) {
     document.getElementById("home-content").innerHTML = `
       <div class="card">
