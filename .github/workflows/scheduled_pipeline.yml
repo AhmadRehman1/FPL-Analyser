@@ -145,7 +145,7 @@ jobs:
       # state on top and the on-demand workflow bootstraps its own fresh manager state anyway,
       # so the cached snapshot doesn't need to (and shouldn't have to) wait on them.
       - name: Cache the freshly-ingested DB for on-demand manager requests
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: db/fpl_quant_v2.duckdb
           key: duckdb-${{ github.run_id }}
