@@ -161,6 +161,17 @@ jobs:
             "${{ github.event.inputs.real_squad_entry_id }}" \
             "${{ github.event.inputs.real_squad_event }}"
 
+      # App conversion, Phase 1: real, live data for the PWA's Team/Profile/Leagues/Fixtures/
+      # Transfers-browse screens (data/dashboard/app_*.json) -- see app_export.py's own module
+      # docstring for why this is a separate, non-modeled fetch from everything above.
+      # Hardcoded event=1 for both accounts for the same reason as the transfer-planner step
+      # above (bump both once the season moves past needing GW1 as the read-from gameweek).
+      - name: Export live app data (Team/Profile/Leagues/Fixtures/Players)
+        run: |
+          PYTHONPATH=src python scripts/export_app_data.py \
+            "7139944:1:ChatGPT template team" \
+            "1305242:1:Main account"
+
       - name: Build report + diff
         run: PYTHONPATH=src python scripts/run_report.py
 
