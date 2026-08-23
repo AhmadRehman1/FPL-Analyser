@@ -1,4 +1,4 @@
 # Dev/CI-only tooling, kept separate from requirements.txt so a production/pipeline install
 # (scheduled_pipeline.yml, live_tracking.yml) never pulls these in.
 ruff>=0.16
-mypy>=1.8
+mypy>=2.3.1
