@@ -377,6 +377,8 @@
   .badge-confidence-medium{background:oklch(0.92 0.1 85/0.6);color:oklch(0.4 0.1 70);}
   .badge-confidence-low{background:oklch(0.92 0.06 40/0.5);color:oklch(0.42 0.1 40);}
   .badge-risk{background:oklch(0.92 0.1 25/0.45);color:oklch(0.4 0.14 25);}
+  .superseded-note{display:flex;align-items:flex-start;gap:6px;font-size:10.5px;line-height:1.5;color:oklch(0.4 0.1 250);background:oklch(0.94 0.06 250/0.6);border-radius:9px;padding:7px 10px;margin-top:8px;}
+  .superseded-note svg{flex-shrink:0;margin-top:1px;}
   .action-detail{overflow:hidden;transition:grid-template-rows 0.3s cubic-bezier(0.22,1,0.36,1);display:grid;grid-template-rows:0fr;}
   .action-detail.open{grid-template-rows:1fr;}
   .action-detail-inner{min-height:0;overflow:hidden;}
@@ -1845,6 +1847,7 @@ function actionRow(id, directive, url) {
         <div class="action-title">${directive.title}</div>
         ${directive.sub ? `<div class="action-sub">${directive.sub}</div>` : ""}
         <div class="badges">${confidenceBadge(directive.confidence)}${riskBadge(directive.risk)}</div>
+        ${directive.superseded ? `<div class="superseded-note"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v5M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg><span>${directive.superseded}</span></div>` : ""}
       </div>
       <span class="chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
     </button>
@@ -1864,11 +1867,25 @@ function toggleActionRow(id) {
   renderCurrentTab();
 }
 
+// Wildcard/Free Hit both replace "which single transfer to make" with "rebuild as much of the
+// squad as you want" -- a different action space, not just a bigger version of the same one --
+// so when either is this week's recommended chip, hold_vs_transfer_now's own "is ONE transfer
+// worth it" analysis is real but moot: whatever it concludes, the chip recommendation already
+// supersedes it. Triple Captain/Bench Boost don't touch transfers at all, so they're left alone
+// here -- nothing to reconcile, both directives stand independently.
+const TRANSFER_SUPERSEDING_CHIPS = { wildcard: "Wildcard", free_hit: "Free Hit" };
+
 function movesThisWeekCard() {
   const rs = state.realSquad;
   if (!rs) return "";
+  const transferDir = transferDirective(rs.hold_vs_transfer_now, rs.transfer_recommendations && rs.transfer_recommendations[0]);
+  const recommendedChip = rs.chip_evaluations && rs.chip_evaluations.find(c => c.recommended);
+  const supersedingChipLabel = recommendedChip && TRANSFER_SUPERSEDING_CHIPS[recommendedChip.chip_type];
+  if (transferDir && supersedingChipLabel) {
+    transferDir.superseded = `Only weighs a single transfer &mdash; this week's ${supersedingChipLabel} recommendation below replaces that decision entirely, not just adds to it.`;
+  }
   const rows = [
-    actionRow("transfer", transferDirective(rs.hold_vs_transfer_now, rs.transfer_recommendations && rs.transfer_recommendations[0]), FPL_TRANSFERS_URL),
+    actionRow("transfer", transferDir, FPL_TRANSFERS_URL),
     actionRow("captain", captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL),
     actionRow("chip", chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL),
   ].filter(Boolean).join("");
