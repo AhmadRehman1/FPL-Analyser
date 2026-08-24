@@ -394,6 +394,32 @@
   .confirm-btn:disabled{opacity:0.4;}
   .confirm-btn.success{background:oklch(0.42 0.13 150);}
 
+  /* ---- back-to-top floating button (long lists, esp. leagues) ---- */
+  .back-to-top{
+    position:fixed;right:16px;bottom:calc(78px + env(safe-area-inset-bottom) + 12px);z-index:6;
+    width:44px;height:44px;border-radius:50%;border:none;background:var(--green);color:#fff;
+    box-shadow:0 8px 24px oklch(0.1 0.05 150/0.45);display:flex;align-items:center;justify-content:center;
+    visibility:hidden;opacity:0;transform:translateY(20px) scale(0.9);
+    transition:opacity .25s ease,transform .25s cubic-bezier(0.22,1,0.36,1),visibility 0s linear .25s;
+  }
+  .back-to-top.visible{visibility:visible;opacity:1;transform:translateY(0) scale(1);transition:opacity .25s ease,transform .25s cubic-bezier(0.22,1,0.36,1),visibility 0s;}
+  .back-to-top:active{transform:translateY(0) scale(0.92);}
+
+  /* ---- progressive scroll-reveal for cards (only hides once JS opts in via .motion-ready) ----
+     Default (no .motion-ready on <html>): cards render normally. When JS confirms
+     IntersectionObserver support + motion is allowed, below-the-fold cards start
+     hidden and fade/slide in as they enter the viewport. */
+  .reveal-on-scroll{opacity:1;transform:none;transition:opacity .55s cubic-bezier(0.22,1,0.36,1),transform .55s cubic-bezier(0.22,1,0.36,1);}
+  html.motion-ready .reveal-on-scroll{opacity:0;transform:translateY(18px);}
+  html.motion-ready .reveal-on-scroll.is-visible{opacity:1;transform:translateY(0);}
+
+  /* ---- minor polish: pitch player labels + bench legibility ---- */
+  .pcard{transition:transform .16s cubic-bezier(0.22,1,0.36,1);}
+  .pcard:active{transform:scale(0.95);}
+  .p-tag,.p-pts-tag{letter-spacing:0.01em;}
+  .b-name{letter-spacing:0.01em;}
+  .bench-row{transition:background .2s ease;}
+
   @media (prefers-reduced-motion: reduce){
     *, *::before, *::after{
       animation-duration:0.01ms !important; animation-iteration-count:1 !important;
@@ -463,6 +489,10 @@
 </nav>
 
 <div id="compare-bar-mount"></div>
+
+<button class="back-to-top" id="back-to-top" aria-label="Back to top" onclick="scrollToTopSmooth()">
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+</button>
 
 <div class="sheet-overlay" id="sheet-overlay" hidden>
   <div class="sheet">
@@ -1105,9 +1135,44 @@ function renderCurrentTab() {
   renderers[state.lastTab]();
   const bar = document.getElementById("compare-bar-mount");
   if (bar) bar.innerHTML = compareBarBlock();
+  enhanceRenderedMotion();
+  updateBackToTop();
 }
 
 window.addEventListener("hashchange", route);
+
+// ---- progressive scroll-reveal (IntersectionObserver) + back-to-top ----
+let _revealObserver = null;
+let _motionReady = false;
+function initScrollReveal() {
+  if (prefersReducedMotion() || !("IntersectionObserver" in window)) return;
+  _motionReady = true;
+  document.documentElement.classList.add("motion-ready");
+  _revealObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add("is-visible"); _revealObserver.unobserve(e.target); }
+    }
+  }, { rootMargin: "0px 0px 8% 0px", threshold: 0.08 });
+}
+function enhanceRenderedMotion() {
+  if (!_motionReady || !_revealObserver) return;
+  const root = document.querySelector(".screen.active");
+  if (!root) return;
+  const vh = window.innerHeight;
+  root.querySelectorAll(".card:not(.reveal-on-scroll):not(.is-visible), .table-card:not(.reveal-on-scroll):not(.is-visible), .ownership-card:not(.reveal-on-scroll):not(.is-visible)").forEach((el) => {
+    if (el.getBoundingClientRect().top < vh) { el.classList.add("is-visible"); return; }
+    el.classList.add("reveal-on-scroll");
+    _revealObserver.observe(el);
+  });
+}
+function scrollToTopSmooth() {
+  window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+}
+function updateBackToTop() {
+  const btn = document.getElementById("back-to-top");
+  if (!btn) return;
+  btn.classList.toggle("visible", window.scrollY > 520);
+}
 
 // ============================================================
 // HOME
@@ -2783,6 +2848,8 @@ async function init() {
     state.isMock = isDevModeRequested();
     updateDevBanner();
     state.staleSince = null;
+    initScrollReveal();
+    window.addEventListener("scroll", updateBackToTop, { passive: true });
     await loadShared();
     await loadAccount(state.accountId);
     populateAccountSwitcher();
