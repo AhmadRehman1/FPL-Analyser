@@ -49,7 +49,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, ingest_workbook as iw  # noqa: E402
+from fpl_quant import app_export as ax, db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, ingest_workbook as iw  # noqa: E402
 from fpl_quant import squad_optimizer as so_mod, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
@@ -70,12 +70,9 @@ PARAM_VERSIONS = dict(
     rho_residual_params_version=2, corr_params_version=1,
 )
 
-# "event" is each account's current-squad read-from gameweek -- same convention, and same
-# value, as scheduled_pipeline.yml's own hardcoded real_squad_event for the transfer-planner
-# and app-export steps this roadmap runs alongside. Keep all three in sync when bumping.
 ACCOUNTS = [
-    {"entry_id": 7139944, "event": 2, "label": "ChatGPT template team"},
-    {"entry_id": 1305242, "event": 2, "label": "Main account"},
+    {"entry_id": 7139944, "label": "ChatGPT template team"},
+    {"entry_id": 1305242, "label": "Main account"},
 ]
 
 
@@ -163,6 +160,15 @@ def _real_wildcard_gain(con, entry_id: int, event: int, target_gameweek: int) ->
 
 
 def main() -> None:
+    # Both accounts' current-squad read-from gameweek -- the same bootstrap-static-derived
+    # app_export.current_event() scheduled_pipeline.yml's own "Determine current gameweek" step
+    # resolves for the transfer-planner/app-export steps this roadmap runs alongside, so all
+    # three can never independently drift the way the previous hardcoded-and-hand-bumped values
+    # did (three days stale after GW1's deadline before anyone bumped it to GW2).
+    event = ax.current_event(ax.fetch_bootstrap_static())
+    if event is None:
+        raise SystemExit("bootstrap-static reports no current gameweek right now")
+
     con = db.connect()
     team_names = {r[0]: r[1] for r in con.execute("SELECT team_uid, canonical_name FROM dim_team").fetchall()}
     team_by_player = fs.team_uid_by_player(con, TARGET_SEASON)
@@ -185,7 +191,7 @@ def main() -> None:
 
     for account in ACCOUNTS:
         print(f"[chip_timing] {account['label']} (entry_id={account['entry_id']})...")
-        squad_team_uids = _account_team_uids(con, account["entry_id"], account["event"], team_by_player)
+        squad_team_uids = _account_team_uids(con, account["entry_id"], event, team_by_player)
         print(f"  {len(squad_team_uids)} distinct clubs in squad")
 
         weekly = []
@@ -212,7 +218,7 @@ def main() -> None:
 
         if worst_window is not None:
             print(f"  checking real wildcard EP-gain at the candidate window (GW{worst_window['gameweek']})...")
-            real_check = _real_wildcard_gain(con, account["entry_id"], account["event"], worst_window["gameweek"])
+            real_check = _real_wildcard_gain(con, account["entry_id"], event, worst_window["gameweek"])
             worst_window = {**worst_window, "real_wildcard_check": real_check}
             if real_check:
                 verdict = "clears" if real_check["recommended"] else "does NOT clear"
