@@ -118,8 +118,12 @@ def main() -> None:
 
         out = {
             "entry_id": entry_id, "label": label, "gameweek": event,
+            "schema_version": 2,
+            "is_live": True,
             "live_total": live_total["total"], "players": live_total["players"],
             "rank_estimate": rank_estimate,
+            "fixtures": lt.build_live_fixture_rows(fixtures, bootstrap),
+            "events": lt.build_live_event_rows(bootstrap, live, fixtures),
             "generated_at": ax.generated_at(),
         }
         (DASHBOARD_DIR / f"app_live_{entry_id}.json").write_text(json.dumps(out, indent=2))

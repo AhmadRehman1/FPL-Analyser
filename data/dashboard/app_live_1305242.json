@@ -87,5 +87,103 @@
     "percentile": 51.5,
     "estimated_rank": 4578234
   },
-  "generated_at": "2026-08-23T21:55:31.058751+00:00"
+  "generated_at": "2026-08-23T21:55:31.058751+00:00",
+  "schema_version": 2,
+  "is_live": true,
+  "fixtures": [
+    {
+      "id": 1,
+      "kickoff": "2026-08-21T19:00:00Z",
+      "minute": 67,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "ARS",
+        "name": "Arsenal",
+        "score": 3
+      },
+      "away": {
+        "short_name": "COV",
+        "name": "Coventry City",
+        "score": 0
+      }
+    },
+    {
+      "id": 4,
+      "kickoff": "2026-08-22T11:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": true,
+      "home": {
+        "short_name": "HUL",
+        "name": "Hull City",
+        "score": 2
+      },
+      "away": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 0
+      }
+    },
+    {
+      "id": 3,
+      "kickoff": "2026-08-22T14:00:00Z",
+      "minute": 23,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "EVE",
+        "name": "Everton",
+        "score": 2
+      },
+      "away": {
+        "short_name": "CRY",
+        "name": "Crystal Palace",
+        "score": 0
+      }
+    },
+    {
+      "id": 5,
+      "kickoff": "2026-08-22T14:00:00Z",
+      "minute": null,
+      "started": false,
+      "finished": false,
+      "home": {
+        "short_name": "IPS",
+        "name": "Ipswich Town",
+        "score": 2
+      },
+      "away": {
+        "short_name": "SUN",
+        "name": "Sunderland",
+        "score": 1
+      }
+    }
+  ],
+  "events": [
+    {
+      "player_id": 368,
+      "web_name": "Szoboszlai",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 1
+    },
+    {
+      "player_id": 8,
+      "web_name": "Calafiori",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 1
+    },
+    {
+      "player_id": 411,
+      "web_name": "Haaland",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 4
+    }
+  ]
 }
