@@ -184,18 +184,26 @@ def build_live_event_rows(bootstrap: dict, live: dict, fixtures: list[dict]) -> 
     approximation (same convention compute_provisional_bonus already uses)."""
     player_by_id = {e.get("id"): e for e in bootstrap.get("elements", [])}
     team_by_player = {e.get("id"): e.get("team") for e in bootstrap.get("elements", [])}
-    fixture_by_team: dict[int, int] = {}
+    # A team -> the single started fixture it's in. Ambiguous in a double gameweek (a team playing
+    # two live fixtures at once can't be attributed to one), so those teams resolve to None rather
+    # than silently picking the last fixture. The frontend still shows the scorer; only the
+    # fixture link is dropped until fixture-level stats are used.
+    fixtures_by_team: dict[int, set[int]] = {}
     for f in fixtures:
         if not f.get("started"):
             continue
         fid = f.get("id")
-        home_id = f.get("team_h")
-        away_id = f.get("team_a")
-        if isinstance(fid, int):
-            if isinstance(home_id, int):
-                fixture_by_team[home_id] = fid
-            if isinstance(away_id, int):
-                fixture_by_team[away_id] = fid
+        if not isinstance(fid, int):
+            continue
+        for side in (f.get("team_h"), f.get("team_a")):
+            if isinstance(side, int):
+                fixtures_by_team.setdefault(side, set()).add(fid)
+
+    def _fixture_for(team_id) -> int | None:
+        fids = fixtures_by_team.get(team_id)
+        if not fids or len(fids) != 1:
+            return None
+        return next(iter(fids))
 
     rows: list[dict] = []
     for el in live.get("elements", []):
@@ -214,6 +222,6 @@ def build_live_event_rows(bootstrap: dict, live: dict, fixtures: list[dict]) -> 
                 "team": player.get("team"),
                 "event": label,
                 "count": count,
-                "fixture_id": fixture_by_team.get(team_id) if isinstance((team_id := team_by_player.get(pid)), int) else None,
+                "fixture_id": _fixture_for(team_by_player.get(pid)) if isinstance(team_by_player.get(pid), int) else None,
             })
     return rows

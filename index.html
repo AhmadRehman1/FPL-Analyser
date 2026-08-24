@@ -584,6 +584,7 @@ const state = {
   isMock: false,
   expandedRows: new Set(),
   lastLiveTotal: null,
+  lastLiveKey: null,
   compareSelection: [],
 };
 
@@ -974,8 +975,20 @@ function isLiveFresh(payload) {
 async function pollLiveData() {
   const raw = state.isMock ? buildMockDashboard().live : await fetchLiveData(state.accountId);
   const fresh = isLiveFresh(raw);
-  state.live = fresh ? raw : null;
-  if (fresh) notifyLiveChanges(raw);
+  if (fresh) {
+    // Re-baseline when the live context changes (account switch / new gameweek / stale-then-fresh):
+    // without this, a stale total from a prior GW could look like a big jump and fire a bogus
+    // "+N since last update" notification. A null baseline means notifyLiveChanges skips this
+    // poll and wireLiveScoreAnimation establishes the real baseline after render.
+    const key = `${state.accountId}:${raw.gameweek}`;
+    if (state.lastLiveKey !== key) { state.lastLiveTotal = null; state.lastLiveKey = key; }
+    state.live = raw;
+    notifyLiveChanges(raw);
+  } else {
+    state.live = null;
+    state.lastLiveTotal = null;
+    state.lastLiveKey = null;
+  }
   if (state.lastTab === "home" || state.lastTab === "team") renderCurrentTab();
 }
 

@@ -242,3 +242,16 @@ def test_build_live_event_rows_empty_when_no_live_fixtures():
     fixtures = [{"id": 100, "team_h": 1, "team_a": 2, "started": False, "finished": False}]
     live = {"elements": [{"id": 10, "stats": {"minutes": 0, "goals_scored": 1, "assists": 0}}]}
     assert lt.build_live_event_rows(bootstrap, live, fixtures) == []
+
+
+def test_build_live_event_rows_fixture_id_none_in_double_gameweek():
+    # A team playing two started fixtures at once can't be attributed to one -> fixture_id None.
+    bootstrap = _bs([{"id": 10, "web_name": "Saka", "team": 1}])
+    fixtures = [
+        {"id": 100, "team_h": 1, "team_a": 2, "started": True, "finished": False},
+        {"id": 101, "team_h": 3, "team_a": 1, "started": True, "finished": False},
+    ]
+    live = {"elements": [{"id": 10, "stats": {"minutes": 45, "goals_scored": 1, "assists": 0}}]}
+    rows = lt.build_live_event_rows(bootstrap, live, fixtures)
+    assert len(rows) == 1
+    assert rows[0]["fixture_id"] is None  # ambiguous -> no fixture attribution, scorer still listed
