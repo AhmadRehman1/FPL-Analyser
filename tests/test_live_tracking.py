@@ -160,6 +160,14 @@ def test_estimate_live_rank_no_total_players_still_gives_percentile():
     assert out["estimated_rank"] is None
 
 
+def test_estimate_live_rank_beating_the_whole_sample_clamps_to_rank_1_not_0():
+    # percentile=1.0 -> (1-percentile)*total_players == 0, which isn't a real FPL rank
+    # (ranks are 1-indexed) and is falsy, so a naive caller would silently drop it.
+    out = lt.estimate_live_rank(your_points=100, sample_points=[10, 20, 30], total_players=1_000_000)
+    assert out["percentile"] == 100.0
+    assert out["estimated_rank"] == 1
+
+
 # ============================================================
 # build_live_fixture_rows
 # ============================================================

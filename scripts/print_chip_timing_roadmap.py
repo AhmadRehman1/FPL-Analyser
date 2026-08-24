@@ -50,7 +50,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import app_export as ax, db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, ingest_workbook as iw  # noqa: E402
-from fpl_quant import squad_optimizer as so_mod, transfer_planner as tp  # noqa: E402
+from fpl_quant import params as params_mod, squad_optimizer as so_mod, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 TS_MODEL_VERSION = 1
@@ -126,8 +126,21 @@ def _real_wildcard_gain(con, entry_id: int, event: int, target_gameweek: int) ->
 
         # evaluate_wildcard()'s own horizon starts at target_gameweek, not the current event --
         # a separate real horizon, not the bootstrap one above.
+        #
+        # Real bug fixed here: this used to hardcode horizon_gameweeks=1, a single-gameweek EP
+        # sum, even though evaluate_wildcard()'s own threshold (wildcard_gain_threshold_params.
+        # min_horizon_gain=8.0) is calibrated for the SAME 5-gameweek horizon
+        # transfer_planner.run() always uses live (planning_horizon_params.horizon_gameweeks,
+        # seeded to 5 -- see seed_v1_params()). A 1-gameweek EP sum can essentially never clear
+        # an 8.0-point threshold sized for a 5-gameweek sum, so this silently made the wildcard-
+        # gain check (the one real EP-magnitude check this module's own docstring says it
+        # exists to provide -- "a materially wider forward window than a bare 6-GW default")
+        # report "does NOT clear the threshold" almost unconditionally, even for a genuinely
+        # strong wildcard window. Resolved the same live horizon transfer_planner.run() uses,
+        # not a second, independently-invented number, per this module's own stated principle.
+        horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", 1)
         wc_horizon = tp.compute_horizon_ep(
-            con, calibration_asof_date, TARGET_SEASON, target_gameweek, ts_mv, mm_mv, 1, **PARAM_VERSIONS,
+            con, calibration_asof_date, TARGET_SEASON, target_gameweek, ts_mv, mm_mv, int(horizon_gameweeks), **PARAM_VERSIONS,
         )
         if target_gameweek not in wc_horizon:
             return None

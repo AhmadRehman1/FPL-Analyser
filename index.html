@@ -1189,19 +1189,20 @@ async function loadAccount(id) {
     document.getElementById("avatar-btn").textContent = "DEV";
     return;
   }
-  const [team, profile, leagues, realSquad, squadGrade, decision] = await Promise.all([
+  const [team, profile, leagues, realSquad, squadGrade, decision, scenarios] = await Promise.all([
     fetchJSON(`data/dashboard/app_team_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_profile_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_leagues_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/real_squad_${id}.json`).catch(() => null),
-    // Roadmap Feature 2/3: same "_latest" stable-file convention as loadShared()'s own
+    // Roadmap Feature 2/3/4: same "_latest" stable-file convention as loadShared()'s own
     // projections/leaderboard/elite-divergence fetches -- see grade_squad.py/
-    // explain_my_move.py's own comments.
+    // explain_my_move.py/run_scenarios.py's own comments.
     fetchJSON(`data/dashboard/squad_grade_${id}_latest.json`).catch(() => null),
     fetchJSON(`data/dashboard/decision_${id}_latest.json`).catch(() => null),
+    fetchJSON(`data/dashboard/scenarios_${id}_latest.json`).catch(() => null),
   ]);
   state.team = team; state.profile = profile; state.leagues = leagues; state.realSquad = realSquad;
-  state.squadGrade = squadGrade; state.decision = decision;
+  state.squadGrade = squadGrade; state.decision = decision; state.scenarios = scenarios;
   document.getElementById("avatar-btn").textContent = initials(profile ? profile.manager_name : team ? team.team_name : "");
 
   // Roadmap Feature 6: live_rank_<id>_<gw>.json is gameweek-scoped, not dated -- the PWA
@@ -2098,7 +2099,12 @@ function renderHome() {
   if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
 
   const captain = state.team.squad.find(p => p.is_captain);
-  const topPerformers = [...state.team.squad].sort((a, b) => b.event_points - a.event_points).slice(0, 5);
+  // Same captain/Triple-Captain multiplier fix as pitchRow() -- rank and display each
+  // player's REAL contribution (event_points * multiplier), not their raw per-90 score, so
+  // this list agrees with the Team tab's own pitch cards and the captain doesn't get quietly
+  // outranked by a non-captained player who scored fewer raw points but more real ones.
+  const displayPoints = (p) => p.event_points * (p.multiplier || 1);
+  const topPerformers = [...state.team.squad].sort((a, b) => displayPoints(b) - displayPoints(a)).slice(0, 5);
   const deadline = deadlineCountdown();
   const leagueTable = state.leagues && state.leagues.tables[0];
   const flagged = flaggedSquadRows();
@@ -2154,7 +2160,7 @@ function renderHome() {
             <div class="p-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
             <div class="p-name">${p.web_name}</div>
             <div class="p-team">${p.team || ""} &middot; ${p.position || ""}</div>
-            <div class="p-pts">${p.event_points} pts</div>
+            <div class="p-pts">${displayPoints(p)} pts</div>
           </div>`).join("")}
       </div>
     </div>
@@ -2215,6 +2221,14 @@ function liveBonusFor(playerId) {
 function pitchRow(players, groupDelay, ls) {
   return `<div class="prow">${players.map((p, i) => {
     const bonus = liveBonusFor(p.player_id);
+    // Real FPL doubles (or triples, under Triple Captain) a starting player's own score by
+    // their pick multiplier -- a captained player's card must show that doubled total, not
+    // their raw per-90 score, to match the "Points" stat tile above (already correctly
+    // captain-doubled, straight from FPL's own entry_history.points) and live_tracking.py's
+    // own compute_live_squad_total(), which already applies this same
+    // `(event_points + bonus) * multiplier` formula server-side.
+    const multiplier = p.multiplier || 1;
+    const bonusContribution = bonus * multiplier;
     const isLocalCap = ls.captainId === p.player_id;
     const isLocalVice = ls.viceId === p.player_id;
     const showCap = ls.captainId != null ? isLocalCap : p.is_captain;
@@ -2227,7 +2241,7 @@ function pitchRow(players, groupDelay, ls) {
       ${showCap ? `<div class="cap-badge">C</div>` : showVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
       ${(isLocalCap || isLocalVice) ? `<div class="local-tag">Local</div>` : ""}
       <div class="p-tag">${p.web_name}</div>
-      <div class="p-pts-tag">${p.event_points + bonus}${bonus ? ` <span style="opacity:0.85;">(+${bonus})</span>` : ""}</div>
+      <div class="p-pts-tag">${p.event_points * multiplier + bonusContribution}${bonus ? ` <span style="opacity:0.85;">(+${bonusContribution})</span>` : ""}</div>
     </div>`;
   }).join("")}</div>`;
 }
@@ -2378,6 +2392,34 @@ function squadGradeCard() {
     </div>`;
 }
 
+// ---- Roadmap Feature 4: "What if...?" -- a precomputed subset of scenario.py's own
+// apply_scenario() mechanism (see run_scenarios.py's own module docstring for the real,
+// disclosed v1 scope: only "would starting THIS bench player instead change the model's
+// plan", for each of the manager's own real bench players -- not the fully free-form,
+// interactive layer scenario.py's own docstring describes, which this static PWA has no
+// backend to support). Absent entirely (no card) when scenarios_<id>_latest.json hasn't
+// been generated yet for this account, same graceful per-panel degradation as squadGradeCard().
+function whatIfCard() {
+  const s = state.scenarios;
+  if (!s || !s.bench_what_ifs || !s.bench_what_ifs.length) return "";
+  return `
+    <div class="card">
+      <div class="card-title" style="margin-bottom:4px;">What if&hellip;?</div>
+      <p style="font-size:11px;color:var(--ink-dim);margin:0 0 10px;">
+        Starting a bench player instead of your current XI, holding everything else fixed &mdash;
+        projected change to the model's own recommended plan.
+      </p>
+      <div class="stat-list">
+        ${s.bench_what_ifs.map(r => `
+          <div class="sl-row">
+            <div class="sl-label">${escapeHtml(r.player_name)} starts${r.flipped ? ` <span style="color:var(--ink-dim2);">&middot; flips plan to '${escapeHtml(r.perturbed_action)}'</span>` : ""}</div>
+            <div class="sl-value" style="color:${r.delta_ep > 0 ? "var(--green)" : r.delta_ep < 0 ? "var(--red)" : "var(--ink-dim)"};">${r.delta_ep >= 0 ? "+" : ""}${r.delta_ep.toFixed(1)}</div>
+          </div>`).join("")}
+      </div>
+      ${provenanceLine({ data_asof: s.data_asof })}
+    </div>`;
+}
+
 function renderTeam() {
   const el = document.getElementById("team-content");
   if (!state.team) { el.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`; return; }
@@ -2438,6 +2480,7 @@ function renderTeam() {
         }).join("")}
       </div>
     </div>
+    ${whatIfCard()}
     <div class="local-note">
       <b style="color:var(--ink);">Local captain/vice/lock/bench changes</b> only live on this device and are never
       submitted to FPL &mdash; they're a "what if" workspace for planning. Tap a player, then use the actions in

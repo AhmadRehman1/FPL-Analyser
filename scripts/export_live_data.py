@@ -130,7 +130,7 @@ def main() -> None:
         print(f"  [write] app_live_{entry_id}.json (live_total={live_total['total']}, "
               f"rank_estimate sample_size={rank_estimate['sample_size']})")
 
-        if rank_estimate["estimated_rank"]:
+        if rank_estimate["estimated_rank"] is not None:
             ax.append_live_rank_snapshot(
                 DASHBOARD_DIR, entry_id, event, ts=now_iso, overall_rank=rank_estimate["estimated_rank"],
                 mini_league_pos=None, live_points=live_total["total"], stale=False, data_asof=now_iso[:10],

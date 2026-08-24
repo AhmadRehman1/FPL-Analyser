@@ -176,6 +176,25 @@ jobs:
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
             "$ENTRY_ID" "$EVENT" "$LABEL"
 
+      # Same fix as scheduled_pipeline.yml's own "Grade squad + explain best move"/"Run bench
+      # what-if scenarios" steps: an on-demand-added manager was missing Features 2/3/4 ("Rate
+      # My Team"/"Explain My Move"/"what-if" scenarios) entirely, not just getting them late --
+      # index.html's fetches for squad_grade_<id>_latest.json/decision_<id>_latest.json/
+      # scenarios_<id>_latest.json would 404 forever for this entry_id since nothing in this
+      # workflow ever wrote them. continue-on-error: a manager who's added successfully
+      # shouldn't be blocked from the app entirely just because these richer, secondary panels
+      # fail to build.
+      - name: Grade squad + explain best move + what-if scenarios for the requested manager
+        if: steps.plan.outcome == 'success'
+        continue-on-error: true
+        env:
+          ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/grade_squad.py "$ENTRY_ID" "$EVENT"
+          PYTHONPATH=src python scripts/explain_my_move.py "$ENTRY_ID" "$EVENT"
+          PYTHONPATH=src python scripts/run_scenarios.py "$ENTRY_ID" "$EVENT"
+
       - name: Export live app data for the requested manager
         if: steps.plan.outcome == 'success'
         env:

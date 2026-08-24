@@ -190,6 +190,34 @@ jobs:
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team"
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Main account"
 
+      # Real bug fixed here: Feature 2 ("Rate My Team") and Feature 3 ("Explain My Move", the
+      # README's own "strategic centerpiece") were both fully built, tested, and wired into
+      # index.html's fetch calls (squad_grade_<id>_latest.json / decision_<id>_latest.json,
+      # both via .catch(() => null)) -- but neither script was ever actually invoked by this
+      # workflow, so those JSON files never existed in production and both panels silently
+      # rendered nothing for real users, indefinitely. Needs the same freshly-ingested DB and
+      # current-gameweek value as the transfer-planner step just above.
+      - name: Grade squad + explain best move for both real managers
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/grade_squad.py 7139944 "$EVENT"
+          PYTHONPATH=src python scripts/grade_squad.py 1305242 "$EVENT"
+          PYTHONPATH=src python scripts/explain_my_move.py 7139944 "$EVENT"
+          PYTHONPATH=src python scripts/explain_my_move.py 1305242 "$EVENT"
+
+      # Feature 4 ("what-if" scenarios), same gap and same fix as the step above: built and
+      # tested (src/fpl_quant/scenario.py) but never actually run by anything before this.
+      # See run_scenarios.py's own module docstring for its real, disclosed v1 scope (bench
+      # lineup_change what-ifs only, not the full interactive layer scenario.py's docstring
+      # describes -- this static PWA has no request-handling backend to be interactive with).
+      - name: Run bench what-if scenarios for both real managers
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/run_scenarios.py 7139944 "$EVENT"
+          PYTHONPATH=src python scripts/run_scenarios.py 1305242 "$EVENT"
+
       # Real, computed (not invented) fixture-swing signal for both accounts' current squads,
       # covering GW3-19 -- see the script's own docstring for what "swing" means and its real
       # caveat (squad composition will change via transfers before most of these gameweeks

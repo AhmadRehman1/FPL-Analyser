@@ -131,7 +131,12 @@ def estimate_live_rank(your_points: int, sample_points: list[int], total_players
     n_beaten = sum(1 for s in sample_points if your_points > s)
     n_tied = sum(1 for s in sample_points if your_points == s)
     percentile = (n_beaten + 0.5 * n_tied) / n
-    estimated_rank = round((1 - percentile) * total_players) if total_players else None
+    # FPL overall rank is 1-indexed -- rank 0 doesn't exist, even for a manager who beats
+    # (or ties) everyone in the sample (percentile=1.0, which would otherwise round to 0).
+    # Real bug this produced: export_live_data.py's caller checks `if rank_estimate[...]`,
+    # so the falsy 0 silently skipped writing a rank snapshot in exactly the one case -- a
+    # manager topping their sample -- where a live-rank feature is most worth showing.
+    estimated_rank = max(1, round((1 - percentile) * total_players)) if total_players else None
     return {"sample_size": n, "percentile": round(percentile * 100, 1), "estimated_rank": estimated_rank}
 
 
