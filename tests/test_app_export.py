@@ -172,6 +172,23 @@ def test_compute_free_transfers_wildcard_gameweek_is_free_and_uncapped_by_usage(
     assert ax.compute_free_transfers(history, chips) == 2
 
 
+def test_compute_free_transfers_ignores_gw1_row():
+    # entry/<id>/history/'s real "current" array always includes a GW1 row once GW1 has been
+    # played -- GW1 is squad selection, not a transfer-eligible gameweek, so it must never
+    # grant a phantom rollover credit on top of the GW2 base of 1.
+    history = [{"event": 1, "event_transfers": 0}]
+    assert ax.compute_free_transfers(history, []) == 1
+
+
+def test_compute_free_transfers_gw1_row_does_not_offset_later_gameweeks():
+    history = [
+        {"event": 1, "event_transfers": 0},
+        {"event": 2, "event_transfers": 0},
+    ]
+    # GW2 unused -> carries to GW3: 2, not 3 (which the GW1-row bug used to produce)
+    assert ax.compute_free_transfers(history, []) == 2
+
+
 # ============================================================
 # build_team_snapshot
 # ============================================================

@@ -156,12 +156,16 @@ jobs:
       # runner (see run_transfer_planner_for_real_squad.py's own module docstring). Sequential,
       # not two separate workflow runs -- avoids ever needing the git-push race-retry logic
       # below for this step's own output, since both write their JSON snapshot within the same
-      # job/checkout. real_squad_event is hardcoded to "1" here (both accounts' GW1 picks);
-      # bump this once the season moves past needing GW1 as the read-from gameweek.
+      # job/checkout. real_squad_event is hardcoded here (both accounts' current-gameweek
+      # picks); bump this again once the season moves past needing GW2 as the read-from
+      # gameweek. Bumped 1->2 on 2026-08-24: GW1's deadline (2026-08-21) has passed and GW2's
+      # (2026-08-28) hasn't, so GW2 is now the live "squad as it currently stands" gameweek --
+      # leaving this at 1 was serving Home/Team/Transfers a week-old squad and free-transfer
+      # count off the already-finished GW1.
       - name: Plan transfers for both real managers' squads
         run: |
-          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 1 "ChatGPT template team"
-          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 1 "Main account"
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 2 "ChatGPT template team"
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 2 "Main account"
 
       # Real, computed (not invented) fixture-swing signal for both accounts' current squads,
       # covering GW3-19 -- see the script's own docstring for what "swing" means and its real
@@ -213,13 +217,14 @@ jobs:
       # App conversion, Phase 1: real, live data for the PWA's Team/Profile/Leagues/Fixtures/
       # Transfers-browse screens (data/dashboard/app_*.json) -- see app_export.py's own module
       # docstring for why this is a separate, non-modeled fetch from everything above.
-      # Hardcoded event=1 for both accounts for the same reason as the transfer-planner step
-      # above (bump both once the season moves past needing GW1 as the read-from gameweek).
+      # Hardcoded event for both accounts for the same reason as the transfer-planner step
+      # above (bump both again once the season moves past needing GW2 as the read-from
+      # gameweek). Bumped 1->2 on 2026-08-24 alongside that step, for the same reason.
       - name: Export live app data (Team/Profile/Leagues/Fixtures/Players)
         run: |
           PYTHONPATH=src python scripts/export_app_data.py \
-            "7139944:1:ChatGPT template team" \
-            "1305242:1:Main account"
+            "7139944:2:ChatGPT template team" \
+            "1305242:2:Main account"
 
       - name: Build report + diff
         run: PYTHONPATH=src python scripts/run_report.py

@@ -269,6 +269,13 @@ def build_price_watch(player_directory: list[dict], top_n: int = 8) -> dict:
 # history, not assumed -- unlike transfer_planner.bootstrap_from_real_squad()'s deliberate
 # free_transfers_available=1 placeholder (see that function's own docstring), this is the
 # manager's actual current count.
+#
+# entry/<id>/history/'s own "current" array always includes a GW1 row once GW1 has been
+# played (confirmed against this project's own committed data/dashboard/app_team_*.json) --
+# GW1 is squad selection, not a transfer-eligible gameweek, so that row must never grant (or
+# deduct) a ledger credit. The `available = 1` starting value below already IS the GW2 grant;
+# without this guard, GW1's row grants a second, phantom credit on top of it, showing 2 FT
+# entering GW2 instead of the correct 1 (and permanently offsetting every gameweek after).
 # ============================================================
 
 def compute_free_transfers(history_current: list[dict], chips: list[dict]) -> int:
@@ -276,6 +283,8 @@ def compute_free_transfers(history_current: list[dict], chips: list[dict]) -> in
     available = 1
     for gw_row in sorted(history_current, key=lambda r: r["event"]):
         event = gw_row["event"]
+        if event <= 1:
+            continue
         if event in chip_events:
             # a wildcard/free-hit gameweek's transfers are free and don't touch the count
             available = min(available + 1, 5)
