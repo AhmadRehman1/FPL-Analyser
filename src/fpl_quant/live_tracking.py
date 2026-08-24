@@ -133,3 +133,95 @@ def estimate_live_rank(your_points: int, sample_points: list[int], total_players
     percentile = (n_beaten + 0.5 * n_tied) / n
     estimated_rank = round((1 - percentile) * total_players) if total_players else None
     return {"sample_size": n, "percentile": round(percentile * 100, 1), "estimated_rank": estimated_rank}
+
+
+# ============================================================
+# live match center -- fixture scores + goal/assist events, straight from FPL's own
+# live payload. Accumulated for the gameweek (FPL's live elements[].stats are GW-totals,
+# not per-minute), so the frontend shows "scorers this GW" and detects "just now" via
+# per-poll contribution deltas rather than trusting an event timestamp FPL never publishes.
+# ============================================================
+
+def build_live_fixture_rows(fixtures: list[dict], bootstrap: dict) -> list[dict]:
+    """One row per fixture that has kicked off in the current gameweek, with the live score
+    from FPL's own team_h_score/team_a_score. Pure read of fixture + bootstrap-static team
+    fields -- started/finished/minute are FPL's own, never inferred."""
+    teams_by_id = {t.get("id"): t for t in bootstrap.get("teams", [])}
+    rows: list[dict] = []
+    for f in fixtures:
+        if not f.get("started"):
+            continue
+        home = teams_by_id.get(f.get("team_h"), {})
+        away = teams_by_id.get(f.get("team_a"), {})
+        rows.append({
+            "id": f.get("id"),
+            "kickoff": f.get("kickoff_time"),
+            "minute": f.get("minute"),
+            "started": bool(f.get("started")),
+            "finished": bool(f.get("finished")),
+            "home": {"short_name": home.get("short_name"), "name": home.get("name"), "score": f.get("team_h_score")},
+            "away": {"short_name": away.get("short_name"), "name": away.get("name"), "score": f.get("team_a_score")},
+        })
+    return rows
+
+
+# FPL live elements[].stats field -> the event label we surface. All real FPL stat keys.
+_LIVE_EVENT_FIELDS = [
+    ("goals_scored", "goal"),
+    ("assists", "assist"),
+    ("own_goals", "own_goal"),
+    ("penalties_saved", "pen_saved"),
+    ("penalties_missed", "pen_missed"),
+]
+
+
+def build_live_event_rows(bootstrap: dict, live: dict, fixtures: list[dict]) -> list[dict]:
+    """Goal/assist/penalty events for the current gameweek, from FPL's own live elements stats.
+    Only players with recorded minutes are considered (a 0-minute player with goals_scored=0
+    would otherwise be dead weight in the feed). Each event carries the fixture_id of the
+    started fixture its team is playing in, where that mapping resolves -- FPL doesn't publish
+    a per-event fixture link in the live payload, so the team->fixture match is the faithful
+    approximation (same convention compute_provisional_bonus already uses)."""
+    player_by_id = {e.get("id"): e for e in bootstrap.get("elements", [])}
+    team_by_player = {e.get("id"): e.get("team") for e in bootstrap.get("elements", [])}
+    # A team -> the single started fixture it's in. Ambiguous in a double gameweek (a team playing
+    # two live fixtures at once can't be attributed to one), so those teams resolve to None rather
+    # than silently picking the last fixture. The frontend still shows the scorer; only the
+    # fixture link is dropped until fixture-level stats are used.
+    fixtures_by_team: dict[int, set[int]] = {}
+    for f in fixtures:
+        if not f.get("started"):
+            continue
+        fid = f.get("id")
+        if not isinstance(fid, int):
+            continue
+        for side in (f.get("team_h"), f.get("team_a")):
+            if isinstance(side, int):
+                fixtures_by_team.setdefault(side, set()).add(fid)
+
+    def _fixture_for(team_id) -> int | None:
+        fids = fixtures_by_team.get(team_id)
+        if not fids or len(fids) != 1:
+            return None
+        return next(iter(fids))
+
+    rows: list[dict] = []
+    for el in live.get("elements", []):
+        pid = el.get("id")
+        stats = el.get("stats", {}) or {}
+        if stats.get("minutes", 0) <= 0:
+            continue
+        for field, label in _LIVE_EVENT_FIELDS:
+            count = stats.get(field, 0)
+            if not count:
+                continue
+            player = player_by_id.get(pid, {})
+            rows.append({
+                "player_id": pid,
+                "web_name": player.get("web_name", ""),
+                "team": player.get("team"),
+                "event": label,
+                "count": count,
+                "fixture_id": _fixture_for(team_by_player.get(pid)) if isinstance(team_by_player.get(pid), int) else None,
+            })
+    return rows

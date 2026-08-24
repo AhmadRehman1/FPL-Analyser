@@ -158,3 +158,100 @@ def test_estimate_live_rank_no_total_players_still_gives_percentile():
     out = lt.estimate_live_rank(your_points=50, sample_points=[10, 20], total_players=None)
     assert out["percentile"] == 100.0
     assert out["estimated_rank"] is None
+
+
+# ============================================================
+# build_live_fixture_rows
+# ============================================================
+
+_TEAMS = [
+    {"id": 1, "name": "Arsenal", "short_name": "ARS"},
+    {"id": 2, "name": "Chelsea", "short_name": "CHE"},
+    {"id": 3, "name": "Liverpool", "short_name": "LIV"},
+]
+
+
+def test_build_live_fixture_rows_only_started_fixtures():
+    fixtures = [
+        {"id": 100, "team_h": 1, "team_a": 2, "started": True, "finished": False, "minute": 34,
+         "team_h_score": 1, "team_a_score": 0, "kickoff_time": "2026-08-24T15:00:00Z"},
+        {"id": 101, "team_h": 3, "team_a": 1, "started": False, "finished": False, "minute": None},
+        {"id": 102, "team_h": 2, "team_a": 3, "started": True, "finished": True, "minute": 90,
+         "team_h_score": 2, "team_a_score": 2, "kickoff_time": "2026-08-24T17:30:00Z"},
+    ]
+    rows = lt.build_live_fixture_rows(fixtures, {"teams": _TEAMS})
+    # only the two started fixtures appear; the not-started one is dropped
+    assert [r["id"] for r in rows] == [100, 102]
+    assert rows[0]["home"]["short_name"] == "ARS"
+    assert rows[0]["away"]["short_name"] == "CHE"
+    assert rows[0]["home"]["score"] == 1
+    assert rows[0]["away"]["score"] == 0
+    assert rows[0]["started"] is True and rows[0]["finished"] is False
+    assert rows[0]["minute"] == 34
+    assert rows[1]["finished"] is True
+
+
+def test_build_live_fixture_rows_empty_when_nothing_started():
+    fixtures = [{"id": 99, "team_h": 1, "team_a": 2, "started": False, "finished": False}]
+    assert lt.build_live_fixture_rows(fixtures, {"teams": _TEAMS}) == []
+
+
+# ============================================================
+# build_live_event_rows
+# ============================================================
+
+def _bs(elements):
+    return {"elements": elements, "teams": _TEAMS}
+
+
+def test_build_live_event_rows_goals_and_assists_skip_zero_minutes():
+    bootstrap = _bs([
+        {"id": 10, "web_name": "Saka", "team": 1},
+        {"id": 11, "web_name": "Palmer", "team": 2},
+        {"id": 12, "web_name": "Unused", "team": 1},
+    ])
+    fixtures = [
+        {"id": 100, "team_h": 1, "team_a": 2, "started": True, "finished": False},
+    ]
+    live = {"elements": [
+        {"id": 10, "stats": {"minutes": 34, "goals_scored": 1, "assists": 0, "own_goals": 0,
+                             "penalties_saved": 0, "penalties_missed": 0}},
+        {"id": 11, "stats": {"minutes": 34, "goals_scored": 0, "assists": 1, "own_goals": 0}},
+        # 0 minutes -> excluded even though stats exist
+        {"id": 12, "stats": {"minutes": 0, "goals_scored": 1, "assists": 0}},
+    ]}
+    rows = lt.build_live_event_rows(bootstrap, live, fixtures)
+    events = {(r["player_id"], r["event"], r["count"], r["fixture_id"]) for r in rows}
+    assert events == {(10, "goal", 1, 100), (11, "assist", 1, 100)}
+
+
+def test_build_live_event_rows_penalty_events_labeled_correctly():
+    bootstrap = _bs([{"id": 20, "web_name": "Kepa", "team": 1}])
+    fixtures = [{"id": 200, "team_h": 1, "team_a": 2, "started": True, "finished": False}]
+    live = {"elements": [{"id": 20, "stats": {"minutes": 90, "goals_scored": 0, "assists": 0,
+                                              "own_goals": 0, "penalties_saved": 1,
+                                              "penalties_missed": 1}}]}
+    rows = lt.build_live_event_rows(bootstrap, live, fixtures)
+    labels = sorted(r["event"] for r in rows)
+    assert labels == ["pen_missed", "pen_saved"]
+
+
+def test_build_live_event_rows_empty_when_no_live_fixtures():
+    bootstrap = _bs([{"id": 10, "web_name": "Saka", "team": 1}])
+    # nothing started -> no fixture mapping, but a scorer with minutes still surfaces (no fixture_id)
+    fixtures = [{"id": 100, "team_h": 1, "team_a": 2, "started": False, "finished": False}]
+    live = {"elements": [{"id": 10, "stats": {"minutes": 0, "goals_scored": 1, "assists": 0}}]}
+    assert lt.build_live_event_rows(bootstrap, live, fixtures) == []
+
+
+def test_build_live_event_rows_fixture_id_none_in_double_gameweek():
+    # A team playing two started fixtures at once can't be attributed to one -> fixture_id None.
+    bootstrap = _bs([{"id": 10, "web_name": "Saka", "team": 1}])
+    fixtures = [
+        {"id": 100, "team_h": 1, "team_a": 2, "started": True, "finished": False},
+        {"id": 101, "team_h": 3, "team_a": 1, "started": True, "finished": False},
+    ]
+    live = {"elements": [{"id": 10, "stats": {"minutes": 45, "goals_scored": 1, "assists": 0}}]}
+    rows = lt.build_live_event_rows(bootstrap, live, fixtures)
+    assert len(rows) == 1
+    assert rows[0]["fixture_id"] is None  # ambiguous -> no fixture attribution, scorer still listed
