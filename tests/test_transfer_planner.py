@@ -900,11 +900,53 @@ def test_evaluate_wildcard_bench_boost_combo_computes_synergy(con):
 
     combo = tp.evaluate_wildcard_bench_boost_combo(con, wildcard_result, bench_boost_result, "2026-2027", 2, horizon_ep_versions)
     assert isinstance(combo["recommended_combo"], bool)
-    assert combo["combo_value"] == pytest.approx(combo["wildcard_gain_alone"] + combo["fresh_squad_bench_ep_at_target_gw"])
+    # combo_value/naive_independent_sum are both real, single-gameweek totals at
+    # target_gameweek (XI+bench under the combo vs. XI alone + the current squad's own bench
+    # value) -- never mixed with wildcard_gain_alone's own multi-gameweek proxy (see the real
+    # double-counting bug this replaced, in the function's own docstring/comments).
+    assert combo["combo_value"] == pytest.approx(combo["fresh_squad_xi_ep_at_target_gw"] + combo["fresh_squad_bench_ep_at_target_gw"])
+    assert combo["naive_independent_sum"] == pytest.approx(combo["fresh_squad_xi_ep_at_target_gw"] + combo["bench_boost_value_alone"])
     assert combo["synergy_gain"] == pytest.approx(combo["combo_value"] - combo["naive_independent_sum"])
-    # the fresh (post-Wildcard) squad's own bench EP at target_gameweek must be a real,
-    # non-negative number derived from a real solved squad -- not a placeholder.
+    assert combo["synergy_gain"] == pytest.approx(combo["fresh_squad_bench_ep_at_target_gw"] - combo["bench_boost_value_alone"])
+    # the fresh (post-Wildcard) squad's own bench/XI EP at target_gameweek must be real,
+    # non-negative numbers derived from a real solved squad -- not placeholders.
     assert combo["fresh_squad_bench_ep_at_target_gw"] >= 0.0
+    assert combo["fresh_squad_xi_ep_at_target_gw"] >= 0.0
+
+
+def test_evaluate_wildcard_bench_boost_combo_never_recommended_when_synergy_is_real_but_wildcard_itself_is_not_worth_it(con):
+    """Regression test for the real bug: combo_value used to mix wildcard_gain_alone (a
+    multi-gameweek, whole-squad proxy) with fresh_bench_ep_at_target_gw (a real subset already
+    counted inside it), so recommended_combo fired almost unconditionally -- any positive
+    fresh bench EP alone was enough, even when Wildcard itself was a bad idea on its own
+    merits. Confirmed against the pre-fix code first: with wildcard_result["recommended"]=False
+    but genuine bench synergy (fresh bench EP well above the tiny bb_alone_value below), the
+    OLD formula (combo_value = wc_alone_gain + fresh_bench_ep_at_target_gw, compared against
+    max(wc_alone_gain, bb_alone_value)) would have recommended the combo anyway -- adding a
+    non-negative fresh_bench_ep_at_target_gw to wc_alone_gain can never make combo_value SMALLER
+    than wc_alone_gain itself, regardless of whether Wildcard was ever worth doing. The fix
+    requires Wildcard to clear its own bar too."""
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    # A deliberately huge threshold this fixture's real gain can never clear (verified: this
+    # fixture's real gain is 46.3) -- isolates "Wildcard doesn't clear its own bar" as a
+    # controlled precondition, not an accident of the fixture's own numbers.
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1_000_000.0)
+
+    wildcard_result = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", 2, current_squad_horizon_value=10.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    assert wildcard_result["recommended"] is False
+
+    # A deliberately tiny bb_alone_value (well below the fresh squad's real bench EP) so
+    # synergy_gain is genuinely positive -- isolates "Wildcard itself isn't worth it" as the
+    # ONLY reason recommended_combo should be False here.
+    bench_boost_result = {"recommended": True, "bench_ep_sum": 0.01}
+
+    combo = tp.evaluate_wildcard_bench_boost_combo(con, wildcard_result, bench_boost_result, "2026-2027", 2, horizon_ep_versions)
+    assert combo["synergy_gain"] > 0  # the real bench-synergy signal is genuinely positive
+    assert combo["recommended_combo"] is False  # but Wildcard alone doesn't clear its own bar
 
 
 def test_evaluate_wildcard_bench_boost_combo_no_action_when_wildcard_infeasible(con):

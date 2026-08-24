@@ -383,6 +383,7 @@
   .badge-confidence-medium{background:oklch(0.92 0.1 85/0.6);color:oklch(0.4 0.1 70);}
   .badge-confidence-low{background:oklch(0.92 0.06 40/0.5);color:oklch(0.42 0.1 40);}
   .badge-risk{background:oklch(0.92 0.1 25/0.45);color:oklch(0.4 0.14 25);}
+  .badge-setpiece{background:oklch(0.9 0.08 260/0.5);color:oklch(0.36 0.12 260);}
   .superseded-note{display:flex;align-items:flex-start;gap:6px;font-size:10.5px;line-height:1.5;color:oklch(0.4 0.1 250);background:oklch(0.94 0.06 250/0.6);border-radius:9px;padding:7px 10px;margin-top:8px;}
   .superseded-note svg{flex-shrink:0;margin-top:1px;}
   .action-detail{overflow:hidden;transition:grid-template-rows 0.3s cubic-bezier(0.22,1,0.36,1);display:grid;grid-template-rows:0fr;}
@@ -864,7 +865,7 @@ function updateDevBanner() {
 const MOCK_PLAYERS = [
   { id: 9001, web_name: "Szoboszlai", full_name: "Dominik Szoboszlai", team: "LIV", team_name: "Liverpool", position: "MID", price: 6.9, total_points: 41, event_points: 9, form: 5.4, points_per_game: 5.1, selected_by_percent: 12.3, minutes: 630, goals_scored: 2, assists: 3, clean_sheets: 3, goals_conceded: 4, bonus: 4, yellow_cards: 1, red_cards: 0, ict_index: 88.2, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 22000, transfers_out_event: 4000 },
   { id: 9002, web_name: "B.Fernandes", full_name: "Bruno Borges Fernandes", team: "MUN", team_name: "Man Utd", position: "MID", price: 8.5, total_points: 38, event_points: 8, form: 6.1, points_per_game: 5.4, selected_by_percent: 24.8, minutes: 630, goals_scored: 3, assists: 2, clean_sheets: 2, goals_conceded: 5, bonus: 5, yellow_cards: 0, red_cards: 0, ict_index: 101.4, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 51000, transfers_out_event: 8000 },
-  { id: 9003, web_name: "Haaland", full_name: "Erling Haaland", team: "MCI", team_name: "Man City", position: "FWD", price: 14.9, total_points: 44, event_points: 10, form: 7.8, points_per_game: 6.3, selected_by_percent: 61.2, minutes: 630, goals_scored: 6, assists: 1, clean_sheets: 1, goals_conceded: 3, bonus: 6, yellow_cards: 0, red_cards: 0, ict_index: 142.0, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 9000, transfers_out_event: 33000 },
+  { id: 9003, web_name: "Haaland", full_name: "Erling Haaland", team: "MCI", team_name: "Man City", position: "FWD", price: 14.9, total_points: 44, event_points: 10, form: 7.8, points_per_game: 6.3, selected_by_percent: 61.2, minutes: 630, goals_scored: 6, assists: 1, clean_sheets: 1, goals_conceded: 3, bonus: 6, yellow_cards: 0, red_cards: 0, ict_index: 142.0, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 9000, transfers_out_event: 33000, penalties_order: 1, direct_freekicks_order: null, corners_and_indirect_freekicks_order: null },
   { id: 9004, web_name: "Gordon", full_name: "Anthony Gordon", team: "NEW", team_name: "Newcastle", position: "MID", price: 7.2, total_points: 26, event_points: 4, form: 3.1, points_per_game: 3.7, selected_by_percent: 9.4, minutes: 590, goals_scored: 1, assists: 2, clean_sheets: 1, goals_conceded: 6, bonus: 1, yellow_cards: 2, red_cards: 0, ict_index: 64.0, status: "d", chance_of_playing_next_round: 75, news: "Knock - 75% chance of playing", news_added: null, transfers_in_event: 2000, transfers_out_event: 18000 },
   { id: 9005, web_name: "Bowen", full_name: "Jarrod Bowen", team: "WHU", team_name: "West Ham", position: "MID", price: 7.6, total_points: 30, event_points: 6, form: 4.7, points_per_game: 4.3, selected_by_percent: 15.0, minutes: 630, goals_scored: 2, assists: 2, clean_sheets: 1, goals_conceded: 5, bonus: 3, yellow_cards: 1, red_cards: 0, ict_index: 79.6, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 31000, transfers_out_event: 3000 },
 ];
@@ -916,7 +917,12 @@ function buildMockDashboard() {
         { chip_type: "3xc", display_name: "Triple Captain", used: false, used_gameweek: null },
         { chip_type: "bboost", display_name: "Bench Boost", used: false, used_gameweek: null },
       ],
-      recent_history: [],
+      recent_history: [
+        { gameweek: 1, points: 58, overall_rank: 1_800_000, rank: null },
+        { gameweek: 2, points: 71, overall_rank: 900_000, rank: null },
+        { gameweek: 3, points: 49, overall_rank: 1_100_000, rank: null },
+        { gameweek: 4, points: 34, overall_rank: 780_000, rank: null },
+      ],
     },
     leagues: { tiles: [], tables: [] },
     realSquad: {
@@ -2505,7 +2511,7 @@ function playerRow(p) {
       <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;" onclick="location.hash='player-${p.id}'">
         <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
         <div class="p-info">
-          <div class="p-name-row">${p.web_name}</div>
+          <div class="p-name-row">${p.web_name}${p.penalties_order === 1 ? ` <span class="badge badge-setpiece" style="padding:1px 5px;font-size:8px;vertical-align:middle;">Pens</span>` : ""}</div>
           <div class="p-meta">${p.team || ""} &middot; ${p.position || ""} &middot; Form ${p.form ?? "&mdash;"}</div>
         </div>
       </div>
@@ -3029,6 +3035,26 @@ function fixturesForClub(shortName, fromGw, count) {
   return out.slice(0, count);
 }
 
+// ---- New feature: real set-piece taker order, straight from FPL's own bootstrap-static (see
+// app_export.build_player_directory()'s own comment) -- 1 is the club's designated primary
+// taker, 2/3 backup. Absent entirely (no row) for the vast majority of players who aren't on
+// any club's set-piece list at all, same "no badge, not a fabricated 'not a taker'" convention
+// as every other optional panel in this app.
+function setPieceOrdinal(n) {
+  return n === 1 ? "1st" : n === 2 ? "2nd" : n === 3 ? "3rd" : `${n}th`;
+}
+function setPieceBadgeRow(p) {
+  const items = [
+    p.penalties_order != null ? { label: "Penalties", order: p.penalties_order } : null,
+    p.direct_freekicks_order != null ? { label: "Free-kicks", order: p.direct_freekicks_order } : null,
+    p.corners_and_indirect_freekicks_order != null ? { label: "Corners", order: p.corners_and_indirect_freekicks_order } : null,
+  ].filter(Boolean);
+  if (!items.length) return "";
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:10px;">
+    ${items.map(it => `<span class="badge badge-setpiece">${escapeHtml(it.label)} &middot; ${setPieceOrdinal(it.order)}</span>`).join("")}
+  </div>`;
+}
+
 function openPlayerSheet(id) {
   const p = state.playersById && state.playersById[id];
   const content = document.getElementById("sheet-content");
@@ -3044,6 +3070,7 @@ function openPlayerSheet(id) {
         <div class="price">${fmtMoney(p.price)}</div>
       </div>
       ${isFlagged(p) ? `<div class="flag-banner ${isSevereFlag(p) ? "severe" : ""}"><b>${p.news || "Flagged by the club"}</b>${p.chance_of_playing_next_round != null ? ` &mdash; ${p.chance_of_playing_next_round}% chance of playing` : ""}</div>` : ""}
+      ${setPieceBadgeRow(p)}
       <div class="stat-grid4">
         <div class="g-tile"><div class="g-label">Total Pts</div><div class="g-value">${p.total_points}</div></div>
         <div class="g-tile"><div class="g-label">Form</div><div class="g-value" style="color:var(--green);">${p.form ?? "&mdash;"}</div></div>
@@ -3264,6 +3291,44 @@ function openOnboardingSheet() {
   openSheet();
 }
 
+// ---- New feature: season points/rank trend. state.profile.recent_history is real per-
+// gameweek history (app_export.build_profile(), sourced from the account's own real
+// entry/<id>/history/ data) that already flowed all the way to the frontend -- computed every
+// scheduled run, fetched by loadAccount() -- but was never rendered anywhere until now. Same
+// bar-strip visual convention as rankTrajectoryBlock() (Feature 6's live-match rank movement),
+// over the recent season instead of one match day. Absent entirely (no card) with fewer than
+// 2 real gameweeks of history, same graceful degradation as every other optional panel.
+function seasonTrendBlock() {
+  const hist = state.profile && state.profile.recent_history;
+  if (!hist || hist.length < 2) return "";
+  const pts = hist.map(r => r.points).filter(p => p != null);
+  if (pts.length < 2) return "";
+  const maxP = Math.max(...pts), minP = Math.min(...pts), span = Math.max(1, maxP - minP);
+  const first = hist[0], last = hist[hist.length - 1];
+  const rankKnown = last.overall_rank != null && first.overall_rank != null;
+  const rankImproved = rankKnown && last.overall_rank < first.overall_rank;
+  const rankWorsened = rankKnown && last.overall_rank > first.overall_rank;
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Season trend &middot; last ${hist.length} GWs</span></div>
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+        <span style="font-family:'Anton',sans-serif;font-size:22px;color:var(--ink);">GW${last.gameweek}: ${last.points ?? "&mdash;"} pts</span>
+        ${rankKnown ? `<span style="font-size:11px;color:${rankImproved ? "var(--green)" : rankWorsened ? "var(--red)" : "var(--ink-dim)"};">rank ${last.overall_rank.toLocaleString()}${rankImproved ? " &darr; improved" : rankWorsened ? " &uarr; slipped" : " unchanged"} vs GW${first.gameweek}</span>` : ""}
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:5px;height:34px;">
+        ${hist.map(r => {
+          const p = r.points ?? minP;
+          const h = 6 + ((p - minP) / span) * 28;
+          return `<div style="flex:1;background:var(--green);border-radius:3px;height:${h.toFixed(0)}px;" title="GW${r.gameweek}: ${r.points ?? "&mdash;"} pts${r.overall_rank != null ? `, rank ${r.overall_rank.toLocaleString()}` : ""}"></div>`;
+        }).join("")}
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;">
+        <span style="font-size:9.5px;color:var(--ink-dim2);">GW${first.gameweek}</span>
+        <span style="font-size:9.5px;color:var(--ink-dim2);">GW${last.gameweek}</span>
+      </div>
+    </div>`;
+}
+
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
@@ -3288,6 +3353,7 @@ function openProfileSheet() {
             <div class="v" style="font-size:11px;">${c.used ? `Used GW${c.used_gameweek}` : "Available"}</div>
           </div>`).join("")}
       </div>
+      ${seasonTrendBlock()}
       ${trackRecordBlock()}
       ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>

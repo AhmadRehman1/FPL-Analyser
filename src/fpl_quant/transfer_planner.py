@@ -1118,35 +1118,48 @@ def evaluate_wildcard_bench_boost_combo(
             f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
             [ep_mv, *fresh_bench_uids],
         ).fetchone()[0]
+    fresh_xi_ep_at_target_gw = 0.0
+    if fresh_xi_uids:
+        placeholders = ",".join("?" * len(fresh_xi_uids))
+        fresh_xi_ep_at_target_gw = con.execute(
+            f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+            [ep_mv, *fresh_xi_uids],
+        ).fetchone()[0]
 
     wc_alone_gain = wildcard_result.get("gain", 0.0)
     bb_alone_value = bench_boost_result.get("bench_ep_sum", 0.0) if bench_boost_result.get("recommended") else 0.0
-    # KNOWN, DISCLOSED ISSUE (not fixed here -- a genuine modeling question, not a mechanical
-    # bug with one obvious correct answer): fresh_bench_ep_at_target_gw is a real SUBSET
-    # already summed into wc_alone_gain. evaluate_wildcard()'s own gain sums fresh_uids'
-    # (the WHOLE fresh squad, bench included) total_ep across the WHOLE horizon -- a
-    # deliberate "new squad's overall depth/quality" proxy, not a real weekly score, and NOT
-    # something this function should redefine (wildcard_gain_threshold_params is calibrated
-    # against that exact figure elsewhere). That means target_gameweek's own bench slice is
-    # counted once inside wc_alone_gain already, then added again here -- so combo_value >
-    # max(wc_alone_gain, bb_alone_value) fires close to unconditionally (fresh_bench_ep_at_
-    # target_gw >= 0 always), and recommended_combo isn't a genuine "does sequencing beat
-    # either alone" signal the way its docstring claims. synergy_gain is unaffected (the
-    # double-counted wc_alone_gain term cancels in combo_value - naive_independent_sum), so
-    # that one field stays trustworthy. Fixing combo_value/recommended_combo honestly needs a
-    # deliberate design decision (what SHOULD "combo value" mean when wc_alone_gain's own
-    # bench credit is itself a multi-gameweek option-value proxy, not a same-week score, and
-    # can't be safely disentangled by this function alone) -- flagged here rather than
-    # shipping a guessed replacement formula, same "disclosed, not silently ignored" ethos as
-    # wildcard_gain_threshold_params.min_horizon_gain being deliberately left uncovered by the
-    # kappa_tc recalibration extension (see README).
-    combo_value = wc_alone_gain + fresh_bench_ep_at_target_gw
-    naive_independent_sum = wc_alone_gain + bb_alone_value
+    # Real bug fixed here (previously flagged as a known, disclosed issue rather than shipped
+    # as a guess -- now resolved with a deliberate design decision): combo_value used to be
+    # wc_alone_gain + fresh_bench_ep_at_target_gw, mixing two incommensurable quantities.
+    # wc_alone_gain is evaluate_wildcard()'s own multi-gameweek, whole-squad (bench included)
+    # "new squad depth/quality" proxy -- fresh_bench_ep_at_target_gw is a real SUBSET of that
+    # same sum, already counted once inside it. Adding it again meant combo_value was
+    # essentially always > max(wc_alone_gain, bb_alone_value) (fresh_bench_ep_at_target_gw is
+    # never negative), so recommended_combo fired close to unconditionally rather than
+    # signaling genuine synergy.
+    #
+    # The fix: combo_value/naive_independent_sum are now BOTH real, single-gameweek totals at
+    # target_gameweek specifically (the actual week the combo would be played), never mixed
+    # with wc_alone_gain's own multi-gameweek proxy -- combo_value is what the fresh 15-man
+    # squad (XI+bench) would really score that week under Bench Boost; naive_independent_sum
+    # is what the SAME fresh XI alone would score that week (no Bench Boost, bench doesn't
+    # count) plus what Bench Boost would add separately on the CURRENT squad's own bench. This
+    # leaves synergy_gain's own VALUE unchanged (fresh_xi_ep_at_target_gw cancels out of the
+    # subtraction, same as it implicitly did before) -- only combo_value/naive_independent_sum
+    # themselves are now individually meaningful, comparable numbers, not mixed-unit sums.
+    # recommended_combo also now requires Wildcard to be worthwhile ON ITS OWN MERITS
+    # (wildcard_result["recommended"]) in addition to genuine bench synergy (synergy_gain > 0)
+    # -- sequencing the chips together is never a reason to play a Wildcard that doesn't clear
+    # its own real threshold just to chase a marginally-better Bench Boost week.
+    combo_value = fresh_xi_ep_at_target_gw + fresh_bench_ep_at_target_gw
+    naive_independent_sum = fresh_xi_ep_at_target_gw + bb_alone_value
+    synergy_gain = combo_value - naive_independent_sum
     return {
-        "recommended_combo": combo_value > max(wc_alone_gain, bb_alone_value),
+        "recommended_combo": synergy_gain > 0 and bool(wildcard_result.get("recommended", False)),
         "wildcard_gain_alone": wc_alone_gain, "bench_boost_value_alone": bb_alone_value,
-        "fresh_squad_bench_ep_at_target_gw": fresh_bench_ep_at_target_gw, "combo_value": combo_value,
-        "naive_independent_sum": naive_independent_sum, "synergy_gain": combo_value - naive_independent_sum,
+        "fresh_squad_bench_ep_at_target_gw": fresh_bench_ep_at_target_gw,
+        "fresh_squad_xi_ep_at_target_gw": fresh_xi_ep_at_target_gw,
+        "combo_value": combo_value, "naive_independent_sum": naive_independent_sum, "synergy_gain": synergy_gain,
     }
 
 
