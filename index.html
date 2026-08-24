@@ -194,7 +194,8 @@
 
   /* ---- league mini table ---- */
   .league-tiles{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:0 16px 4px;}
-  .l-tile{flex:0 0 132px;background:linear-gradient(150deg,oklch(0.3 0.09 152),oklch(0.22 0.06 155));border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:12px;color:var(--on-dark);}
+  .l-tile{flex:0 0 132px;background:linear-gradient(150deg,oklch(0.3 0.09 152),oklch(0.22 0.06 155));border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:12px;color:var(--on-dark);cursor:pointer;border:2px solid transparent;}
+  .l-tile.active{border-color:var(--gold);}
   .l-tile-name{font-size:11.5px;font-weight:700;line-height:1.25;}
   .l-tile-foot{display:flex;align-items:baseline;justify-content:space-between;}
   .l-tile-rank{font-family:"Anton",sans-serif;font-size:17px;}
@@ -612,6 +613,7 @@ const state = {
   lastLiveTotal: null,
   lastLiveKey: null,
   compareSelection: [],
+  selectedLeagueId: null,
 };
 
 // ============================================================
@@ -2801,6 +2803,16 @@ function eliteDivergenceBlock() {
     </div>`;
 }
 
+// One league's detailed table (standings + ownership) shown at a time, selected via the tiles
+// strip above it -- a manager can be in several leagues at once (one real account currently has
+// 4, one with 50 standings rows), and stacking every table inline made this screen run past
+// 8000px tall. The tiles strip itself still shows every league's rank at a glance; tapping one
+// just changes which table is expanded below it.
+function selectLeague(leagueId) {
+  state.selectedLeagueId = leagueId;
+  renderCurrentTab();
+}
+
 function renderLeagues() {
   const el = document.getElementById("leagues-content");
   if (!state.leagues || !state.leagues.tiles.length) {
@@ -2810,15 +2822,28 @@ function renderLeagues() {
     el.innerHTML = `<p class="empty-state">No league data available for this account.</p>${eliteDivergenceBlock()}`;
     return;
   }
+  const tables = state.leagues.tables;
+  // Falls back to the first table only when nothing valid is selected yet (first render, or an
+  // account switch where the old id belongs to neither this account's tiles NOR its tables) --
+  // NOT every time the selected tile happens to be one of the several system/global leagues
+  // (Overall, a club league) that only ever get a tile, never a detailed table. Checking against
+  // ALL tiles here (not just the subset with tables) is what lets tapping one of those still
+  // register as a real selection instead of silently snapping back to the first table with the
+  // tap's own tile never visibly going active.
+  const knownLeagueIds = new Set(state.leagues.tiles.map(t => t.league_id));
+  if (state.selectedLeagueId == null || !knownLeagueIds.has(state.selectedLeagueId)) {
+    state.selectedLeagueId = tables.length ? tables[0].league_id : state.leagues.tiles[0].league_id;
+  }
+  const table = tables.find(t => t.league_id === state.selectedLeagueId);
   el.innerHTML = `
     <div class="league-tiles">
       ${state.leagues.tiles.map(t => `
-        <div class="l-tile">
+        <div class="l-tile ${t.league_id === state.selectedLeagueId ? "active" : ""}" onclick="selectLeague(${t.league_id})">
           <div class="l-tile-name">${t.name}</div>
           <div class="l-tile-foot"><div class="l-tile-rank">${fmtCompact(t.rank)}</div><div class="l-tile-of">${t.total_entries ? `of ${fmtCompact(t.total_entries)}` : ""}</div></div>
         </div>`).join("")}
     </div>
-    ${state.leagues.tables.map(table => `
+    ${table ? `
       <div class="section" style="margin-top:16px;">
         <div class="section-title"><span>${table.name}</span></div>
         <div class="table-card">
@@ -2831,7 +2856,7 @@ function renderLeagues() {
             </div>`).join("")}
         </div>
         ${ownershipBlock(table.ownership)}
-      </div>`).join("")}
+      </div>` : `<p class="empty-state" style="margin-top:16px;">No detailed standings available for this league.</p>`}
     ${eliteDivergenceBlock()}
   `;
 }
