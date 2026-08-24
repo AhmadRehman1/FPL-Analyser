@@ -4,7 +4,7 @@
   "gameweek": 1,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 36,
+  "live_total": 39,
   "players": [
     {
       "player_id": 496,
@@ -79,15 +79,15 @@
     {
       "player_id": 165,
       "web_name": "Jo\u00e3o Pedro",
-      "live_points": 9,
+      "live_points": 12,
       "provisional_bonus": 2,
-      "contribution": 9
+      "contribution": 12
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 100.0,
-    "estimated_rank": 1
+    "percentile": 98.0,
+    "estimated_rank": 190643
   },
   "fixtures": [
     {
@@ -257,7 +257,7 @@
       "away": {
         "short_name": "CHE",
         "name": "Chelsea",
-        "score": 2
+        "score": 3
       }
     }
   ],
@@ -418,6 +418,14 @@
       "player_id": 154,
       "web_name": "Palmer",
       "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
+      "player_id": 154,
+      "web_name": "Palmer",
+      "team": 6,
       "event": "assist",
       "count": 1,
       "fixture_id": 10
@@ -427,6 +435,14 @@
       "web_name": "Jo\u00e3o Pedro",
       "team": 6,
       "event": "goal",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
+      "player_id": 165,
+      "web_name": "Jo\u00e3o Pedro",
+      "team": 6,
+      "event": "assist",
       "count": 1,
       "fixture_id": 10
     },
@@ -679,5 +695,5 @@
       "fixture_id": 5
     }
   ],
-  "generated_at": "2026-08-24T19:49:24.440706+00:00"
+  "generated_at": "2026-08-24T20:14:23.299049+00:00"
 }
