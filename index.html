@@ -134,6 +134,7 @@
   .action-sub{font-size:10.5px;color:var(--ink-dim);margin-top:2px;line-height:1.4;}
   .action-cta{flex-shrink:0;background:var(--green);color:white;font-size:11px;font-weight:700;padding:9px 14px;border-radius:100px;text-decoration:none;white-space:nowrap;}
 .icon-btn{width:34px;height:34px;border-radius:50%;border:1px solid var(--ink-dim2);background:transparent;color:var(--ink-dim);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;flex-shrink:0;}
+.icon-btn[hidden]{display:none;}
 .icon-btn:hover{color:var(--ink);border-color:var(--ink-dim);}
 .icon-btn[aria-pressed="true"]{background:var(--green);color:#fff;border-color:var(--green);}
 .icon-btn svg{width:16px;height:16px;}
@@ -312,6 +313,8 @@
   .flag-row .flag-text{flex:1;min-width:0;}
   .flag-row .flag-name{font-size:11.5px;font-weight:700;}
   .flag-row .flag-news{font-size:10.5px;color:var(--ink-dim);}
+  .flag-row .flag-owned{font-size:10.5px;font-weight:700;color:var(--ink-dim2);flex-shrink:0;}
+  .mine-badge{display:inline-block;background:var(--green);color:#fff;font-size:8px;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;border-radius:100px;padding:2px 6px;margin-left:5px;vertical-align:middle;}
 
   /* ---- stale-data notice ---- */
   .stale-banner{max-width:460px;margin:0 auto 4px;padding:9px 16px;background:oklch(0.3 0.09 60/0.85);color:oklch(0.97 0.05 80);font-size:11.5px;font-weight:600;text-align:center;position:relative;z-index:3;}
@@ -461,6 +464,9 @@
     <h1>FPL Quant</h1>
     <div class="header-actions">
       <select id="account-switcher" aria-label="Switch account"></select>
+      <button class="icon-btn" id="install-btn" onclick="promptInstall()" aria-label="Install app" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M7 11l5 5 5-5"/><path d="M4 19h16"/></svg>
+      </button>
       <button class="icon-btn" id="notif-bell" onclick="toggleNotifications()" aria-label="Toggle live point notifications" aria-pressed="false"></button>
       <button class="avatar-btn" id="avatar-btn" onclick="location.hash='profile'" aria-label="Open profile">--</button>
     </div>
@@ -1234,6 +1240,10 @@ function route() {
   }
   if (hash === "compare") {
     openCompareSheet();
+    return;
+  }
+  if (hash === "injury-watch") {
+    openInjuryWatchSheet();
     return;
   }
   closeSheet();
@@ -2032,6 +2042,8 @@ function renderHome() {
 
     ${priceWatchBlock({ limit: 4, linkOut: true })}
 
+    ${injuryWatchBlock()}
+
     <div class="section">
       <div class="section-title"><span>Top performers this GW</span></div>
       <div class="hscroll">
@@ -2140,6 +2152,97 @@ function flagStripBlock(rows) {
         <div class="flag-news">${player.news || (player.chance_of_playing_next_round != null ? `${player.chance_of_playing_next_round}% chance of playing` : "Flagged by the club")}</div>
       </div>
     </div>`).join("")}</div>`;
+}
+
+// ============================================================
+// LEAGUE INJURY WATCH -- every flagged player in the whole player pool (not just this
+// account's 15), worst status first and popularity as the tiebreak. Distinct from
+// priceWatchBlock() (real net-transfer momentum) and flagStripBlock() (this account's own
+// squad only, already on Home/Team) -- this is the one place a manager can see who ELSE in
+// the league just picked up a knock, which matters for differentials/transfer targets they
+// don't yet own. Reads state.players, the same full pool app_players.json already gives
+// Transfers' "Browse players" -- no separate fetch.
+// ============================================================
+
+const INJURY_SEVERITY_RANK = { i: 0, s: 1, u: 2, n: 3, d: 4 };
+const INJURY_STATUS_LABEL = { i: "Injured", s: "Suspended", u: "Unavailable", n: "Not eligible", d: "Doubtful" };
+
+function leagueFlaggedPlayers() {
+  if (!state.players) return [];
+  return state.players
+    .filter(isFlagged)
+    .slice()
+    .sort((a, b) => {
+      const ra = INJURY_SEVERITY_RANK[a.status] ?? 5, rb = INJURY_SEVERITY_RANK[b.status] ?? 5;
+      if (ra !== rb) return ra - rb;
+      return (b.selected_by_percent ?? 0) - (a.selected_by_percent ?? 0);
+    });
+}
+
+function injuryWatchRow(p, squadIds) {
+  return `
+    <div class="flag-row ${isSevereFlag(p) ? "severe" : ""}" onclick="location.hash='player-${p.id}'">
+      <div class="p-avatar-xs" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      <div class="flag-text">
+        <div class="flag-name">${p.web_name} <span style="color:var(--ink-dim2);font-weight:500;">${p.team || ""}</span>${squadIds.has(p.id) ? `<span class="mine-badge">Your player</span>` : ""}</div>
+        <div class="flag-news">${p.news || (p.chance_of_playing_next_round != null ? `${p.chance_of_playing_next_round}% chance of playing` : INJURY_STATUS_LABEL[p.status] || "Flagged by the club")}</div>
+      </div>
+      <div class="flag-owned">${p.selected_by_percent != null ? `${p.selected_by_percent}%` : ""}</div>
+    </div>`;
+}
+
+function squadPlayerIds() {
+  return new Set(state.team ? state.team.squad.map(p => p.player_id) : []);
+}
+
+// Compact Home preview -- worst 5 league-wide, with a link into the full filterable sheet.
+function injuryWatchBlock() {
+  const flagged = leagueFlaggedPlayers();
+  if (!flagged.length) return "";
+  const squadIds = squadPlayerIds();
+  return `
+    <div class="section">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <div class="card-title">League injury watch</div>
+          <span class="link-sm" style="font-size:11.5px;font-weight:700;color:var(--ink-dim2);" onclick="location.hash='injury-watch'">See all ${flagged.length} &rsaquo;</span>
+        </div>
+        <div class="flag-strip" style="margin-top:2px;margin-bottom:0;">${flagged.slice(0, 5).map(p => injuryWatchRow(p, squadIds)).join("")}</div>
+        <p style="font-size:10.5px;color:var(--ink-dim2);margin:12px 0 0;line-height:1.5;">
+          Every flagged player league-wide, worst news first &mdash; real FPL status codes and
+          chance-of-playing percentages, not a prediction.
+        </p>
+      </div>
+    </div>`;
+}
+
+const INJURY_WATCH_FILTERS = {
+  all: { label: "All", test: () => true },
+  squad: { label: "Your squad", test: (p, squadIds) => squadIds.has(p.id) },
+  severe: { label: "Injured / suspended", test: (p) => isSevereFlag(p) },
+  doubtful: { label: "Doubtful", test: (p) => p.status === "d" },
+};
+
+function openInjuryWatchSheet(filterKey) {
+  state.injuryWatchFilter = filterKey || state.injuryWatchFilter || "all";
+  const content = document.getElementById("sheet-content");
+  const flagged = leagueFlaggedPlayers();
+  const squadIds = squadPlayerIds();
+  const active = INJURY_WATCH_FILTERS[state.injuryWatchFilter] ? state.injuryWatchFilter : "all";
+  const rows = flagged.filter(p => INJURY_WATCH_FILTERS[active].test(p, squadIds));
+  content.innerHTML = `
+    <div class="section-title" style="color:var(--on-dark);margin-bottom:10px;"><span>League injury watch</span></div>
+    <div class="filter-row" style="margin-top:0;">
+      ${Object.entries(INJURY_WATCH_FILTERS).map(([key, f]) => `<button class="filter-chip ${key === active ? "active" : ""}" onclick="openInjuryWatchSheet('${key}')">${f.label}</button>`).join("")}
+    </div>
+    <div class="flag-strip">${rows.length ? rows.map(p => injuryWatchRow(p, squadIds)).join("") : `<p class="empty-state">No players match this filter.</p>`}</div>
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:4px;">
+      ${flagged.length} flagged league-wide right now &mdash; sorted worst status first (injured/suspended/unavailable/not
+      eligible ahead of doubtful), ties broken by ownership so the players most likely to affect your
+      leagues surface first. Real FPL status codes, not a model prediction.
+    </p>
+  `;
+  openSheet();
 }
 
 // ---- Roadmap Feature 2: "Rate my team" -- the manager's real squad graded against the
@@ -2997,6 +3100,34 @@ function openProfileSheet() {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+
+// ---- "Add to Home Screen" affordance -- the browser's own install prompt is real and
+// installable (manifest.json's display:"standalone" + sw.js already make that true), but
+// nothing in the UI ever told a visitor it was possible; most people never find a browser's
+// own menu item for it. Chromium fires beforeinstallprompt only when it's already decided the
+// page is installable, so showing the button in response to that event (rather than always)
+// never offers an install that can't actually happen. Already-standalone (installed, or a
+// browser that skips the event entirely e.g. iOS Safari) leaves the button hidden -- an
+// install button that does nothing when tapped is worse than no button.
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  const btn = document.getElementById("install-btn");
+  if (btn) btn.hidden = false;
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  const btn = document.getElementById("install-btn");
+  if (btn) btn.hidden = true;
+});
+async function promptInstall() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  document.getElementById("install-btn").hidden = true;
 }
 
 async function init() {

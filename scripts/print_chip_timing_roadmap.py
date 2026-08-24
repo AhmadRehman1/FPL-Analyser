@@ -70,9 +70,12 @@ PARAM_VERSIONS = dict(
     rho_residual_params_version=2, corr_params_version=1,
 )
 
+# "event" is each account's current-squad read-from gameweek -- same convention, and same
+# value, as scheduled_pipeline.yml's own hardcoded real_squad_event for the transfer-planner
+# and app-export steps this roadmap runs alongside. Keep all three in sync when bumping.
 ACCOUNTS = [
-    {"entry_id": 7139944, "event": 1, "label": "ChatGPT template team"},
-    {"entry_id": 1305242, "event": 1, "label": "Main account"},
+    {"entry_id": 7139944, "event": 2, "label": "ChatGPT template team"},
+    {"entry_id": 1305242, "event": 2, "label": "Main account"},
 ]
 
 
