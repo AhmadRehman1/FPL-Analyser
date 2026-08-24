@@ -84,9 +84,16 @@
   @keyframes pulse{50%{opacity:0.4;}}
 
   /* ---- layout ---- */
-  main{max-width:460px;margin:0 auto;position:relative;z-index:2;}
+  main{max-width:460px;margin:0 auto;position:relative;z-index:2;overflow-x:hidden;}
   .screen{display:none;padding:14px 16px 110px;}
   .screen.active{display:block;}
+  /* Swipe/tab-bar navigation between screens -- direction matches TABS order (same motion
+     whether you dragged or tapped the bar), gated behind .motion-ready like every other
+     motion in the app so prefers-reduced-motion gets an instant cut instead. */
+  html.motion-ready .screen.active.dir-fwd{animation:screenSlideFwd 0.32s cubic-bezier(0.22,1,0.36,1);}
+  html.motion-ready .screen.active.dir-back{animation:screenSlideBack 0.32s cubic-bezier(0.22,1,0.36,1);}
+  @keyframes screenSlideFwd{from{opacity:0;transform:translateX(26px);}to{opacity:1;transform:translateX(0);}}
+  @keyframes screenSlideBack{from{opacity:0;transform:translateX(-26px);}to{opacity:1;transform:translateX(0);}}
   .section{margin-bottom:20px;}
   .section-title{font-size:13.5px;font-weight:700;color:var(--on-dark);margin:0 0 10px;display:flex;align-items:center;justify-content:space-between;}
   .section-title .link-sm{font-size:11.5px;font-weight:700;color:var(--on-dark-dim);}
@@ -1248,8 +1255,17 @@ function route() {
   }
   closeSheet();
   const tab = TABS.includes(hash) ? hash : "home";
+  const prevIdx = TABS.indexOf(state.lastTab), nextIdx = TABS.indexOf(tab);
   state.lastTab = tab;
-  document.querySelectorAll(".screen").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
+  document.querySelectorAll(".screen").forEach(el => {
+    const isActive = el.dataset.tab === tab;
+    el.classList.toggle("active", isActive);
+    el.classList.remove("dir-fwd", "dir-back");
+    if (isActive && prevIdx !== -1 && nextIdx !== -1 && prevIdx !== nextIdx) {
+      void el.offsetWidth; // restart the animation even if this class was already set moments ago
+      el.classList.add(nextIdx > prevIdx ? "dir-fwd" : "dir-back");
+    }
+  });
   document.querySelectorAll(".tab").forEach(el => {
     const active = el.dataset.tab === tab;
     el.classList.toggle("active", active);
@@ -1309,6 +1325,50 @@ function updateBackToTop() {
   const btn = document.getElementById("back-to-top");
   if (!btn) return;
   btn.classList.toggle("visible", window.scrollY > 520);
+}
+
+function hapticTick() {
+  try { navigator.vibrate && navigator.vibrate(8); } catch {}
+}
+
+// ---- swipe-to-switch-tabs -- intent-based, not a drag-follows-finger carousel: nothing here
+// ever calls preventDefault, so vertical scrolling and the app's own horizontal scrollers
+// (.hscroll/.league-tiles/.filter-row -- the same three the CSS defines overflow-x:auto for)
+// keep working exactly as before. A tab change only fires from the FINAL touchend delta, once
+// a gesture already reads as "mostly horizontal, past a real distance, inside the time a flick
+// takes" -- not from tracking the touch live. Direction follows TABS' own left-to-right order
+// (same order the tab bar renders in), so a swipe and a tab-bar tap land in a consistent world.
+const SWIPE_MIN_DISTANCE = 55;
+const SWIPE_MAX_DURATION_MS = 700;
+const SWIPE_SCROLLER_SELECTOR = ".hscroll, .league-tiles, .filter-row";
+
+function initSwipeNav() {
+  const main = document.querySelector("main");
+  if (!main) return;
+  let touch = null;
+  main.addEventListener("touchstart", (e) => {
+    // more than one finger down means a pinch-zoom (or about to be) -- leave it alone rather
+    // than risk reading it as a swipe.
+    if (e.touches.length > 1 || !document.getElementById("sheet-overlay").hidden) { touch = null; return; }
+    const t = e.touches[0];
+    touch = { x: t.clientX, y: t.clientY, time: Date.now(), isScroller: !!e.target.closest(SWIPE_SCROLLER_SELECTOR) };
+  }, { passive: true });
+  main.addEventListener("touchcancel", () => { touch = null; }, { passive: true });
+  main.addEventListener("touchend", (e) => {
+    const started = touch;
+    touch = null;
+    if (!started || started.isScroller) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - started.x, dy = t.clientY - started.y;
+    if (Date.now() - started.time > SWIPE_MAX_DURATION_MS) return;
+    if (Math.abs(dx) < SWIPE_MIN_DISTANCE || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const curIdx = TABS.indexOf(state.lastTab);
+    if (curIdx === -1) return;
+    const nextIdx = dx < 0 ? curIdx + 1 : curIdx - 1; // swipe left -> next tab, right -> previous
+    if (nextIdx < 0 || nextIdx >= TABS.length) return; // no wraparound past the first/last tab
+    hapticTick();
+    location.hash = TABS[nextIdx];
+  }, { passive: true });
 }
 
 // ============================================================
@@ -3137,6 +3197,7 @@ async function init() {
     renderNotifBell();
     state.staleSince = null;
     initScrollReveal();
+    initSwipeNav();
     window.addEventListener("scroll", updateBackToTop, { passive: true });
     await loadShared();
     await loadAccount(state.accountId);
