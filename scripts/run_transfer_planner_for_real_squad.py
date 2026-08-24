@@ -29,10 +29,25 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, transfer_planner as tp  # noqa: E402
+from fpl_quant import backtest as bt, db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+
+
+# More than one chip can legitimately clear its own recommendation threshold in the same
+# gameweek (Bench Boost and Triple Captain both look worth playing fairly often) -- the SQL
+# below has no ORDER BY, so chips_out otherwise comes back in whatever order the DB happens to
+# return chip_evaluations rows in, which is NOT guaranteed to match backtest.py's own
+# CHIP_PRIORITY (the one place this project already had to solve "which chip actually wins" --
+# see its own docstring). The dashboard's chips.find(c => c.recommended) just takes whichever
+# comes first in this array, so an unordered array silently picks the wrong winner whenever the
+# DB's incidental order disagrees with CHIP_PRIORITY -- which it did: chip_evaluations rows are
+# inserted wildcard/free_hit/triple_captain/bench_boost, the reverse of CHIP_PRIORITY's own
+# bench_boost-before-triple_captain.
+def _order_chip_evaluations(chips_out: list[dict]) -> list[dict]:
+    order = {chip_type: i for i, chip_type in enumerate(bt.CHIP_PRIORITY)}
+    return sorted(chips_out, key=lambda c: order.get(c["chip_type"], len(order)))
 
 
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
@@ -183,7 +198,7 @@ def main() -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "transfer_recommendations": recs_out,
         "hold_vs_transfer_now": hold_out,
-        "chip_evaluations": chips_out,
+        "chip_evaluations": _order_chip_evaluations(chips_out),
         "captain_recommendation": captain_recommendation,
         "explain": explain,
     }

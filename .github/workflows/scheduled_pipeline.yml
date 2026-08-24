@@ -150,22 +150,45 @@ jobs:
           path: db/fpl_quant_v2.duckdb
           key: duckdb-${{ github.run_id }}
 
+      # Same real bootstrap-static-derived resolver app_export.current_event() already gives
+      # export_live_data.py/export_projections.py/track_elite.py and on_demand_report.yml's own
+      # "Determine current gameweek" step (mirrored verbatim here) -- replaces what used to be a
+      # hardcoded real_squad_event that someone had to remember to bump by hand at every
+      # gameweek boundary (and didn't, for three days after GW1's 2026-08-21 deadline: Home/
+      # Team/Transfers kept serving a week-old squad and free-transfer count off the
+      # already-finished GW1 until it was manually bumped to 2 on 2026-08-24).
+      - name: Determine current gameweek
+        id: gw
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import sys
+
+          sys.path.insert(0, "src")
+          from fpl_quant import app_export as ax
+
+          bootstrap = ax.fetch_bootstrap_static()
+          event = ax.current_event(bootstrap)
+          if event is None:
+              print("::error::bootstrap-static reports no current gameweek right now")
+              raise SystemExit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"event={event}\n")
+          PYEOF
+
       # Runs for real on every scheduled run (not manual-dispatch-only anymore) for both real
       # FPL accounts this project tracks -- has to live in THIS job, right after ingestion,
       # since it needs the same ephemeral database run_ingestion.py just populated in this same
       # runner (see run_transfer_planner_for_real_squad.py's own module docstring). Sequential,
       # not two separate workflow runs -- avoids ever needing the git-push race-retry logic
       # below for this step's own output, since both write their JSON snapshot within the same
-      # job/checkout. real_squad_event is hardcoded here (both accounts' current-gameweek
-      # picks); bump this again once the season moves past needing GW2 as the read-from
-      # gameweek. Bumped 1->2 on 2026-08-24: GW1's deadline (2026-08-21) has passed and GW2's
-      # (2026-08-28) hasn't, so GW2 is now the live "squad as it currently stands" gameweek --
-      # leaving this at 1 was serving Home/Team/Transfers a week-old squad and free-transfer
-      # count off the already-finished GW1.
+      # job/checkout.
       - name: Plan transfers for both real managers' squads
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
         run: |
-          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 2 "ChatGPT template team"
-          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 2 "Main account"
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team"
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Main account"
 
       # Real, computed (not invented) fixture-swing signal for both accounts' current squads,
       # covering GW3-19 -- see the script's own docstring for what "swing" means and its real
@@ -216,15 +239,16 @@ jobs:
 
       # App conversion, Phase 1: real, live data for the PWA's Team/Profile/Leagues/Fixtures/
       # Transfers-browse screens (data/dashboard/app_*.json) -- see app_export.py's own module
-      # docstring for why this is a separate, non-modeled fetch from everything above.
-      # Hardcoded event for both accounts for the same reason as the transfer-planner step
-      # above (bump both again once the season moves past needing GW2 as the read-from
-      # gameweek). Bumped 1->2 on 2026-08-24 alongside that step, for the same reason.
+      # docstring for why this is a separate, non-modeled fetch from everything above. Same
+      # auto-resolved current-gameweek value (steps.gw) as the transfer-planner step above --
+      # never hardcoded, so this can't independently drift from it the way the two used to.
       - name: Export live app data (Team/Profile/Leagues/Fixtures/Players)
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
         run: |
           PYTHONPATH=src python scripts/export_app_data.py \
-            "7139944:2:ChatGPT template team" \
-            "1305242:2:Main account"
+            "7139944:$EVENT:ChatGPT template team" \
+            "1305242:$EVENT:Main account"
 
       - name: Build report + diff
         run: PYTHONPATH=src python scripts/run_report.py
