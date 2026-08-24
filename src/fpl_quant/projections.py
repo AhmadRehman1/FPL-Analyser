@@ -24,6 +24,7 @@ from datetime import date
 
 import duckdb
 
+from . import ingest_workbook as iw
 from . import squad_optimizer as so_mod
 from . import transfer_planner as tp
 from .errors import MissingModelVersionError
@@ -183,4 +184,27 @@ def build_captain_ranking(rows: list[ProjectionRow], gw: int, *, tie_epsilon: fl
             "ep": band.ep, "ci_low": band.ci_low, "ci_high": band.ci_high,
             "vice_captain_reason": reason,
         })
+    return out
+
+
+def resolve_element_ids(con: duckdb.DuckDBPyConnection, target_season: str, element_names: dict[int, int | str]) -> dict[str, int]:
+    """player_uid -> FPL bootstrap-static element id, resolved via the SAME normalized-name
+    matching every other real-name source in this project already uses
+    (ingest_workbook._resolve_player()) -- not a new, separately-invented join. Exists because
+    this module's own player_uid is this project's internal identity, meaningless to the PWA on
+    its own, which is built entirely around FPL's numeric element id (see app_export.py's own
+    module docstring on why those are two different identity spaces) -- the PWA's planner needs
+    a real id to join a projection row against the manager's own app_team_<id>.json squad.
+
+    element_names: {element_id: full_name}, e.g. from
+    ingest_fpl_entry_picks.fetch_bootstrap_elements() -- injected (not fetched here) so this
+    stays testable offline, matching this project's established fetch-isolation convention. A
+    name with no resolvable player_uid is simply absent from the result, never guessed. The
+    first element id to resolve to a given player_uid wins ties (a genuinely duplicate name
+    across two different elements is not expected in a real bootstrap-static payload)."""
+    out: dict[str, int] = {}
+    for element_id, name in element_names.items():
+        player_uid = iw._resolve_player(con, name, target_season)
+        if player_uid and player_uid not in out:
+            out[player_uid] = element_id
     return out
