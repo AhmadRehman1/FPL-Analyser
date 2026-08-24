@@ -4,7 +4,7 @@
   "gameweek": 1,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 27,
+  "live_total": 35,
   "players": [
     {
       "player_id": 496,
@@ -79,15 +79,15 @@
     {
       "player_id": 165,
       "web_name": "Jo\u00e3o Pedro",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 8,
+      "provisional_bonus": 3,
+      "contribution": 8
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 0.0,
-    "estimated_rank": 9517662
+    "percentile": 100.0,
+    "estimated_rank": 1
   },
   "fixtures": [
     {
@@ -242,6 +242,23 @@
         "name": "Liverpool",
         "score": 2
       }
+    },
+    {
+      "id": 10,
+      "kickoff": "2026-08-24T19:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "FUL",
+        "name": "Fulham",
+        "score": 0
+      },
+      "away": {
+        "short_name": "CHE",
+        "name": "Chelsea",
+        "score": 1
+      }
     }
   ],
   "events": [
@@ -388,6 +405,22 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 7
+    },
+    {
+      "player_id": 154,
+      "web_name": "Palmer",
+      "team": 6,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
+      "player_id": 165,
+      "web_name": "Jo\u00e3o Pedro",
+      "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 10
     },
     {
       "player_id": 236,
@@ -614,5 +647,5 @@
       "fixture_id": 5
     }
   ],
-  "generated_at": "2026-08-24T18:39:43.381889+00:00"
+  "generated_at": "2026-08-24T19:18:02.632619+00:00"
 }
