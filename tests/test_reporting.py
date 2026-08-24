@@ -749,3 +749,112 @@ def test_render_report_text_includes_captain_risk_eo_when_present(con):
     report = reporting.build_report(con, run_id, ownership_params_version=1)
     text = reporting.render_report_text(report)
     assert "Captain rank-risk" in text
+
+
+# ============================================================
+# player_uid -> canonical_name resolution for PWA-facing scripts (F2/F3/F9's shared writer-
+# side name resolution -- decision_engine.py/squad_grade.py/elite_tracking.py all key their
+# output by the DB's own internal player_uid, meaningless to the PWA on its own).
+# ============================================================
+
+def test_resolve_player_names_batches_and_skips_unknown_uids(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'Bruno Fernandes', 'Midfielder')")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Erling Haaland', 'Forward')")
+    names = reporting.resolve_player_names(con, {"p1", "p2", "not_a_real_uid"})
+    assert names == {"p1": "Bruno Fernandes", "p2": "Erling Haaland"}
+
+
+def test_resolve_player_names_empty_input_returns_empty_without_a_query(con):
+    assert reporting.resolve_player_names(con, set()) == {}
+
+
+def test_uids_in_action_extracts_from_a_transfer_and_is_empty_otherwise():
+    assert reporting.uids_in_action("transfer_in:p1->p2") == {"p1", "p2"}
+    assert reporting.uids_in_action("roll") == set()
+    assert reporting.uids_in_action(None) == set()
+
+
+def test_humanize_action_rewrites_a_transfer_and_falls_back_for_unknown_uids():
+    names = {"p1": "Bruno Fernandes", "p2": "Erling Haaland"}
+    assert reporting.humanize_action("transfer_in:p1->p2", names) == "Bruno Fernandes -> Erling Haaland"
+    assert reporting.humanize_action("transfer_in:p1->unknown_uid", names) == "Bruno Fernandes -> unknown_uid"
+
+
+def test_humanize_action_passes_through_non_transfer_actions_and_none():
+    names = {"p1": "Bruno Fernandes"}
+    assert reporting.humanize_action("roll", names) == "roll"
+    assert reporting.humanize_action("wildcard", names) == "wildcard"
+    assert reporting.humanize_action(None, names) is None
+
+
+def test_humanize_condition_rewrites_ruled_out_and_passes_through_other_text():
+    names = {"p1": "Bruno Fernandes"}
+    assert reporting.humanize_condition("p1 ruled out", names) == "Bruno Fernandes ruled out"
+    assert reporting.humanize_condition("something else entirely", names) == "something else entirely"
+    assert reporting.humanize_condition(None, names) is None
+
+
+def _fake_decision_payload(action="transfer_in:p1->p2", runner_up=None, sensitivity=None):
+    return {
+        "action": action,
+        "swaps": [{"out_player_uid": "p1", "in_player_uid": "p2", "delta_ep": 1.0, "reason": "test"}] if action.startswith("transfer_in:") else [],
+        "sensitivity": sensitivity or [],
+        "runner_up": runner_up,
+    }
+
+
+def test_uids_referenced_in_decision_payload_covers_swaps_action_and_sensitivity():
+    payload = _fake_decision_payload(
+        sensitivity=[{"if_condition": "p3 ruled out", "then_action": "transfer_in:p1->p4", "delta_ep": 0.5}],
+        runner_up=_fake_decision_payload(action="transfer_in:p1->p5"),
+    )
+    uids = reporting.uids_referenced_in_decision_payload(payload)
+    assert uids == {"p1", "p2", "p3", "p4", "p5"}
+
+
+def test_uids_referenced_in_decision_payload_empty_for_a_roll():
+    assert reporting.uids_referenced_in_decision_payload(_fake_decision_payload(action="roll")) == set()
+
+
+def test_humanize_decision_payload_adds_display_fields_without_mutating_raw_ones():
+    names = {"p1": "Bruno Fernandes", "p2": "Erling Haaland", "p3": "Third Player"}
+    payload = _fake_decision_payload(
+        sensitivity=[{"if_condition": "p3 ruled out", "then_action": "transfer_in:p2->p1", "delta_ep": 0.5}],
+        runner_up=_fake_decision_payload(action="transfer_in:p2->p1"),
+    )
+    out = reporting.humanize_decision_payload(payload, names)
+
+    # raw fields untouched
+    assert out["action"] == "transfer_in:p1->p2"
+    assert out["swaps"][0]["out_player_uid"] == "p1"
+
+    # display fields added
+    assert out["action_display"] == "Bruno Fernandes -> Erling Haaland"
+    assert out["swaps"][0]["out_name"] == "Bruno Fernandes"
+    assert out["swaps"][0]["in_name"] == "Erling Haaland"
+    assert out["sensitivity"][0]["if_condition_display"] == "Third Player ruled out"
+    assert out["sensitivity"][0]["then_action_display"] == "Erling Haaland -> Bruno Fernandes"
+    assert out["runner_up"]["action_display"] == "Erling Haaland -> Bruno Fernandes"
+    # _fake_decision_payload's swap is always hardcoded p1->p2 regardless of the action string
+    # passed (only the action itself varies here) -- out_player_uid is still "p1" ("Bruno
+    # Fernandes"), independently of runner_up's own action string being reversed.
+    assert out["runner_up"]["swaps"][0]["out_name"] == "Bruno Fernandes"
+
+    # original dict passed in is never mutated
+    assert "action_display" not in payload
+
+
+def test_humanize_decision_payload_handles_a_roll_with_no_swaps():
+    payload = _fake_decision_payload(action="roll")
+    out = reporting.humanize_decision_payload(payload, {})
+    assert out["action_display"] == "roll"
+    assert out["swaps"] == []
+
+
+def test_humanize_swap_list_adds_names_without_mutating_input():
+    swaps = [{"out_player_uid": "p1", "in_player_uid": "p2", "delta_ep": 1.0, "reason": "test"}]
+    names = {"p1": "Bruno Fernandes", "p2": "Erling Haaland"}
+    out = reporting.humanize_swap_list(swaps, names)
+    assert out[0]["out_name"] == "Bruno Fernandes"
+    assert out[0]["in_name"] == "Erling Haaland"
+    assert "out_name" not in swaps[0]

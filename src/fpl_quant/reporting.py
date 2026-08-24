@@ -21,7 +21,9 @@ self-certification -- "the original lambda=0 bug passed whatever internal checks
 the time," per the spec's own stated reasoning for keeping them apart.
 """
 
+import copy
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -602,6 +604,139 @@ def build_captain_recommendation(
         "matches_current": matches_current,
         "potential_gain": round(recommended["mean_total"] - current["mean_total"], 2) if current and not matches_current else 0.0,
     }
+
+
+# ============================================================
+# player_uid -> canonical_name resolution for PWA-facing scripts. decision_engine.py/
+# squad_grade.py/elite_tracking.py all key their output by this project's own internal
+# player_uid (transfer_planner/squad_optimizer's native identity) -- a genuinely different
+# identity space from the numeric FPL element id app_export.py's own PWA screens are built
+# around (see that module's docstring). A raw player_uid is meaningless to the PWA (which has
+# no DB access), so every PWA-facing script that writes one of those modules' output needs to
+# resolve it to a real display name first -- this is that one, shared resolution layer,
+# matching run_transfer_planner_for_real_squad.py's own established
+# "SELECT canonical_name FROM dim_player WHERE player_uid = ?" pattern, batched.
+# ============================================================
+
+_ACTION_RE = re.compile(r"^transfer_in:(?P<out>[^-]+)->(?P<in>.+)$")
+_RULED_OUT_RE = re.compile(r"^(?P<uid>\S+) ruled out$")
+
+
+def resolve_player_names(con: duckdb.DuckDBPyConnection, uids) -> dict[str, str]:
+    """player_uid -> canonical_name for a batch of uids. Any uid with no matching dim_player
+    row is simply absent from the returned map (not an error, and never a fabricated name) --
+    callers fall back to the raw uid for those, same "absence is disclosed, not hidden" pattern
+    as everywhere else in this project."""
+    uids = {u for u in uids if u}
+    if not uids:
+        return {}
+    rows = con.execute(
+        "SELECT player_uid, canonical_name FROM dim_player WHERE player_uid = ANY(?)", [list(uids)]
+    ).fetchall()
+    return {uid: name for uid, name in rows}
+
+
+def uids_in_action(action: str | None) -> set[str]:
+    """The player_uid(s) embedded in a bare action string (see humanize_action()'s own
+    docstring for the exact format) -- empty for a non-transfer action or None. A second,
+    standalone consumer of this project's own action-string format besides
+    uids_referenced_in_decision_payload() (e.g. elite_tracking.py, which only has a bare
+    action string to resolve, not a full Decision payload)."""
+    m = _ACTION_RE.match(action or "")
+    return set(m.group("out", "in")) if m else set()
+
+
+def humanize_action(action: str | None, names: dict[str, str]) -> str | None:
+    """decision_engine.Decision.action / squad_optimizer transfer-rec strings are always
+    exactly 'transfer_in:<out_uid>-><in_uid>' for a transfer, or a bare action word ('roll',
+    'wildcard', 'free_hit', 'bench_boost', 'triple_captain') otherwise -- only the transfer
+    form embeds a player_uid, so only that form gets rewritten; every other action string (and
+    None) passes through unchanged. Falls back to the raw uid for any player_uid missing from
+    `names`, never blanking the action."""
+    if action is None:
+        return None
+    m = _ACTION_RE.match(action)
+    if not m:
+        return action
+    return f"{names.get(m.group('out'), m.group('out'))} -> {names.get(m.group('in'), m.group('in'))}"
+
+
+def humanize_condition(condition: str | None, names: dict[str, str]) -> str | None:
+    """decision_engine._injury_sensitivity()'s own if_condition strings are always exactly
+    '<uid> ruled out' -- any other condition string (and None) passes through unchanged."""
+    if condition is None:
+        return None
+    m = _RULED_OUT_RE.match(condition)
+    if not m:
+        return condition
+    return f"{names.get(m.group('uid'), m.group('uid'))} ruled out"
+
+
+def uids_referenced_in_decision_payload(decision_payload: dict) -> set[str]:
+    """Every player_uid embedded anywhere in an asdict()'d decision_engine.Decision -- both
+    this decision's own swaps and its runner_up's, plus the ones embedded inside the
+    action/sensitivity free-text strings -- so a caller can resolve them all with a single
+    batch query before calling humanize_decision_payload()."""
+    uids: set[str] = set()
+
+    def _add_swaps(swaps):
+        for s in swaps or []:
+            uids.add(s["out_player_uid"])
+            uids.add(s["in_player_uid"])
+
+    _add_swaps(decision_payload.get("swaps"))
+    if decision_payload.get("runner_up"):
+        _add_swaps(decision_payload["runner_up"].get("swaps"))
+        m = _ACTION_RE.match(decision_payload["runner_up"].get("action") or "")
+        if m:
+            uids.update(m.group("out", "in"))
+    for sens in decision_payload.get("sensitivity") or []:
+        m = _RULED_OUT_RE.match(sens.get("if_condition") or "")
+        if m:
+            uids.add(m.group("uid"))
+        m = _ACTION_RE.match(sens.get("then_action") or "")
+        if m:
+            uids.update(m.group("out", "in"))
+    m = _ACTION_RE.match(decision_payload.get("action") or "")
+    if m:
+        uids.update(m.group("out", "in"))
+    return uids
+
+
+def humanize_decision_payload(decision_payload: dict, names: dict[str, str]) -> dict:
+    """Returns a NEW dict (the input is never mutated) with every player_uid token in
+    action/sensitivity/swaps also available as a resolved display name: out_name/in_name
+    added to each swap, action_display/if_condition_display/then_action_display added
+    alongside the original raw-uid strings. The raw player_uid fields are kept untouched --
+    this only ADDS display fields, so any consumer that already relies on the raw shape
+    (e.g. this project's own tests) is unaffected."""
+    out = copy.deepcopy(decision_payload)
+
+    def _humanize_swaps(swaps):
+        for s in swaps or []:
+            s["out_name"] = names.get(s["out_player_uid"], s["out_player_uid"])
+            s["in_name"] = names.get(s["in_player_uid"], s["in_player_uid"])
+
+    _humanize_swaps(out.get("swaps"))
+    out["action_display"] = humanize_action(out.get("action"), names)
+    if out.get("runner_up"):
+        _humanize_swaps(out["runner_up"].get("swaps"))
+        out["runner_up"]["action_display"] = humanize_action(out["runner_up"].get("action"), names)
+    for sens in out.get("sensitivity") or []:
+        sens["if_condition_display"] = humanize_condition(sens.get("if_condition"), names)
+        sens["then_action_display"] = humanize_action(sens.get("then_action"), names)
+    return out
+
+
+def humanize_swap_list(swaps: list[dict], names: dict[str, str]) -> list[dict]:
+    """Same out_name/in_name addition as humanize_decision_payload()'s own swap handling, for
+    callers with a bare swap list rather than a full Decision payload (squad_grade.py's
+    top_swaps)."""
+    out = copy.deepcopy(swaps)
+    for s in out:
+        s["out_name"] = names.get(s["out_player_uid"], s["out_player_uid"])
+        s["in_name"] = names.get(s["in_player_uid"], s["in_player_uid"])
+    return out
 
 
 def save_report_snapshot(report: dict, history_dir: Path | str) -> Path:

@@ -1,0 +1,4 @@
+{
+  "_comment": "Roadmap Feature 9: configurable list of elite (e.g. top-10k) FPL managers to track for divergence against this project's own model recommendation. Empty by default -- no elite entry_ids are hardcoded anywhere in code; a maintainer populates this file with real, chosen entry_ids (e.g. from fantasy.premierleague.com/entry/<entry_id>/) to opt specific managers into tracking. scripts/track_elite.py reads this file at data/elite_managers.json relative to the repo root.",
+  "managers": []
+}

@@ -15,12 +15,24 @@ independently verified live fetch in THIS environment. Every fetch_* function is
 project's established convention (ingest_understat.py, ingest_fpl_entry_picks.py).
 """
 
+import json
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 
 FPL_API_BASE = "https://fantasy.premierleague.com/api"
+
+
+class UpstreamUnavailableError(Exception):
+    """A live FPL API fetch failed even after retry/backoff (see _fetch_json()) -- never
+    raised for a real, non-transient client error (404 etc, which fetch_entry_picks()'s own
+    caller-facing None-on-404 convention still needs to see as a plain requests.HTTPError,
+    unchanged). append_live_rank_snapshot()'s own stale-fallback path (see
+    scripts/export_live_data.py) depends on catching this specific exception type to know a
+    fetch genuinely failed vs. some other error."""
+
 
 # 429 (rate limited) and the 5xx server-error family -- live_tracking.yml's cron fires every
 # 10 minutes during matchdays, which is exactly the traffic pattern that trips a rate limit;
@@ -55,22 +67,33 @@ def _fetch_json(url: str, *, max_attempts: int = 4, base_backoff_seconds: float 
     header when present, since that's the server's own explicit "wait this long" signal
     rather than a guess. Any other status (a real 4xx like 404) raises immediately via
     raise_for_status(), unretried -- retrying a client error that isn't going to change on
-    its own would just waste the attempt budget. This sandbox's own network policy blocks
+    its own would just waste the attempt budget (fetch_entry_picks()'s own 404-means-None
+    handling depends on exactly this: raise_for_status() still raises a plain
+    requests.HTTPError for a 404, never UpstreamUnavailableError). Once max_attempts is
+    exhausted on a retryable failure, raises UpstreamUnavailableError rather than the raw
+    requests exception -- never silently returns stale/empty data, and gives
+    append_live_rank_snapshot()'s own stale-fallback caller (see scripts/export_live_data.py)
+    a single, specific exception type to catch. This sandbox's own network policy blocks
     fantasy.premierleague.com (see module docstring), so the retry path itself is exercised by
     test_app_export.py's own injected-failure-then-success mock of requests.get, not verified
     against a live rate-limit event -- the mechanism (backoff doubling per attempt,
     Retry-After honored, non-retryable errors raised immediately) is real, tested code
     regardless."""
+    last_exc: Exception | None = None
     for attempt in range(max_attempts):
         try:
             resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
-        except (requests.ConnectionError, requests.Timeout):
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_exc = e
             if attempt == max_attempts - 1:
-                raise
+                raise UpstreamUnavailableError(f"{url} failed after {max_attempts} attempts: {last_exc}") from last_exc
             time.sleep(base_backoff_seconds * (2 ** attempt))
             continue
 
-        if resp.status_code in _RETRYABLE_STATUS_CODES and attempt < max_attempts - 1:
+        if resp.status_code in _RETRYABLE_STATUS_CODES:
+            last_exc = requests.HTTPError(f"{resp.status_code} from {url}", response=resp)
+            if attempt == max_attempts - 1:
+                raise UpstreamUnavailableError(f"{url} failed after {max_attempts} attempts: {last_exc}") from last_exc
             retry_after = resp.headers.get("Retry-After")
             delay = float(retry_after) if retry_after and retry_after.isdigit() else base_backoff_seconds * (2 ** attempt)
             time.sleep(delay)
@@ -450,6 +473,53 @@ def build_leagues(
 
 def generated_at() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# ============================================================
+# Roadmap Feature 6: live overall-rank movement view. The one function in this module that
+# does its own file I/O (every other function here returns a pure dict/list and lets its
+# caller script write it) -- a real, disclosed exception: appending to an existing snapshot
+# series needs to read the prior state before writing, and that read-modify-write is the
+# whole point of this function, not incidental to it.
+# ============================================================
+
+def append_live_rank_snapshot(
+    dashboard_dir: Path, entry_id: int, gw: int, *,
+    ts: str, overall_rank: int, mini_league_pos: int | None, live_points: int, stale: bool, data_asof: str,
+) -> dict:
+    """Append-only: reads data/dashboard/live_rank_<entry_id>_<gw>.json if it already exists,
+    appends exactly one new snapshot, writes back -- never mutates a prior row. overall_rank
+    must be a real, positive int (the caller's job to supply the last-known rank on a stale
+    poll, never a fabricated one here) -- there is no "no snapshot" representation; a poll
+    cycle with nothing worth recording simply doesn't call this function at all (see
+    scripts/export_live_data.py)."""
+    if overall_rank <= 0:
+        raise ValueError(f"overall_rank must be a positive int, got {overall_rank}")
+    path = dashboard_dir / f"live_rank_{entry_id}_{gw}.json"
+    if path.exists():
+        payload = json.loads(path.read_text())
+    else:
+        payload = {"entry_id": entry_id, "gw": gw, "snapshots": []}
+    payload["data_asof"] = data_asof
+    payload["stale"] = stale
+    payload["snapshots"] = [
+        *payload["snapshots"],
+        {"ts": ts, "overall_rank": overall_rank, "mini_league_pos": mini_league_pos, "live_points": live_points},
+    ]
+    path.write_text(json.dumps(payload, indent=2))
+    return payload
+
+
+def last_known_rank_snapshot(dashboard_dir: Path, entry_id: int, gw: int) -> dict | None:
+    """The most recent snapshot already on disk for (entry_id, gw), or None if the file
+    doesn't exist yet -- what a stale fallback poll (a live fetch that failed even after
+    retry/backoff) falls back to, per this feature's own 'never fabricate a rank' rule."""
+    path = dashboard_dir / f"live_rank_{entry_id}_{gw}.json"
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text())
+    snapshots = payload.get("snapshots") or []
+    return snapshots[-1] if snapshots else None
 
 
 def current_event(bootstrap: dict) -> int | None:
