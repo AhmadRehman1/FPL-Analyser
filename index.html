@@ -94,6 +94,14 @@
   html.motion-ready .screen.active.dir-back{animation:screenSlideBack 0.32s cubic-bezier(0.22,1,0.36,1);}
   @keyframes screenSlideFwd{from{opacity:0;transform:translateX(26px);}to{opacity:1;transform:translateX(0);}}
   @keyframes screenSlideBack{from{opacity:0;transform:translateX(-26px);}to{opacity:1;transform:translateX(0);}}
+
+  /* ---- pull-to-refresh -- sits before every .screen in normal flow, so growing its height
+     just pushes today's active screen down; no fixed-position/overflow-clip juggling. ---- */
+  .pull-indicator{height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;color:var(--on-dark-dim);transition:height 0.28s cubic-bezier(0.22,1,0.36,1);}
+  .pull-indicator.dragging{transition:none;}
+  .pull-indicator .spin-icon{width:18px;height:18px;flex-shrink:0;}
+  .pull-indicator.refreshing .spin-icon{animation:spin 0.7s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
   .section{margin-bottom:20px;}
   .section-title{font-size:13.5px;font-weight:700;color:var(--on-dark);margin:0 0 10px;display:flex;align-items:center;justify-content:space-between;}
   .section-title .link-sm{font-size:11.5px;font-weight:700;color:var(--on-dark-dim);}
@@ -485,6 +493,9 @@
 </header>
 
 <main>
+  <div class="pull-indicator" id="pull-indicator" aria-hidden="true">
+    <svg class="spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>
+  </div>
   <section class="screen active" data-tab="home"><div class="content" id="home-content"><div class="skel skel-block"></div><div class="skel skel-block"></div></div></section>
   <section class="screen" data-tab="team"><div class="content" id="team-content"></div></section>
   <section class="screen" data-tab="transfers"><div class="content" id="transfers-content"></div></section>
@@ -3159,6 +3170,85 @@ function openProfileSheet() {
 }
 
 // ============================================================
+// pull-to-refresh -- vertical-only, and deliberately NOT gesture-merged with initSwipeNav():
+// a horizontal swipe there already requires |dx| > |dy|*1.5, so a mostly-vertical pull never
+// satisfies it, and a mostly-horizontal swipe never satisfies this gesture's own
+// |dy| > |dx|*1.5 check below -- both listener sets read the same raw touches independently
+// and simply never agree on the same gesture. Only tracked once the page is already scrolled
+// to the very top (nothing to pull down INTO otherwise) and re-fetches everything loadShared/
+// loadAccount cover, not just the live poll -- the same sequence populateAccountSwitcher's own
+// onchange handler already uses after an account switch.
+// ============================================================
+const PULL_MAX_PX = 64;
+const PULL_TRIGGER_PX = 56;
+
+function initPullToRefresh() {
+  const main = document.querySelector("main");
+  const indicator = document.getElementById("pull-indicator");
+  if (!main || !indicator) return;
+  const icon = indicator.querySelector(".spin-icon");
+  let touch = null;
+  let refreshing = false;
+
+  function setPull(px, animated) {
+    indicator.classList.toggle("dragging", !animated);
+    indicator.style.height = `${px}px`;
+    if (icon && !refreshing) icon.style.transform = `rotate(${Math.min(px / PULL_TRIGGER_PX, 1) * 180}deg)`;
+  }
+
+  main.addEventListener("touchstart", (e) => {
+    if (refreshing || e.touches.length > 1 || window.scrollY > 0 || !document.getElementById("sheet-overlay").hidden) { touch = null; return; }
+    const t = e.touches[0];
+    touch = { x: t.clientX, y: t.clientY, active: false, pull: 0 };
+  }, { passive: true });
+
+  main.addEventListener("touchmove", (e) => {
+    if (!touch) return;
+    const t = e.touches[0];
+    const dy = t.clientY - touch.y, dx = t.clientX - touch.x;
+    if (!touch.active) {
+      if (dy < 12 || dy < Math.abs(dx) * 1.5) return; // not clearly a downward pull yet
+      touch.active = true;
+    }
+    e.preventDefault(); // own the gesture now -- replaces the page's native overscroll bounce
+    touch.pull = Math.min(dy * 0.5, PULL_MAX_PX);
+    setPull(touch.pull, false);
+  }, { passive: false });
+
+  main.addEventListener("touchend", () => {
+    const started = touch;
+    touch = null;
+    if (!started || !started.active) return;
+    if (started.pull >= PULL_TRIGGER_PX) doRefresh(); else setPull(0, true);
+  }, { passive: true });
+
+  main.addEventListener("touchcancel", () => { touch = null; setPull(0, true); }, { passive: true });
+
+  async function doRefresh() {
+    refreshing = true;
+    hapticTick();
+    indicator.classList.add("refreshing");
+    if (icon) icon.style.transform = "";
+    setPull(PULL_MAX_PX, true);
+    try {
+      state.staleSince = null;
+      await loadShared();
+      await loadAccount(state.accountId);
+      updateStaleBanner();
+      renderCurrentTab();
+      await pollLiveData();
+    } catch {
+      // loadShared/loadAccount already fall back to cached data on a real network failure --
+      // nothing further to show here beyond just ending the refresh state below.
+    } finally {
+      indicator.classList.remove("refreshing");
+      setPull(0, true);
+      refreshing = false;
+    }
+  }
+}
+
+// ============================================================
 // boot
 // ============================================================
 
@@ -3202,6 +3292,7 @@ async function init() {
     state.staleSince = null;
     initScrollReveal();
     initSwipeNav();
+    initPullToRefresh();
     window.addEventListener("scroll", updateBackToTop, { passive: true });
     await loadShared();
     await loadAccount(state.accountId);
