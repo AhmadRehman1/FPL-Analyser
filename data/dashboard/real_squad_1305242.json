@@ -4,7 +4,7 @@
   "target_season": "2026-2027",
   "current_gameweek": 1,
   "plan_for_gameweek": 2,
-  "generated_at": "2026-08-23T18:33:50.541035+00:00",
+  "generated_at": "2026-08-24T07:15:53.536262+00:00",
   "transfer_recommendations": [
     {
       "rank": 1,
@@ -22,9 +22,9 @@
       "player_in": "Dara O'Shea",
       "player_out_club": "Coventry City",
       "player_in_club": "Ipswich Town",
-      "gain": 12.62,
+      "gain": 12.63,
       "cost": 0.0,
-      "net": 12.62
+      "net": 12.63
     },
     {
       "rank": 3,
@@ -42,9 +42,9 @@
       "player_in": "\u0110or\u0111e Petrovi\u0107",
       "player_out_club": "Spurs",
       "player_in_club": "Bournemouth",
-      "gain": 11.8,
+      "gain": 11.82,
       "cost": 0.0,
-      "net": 11.8
+      "net": 11.82
     },
     {
       "rank": 5,
@@ -52,46 +52,379 @@
       "player_in": "Brenden Aaronson",
       "player_out_club": "Brighton",
       "player_in_club": "Leeds",
-      "gain": 10.82,
+      "gain": 10.81,
       "cost": 0.0,
-      "net": 10.82
+      "net": 10.81
     }
   ],
   "hold_vs_transfer_now": {
     "recommended_action": "hold",
     "transfer_now_value": 15.47,
-    "hold_value": 22.93
+    "hold_value": 22.94
   },
   "chip_evaluations": [
     {
       "chip_type": "wildcard",
       "recommended": true,
-      "score": 29.886
+      "score": 21.091
     },
     {
       "chip_type": "free_hit",
       "recommended": true,
-      "score": 9.824
+      "score": 9.681
     },
     {
       "chip_type": "triple_captain",
       "recommended": true,
-      "score": 3.674
+      "score": 3.7
     },
     {
       "chip_type": "bench_boost",
       "recommended": true,
-      "score": 9.058
+      "score": 9.043
     }
   ],
   "captain_recommendation": {
-    "recommended_uid": "player_bruno_borges_fernandes",
-    "recommended_name": "Bruno Borges Fernandes",
-    "recommended_expected_points": 4.31,
+    "recommended_uid": "player_virgil_van_dijk",
+    "recommended_name": "Virgil van Dijk",
+    "recommended_expected_points": 4.18,
     "current_uid": "player_erling_haaland",
     "current_name": "Erling Haaland",
-    "current_expected_points": 4.17,
+    "current_expected_points": 3.62,
     "matches_current": false,
-    "potential_gain": 0.14
+    "potential_gain": 0.55
+  },
+  "explain": {
+    "run_id": 2,
+    "target_season": "2026-2027",
+    "target_gameweek": 2,
+    "top_transfers": [
+      {
+        "rank": 1,
+        "player_out": "player_antonin_kinsky",
+        "player_in": "player_bernd_leno",
+        "horizon_value_gain": 15.473975093358723,
+        "transfer_cost": 0.0,
+        "net_value": 15.473975093358723
+      },
+      {
+        "rank": 2,
+        "player_out": "player_bobby_thomas",
+        "player_in": "player_dara_o_shea",
+        "horizon_value_gain": 12.628101125462134,
+        "transfer_cost": 0.0,
+        "net_value": 12.628101125462134
+      },
+      {
+        "rank": 3,
+        "player_out": "player_antonin_kinsky",
+        "player_in": "player_martin_dubravka",
+        "horizon_value_gain": 12.04849711803272,
+        "transfer_cost": 0.0,
+        "net_value": 12.04849711803272
+      },
+      {
+        "rank": 4,
+        "player_out": "player_antonin_kinsky",
+        "player_in": "player_or_e_petrovic",
+        "horizon_value_gain": 11.822918790847108,
+        "transfer_cost": 0.0,
+        "net_value": 11.822918790847108
+      },
+      {
+        "rank": 5,
+        "player_out": "player_pascal_gross",
+        "player_in": "player_brenden_aaronson",
+        "horizon_value_gain": 10.81445974319725,
+        "transfer_cost": 0.0,
+        "net_value": 10.81445974319725
+      }
+    ],
+    "top_multi_transfers": [
+      {
+        "rank": 1,
+        "players_out": [
+          "player_antonin_kinsky",
+          "player_bobby_thomas"
+        ],
+        "players_in": [
+          "player_bernd_leno",
+          "player_dara_o_shea"
+        ],
+        "combined_price_out": 8.5,
+        "combined_price_in": 8.5,
+        "horizon_value_gain": 28.102076218820855,
+        "transfer_cost": 4.0,
+        "net_value": 24.102076218820855
+      },
+      {
+        "rank": 2,
+        "players_out": [
+          "player_antonin_kinsky",
+          "player_riccardo_calafiori"
+        ],
+        "players_in": [
+          "player_adrien_truffert",
+          "player_bernd_leno"
+        ],
+        "combined_price_out": 10.0,
+        "combined_price_in": 10.0,
+        "horizon_value_gain": 23.998323423056675,
+        "transfer_cost": 4.0,
+        "net_value": 19.998323423056675
+      },
+      {
+        "rank": 3,
+        "players_out": [
+          "player_antonin_kinsky",
+          "player_riccardo_calafiori"
+        ],
+        "players_in": [
+          "player_dara_o_shea",
+          "player_david_raya_martin"
+        ],
+        "combined_price_out": 10.0,
+        "combined_price_in": 10.0,
+        "horizon_value_gain": 23.954610424891634,
+        "transfer_cost": 4.0,
+        "net_value": 19.954610424891634
+      },
+      {
+        "rank": 4,
+        "players_out": [
+          "player_antonin_kinsky",
+          "player_riccardo_calafiori"
+        ],
+        "players_in": [
+          "player_bernd_leno",
+          "player_nathan_collins"
+        ],
+        "combined_price_out": 10.0,
+        "combined_price_in": 10.0,
+        "horizon_value_gain": 23.46927651958837,
+        "transfer_cost": 4.0,
+        "net_value": 19.46927651958837
+      },
+      {
+        "rank": 5,
+        "players_out": [
+          "player_antonin_kinsky",
+          "player_riccardo_calafiori"
+        ],
+        "players_in": [
+          "player_bernd_leno",
+          "player_malick_thiaw"
+        ],
+        "combined_price_out": 10.0,
+        "combined_price_in": 9.5,
+        "horizon_value_gain": 22.918098618069244,
+        "transfer_cost": 4.0,
+        "net_value": 18.918098618069244
+      }
+    ],
+    "hold_recommendation": {
+      "recommended_action": "hold",
+      "transfer_now_value": 15.473975093358723,
+      "hold_value": 22.93575008261052,
+      "detail": {
+        "recommended_action": "hold",
+        "transfer_now_value": 15.473975093358723,
+        "hold_value": 22.93575008261052,
+        "best_transfer_now": {
+          "player_out": "player_antonin_kinsky",
+          "player_in": "player_bernd_leno",
+          "price_out": 4.5,
+          "price_in": 4.5,
+          "horizon_value_gain": 15.473975093358723,
+          "transfer_cost": 0.0,
+          "net_value": 15.473975093358723,
+          "rank": 1
+        },
+        "best_hold_single_next_week": {
+          "player_out": "player_antonin_kinsky",
+          "player_in": "player_bernd_leno",
+          "price_out": 4.5,
+          "price_in": 4.5,
+          "horizon_value_gain": 12.202178607548959,
+          "transfer_cost": 0.0,
+          "net_value": 12.202178607548959,
+          "rank": 1
+        },
+        "best_hold_multi_next_week": {
+          "players_out": [
+            "player_antonin_kinsky",
+            "player_bobby_thomas"
+          ],
+          "players_in": [
+            "player_bernd_leno",
+            "player_dara_o_shea"
+          ],
+          "combined_price_out": 8.5,
+          "combined_price_in": 8.5,
+          "horizon_value_gain": 22.93575008261052,
+          "transfer_cost": 0.0,
+          "net_value": 22.93575008261052,
+          "rank": 1
+        }
+      }
+    },
+    "chips": {
+      "wildcard": {
+        "recommended": true,
+        "score_or_gain": 21.091149300775584,
+        "gw19_urgent": false,
+        "detail": {
+          "recommended": true,
+          "fresh_run_id": 7,
+          "fresh_squad_horizon_value": 230.40707528652996,
+          "baseline_value": 209.31592598575438,
+          "gain": 21.091149300775584,
+          "current_squad_value_per_gw": {
+            "2": 39.20539621590081,
+            "3": 38.819851397087675,
+            "4": 39.111763278846574,
+            "5": 38.33902663516555,
+            "6": 38.36591336539507
+          }
+        }
+      },
+      "free_hit": {
+        "recommended": true,
+        "score_or_gain": 9.681016311214393,
+        "gw19_urgent": false,
+        "detail": {
+          "recommended": true,
+          "fresh_run_id": 8,
+          "fresh_gw_value": 40.020530748425124,
+          "current_gw_value": 30.33951443721073,
+          "gain": 9.681016311214393,
+          "current_xi_value_per_gw": {
+            "2": 30.33951443721073,
+            "3": 30.101023101096715,
+            "4": 30.068272441275923,
+            "5": 29.642847143014762,
+            "6": 29.901448582852314
+          }
+        }
+      },
+      "triple_captain": {
+        "recommended": true,
+        "score_or_gain": 3.7002357140045126,
+        "gw19_urgent": false,
+        "detail": {
+          "recommended": true,
+          "captain_candidate": "player_virgil_van_dijk",
+          "tc_score": 3.7002357140045126,
+          "all_candidates": [
+            {
+              "player_uid": "player_virgil_van_dijk",
+              "tc_score": 3.7002357140045126,
+              "mean_total": 4.1756,
+              "var_total": 10.043164639999985
+            },
+            {
+              "player_uid": "player_bruno_borges_fernandes",
+              "tc_score": 3.524755723257349,
+              "mean_total": 4.0813,
+              "var_total": 13.766290310000016
+            },
+            {
+              "player_uid": "player_erling_haaland",
+              "tc_score": 3.098679931559283,
+              "mean_total": 3.6245,
+              "var_total": 12.288299750000009
+            },
+            {
+              "player_uid": "player_bryan_mbeumo",
+              "tc_score": 2.881515680135083,
+              "mean_total": 3.3918,
+              "var_total": 11.572892760000036
+            },
+            {
+              "player_uid": "player_luke_shaw",
+              "tc_score": 2.695749956694071,
+              "mean_total": 3.1215,
+              "var_total": 8.056137750000026
+            },
+            {
+              "player_uid": "player_dominik_szoboszlai",
+              "tc_score": 2.568948363327842,
+              "mean_total": 2.9624,
+              "var_total": 6.88018624
+            },
+            {
+              "player_uid": "player_dominic_calvert_lewin",
+              "tc_score": 2.1209597599830845,
+              "mean_total": 2.4976,
+              "var_total": 6.304794239999986
+            },
+            {
+              "player_uid": "player_riccardo_calafiori",
+              "tc_score": 1.8354026211659353,
+              "mean_total": 2.3105,
+              "var_total": 10.03188974999995
+            },
+            {
+              "player_uid": "player_joao_pedro_junqueira_de_jesus",
+              "tc_score": 1.496502877179559,
+              "mean_total": 1.8253,
+              "var_total": 4.804779910000007
+            },
+            {
+              "player_uid": "player_pascal_gross",
+              "tc_score": 0.4831337631030988,
+              "mean_total": 0.7069,
+              "var_total": 2.2253923900000045
+            },
+            {
+              "player_uid": "player_antonin_kinsky",
+              "tc_score": 0.14258895638793376,
+              "mean_total": 0.3083,
+              "var_total": 1.220451110000006
+            }
+          ],
+          "captain_value_per_gw": {
+            "2": 4.0646439676338915,
+            "3": 3.9542081779554783,
+            "4": 4.301972661021537,
+            "5": 3.628058316230877,
+            "6": 3.5471796208697417
+          }
+        }
+      },
+      "bench_boost": {
+        "recommended": true,
+        "score_or_gain": 9.04349083757064,
+        "gw19_urgent": false,
+        "detail": {
+          "recommended": true,
+          "target_gameweek": 4,
+          "bench_ep_sum": 9.04349083757064,
+          "all_gameweeks": {
+            "2": 8.865881778690087,
+            "3": 8.718828295990955,
+            "4": 9.04349083757064,
+            "5": 8.696179492150799,
+            "6": 8.464464782542766
+          },
+          "crowded_chip_week": {
+            "crowded_score": -0.0009544256715055319,
+            "caveat": "an ownership+fixture-swing-based PROXY for field-wide chip timing, not measured rival-manager chip usage -- no such data is ingested anywhere in this project"
+          }
+        }
+      }
+    },
+    "chip_combos": null,
+    "gw19_deadline": {
+      "unused_set1_chips": [
+        "bench_boost",
+        "free_hit",
+        "triple_captain",
+        "wildcard"
+      ],
+      "gameweeks_until_gw19": 17,
+      "urgent": false,
+      "forfeited_now": false
+    }
   }
 }
