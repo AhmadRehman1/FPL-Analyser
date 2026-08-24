@@ -29,6 +29,29 @@ def test_bench_player_uids_empty_when_every_holding_starts():
 
 
 # ============================================================
+# armband_uids
+# ============================================================
+
+def test_armband_uids_finds_captain_and_vice():
+    holdings = [
+        {"player_uid": "mid3", "is_captain": True, "is_vice": False},
+        {"player_uid": "fwd1", "is_captain": False, "is_vice": True},
+        {"player_uid": "def0", "is_captain": False, "is_vice": False},
+    ]
+    assert rs.armband_uids(holdings) == {"captain": "mid3", "vice_captain": "fwd1"}
+
+
+def test_armband_uids_omits_a_missing_role_rather_than_defaulting():
+    holdings = [{"player_uid": "mid3", "is_captain": True, "is_vice": False}]
+    assert rs.armband_uids(holdings) == {"captain": "mid3"}
+
+
+def test_armband_uids_empty_when_neither_role_present():
+    holdings = [{"player_uid": "def0", "is_captain": False, "is_vice": False}]
+    assert rs.armband_uids(holdings) == {}
+
+
+# ============================================================
 # scenario_result_row
 # ============================================================
 

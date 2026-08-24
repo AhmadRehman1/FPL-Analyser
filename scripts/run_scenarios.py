@@ -7,17 +7,25 @@ Scope, stated plainly: scenario.py's own docstring frames Feature 4 as a "standa
 interactive" layer -- genuinely free-form interactivity (the user picks ANY player, ANY
 scenario kind, gets a live answer) would need a request-handling backend this project
 doesn't have; index.html is a static PWA that only ever fetches pre-committed JSON. This
-script's real, disclosed v1 scope is narrower and precomputed: one scenario kind
-("lineup_change", the cheapest and most actionable for a manager who already has a squad --
-"would starting this specific bench player over my current XI change the model's plan?"),
-applied to every one of the manager's own real BENCH players (never the full player pool --
-same cost-discipline reasoning `evaluate_transfers()`'s own docstring gives for capping its
-search, not an arbitrary limit). Each of the up to 4 bench players costs one additional real
-decision_engine.recommend_best_move() call (a full transfer-search + all-4-chip-evaluation
-pass), so this is bounded, not free -- deliberately NOT extended to injury/price_change
-scenarios for the whole 15-player squad here, which would be 15+ additional such calls per
-account for comparatively lower marginal insight (decision_engine's own built-in sensitivity
-toggle already answers "what if my single highest-EP player is ruled out").
+script's real, disclosed v1 scope is narrower and precomputed: two bounded scenario sets,
+never the whole 15-player squad (same cost-discipline reasoning `evaluate_transfers()`'s own
+docstring gives for capping its search, not an arbitrary limit) --
+
+1. "lineup_change" (the cheapest and most actionable for a manager who already has a squad --
+   "would starting this specific bench player over my current XI change the model's plan?"),
+   applied to every one of the manager's own real BENCH players (up to 4).
+2. "injury" for the manager's own real captain and vice-captain specifically -- "if my captain
+   doesn't play at all, does the plan change?" -- the two players the real FPL armband-transfer
+   rule actually turns on (see transfer_planner.vice_captain_fallback_adjustment()'s own
+   docstring for the EV side of this same real rule). decision_engine's own built-in
+   sensitivity toggle already answers "what if my single highest-EP player is ruled out," which
+   often is NOT the captain (captaincy also weighs risk, not just raw EP) -- this is a
+   genuinely different, complementary question, not a duplicate.
+
+Each additional scenario costs one real decision_engine.recommend_best_move() call (a full
+transfer-search + all-4-chip-evaluation pass), so up to 6 total per account (4 bench + captain
++ vice) is bounded, not free -- deliberately NOT extended to injury/price_change scenarios for
+the whole squad.
 
 Writes data/dashboard/scenarios_<entry_id>_<gw>_<asof>.json for the PWA.
 
@@ -90,6 +98,20 @@ def scenario_result_row(player_uid: str, result: scen.ScenarioResult) -> dict:
     }
 
 
+def armband_uids(current_holdings: list[dict]) -> dict[str, str]:
+    """Pure, DB-free: {"captain": player_uid, "vice_captain": player_uid} for whichever of the
+    two are actually found in current_holdings -- a role absent from the manager's real squad
+    holdings (shouldn't happen for a real, complete squad, but never assumed) is simply omitted
+    from the returned dict, not defaulted to some other player."""
+    out = {}
+    for h in current_holdings:
+        if h["is_captain"]:
+            out["captain"] = h["player_uid"]
+        elif h["is_vice"]:
+            out["vice_captain"] = h["player_uid"]
+    return out
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event>")
@@ -134,14 +156,23 @@ def main() -> None:
     # the most.
     rows.sort(key=lambda r: r["delta_ep"], reverse=True)
 
+    armband_rows = []
+    for role, player_uid in armband_uids(current_holdings).items():
+        print(f"[scenario] injury for {role} ({player_uid})...")
+        result = scen.apply_scenario(con, base_state, scen.Scenario(kind="injury", player_uid=player_uid))
+        row = scenario_result_row(player_uid, result)
+        row["role"] = role
+        armband_rows.append(row)
+
     data_asof = calibration_asof_date.isoformat()
-    names = reporting.resolve_player_names(con, {r["player_uid"] for r in rows})
-    for r in rows:
+    all_uids = {r["player_uid"] for r in rows} | {r["player_uid"] for r in armband_rows}
+    names = reporting.resolve_player_names(con, all_uids)
+    for r in rows + armband_rows:
         r["player_name"] = names.get(r["player_uid"], r["player_uid"])
 
     payload = {
         "entry_id": entry_id, "gw": plan_for_gameweek, "data_asof": data_asof,
-        "bench_what_ifs": rows,
+        "bench_what_ifs": rows, "armband_what_ifs": armband_rows,
     }
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
@@ -153,7 +184,10 @@ def main() -> None:
     print(f"[run_scenarios] wrote {out_path}")
     for r in rows:
         flip_note = f" -- FLIPS plan to '{r['perturbed_action']}'" if r["flipped"] else ""
-        print(f"  {r['player_name']}: {r['delta_ep']:+.2f} EP{flip_note}")
+        print(f"  bench: {r['player_name']}: {r['delta_ep']:+.2f} EP{flip_note}")
+    for r in armband_rows:
+        flip_note = f" -- FLIPS plan to '{r['perturbed_action']}'" if r["flipped"] else ""
+        print(f"  {r['role']}: {r['player_name']}: {r['delta_ep']:+.2f} EP{flip_note}")
 
     con.close()
 

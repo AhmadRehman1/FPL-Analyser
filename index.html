@@ -2405,23 +2405,35 @@ function squadGradeCard() {
 // interactive layer scenario.py's own docstring describes, which this static PWA has no
 // backend to support). Absent entirely (no card) when scenarios_<id>_latest.json hasn't
 // been generated yet for this account, same graceful per-panel degradation as squadGradeCard().
+const ARMBAND_ROLE_LABELS = { captain: "Captain", vice_captain: "Vice-captain" };
+function whatIfRow(label, r) {
+  return `
+    <div class="sl-row">
+      <div class="sl-label">${label}${r.flipped ? ` <span style="color:var(--ink-dim2);">&middot; flips plan to '${escapeHtml(r.perturbed_action)}'</span>` : ""}</div>
+      <div class="sl-value" style="color:${r.delta_ep > 0 ? "var(--green)" : r.delta_ep < 0 ? "var(--red)" : "var(--ink-dim)"};">${r.delta_ep >= 0 ? "+" : ""}${r.delta_ep.toFixed(1)}</div>
+    </div>`;
+}
 function whatIfCard() {
   const s = state.scenarios;
-  if (!s || !s.bench_what_ifs || !s.bench_what_ifs.length) return "";
+  const hasBench = s && s.bench_what_ifs && s.bench_what_ifs.length;
+  const hasArmband = s && s.armband_what_ifs && s.armband_what_ifs.length;
+  if (!hasBench && !hasArmband) return "";
   return `
     <div class="card">
       <div class="card-title" style="margin-bottom:4px;">What if&hellip;?</div>
       <p style="font-size:11px;color:var(--ink-dim);margin:0 0 10px;">
-        Starting a bench player instead of your current XI, holding everything else fixed &mdash;
-        projected change to the model's own recommended plan.
+        Projected change to the model's own recommended plan, holding everything else fixed.
       </p>
+      ${hasArmband ? `
+      <div style="font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">If they don't play at all</div>
+      <div class="stat-list" style="margin-bottom:${hasBench ? "12px" : "0"};">
+        ${s.armband_what_ifs.map(r => whatIfRow(`${ARMBAND_ROLE_LABELS[r.role] || r.role} (${escapeHtml(r.player_name)}) is out`, r)).join("")}
+      </div>` : ""}
+      ${hasBench ? `
+      <div style="font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Starting a bench player instead</div>
       <div class="stat-list">
-        ${s.bench_what_ifs.map(r => `
-          <div class="sl-row">
-            <div class="sl-label">${escapeHtml(r.player_name)} starts${r.flipped ? ` <span style="color:var(--ink-dim2);">&middot; flips plan to '${escapeHtml(r.perturbed_action)}'</span>` : ""}</div>
-            <div class="sl-value" style="color:${r.delta_ep > 0 ? "var(--green)" : r.delta_ep < 0 ? "var(--red)" : "var(--ink-dim)"};">${r.delta_ep >= 0 ? "+" : ""}${r.delta_ep.toFixed(1)}</div>
-          </div>`).join("")}
-      </div>
+        ${s.bench_what_ifs.map(r => whatIfRow(`${escapeHtml(r.player_name)} starts`, r)).join("")}
+      </div>` : ""}
       ${provenanceLine({ data_asof: s.data_asof })}
     </div>`;
 }
