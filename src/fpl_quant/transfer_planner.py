@@ -930,6 +930,58 @@ def evaluate_triple_captain(
     }
 
 
+def vice_captain_fallback_adjustment(
+    con: duckdb.DuckDBPyConnection, mm_model_version: int, mc_model_version: int,
+    vice_uid: str | None, candidate_uids: set[str],
+) -> dict[str, float]:
+    """A real FPL rule this project's captain-choice modeling has never accounted for anywhere
+    (grepped the whole codebase before writing this: squad_optimizer._captain_objective_
+    component's `linear_ep = sum(mu) + mu[captain_uid]`, monte_carlo.py -- "captaincy has no
+    effect on monte_carlo.py's mechanics" per this module's own README entry -- and
+    evaluate_triple_captain()'s own `marginal_value_i is exactly player i's own simulated
+    total_points" all treat a captain's expected value as just their own mean_total, with zero
+    "vice"/"armband" mentions anywhere): if the captain doesn't play AT ALL (0 minutes), the
+    armband automatically transfers to the vice-captain, who then gets doubled instead. A
+    captain's TRUE expected marginal value is
+    E[captain_points | plays]*P(captain plays) + P(captain doesn't play)*E[vice_points] --
+    the first term already IS mean_total(captain) (M6's mean_total already integrates over the
+    captain's own play/no-play uncertainty), but the second term (the real safety-net value of
+    who's actually designated vice) has never been added anywhere in this project.
+
+    Returns {candidate_uid: correction}, correction = p_0min(candidate) * mean_total(vice_uid)
+    -- p_0min from M2's real minutes model output (not invented here), mean_total(vice_uid)
+    from M6's real simulation (already unconditionally integrates the vice's own play/no-play
+    uncertainty, so no separate P(vice plays) term is needed). Assumes independence between the
+    captain candidate's own minutes outcome and the vice's performance -- the same kind of
+    simplifying assumption this project's own cross-player covariance model already makes for
+    category pairs with no shared generative channel (see README's own M4/M6 dilution notes).
+
+    A candidate absent from the ep_outputs/minutes join, or vice_uid=None, or vice_uid missing
+    from monte_carlo_player_summary, is simply OMITTED from the returned dict (never a
+    fabricated 0.0 correction) -- an absent correction means "can't compute this," not a claim
+    the fallback is worthless for that candidate.
+
+    ADDITIVE ONLY, same convention as transfer_timing_advice()/crowded_chip_week_score(): never
+    changes evaluate_triple_captain()'s own recommended candidate or tc_score. run() attaches
+    this as a separate, clearly-labeled informational field -- see its own comment on why."""
+    if vice_uid is None or not candidate_uids:
+        return {}
+    vice_row = con.execute(
+        "SELECT mean_total FROM monte_carlo_player_summary WHERE model_version = ? AND player_uid = ?",
+        [mc_model_version, vice_uid],
+    ).fetchone()
+    if vice_row is None:
+        return {}
+    vice_mean_total = vice_row[0]
+
+    placeholders = ",".join("?" * len(candidate_uids))
+    rows = con.execute(
+        f"SELECT player_uid, p_0min FROM minutes_model_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+        [mm_model_version, *candidate_uids],
+    ).fetchall()
+    return {uid: p_0min * vice_mean_total for uid, p_0min in rows}
+
+
 def evaluate_bench_boost(
     con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str],
     target_season: str | None = None, ts_model_version: int | None = None,
@@ -1069,6 +1121,25 @@ def evaluate_wildcard_bench_boost_combo(
 
     wc_alone_gain = wildcard_result.get("gain", 0.0)
     bb_alone_value = bench_boost_result.get("bench_ep_sum", 0.0) if bench_boost_result.get("recommended") else 0.0
+    # KNOWN, DISCLOSED ISSUE (not fixed here -- a genuine modeling question, not a mechanical
+    # bug with one obvious correct answer): fresh_bench_ep_at_target_gw is a real SUBSET
+    # already summed into wc_alone_gain. evaluate_wildcard()'s own gain sums fresh_uids'
+    # (the WHOLE fresh squad, bench included) total_ep across the WHOLE horizon -- a
+    # deliberate "new squad's overall depth/quality" proxy, not a real weekly score, and NOT
+    # something this function should redefine (wildcard_gain_threshold_params is calibrated
+    # against that exact figure elsewhere). That means target_gameweek's own bench slice is
+    # counted once inside wc_alone_gain already, then added again here -- so combo_value >
+    # max(wc_alone_gain, bb_alone_value) fires close to unconditionally (fresh_bench_ep_at_
+    # target_gw >= 0 always), and recommended_combo isn't a genuine "does sequencing beat
+    # either alone" signal the way its docstring claims. synergy_gain is unaffected (the
+    # double-counted wc_alone_gain term cancels in combo_value - naive_independent_sum), so
+    # that one field stays trustworthy. Fixing combo_value/recommended_combo honestly needs a
+    # deliberate design decision (what SHOULD "combo value" mean when wc_alone_gain's own
+    # bench credit is itself a multi-gameweek option-value proxy, not a same-week score, and
+    # can't be safely disentangled by this function alone) -- flagged here rather than
+    # shipping a guessed replacement formula, same "disclosed, not silently ignored" ethos as
+    # wildcard_gain_threshold_params.min_horizon_gain being deliberately left uncovered by the
+    # kappa_tc recalibration extension (see README).
     combo_value = wc_alone_gain + fresh_bench_ep_at_target_gw
     naive_independent_sum = wc_alone_gain + bb_alone_value
     return {
@@ -1336,6 +1407,25 @@ def run(
             rho_residual_params_version,
         )
         tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map)
+        # Real gap fixed here, additive only (see vice_captain_fallback_adjustment()'s own
+        # docstring for the full "this was never modeled anywhere" account): attaches the real
+        # armband-transfers-to-vice-on-DNP correction to every TC candidate as a clearly
+        # separate field, never touching tc_result["recommended"]/["captain_candidate"]/
+        # ["tc_score"] themselves -- same "informational signal, not a silent re-ranking"
+        # convention as transfer_timing_advice()/crowded_chip_week_score() above.
+        if tc_result.get("recommended"):
+            vice_uid = next((h["player_uid"] for h in current_holdings if h["is_vice"]), None)
+            candidate_uids = {c["player_uid"] for c in tc_result["all_candidates"]}
+            correction_by_uid = vice_captain_fallback_adjustment(con, mm_model_version, mc_model_version, vice_uid, candidate_uids)
+            tc_result["vice_captain_uid"] = vice_uid
+            tc_result["vice_fallback_adjusted_candidates"] = sorted(
+                (
+                    {**c, "vice_fallback_correction": correction_by_uid[c["player_uid"]],
+                     "tc_score_vice_adjusted": c["tc_score"] + correction_by_uid[c["player_uid"]]}
+                    for c in tc_result["all_candidates"] if c["player_uid"] in correction_by_uid
+                ),
+                key=lambda c: c["tc_score_vice_adjusted"], reverse=True,
+            ) if correction_by_uid else None
     else:
         tc_result = {"recommended": False, "reason": "no fixtures this gameweek"}
     # crowded_chip_week_score() attachment is unconditional -- see run()'s own docstring on

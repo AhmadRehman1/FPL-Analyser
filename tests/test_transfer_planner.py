@@ -1552,6 +1552,143 @@ def test_evaluate_triple_captain_captain_value_per_gw_defaults_empty_without_hor
 
 
 # ============================================================
+# vice_captain_fallback_adjustment -- real gap fixed: nowhere in this project (squad_optimizer's
+# MIQP objective, monte_carlo.py, evaluate_triple_captain()) ever credited a captain choice with
+# the real armband-transfers-to-vice-on-DNP safety net. See the function's own docstring.
+# ============================================================
+
+def _seed_minutes_output(con, mm_mv, player_uid, p_0min):
+    con.execute(
+        "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_position_avg, "
+        "weight_own, p_start_historical_final, logit_adjustment_total, p_start_final, "
+        "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+        "VALUES (?, ?, 'Midfielder', 0.8, 1.0, 0.8, 0.0, 0.8, 0.0, ?, ?, ?, 20)",
+        [mm_mv, player_uid, p_0min, (1 - p_0min) * 0.2, (1 - p_0min) * 0.8],
+    )
+
+
+def test_vice_captain_fallback_adjustment_is_p0min_times_vice_mean_total(con):
+    tp.seed_v1_params(con)
+    for uid in ("captain_a", "vice_a"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0), ("vice_a", 5.0, 1.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    _seed_minutes_output(con, mm_mv, "captain_a", p_0min=0.1)
+
+    out = tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid="vice_a", candidate_uids={"captain_a"})
+    assert out == pytest.approx({"captain_a": 0.1 * 5.0})
+
+
+def test_vice_captain_fallback_adjustment_returns_empty_with_no_vice(con):
+    tp.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('captain_a', 'captain_a', 'Midfielder')")
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    assert tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid=None, candidate_uids={"captain_a"}) == {}
+
+
+def test_vice_captain_fallback_adjustment_returns_empty_when_vice_never_simulated(con):
+    tp.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('captain_a', 'captain_a', 'Midfielder')")
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    _seed_minutes_output(con, mm_mv, "captain_a", p_0min=0.1)
+    # "unsimulated_vice" has no monte_carlo_player_summary row at all -- an absent correction,
+    # never a fabricated 0.0 (see the function's own docstring).
+    out = tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid="unsimulated_vice", candidate_uids={"captain_a"})
+    assert out == {}
+
+
+def test_vice_captain_fallback_adjustment_omits_candidates_with_no_minutes_data(con):
+    tp.seed_v1_params(con)
+    for uid in ("captain_a", "captain_b", "vice_a"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0), ("captain_b", 9.0, 4.0), ("vice_a", 5.0, 1.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    _seed_minutes_output(con, mm_mv, "captain_a", p_0min=0.2)
+    # captain_b deliberately has no minutes_model_outputs row -- must be omitted, not defaulted.
+    out = tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid="vice_a", candidate_uids={"captain_a", "captain_b"})
+    assert set(out) == {"captain_a"}
+    assert out["captain_a"] == pytest.approx(0.2 * 5.0)
+
+
+def test_run_attaches_vice_fallback_adjusted_candidates_without_changing_the_recommendation(con, monkeypatch):
+    """Wiring regression: run()'s own tc_result (persisted as chip_evaluations.detail for
+    chip_type='triple_captain') must gain the new fields additively -- the original
+    recommended/captain_candidate/tc_score stay exactly what evaluate_triple_captain() alone
+    would produce, while vice_fallback_adjusted_candidates carries the real armband-correction
+    re-ranking as a SEPARATE, clearly labeled field. evaluate_triple_captain() and
+    ensure_squad_simulation() are monkeypatched here -- their own real behavior is already
+    covered by their own dedicated tests; this test isolates the NEW composition logic run()
+    itself now does on top of their output, the same way test_run_wires_multi_transfer_and_
+    hold_when_opted_in() isolates its own new logic by monkeypatching compute_horizon_ep()."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    monkeypatch.setattr(tp, "ensure_squad_simulation", lambda *a, **k: 999)
+
+    held_uids = [h["player_uid"] for h in tp._read_holdings(con, state_version) if h["in_xi"]]
+    captain_uid, vice_uid = held_uids[0], held_uids[1]
+    con.execute("UPDATE manager_squad_holdings SET is_vice = TRUE WHERE state_version = ? AND player_uid = ?", [state_version, vice_uid])
+    _seed_minutes_output(con, mm_mv, captain_uid, p_0min=0.2)
+
+    fake_tc_result = {
+        "recommended": True, "captain_candidate": captain_uid, "tc_score": 9.0,
+        "all_candidates": [{"player_uid": captain_uid, "tc_score": 9.0, "mean_total": 10.0, "var_total": 4.0}],
+        "captain_value_per_gw": {},
+    }
+    monkeypatch.setattr(tp, "evaluate_triple_captain", lambda *a, **k: dict(fake_tc_result))
+    monkeypatch.setattr(tp, "vice_captain_fallback_adjustment", lambda con, mm_mv, mc_mv, vice_uid, candidate_uids: {captain_uid: 1.5})
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    )
+    detail_json = con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'triple_captain'", [run_id],
+    ).fetchone()[0]
+    tc_result = json.loads(detail_json)
+
+    # The original evaluate_triple_captain() fields are untouched.
+    assert tc_result["captain_candidate"] == captain_uid
+    assert tc_result["tc_score"] == pytest.approx(9.0)
+    # The new, additive fields carry the real armband correction.
+    assert tc_result["vice_captain_uid"] == vice_uid
+    assert tc_result["vice_fallback_adjusted_candidates"] == [
+        {"player_uid": captain_uid, "tc_score": 9.0, "mean_total": 10.0, "var_total": 4.0,
+         "vice_fallback_correction": 1.5, "tc_score_vice_adjusted": pytest.approx(10.5)},
+    ]
+
+
+def test_run_leaves_vice_fallback_fields_none_when_no_correction_is_computable(con, monkeypatch):
+    """No designated vice-captain (or the vice was never simulated) -- vice_captain_fallback_
+    adjustment() returns {} (see its own docstring: absence, never a fabricated 0.0), and run()
+    must honestly propagate that as vice_fallback_adjusted_candidates=None, not silently
+    default every candidate's correction to 0.0."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    monkeypatch.setattr(tp, "ensure_squad_simulation", lambda *a, **k: 999)
+
+    held_uids = [h["player_uid"] for h in tp._read_holdings(con, state_version) if h["in_xi"]]
+    captain_uid = held_uids[0]
+    fake_tc_result = {
+        "recommended": True, "captain_candidate": captain_uid, "tc_score": 9.0,
+        "all_candidates": [{"player_uid": captain_uid, "tc_score": 9.0, "mean_total": 10.0, "var_total": 4.0}],
+        "captain_value_per_gw": {},
+    }
+    monkeypatch.setattr(tp, "evaluate_triple_captain", lambda *a, **k: dict(fake_tc_result))
+    monkeypatch.setattr(tp, "vice_captain_fallback_adjustment", lambda *a, **k: {})  # no vice designated in this fixture
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    )
+    detail_json = con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'triple_captain'", [run_id],
+    ).fetchone()[0]
+    tc_result = json.loads(detail_json)
+    assert tc_result["vice_captain_uid"] is None
+    assert tc_result["vice_fallback_adjusted_candidates"] is None
+
+
+# ============================================================
 # evaluate_bench_boost
 # ============================================================
 

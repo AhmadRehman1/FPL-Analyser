@@ -133,6 +133,37 @@ def test_build_elite_divergence_flags_diverged_with_a_reason(con, monkeypatch):
     assert row["provenance"] == {"model_version": "fake_v1", "data_asof": "2026-08-24"}
 
 
+def test_build_elite_divergence_gives_a_reason_for_a_multi_transfer_week(con, monkeypatch):
+    """Regression test for the real bug: a real multi-transfer gameweek used to collapse
+    _divergence_reason's actual_in_uid to None (any actual move bringing in more than one
+    player), so divergence_reason came back None regardless of whether a real price/ownership
+    signal existed -- indistinguishable from "checked, found nothing". Two actual transfers in
+    this test (both diverging from the model's own single recommended swap) must still produce
+    a real reason string, not a silently-skipped None."""
+    horizon_ep_versions, _holdings = _seed_real_squad_optimizer_candidate_pool(con, target_gameweek=2)
+    monkeypatch.setattr(et.tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    monkeypatch.setattr(et.de, "recommend_best_move", lambda *a, **k: _fake_decision("transfer_in:mid2->fwd2", in_uid="fwd2"))
+
+    previous_picks = _picks([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], [12, 13, 14, 15], captain_element=1)
+    # Two real transfers: 10 (mid1) -> 16 (fwd1) and 11 (mid2) -> 17 (fwd2)... but fwd2 also
+    # happens to be the MODEL's own recommendation, so use fwd3 (18) for the second swap to
+    # keep both actual incoming players genuinely outside the model's own recommended set.
+    current_picks = _picks([1, 2, 3, 4, 5, 6, 7, 8, 9, 16, 18], [12, 13, 14, 15], captain_element=1)
+
+    def fetch_picks(entry_id, event):
+        return previous_picks if event == 1 else current_picks
+
+    out = et.build_elite_divergence(
+        con, [{"entry_id": 999, "name": "Elite One"}], date(2026, 8, 24), "2026-2027", 2,
+        fetch_picks, ELEMENT_NAMES, dict(RUN_KWARGS),
+    )
+    assert len(out) == 1
+    row = out[0]
+    assert row["diverged"] is True
+    assert row["divergence_reason"] is not None
+    assert row["divergence_reason"] == "diverged from the model's own ranking -- no price/ownership signal explains it from available data"
+
+
 def test_build_elite_divergence_no_divergence_when_actual_matches_model(con, monkeypatch):
     horizon_ep_versions, _holdings = _seed_real_squad_optimizer_candidate_pool(con, target_gameweek=2)
     monkeypatch.setattr(et.tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
