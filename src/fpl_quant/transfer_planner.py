@@ -930,6 +930,58 @@ def evaluate_triple_captain(
     }
 
 
+def vice_captain_fallback_adjustment(
+    con: duckdb.DuckDBPyConnection, mm_model_version: int, mc_model_version: int,
+    vice_uid: str | None, candidate_uids: set[str],
+) -> dict[str, float]:
+    """A real FPL rule this project's captain-choice modeling has never accounted for anywhere
+    (grepped the whole codebase before writing this: squad_optimizer._captain_objective_
+    component's `linear_ep = sum(mu) + mu[captain_uid]`, monte_carlo.py -- "captaincy has no
+    effect on monte_carlo.py's mechanics" per this module's own README entry -- and
+    evaluate_triple_captain()'s own `marginal_value_i is exactly player i's own simulated
+    total_points" all treat a captain's expected value as just their own mean_total, with zero
+    "vice"/"armband" mentions anywhere): if the captain doesn't play AT ALL (0 minutes), the
+    armband automatically transfers to the vice-captain, who then gets doubled instead. A
+    captain's TRUE expected marginal value is
+    E[captain_points | plays]*P(captain plays) + P(captain doesn't play)*E[vice_points] --
+    the first term already IS mean_total(captain) (M6's mean_total already integrates over the
+    captain's own play/no-play uncertainty), but the second term (the real safety-net value of
+    who's actually designated vice) has never been added anywhere in this project.
+
+    Returns {candidate_uid: correction}, correction = p_0min(candidate) * mean_total(vice_uid)
+    -- p_0min from M2's real minutes model output (not invented here), mean_total(vice_uid)
+    from M6's real simulation (already unconditionally integrates the vice's own play/no-play
+    uncertainty, so no separate P(vice plays) term is needed). Assumes independence between the
+    captain candidate's own minutes outcome and the vice's performance -- the same kind of
+    simplifying assumption this project's own cross-player covariance model already makes for
+    category pairs with no shared generative channel (see README's own M4/M6 dilution notes).
+
+    A candidate absent from the ep_outputs/minutes join, or vice_uid=None, or vice_uid missing
+    from monte_carlo_player_summary, is simply OMITTED from the returned dict (never a
+    fabricated 0.0 correction) -- an absent correction means "can't compute this," not a claim
+    the fallback is worthless for that candidate.
+
+    ADDITIVE ONLY, same convention as transfer_timing_advice()/crowded_chip_week_score(): never
+    changes evaluate_triple_captain()'s own recommended candidate or tc_score. run() attaches
+    this as a separate, clearly-labeled informational field -- see its own comment on why."""
+    if vice_uid is None or not candidate_uids:
+        return {}
+    vice_row = con.execute(
+        "SELECT mean_total FROM monte_carlo_player_summary WHERE model_version = ? AND player_uid = ?",
+        [mc_model_version, vice_uid],
+    ).fetchone()
+    if vice_row is None:
+        return {}
+    vice_mean_total = vice_row[0]
+
+    placeholders = ",".join("?" * len(candidate_uids))
+    rows = con.execute(
+        f"SELECT player_uid, p_0min FROM minutes_model_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+        [mm_model_version, *candidate_uids],
+    ).fetchall()
+    return {uid: p_0min * vice_mean_total for uid, p_0min in rows}
+
+
 def evaluate_bench_boost(
     con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str],
     target_season: str | None = None, ts_model_version: int | None = None,
@@ -1066,16 +1118,48 @@ def evaluate_wildcard_bench_boost_combo(
             f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
             [ep_mv, *fresh_bench_uids],
         ).fetchone()[0]
+    fresh_xi_ep_at_target_gw = 0.0
+    if fresh_xi_uids:
+        placeholders = ",".join("?" * len(fresh_xi_uids))
+        fresh_xi_ep_at_target_gw = con.execute(
+            f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+            [ep_mv, *fresh_xi_uids],
+        ).fetchone()[0]
 
     wc_alone_gain = wildcard_result.get("gain", 0.0)
     bb_alone_value = bench_boost_result.get("bench_ep_sum", 0.0) if bench_boost_result.get("recommended") else 0.0
-    combo_value = wc_alone_gain + fresh_bench_ep_at_target_gw
-    naive_independent_sum = wc_alone_gain + bb_alone_value
+    # Real bug fixed here (previously flagged as a known, disclosed issue rather than shipped
+    # as a guess -- now resolved with a deliberate design decision): combo_value used to be
+    # wc_alone_gain + fresh_bench_ep_at_target_gw, mixing two incommensurable quantities.
+    # wc_alone_gain is evaluate_wildcard()'s own multi-gameweek, whole-squad (bench included)
+    # "new squad depth/quality" proxy -- fresh_bench_ep_at_target_gw is a real SUBSET of that
+    # same sum, already counted once inside it. Adding it again meant combo_value was
+    # essentially always > max(wc_alone_gain, bb_alone_value) (fresh_bench_ep_at_target_gw is
+    # never negative), so recommended_combo fired close to unconditionally rather than
+    # signaling genuine synergy.
+    #
+    # The fix: combo_value/naive_independent_sum are now BOTH real, single-gameweek totals at
+    # target_gameweek specifically (the actual week the combo would be played), never mixed
+    # with wc_alone_gain's own multi-gameweek proxy -- combo_value is what the fresh 15-man
+    # squad (XI+bench) would really score that week under Bench Boost; naive_independent_sum
+    # is what the SAME fresh XI alone would score that week (no Bench Boost, bench doesn't
+    # count) plus what Bench Boost would add separately on the CURRENT squad's own bench. This
+    # leaves synergy_gain's own VALUE unchanged (fresh_xi_ep_at_target_gw cancels out of the
+    # subtraction, same as it implicitly did before) -- only combo_value/naive_independent_sum
+    # themselves are now individually meaningful, comparable numbers, not mixed-unit sums.
+    # recommended_combo also now requires Wildcard to be worthwhile ON ITS OWN MERITS
+    # (wildcard_result["recommended"]) in addition to genuine bench synergy (synergy_gain > 0)
+    # -- sequencing the chips together is never a reason to play a Wildcard that doesn't clear
+    # its own real threshold just to chase a marginally-better Bench Boost week.
+    combo_value = fresh_xi_ep_at_target_gw + fresh_bench_ep_at_target_gw
+    naive_independent_sum = fresh_xi_ep_at_target_gw + bb_alone_value
+    synergy_gain = combo_value - naive_independent_sum
     return {
-        "recommended_combo": combo_value > max(wc_alone_gain, bb_alone_value),
+        "recommended_combo": synergy_gain > 0 and bool(wildcard_result.get("recommended", False)),
         "wildcard_gain_alone": wc_alone_gain, "bench_boost_value_alone": bb_alone_value,
-        "fresh_squad_bench_ep_at_target_gw": fresh_bench_ep_at_target_gw, "combo_value": combo_value,
-        "naive_independent_sum": naive_independent_sum, "synergy_gain": combo_value - naive_independent_sum,
+        "fresh_squad_bench_ep_at_target_gw": fresh_bench_ep_at_target_gw,
+        "fresh_squad_xi_ep_at_target_gw": fresh_xi_ep_at_target_gw,
+        "combo_value": combo_value, "naive_independent_sum": naive_independent_sum, "synergy_gain": synergy_gain,
     }
 
 
@@ -1336,6 +1420,25 @@ def run(
             rho_residual_params_version,
         )
         tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map)
+        # Real gap fixed here, additive only (see vice_captain_fallback_adjustment()'s own
+        # docstring for the full "this was never modeled anywhere" account): attaches the real
+        # armband-transfers-to-vice-on-DNP correction to every TC candidate as a clearly
+        # separate field, never touching tc_result["recommended"]/["captain_candidate"]/
+        # ["tc_score"] themselves -- same "informational signal, not a silent re-ranking"
+        # convention as transfer_timing_advice()/crowded_chip_week_score() above.
+        if tc_result.get("recommended"):
+            vice_uid = next((h["player_uid"] for h in current_holdings if h["is_vice"]), None)
+            candidate_uids = {c["player_uid"] for c in tc_result["all_candidates"]}
+            correction_by_uid = vice_captain_fallback_adjustment(con, mm_model_version, mc_model_version, vice_uid, candidate_uids)
+            tc_result["vice_captain_uid"] = vice_uid
+            tc_result["vice_fallback_adjusted_candidates"] = sorted(
+                (
+                    {**c, "vice_fallback_correction": correction_by_uid[c["player_uid"]],
+                     "tc_score_vice_adjusted": c["tc_score"] + correction_by_uid[c["player_uid"]]}
+                    for c in tc_result["all_candidates"] if c["player_uid"] in correction_by_uid
+                ),
+                key=lambda c: c["tc_score_vice_adjusted"], reverse=True,
+            ) if correction_by_uid else None
     else:
         tc_result = {"recommended": False, "reason": "no fixtures this gameweek"}
     # crowded_chip_week_score() attachment is unconditional -- see run()'s own docstring on

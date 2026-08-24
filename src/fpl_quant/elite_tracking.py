@@ -63,18 +63,27 @@ def _format_move(players_out: list[str], players_in: list[str]) -> str:
 
 def _divergence_reason(
     con: duckdb.DuckDBPyConnection, target_season: str, target_gameweek: int,
-    actual_in_uid: str | None, model_in_uid: str | None,
+    actual_in_uids: set[str], model_in_uids: set[str],
 ) -> str | None:
     """A real, computed reason from available signals -- never a fabricated psychological
     claim ("a hunch", "a different risk posture") this project has no data to back. None when
-    no real signal explains the divergence from what's actually available."""
-    if actual_in_uid is None or actual_in_uid == model_in_uid:
+    no real signal explains the divergence from what's actually available.
+
+    Real bug fixed here: this used to take a single actual_in_uid, narrowed to None whenever
+    the actual move brought in more than one player (a multi-transfer gameweek) -- collapsing
+    "checked every available signal, found none" and "never actually checked" into the SAME
+    None, exactly the kind of ambiguity this project's own convention elsewhere (reporting.py's
+    "absence is disclosed, not hidden") guards against. Takes the full actual_in_uids set
+    instead and checks EVERY incoming player the model itself didn't already recommend
+    (actual_in_uids - model_in_uids) for a real price/ownership signal, not just one arbitrarily
+    chosen (or silently skipped) player."""
+    extra_uids = actual_in_uids - model_in_uids
+    if not extra_uids:
         return None
     momentum = tp.price_momentum_by_player(con, target_season, target_gameweek, lookback_gameweeks=3)
-    actual_momentum = momentum.get(actual_in_uid, {})
-    if (actual_momentum.get("price_delta") or 0) > 0:
+    if any((momentum.get(uid, {}).get("price_delta") or 0) > 0 for uid in extra_uids):
         return "chased a recent price rise"
-    if (actual_momentum.get("ownership_delta") or 0) > 0:
+    if any((momentum.get(uid, {}).get("ownership_delta") or 0) > 0 for uid in extra_uids):
         return "followed rising ownership (template pick)"
     return "diverged from the model's own ranking -- no price/ownership signal explains it from available data"
 
@@ -150,9 +159,7 @@ def build_elite_divergence(
 
             model_in_uids = {s.in_player_uid for s in decision.swaps}
             diverged = actual_in_uids != model_in_uids
-            actual_in_uid = next(iter(actual_in_uids)) if len(actual_in_uids) == 1 else None
-            model_in_uid = decision.swaps[0].in_player_uid if decision.swaps else None
-            reason = _divergence_reason(con, target_season, current_event, actual_in_uid, model_in_uid) if diverged else None
+            reason = _divergence_reason(con, target_season, current_event, actual_in_uids, model_in_uids) if diverged else None
 
             # Real fix: actual_move/model_move were raw internal player_uid strings,
             # meaningless to the PWA on its own -- resolve to real display names (see

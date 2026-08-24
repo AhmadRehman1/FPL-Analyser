@@ -197,6 +197,16 @@ def build_player_directory(bootstrap: dict) -> list[dict]:
             "news_added": e.get("news_added"),
             "transfers_in_event": e.get("transfers_in_event", 0),
             "transfers_out_event": e.get("transfers_out_event", 0),
+            # New feature: real set-piece taker order, straight from FPL's own bootstrap-static
+            # (the club's own designated pecking order -- 1 is primary, 2/3 backup, null/absent
+            # means not on the list at all). Never derived or estimated here, same "direct
+            # bootstrap-static field, renamed/rescaled" discipline as every other field above --
+            # this project's own Priority 7b already ingests set-piece taker hierarchy from the
+            # evidence workbook for EP modeling, but the live PWA never surfaced the raw fact to
+            # a manager browsing players until now.
+            "penalties_order": e.get("penalties_order"),
+            "direct_freekicks_order": e.get("direct_freekicks_order"),
+            "corners_and_indirect_freekicks_order": e.get("corners_and_indirect_freekicks_order"),
         })
     return out
 

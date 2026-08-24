@@ -62,6 +62,29 @@ def test_build_player_directory_handles_blank_numeric_strings():
     assert row["team"] is None
 
 
+def test_build_player_directory_carries_real_set_piece_taker_order():
+    bootstrap = {"teams": [], "elements": [{
+        "id": 1, "web_name": "Palmer", "first_name": "Cole", "second_name": "Palmer", "team": None,
+        "element_type": 3, "now_cost": 55,
+        "penalties_order": 1, "direct_freekicks_order": 2, "corners_and_indirect_freekicks_order": None,
+    }]}
+    [row] = ax.build_player_directory(bootstrap)
+    assert row["penalties_order"] == 1
+    assert row["direct_freekicks_order"] == 2
+    assert row["corners_and_indirect_freekicks_order"] is None
+
+
+def test_build_player_directory_defaults_set_piece_order_to_none_when_absent():
+    bootstrap = {"teams": [], "elements": [{
+        "id": 1, "web_name": "NoData", "first_name": "No", "second_name": "Data", "team": None,
+        "element_type": 4, "now_cost": 70,
+    }]}
+    [row] = ax.build_player_directory(bootstrap)
+    assert row["penalties_order"] is None
+    assert row["direct_freekicks_order"] is None
+    assert row["corners_and_indirect_freekicks_order"] is None
+
+
 # ============================================================
 # build_price_watch
 # ============================================================

@@ -900,11 +900,53 @@ def test_evaluate_wildcard_bench_boost_combo_computes_synergy(con):
 
     combo = tp.evaluate_wildcard_bench_boost_combo(con, wildcard_result, bench_boost_result, "2026-2027", 2, horizon_ep_versions)
     assert isinstance(combo["recommended_combo"], bool)
-    assert combo["combo_value"] == pytest.approx(combo["wildcard_gain_alone"] + combo["fresh_squad_bench_ep_at_target_gw"])
+    # combo_value/naive_independent_sum are both real, single-gameweek totals at
+    # target_gameweek (XI+bench under the combo vs. XI alone + the current squad's own bench
+    # value) -- never mixed with wildcard_gain_alone's own multi-gameweek proxy (see the real
+    # double-counting bug this replaced, in the function's own docstring/comments).
+    assert combo["combo_value"] == pytest.approx(combo["fresh_squad_xi_ep_at_target_gw"] + combo["fresh_squad_bench_ep_at_target_gw"])
+    assert combo["naive_independent_sum"] == pytest.approx(combo["fresh_squad_xi_ep_at_target_gw"] + combo["bench_boost_value_alone"])
     assert combo["synergy_gain"] == pytest.approx(combo["combo_value"] - combo["naive_independent_sum"])
-    # the fresh (post-Wildcard) squad's own bench EP at target_gameweek must be a real,
-    # non-negative number derived from a real solved squad -- not a placeholder.
+    assert combo["synergy_gain"] == pytest.approx(combo["fresh_squad_bench_ep_at_target_gw"] - combo["bench_boost_value_alone"])
+    # the fresh (post-Wildcard) squad's own bench/XI EP at target_gameweek must be real,
+    # non-negative numbers derived from a real solved squad -- not placeholders.
     assert combo["fresh_squad_bench_ep_at_target_gw"] >= 0.0
+    assert combo["fresh_squad_xi_ep_at_target_gw"] >= 0.0
+
+
+def test_evaluate_wildcard_bench_boost_combo_never_recommended_when_synergy_is_real_but_wildcard_itself_is_not_worth_it(con):
+    """Regression test for the real bug: combo_value used to mix wildcard_gain_alone (a
+    multi-gameweek, whole-squad proxy) with fresh_bench_ep_at_target_gw (a real subset already
+    counted inside it), so recommended_combo fired almost unconditionally -- any positive
+    fresh bench EP alone was enough, even when Wildcard itself was a bad idea on its own
+    merits. Confirmed against the pre-fix code first: with wildcard_result["recommended"]=False
+    but genuine bench synergy (fresh bench EP well above the tiny bb_alone_value below), the
+    OLD formula (combo_value = wc_alone_gain + fresh_bench_ep_at_target_gw, compared against
+    max(wc_alone_gain, bb_alone_value)) would have recommended the combo anyway -- adding a
+    non-negative fresh_bench_ep_at_target_gw to wc_alone_gain can never make combo_value SMALLER
+    than wc_alone_gain itself, regardless of whether Wildcard was ever worth doing. The fix
+    requires Wildcard to clear its own bar too."""
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    # A deliberately huge threshold this fixture's real gain can never clear (verified: this
+    # fixture's real gain is 46.3) -- isolates "Wildcard doesn't clear its own bar" as a
+    # controlled precondition, not an accident of the fixture's own numbers.
+    tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1_000_000.0)
+
+    wildcard_result = tp.evaluate_wildcard(
+        con, date(2026, 8, 24), "2026-2027", 2, current_squad_horizon_value=10.0, best_transfer_net_value=0.0,
+        horizon_ep_versions=horizon_ep_versions, lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+    )
+    assert wildcard_result["recommended"] is False
+
+    # A deliberately tiny bb_alone_value (well below the fresh squad's real bench EP) so
+    # synergy_gain is genuinely positive -- isolates "Wildcard itself isn't worth it" as the
+    # ONLY reason recommended_combo should be False here.
+    bench_boost_result = {"recommended": True, "bench_ep_sum": 0.01}
+
+    combo = tp.evaluate_wildcard_bench_boost_combo(con, wildcard_result, bench_boost_result, "2026-2027", 2, horizon_ep_versions)
+    assert combo["synergy_gain"] > 0  # the real bench-synergy signal is genuinely positive
+    assert combo["recommended_combo"] is False  # but Wildcard alone doesn't clear its own bar
 
 
 def test_evaluate_wildcard_bench_boost_combo_no_action_when_wildcard_infeasible(con):
@@ -1549,6 +1591,143 @@ def test_evaluate_triple_captain_captain_value_per_gw_defaults_empty_without_hor
     model_version = _seed_mc_run_and_summary(con, [("p1", 10.0, 4.0)])  # p1 is seeded by the helper itself
     result = tp.evaluate_triple_captain(con, model_version, xi_uids={"p1"}, kappa_tc_params_version=1)
     assert result["captain_value_per_gw"] == {}
+
+
+# ============================================================
+# vice_captain_fallback_adjustment -- real gap fixed: nowhere in this project (squad_optimizer's
+# MIQP objective, monte_carlo.py, evaluate_triple_captain()) ever credited a captain choice with
+# the real armband-transfers-to-vice-on-DNP safety net. See the function's own docstring.
+# ============================================================
+
+def _seed_minutes_output(con, mm_mv, player_uid, p_0min):
+    con.execute(
+        "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_position_avg, "
+        "weight_own, p_start_historical_final, logit_adjustment_total, p_start_final, "
+        "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+        "VALUES (?, ?, 'Midfielder', 0.8, 1.0, 0.8, 0.0, 0.8, 0.0, ?, ?, ?, 20)",
+        [mm_mv, player_uid, p_0min, (1 - p_0min) * 0.2, (1 - p_0min) * 0.8],
+    )
+
+
+def test_vice_captain_fallback_adjustment_is_p0min_times_vice_mean_total(con):
+    tp.seed_v1_params(con)
+    for uid in ("captain_a", "vice_a"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0), ("vice_a", 5.0, 1.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    _seed_minutes_output(con, mm_mv, "captain_a", p_0min=0.1)
+
+    out = tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid="vice_a", candidate_uids={"captain_a"})
+    assert out == pytest.approx({"captain_a": 0.1 * 5.0})
+
+
+def test_vice_captain_fallback_adjustment_returns_empty_with_no_vice(con):
+    tp.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('captain_a', 'captain_a', 'Midfielder')")
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    assert tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid=None, candidate_uids={"captain_a"}) == {}
+
+
+def test_vice_captain_fallback_adjustment_returns_empty_when_vice_never_simulated(con):
+    tp.seed_v1_params(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('captain_a', 'captain_a', 'Midfielder')")
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    _seed_minutes_output(con, mm_mv, "captain_a", p_0min=0.1)
+    # "unsimulated_vice" has no monte_carlo_player_summary row at all -- an absent correction,
+    # never a fabricated 0.0 (see the function's own docstring).
+    out = tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid="unsimulated_vice", candidate_uids={"captain_a"})
+    assert out == {}
+
+
+def test_vice_captain_fallback_adjustment_omits_candidates_with_no_minutes_data(con):
+    tp.seed_v1_params(con)
+    for uid in ("captain_a", "captain_b", "vice_a"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    mc_mv = _seed_mc_run_and_summary(con, [("captain_a", 10.0, 4.0), ("captain_b", 9.0, 4.0), ("vice_a", 5.0, 1.0)])
+    mm_mv = con.execute("SELECT minutes_model_version FROM monte_carlo_run_versions WHERE model_version = ?", [mc_mv]).fetchone()[0]
+    _seed_minutes_output(con, mm_mv, "captain_a", p_0min=0.2)
+    # captain_b deliberately has no minutes_model_outputs row -- must be omitted, not defaulted.
+    out = tp.vice_captain_fallback_adjustment(con, mm_mv, mc_mv, vice_uid="vice_a", candidate_uids={"captain_a", "captain_b"})
+    assert set(out) == {"captain_a"}
+    assert out["captain_a"] == pytest.approx(0.2 * 5.0)
+
+
+def test_run_attaches_vice_fallback_adjusted_candidates_without_changing_the_recommendation(con, monkeypatch):
+    """Wiring regression: run()'s own tc_result (persisted as chip_evaluations.detail for
+    chip_type='triple_captain') must gain the new fields additively -- the original
+    recommended/captain_candidate/tc_score stay exactly what evaluate_triple_captain() alone
+    would produce, while vice_fallback_adjusted_candidates carries the real armband-correction
+    re-ranking as a SEPARATE, clearly labeled field. evaluate_triple_captain() and
+    ensure_squad_simulation() are monkeypatched here -- their own real behavior is already
+    covered by their own dedicated tests; this test isolates the NEW composition logic run()
+    itself now does on top of their output, the same way test_run_wires_multi_transfer_and_
+    hold_when_opted_in() isolates its own new logic by monkeypatching compute_horizon_ep()."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    monkeypatch.setattr(tp, "ensure_squad_simulation", lambda *a, **k: 999)
+
+    held_uids = [h["player_uid"] for h in tp._read_holdings(con, state_version) if h["in_xi"]]
+    captain_uid, vice_uid = held_uids[0], held_uids[1]
+    con.execute("UPDATE manager_squad_holdings SET is_vice = TRUE WHERE state_version = ? AND player_uid = ?", [state_version, vice_uid])
+    _seed_minutes_output(con, mm_mv, captain_uid, p_0min=0.2)
+
+    fake_tc_result = {
+        "recommended": True, "captain_candidate": captain_uid, "tc_score": 9.0,
+        "all_candidates": [{"player_uid": captain_uid, "tc_score": 9.0, "mean_total": 10.0, "var_total": 4.0}],
+        "captain_value_per_gw": {},
+    }
+    monkeypatch.setattr(tp, "evaluate_triple_captain", lambda *a, **k: dict(fake_tc_result))
+    monkeypatch.setattr(tp, "vice_captain_fallback_adjustment", lambda con, mm_mv, mc_mv, vice_uid, candidate_uids: {captain_uid: 1.5})
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    )
+    detail_json = con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'triple_captain'", [run_id],
+    ).fetchone()[0]
+    tc_result = json.loads(detail_json)
+
+    # The original evaluate_triple_captain() fields are untouched.
+    assert tc_result["captain_candidate"] == captain_uid
+    assert tc_result["tc_score"] == pytest.approx(9.0)
+    # The new, additive fields carry the real armband correction.
+    assert tc_result["vice_captain_uid"] == vice_uid
+    assert tc_result["vice_fallback_adjusted_candidates"] == [
+        {"player_uid": captain_uid, "tc_score": 9.0, "mean_total": 10.0, "var_total": 4.0,
+         "vice_fallback_correction": 1.5, "tc_score_vice_adjusted": pytest.approx(10.5)},
+    ]
+
+
+def test_run_leaves_vice_fallback_fields_none_when_no_correction_is_computable(con, monkeypatch):
+    """No designated vice-captain (or the vice was never simulated) -- vice_captain_fallback_
+    adjustment() returns {} (see its own docstring: absence, never a fabricated 0.0), and run()
+    must honestly propagate that as vice_fallback_adjusted_candidates=None, not silently
+    default every candidate's correction to 0.0."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    monkeypatch.setattr(tp, "ensure_squad_simulation", lambda *a, **k: 999)
+
+    held_uids = [h["player_uid"] for h in tp._read_holdings(con, state_version) if h["in_xi"]]
+    captain_uid = held_uids[0]
+    fake_tc_result = {
+        "recommended": True, "captain_candidate": captain_uid, "tc_score": 9.0,
+        "all_candidates": [{"player_uid": captain_uid, "tc_score": 9.0, "mean_total": 10.0, "var_total": 4.0}],
+        "captain_value_per_gw": {},
+    }
+    monkeypatch.setattr(tp, "evaluate_triple_captain", lambda *a, **k: dict(fake_tc_result))
+    monkeypatch.setattr(tp, "vice_captain_fallback_adjustment", lambda *a, **k: {})  # no vice designated in this fixture
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    )
+    detail_json = con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'triple_captain'", [run_id],
+    ).fetchone()[0]
+    tc_result = json.loads(detail_json)
+    assert tc_result["vice_captain_uid"] is None
+    assert tc_result["vice_fallback_adjusted_candidates"] is None
 
 
 # ============================================================
