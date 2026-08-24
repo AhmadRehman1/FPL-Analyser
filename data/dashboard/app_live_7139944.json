@@ -4,7 +4,7 @@
   "gameweek": 1,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 39,
+  "live_total": 40,
   "players": [
     {
       "player_id": 496,
@@ -79,15 +79,15 @@
     {
       "player_id": 165,
       "web_name": "Jo\u00e3o Pedro",
-      "live_points": 12,
+      "live_points": 13,
       "provisional_bonus": 2,
-      "contribution": 12
+      "contribution": 13
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 98.0,
-    "estimated_rank": 190643
+    "percentile": 100.0,
+    "estimated_rank": 1
   },
   "fixtures": [
     {
@@ -252,7 +252,7 @@
       "home": {
         "short_name": "FUL",
         "name": "Fulham",
-        "score": 1
+        "score": 2
       },
       "away": {
         "short_name": "CHE",
@@ -491,7 +491,7 @@
       "web_name": "Castagne",
       "team": 10,
       "event": "assist",
-      "count": 1,
+      "count": 2,
       "fixture_id": 10
     },
     {
@@ -679,6 +679,14 @@
       "fixture_id": 2
     },
     {
+      "player_id": 569,
+      "web_name": "Gonzalo",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
       "player_id": 586,
       "web_name": "Mendy",
       "team": 11,
@@ -695,5 +703,5 @@
       "fixture_id": 5
     }
   ],
-  "generated_at": "2026-08-24T20:14:23.299049+00:00"
+  "generated_at": "2026-08-24T20:52:26.365893+00:00"
 }
