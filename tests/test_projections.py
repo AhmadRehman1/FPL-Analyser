@@ -239,3 +239,33 @@ def test_projection_rows_and_captain_ranking_serialize_to_the_documented_json_sh
     assert set(player["ep_per_gw"][0]) == {"gw", "ep", "ci_low", "ci_high"}
     assert set(player["provenance"]) == {"model_version", "data_asof", "calibrated_params_fraction"}
     assert reloaded["captain_ranking"][0]["rank"] == 1
+
+
+# ============================================================
+# resolve_element_ids -- player_uid -> FPL bootstrap-static element id, for the PWA planner's
+# own squad-join (see scripts/export_projections.py's own docstring on why this exists).
+# ============================================================
+
+def _seed_resolvable_player(con, name, normalized, player_uid, season="2026-2027"):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [player_uid, name])
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES (?, ?, '1', ?, ?)", [name, normalized, season, player_uid],
+    )
+
+
+def test_resolve_element_ids_maps_uid_to_a_real_element_id(con):
+    _seed_resolvable_player(con, "Bruno Fernandes", "bruno fernandes", "p_bruno")
+    _seed_resolvable_player(con, "Erling Haaland", "erling haaland", "p_haaland")
+    element_names = {8: "Bruno Fernandes", 9: "Erling Haaland"}
+    out = proj.resolve_element_ids(con, "2026-2027", element_names)
+    assert out == {"p_bruno": 8, "p_haaland": 9}
+
+
+def test_resolve_element_ids_omits_unresolvable_names_never_guesses(con):
+    element_names = {8: "Not A Real Player"}
+    assert proj.resolve_element_ids(con, "2026-2027", element_names) == {}
+
+
+def test_resolve_element_ids_empty_input_returns_empty(con):
+    assert proj.resolve_element_ids(con, "2026-2027", {}) == {}

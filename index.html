@@ -596,8 +596,8 @@ function localStateKey(accountId) { return `fq_local_team_${accountId}`; }
 
 function loadLocalState(accountId) {
   try {
-    return JSON.parse(localStorage.getItem(localStateKey(accountId))) || { captainId: null, viceId: null, lockedIds: [], benchOrder: [] };
-  } catch { return { captainId: null, viceId: null, lockedIds: [], benchOrder: [] }; }
+    return JSON.parse(localStorage.getItem(localStateKey(accountId))) || { captainId: null, viceId: null, lockedIds: [], benchOrder: [], plannerTransfer: null };
+  } catch { return { captainId: null, viceId: null, lockedIds: [], benchOrder: [], plannerTransfer: null }; }
 }
 
 function saveLocalState(accountId, patch) {
@@ -635,6 +635,35 @@ function moveBenchLocal(benchIds, playerId, delta) {
   [benchIds[idx], benchIds[swapWith]] = [benchIds[swapWith], benchIds[idx]];
   saveLocalState(state.accountId, { benchOrder: benchIds });
   renderCurrentTab();
+}
+
+// ---- Planner: a single hypothetical transfer (one player out, one player in), same "local
+// workspace, never submitted" convention as captain/vice/lock above. Kept to ONE swap at a
+// time (not a full squad rebuild) -- enough to answer "how would my team line up if I made
+// this one change," without building a second, competing squad-optimizer inside the browser.
+function setPlannerTransferOut(v) {
+  const ls = loadLocalState(state.accountId);
+  const outId = v ? Number(v) : null;
+  const prev = ls.plannerTransfer || {};
+  // A real FPL transfer can't change squad position quotas -- if the new outgoing player's
+  // position no longer matches whatever was already picked as the replacement, drop the stale
+  // "in" pick rather than leave an illegal (e.g. GKP-for-DEF) pairing in local state.
+  const outPlayer = outId != null ? state.playersById[outId] : null;
+  const inPlayer = prev.inId != null ? state.playersById[prev.inId] : null;
+  const keepIn = outPlayer && inPlayer && outPlayer.position === inPlayer.position;
+  const t = { outId, inId: keepIn ? prev.inId : null };
+  saveLocalState(state.accountId, { plannerTransfer: (t.outId == null && t.inId == null) ? null : t });
+  renderPlannerBody();
+}
+function setPlannerTransferIn(v) {
+  const ls = loadLocalState(state.accountId);
+  const t = { ...(ls.plannerTransfer || {}), inId: v ? Number(v) : null };
+  saveLocalState(state.accountId, { plannerTransfer: (t.outId == null && t.inId == null) ? null : t });
+  renderPlannerBody();
+}
+function clearPlannerTransfer() {
+  saveLocalState(state.accountId, { plannerTransfer: null });
+  renderPlannerBody();
 }
 
 // ============================================================
@@ -1038,6 +1067,10 @@ function route() {
     openTransferReviewSheet(pendingReviewRec);
     return;
   }
+  if (hash === "planner") {
+    openPlannerSheet();
+    return;
+  }
   if (hash.startsWith("chip-")) {
     openChipSheet(hash.slice(5));
     return;
@@ -1235,6 +1268,176 @@ function confirmTransferReview(outId, inId) {
   if (!outPlayer || !inPlayer) return;
   saveConfirmedTransfer({ outId, inId, outName: outPlayer.web_name, inName: inPlayer.web_name });
   renderTransferReviewBody();
+}
+
+// ============================================================
+// PLANNER sheet -- see the block comment above fixturesForClubAtGw() for the mechanism.
+// ============================================================
+
+let plannerGwIndex = 0;
+
+function plannerGameweeks() {
+  return (state.projections && state.projections.gameweeks) || [];
+}
+
+function openPlannerSheet() {
+  const gws = plannerGameweeks();
+  if (plannerGwIndex >= gws.length) plannerGwIndex = 0;
+  document.getElementById("sheet-content").innerHTML = `<div id="planner-body"></div>`;
+  renderPlannerBody();
+  openSheet();
+}
+
+function shiftPlannerGw(delta) {
+  const gws = plannerGameweeks();
+  plannerGwIndex = Math.max(0, Math.min(gws.length - 1, plannerGwIndex + delta));
+  renderPlannerBody();
+}
+
+function plannerRow(r, byId, captain, vice) {
+  const p = byId[r.id];
+  if (!p) return "";
+  const fixtures = fixturesForClubAtGw(p.team, r.gw);
+  const fixtureText = fixtures.length ? fixtures.map(f => `${f.opp} (${f.home ? "H" : "A"})`).join(", ") : "No fixture (blank)";
+  const fdrText = fixtures.length ? ` &middot; FDR ${fixtures.map(f => f.difficulty ?? "-").join("/")}` : "";
+  const isCap = captain && captain.id === r.id, isVice = !isCap && vice && vice.id === r.id;
+  const tag = isCap
+    ? `<span style="display:inline-flex;width:15px;height:15px;border-radius:50%;background:var(--amber);color:#241a00;font-size:8.5px;font-weight:800;align-items:center;justify-content:center;font-family:'Anton',sans-serif;margin-left:5px;">C</span>`
+    : isVice
+      ? `<span style="display:inline-flex;width:15px;height:15px;border-radius:50%;background:oklch(0.85 0.01 90);color:#333;font-size:8.5px;font-weight:800;align-items:center;justify-content:center;font-family:'Anton',sans-serif;margin-left:5px;">V</span>`
+      : "";
+  return `
+    <div class="sl-row">
+      <div class="sl-label">
+        <span style="color:var(--ink);font-weight:600;">${escapeHtml(p.web_name)}</span>${tag}
+        <div style="font-size:10px;color:var(--ink-dim2);margin-top:2px;">${p.position} &middot; ${escapeHtml(fixtureText)}${fdrText}</div>
+      </div>
+      <div class="sl-value">${r.ep != null ? r.ep.toFixed(1) : "&mdash;"}</div>
+    </div>`;
+}
+
+function plannerTrajectoryBlock(trajectory, hypoTrajectory) {
+  const real = trajectory.map(t => t.totalEp ?? 0);
+  const hasHypo = !!hypoTrajectory;
+  const allVals = hasHypo ? [...real, ...hypoTrajectory.map(t => t.totalEp ?? 0)] : real;
+  const maxV = Math.max(1, ...allVals);
+  // .card below gives this a light background (same as every other stat block on this sheet)
+  // -- var(--green)/the orange accent below are both calibrated for that context. No flex:1 on
+  // the bar itself: its wrapper is flex-direction:column, so flex:1 there fights the explicit
+  // height (flex-basis wins the main axis, which is height in a column container) -- width
+  // just needs the wrapper's own default align-items:stretch, not a second flex declaration.
+  const bar = (v) => `<div style="background:var(--green);border-radius:3px;height:${(6 + (Math.max(0, v) / maxV) * 30).toFixed(0)}px;"></div>`;
+  const hypoBar = (v) => `<div style="background:oklch(0.62 0.19 45);border-radius:3px;height:${(6 + (Math.max(0, v) / maxV) * 30).toFixed(0)}px;margin-top:2px;"></div>`;
+  return `
+    <div class="card" style="margin:14px 0 10px;">
+      <div style="font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">
+        Projected XI points by gameweek${hasHypo ? ` <span style="color:var(--green);">(green = current)</span> <span style="color:oklch(0.62 0.19 45);">(orange = with transfer)</span>` : ""}
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:5px;height:${hasHypo ? "72px" : "36px"};">
+        ${trajectory.map((t, i) => `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;">${bar(t.totalEp ?? 0)}${hasHypo ? hypoBar(hypoTrajectory[i].totalEp ?? 0) : ""}</div>`).join("")}
+      </div>
+      <div style="display:flex;gap:5px;margin-top:4px;">
+        ${trajectory.map(t => `<div style="flex:1;text-align:center;font-size:9px;color:var(--ink-dim2);">${t.gw}</div>`).join("")}
+      </div>
+    </div>`;
+}
+
+function renderPlannerBody() {
+  const body = document.getElementById("planner-body");
+  if (!body) return;
+  const gws = plannerGameweeks();
+  if (!gws.length || !state.projections) {
+    body.innerHTML = `
+      <div class="player-hero" style="padding-bottom:8px;"><div class="name" style="font-size:18px;">Planner</div></div>
+      <p class="empty-state">No projections published yet for future gameweeks &mdash; check back after the next scheduled run.</p>`;
+    return;
+  }
+  if (!state.team) {
+    body.innerHTML = `<p class="empty-state">No live team data yet for this account.</p>`;
+    return;
+  }
+
+  const projByElement = projectionsByElementId();
+  const ls = loadLocalState(state.accountId);
+  const targetGw = gws[plannerGwIndex];
+  const t = ls.plannerTransfer;
+  const hasHypo = !!(t && t.outId != null && t.inId != null);
+
+  const realSquad = state.team.squad;
+  const effSquad = hasHypo ? effectiveSquadForPlanner(ls) : realSquad;
+
+  const withEpAt = (squad, gw) => squad.map(p => ({ id: p.player_id, position: p.position, ep: epForElementAtGw(projByElement, p.player_id, gw) }));
+  const realBest = bestXIForSquad(withEpAt(realSquad, targetGw));
+  const effBest = hasHypo ? bestXIForSquad(withEpAt(effSquad, targetGw)) : realBest;
+  const displaySquad = hasHypo ? effSquad : realSquad;
+  const displayBest = hasHypo ? effBest : realBest;
+  const byId = Object.fromEntries(displaySquad.map(p => [p.player_id, p]));
+
+  const realTrajectory = squadEpTrajectory(realSquad, projByElement, gws);
+  const hypoTrajectory = hasHypo ? squadEpTrajectory(effSquad, projByElement, gws) : null;
+
+  const outPlayer = t && t.outId != null ? state.playersById[t.outId] : null;
+  const inPlayer = t && t.inId != null ? state.playersById[t.inId] : null;
+  const squadOptions = realSquad.map(p => `<option value="${p.player_id}" ${t && t.outId === p.player_id ? "selected" : ""}>${escapeHtml(p.web_name)} (${p.position})</option>`).join("");
+  // A real FPL transfer can't change squad position quotas -- the replacement list is
+  // restricted to the outgoing player's own position once one is picked (see
+  // setPlannerTransferOut()'s own matching safety check for the reverse direction).
+  const playerOptions = (state.players || []).slice()
+    .filter(p => !outPlayer || p.position === outPlayer.position)
+    .sort((a, b) => a.web_name.localeCompare(b.web_name))
+    .map(p => `<option value="${p.id}" ${t && t.inId === p.id ? "selected" : ""}>${escapeHtml(p.web_name)} (${p.position}, ${fmtMoney(p.price)})</option>`).join("");
+  const priceDiff = (outPlayer && inPlayer) ? (inPlayer.price - outPlayer.price) : null;
+  const affordable = priceDiff == null || priceDiff <= ((state.team.bank ?? 0) + 1e-9);
+
+  body.innerHTML = `
+    <div class="player-hero" style="padding-bottom:4px;">
+      <div class="name" style="font-size:18px;">Planner</div>
+      <div class="sub" style="max-width:280px;text-align:center;">See your own squad's best XI, captain and projected points across future gameweeks -- and try one hypothetical transfer.</div>
+    </div>
+    <div class="gw-switch" style="margin:10px auto 14px;width:fit-content;">
+      <button class="gw-btn" ${plannerGwIndex === 0 ? "disabled" : ""} onclick="shiftPlannerGw(-1)" aria-label="Previous gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <span class="gw-label">GW ${targetGw}</span>
+      <button class="gw-btn" ${plannerGwIndex === gws.length - 1 ? "disabled" : ""} onclick="shiftPlannerGw(1)" aria-label="Next gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+    ${!displayBest ? `<p class="empty-state">Not enough squad data to pick a legal XI for this gameweek.</p>` : `
+    <div class="stat-row">
+      <div class="stat-tile"><div class="k">Projected XI pts</div><div class="v g">${displayBest.totalEp.toFixed(1)}</div></div>
+      <div class="stat-tile"><div class="k">Captain</div><div class="v" style="font-size:13px;">${displayBest.captain && byId[displayBest.captain.id] ? escapeHtml(byId[displayBest.captain.id].web_name) : "&mdash;"}</div></div>
+    </div>
+    <div class="stat-list" style="margin-bottom:4px;">
+      ${displayBest.xi.map(r => plannerRow({ ...r, gw: targetGw }, byId, displayBest.captain, displayBest.vice)).join("")}
+    </div>
+    <div style="font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;margin:12px 0 4px;">Bench</div>
+    <div class="stat-list">
+      ${displayBest.bench.map(r => plannerRow({ ...r, gw: targetGw }, byId, null, null)).join("")}
+    </div>
+    ${plannerTrajectoryBlock(realTrajectory, hypoTrajectory)}
+    `}
+    <div class="section-title" style="color:var(--on-dark);margin-top:6px;"><span>Try a hypothetical transfer</span></div>
+    <label class="sr-only" for="planner-out-select">Outgoing player</label>
+    <div class="review-row">
+      <select id="planner-out-select" class="review-select ${outPlayer ? "filled" : ""}" onchange="setPlannerTransferOut(this.value)">
+        <option value="">Select outgoing player from your squad&hellip;</option>
+        ${squadOptions}
+      </select>
+    </div>
+    <div class="review-row" style="justify-content:center;"><span class="review-arrow" aria-hidden="true">&darr;</span></div>
+    <label class="sr-only" for="planner-in-select">Replacement player</label>
+    <div class="review-row">
+      <select id="planner-in-select" class="review-select ${inPlayer ? "filled" : ""}" onchange="setPlannerTransferIn(this.value)">
+        <option value="">Select replacement&hellip;</option>
+        ${playerOptions}
+      </select>
+    </div>
+    ${hasHypo ? `
+      ${!affordable ? `<p style="font-size:11px;color:var(--red);margin:8px 0 0;">This costs ${(priceDiff).toFixed(1)}m more than your bank (${fmtMoney(state.team.bank)}) covers -- shown anyway, but you couldn't actually afford it right now.</p>` : ""}
+      <button class="local-btn" style="margin-top:10px;" onclick="clearPlannerTransfer()">Clear hypothetical transfer</button>
+    ` : ""}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:14px;">
+      Local workspace only &mdash; nothing here is ever submitted to FPL. Best XI/captain is this
+      model's own pick from among your (real or hypothetical) 15 players for the selected
+      gameweek, not a guaranteed lineup.
+    </p>`;
 }
 
 // ---- confidence/risk labels -- deliberately NOT presented as a separate model output. No
@@ -1811,10 +2014,11 @@ function renderTeam() {
     <div class="local-note">
       <b style="color:var(--ink);">Local captain/vice/lock/bench changes</b> only live on this device and are never
       submitted to FPL &mdash; they're a "what if" workspace for planning. Tap a player, then use the actions in
-      their sheet. Live points shown are real FPL scores for this gameweek; a full-squad pre-match projection
-      isn't in this export yet.
+      their sheet. Live points shown are real FPL scores for this gameweek; for a full-squad projection across
+      future gameweeks (and a hypothetical transfer), see the Planner below.
       ${hasLocalOverrides ? `<br><button class="local-btn" style="margin-top:8px;" onclick="resetLocalOverrides()">Reset local changes</button>` : ""}
     </div>
+    <button class="local-btn active" style="width:100%;text-align:center;margin-top:10px;" onclick="location.hash='planner'">See my team in future gameweeks &rsaquo;</button>
     <a class="profile-menu-link" style="margin-top:14px;" href="https://fantasy.premierleague.com/entry/${state.team.entry_id}/event/${state.team.gameweek}" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
   `;
 }
@@ -2062,22 +2266,33 @@ function swingRoadmapCard(account, maxAbs) {
   }).join("");
   const best = account.best_bench_boost_triple_captain_window;
   const worst = account.toughest_window_wildcard_candidate;
+  const wc = worst && worst.real_wildcard_check;
+  const roadmap = state.roadmap;
+  // "about six gameweeks" (~10 matches each) is the point real FPL strategy guidance treats
+  // fixture/form signals as having settled -- below that, disclose the thinner sample rather
+  // than presenting an early-season candidate window as equally solid as a later one.
+  const thinSample = roadmap && roadmap.n_matches_played_this_season != null && roadmap.n_matches_played_this_season < 60;
   return `
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
         <span class="card-title" style="margin:0;">Fixture swing roadmap</span>
         <span style="font-size:10px;color:var(--ink-dim2);font-weight:600;">GW${account.weekly_swing[0].gameweek}&ndash;${account.weekly_swing[account.weekly_swing.length - 1].gameweek}</span>
       </div>
-      <div style="font-size:11px;color:var(--ink-dim);margin-bottom:12px;">Negative = easier run for this squad's clubs</div>
+      <div style="font-size:11px;color:var(--ink-dim);margin-bottom:${thinSample ? "6px" : "12px"};">Negative = easier run for this squad's clubs</div>
+      ${thinSample ? `<div style="font-size:10.5px;color:oklch(0.55 0.15 60);background:oklch(0.94 0.06 60);border-radius:8px;padding:6px 9px;margin-bottom:12px;">Only ${roadmap.n_matches_played_this_season} matches played so far this season &mdash; ${roadmap.reliability_note}</div>` : ""}
       ${rows}
       <div style="display:flex;gap:10px;margin-top:14px;">
         <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));">
           <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Easiest run</div>
           <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.3 0.1 150);margin-top:2px;">${best ? `GW${best.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:9px;color:oklch(0.3 0.1 150);opacity:0.75;margin-top:1px;">Bench Boost / Triple Captain window</div>
         </div>
         <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));">
           <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Toughest run</div>
           <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.4 0.16 30);margin-top:2px;">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:9px;color:oklch(0.4 0.16 30);opacity:0.85;margin-top:1px;">
+            ${wc ? `Wildcard ${wc.gain >= 0 ? "+" : ""}${wc.gain.toFixed(1)} EP &mdash; ${wc.recommended ? "recommended" : "below threshold"}` : (worst ? "Wildcard candidate window" : "")}
+          </div>
         </div>
       </div>
     </div>`;
@@ -2208,6 +2423,105 @@ function renderLeagues() {
 // ============================================================
 // PLAYER SHEET
 // ============================================================
+
+// ============================================================
+// PLANNER -- "how does my team line up in other gameweeks" (roadmap ask: like Jossy's
+// Planner on Fantasy Football Hub). Entirely client-side: projections_latest.json already
+// covers every player in the real candidate pool across a real multi-gameweek forward window
+// (see scripts/export_projections.py's own PLANNER_HORIZON_GAMEWEEKS), so picking the best
+// legal XI from a FIXED 15-man squad for one specific gameweek is pure arithmetic over
+// already-loaded data -- no new backend call per navigation, and the same mechanism serves
+// both the real squad and a hypothetical one-transfer "what if."
+// ============================================================
+
+// Real FPL XI-shape constraints: 1 GK + 10 outfield, DEF 3-5 / MID 2-5 / FWD 1-3 summing to
+// 10. Small enough to enumerate exactly (a handful of (d,m,f) combos) rather than approximate
+// -- exact beats a greedy heuristic here and costs nothing extra at this scale.
+function fixturesForClubAtGw(shortName, gw) {
+  const gwData = state.fixtures.find(g => g.gameweek === gw);
+  if (!gwData) return [];
+  const out = [];
+  for (const f of gwData.fixtures) {
+    if (f.home.short_name === shortName) out.push({ opp: f.away.short_name, difficulty: f.home.difficulty, home: true });
+    else if (f.away.short_name === shortName) out.push({ opp: f.home.short_name, difficulty: f.away.difficulty, home: false });
+  }
+  return out;
+}
+
+function projectionsByElementId() {
+  const proj = state.projections;
+  if (!proj || !proj.players) return new Map();
+  return new Map(proj.players.filter(p => p.fpl_element_id != null).map(p => [p.fpl_element_id, p]));
+}
+
+function epForElementAtGw(projByElement, elementId, gw) {
+  const row = projByElement.get(elementId);
+  if (!row) return null;
+  const band = row.ep_per_gw.find(b => b.gw === gw);
+  return band ? band.ep : null;
+}
+
+// squadRows: [{id, position, ep}] -- ep already resolved to the ONE target gameweek (null
+// when this player has no projection or no fixture that week -- sorts last, never fabricated
+// as 0 unless genuinely forced into the XI with no better alternative). Returns null only
+// when the squad can't field a legal XI at all (e.g. no goalkeeper).
+function bestXIForSquad(squadRows) {
+  const byPos = { GKP: [], DEF: [], MID: [], FWD: [] };
+  for (const r of squadRows) (byPos[r.position] || (byPos[r.position] = [])).push(r);
+  for (const pos in byPos) byPos[pos].sort((a, b) => (b.ep ?? -Infinity) - (a.ep ?? -Infinity));
+  if (!byPos.GKP.length) return null;
+
+  let best = null;
+  for (let d = 3; d <= 5; d++) {
+    for (let m = 2; m <= 5; m++) {
+      const f = 10 - d - m;
+      if (f < 1 || f > 3) continue;
+      if (d > byPos.DEF.length || m > byPos.MID.length || f > byPos.FWD.length) continue;
+      const xi = [byPos.GKP[0], ...byPos.DEF.slice(0, d), ...byPos.MID.slice(0, m), ...byPos.FWD.slice(0, f)];
+      const total = xi.reduce((sum, r) => sum + (r.ep ?? 0), 0);
+      if (!best || total > best.total) best = { total, xi };
+    }
+  }
+  if (!best) return null;
+
+  const sortedXi = [...best.xi].sort((a, b) => (b.ep ?? -Infinity) - (a.ep ?? -Infinity));
+  const captain = sortedXi[0] || null;
+  const vice = sortedXi[1] || null;
+  const xiIds = new Set(best.xi.map(r => r.id));
+  const bench = squadRows.filter(r => !xiIds.has(r.id)).sort((a, b) => (b.ep ?? -Infinity) - (a.ep ?? -Infinity));
+  // Captain's own EP counts twice, matching real FPL scoring.
+  const totalEp = best.total + (captain ? (captain.ep ?? 0) : 0);
+  return { xi: best.xi, bench, captain, vice, totalEp };
+}
+
+// The user's real 15 with the local hypothetical transfer (if any) applied -- never touches
+// state.team.squad itself, same "what if workspace" discipline as the captain/vice/lock
+// overrides above.
+function effectiveSquadForPlanner(ls) {
+  const squad = (state.team && state.team.squad) || [];
+  const t = ls.plannerTransfer;
+  if (!t || t.outId == null || t.inId == null) return squad;
+  const outPlayer = squad.find(p => p.player_id === t.outId);
+  const inPlayer = state.playersById[t.inId];
+  // Defense in depth: the UI already restricts the "in" picker to the outgoing player's own
+  // position (a real FPL transfer can't change squad position quotas), but local state could
+  // in principle go stale (e.g. the real squad changed since this was saved) -- never apply a
+  // position-mismatched swap, silently fall back to the real squad instead of an illegal one.
+  if (!outPlayer || !inPlayer || inPlayer.position !== outPlayer.position) return squad;
+  return squad.map(p => p.player_id === t.outId
+    ? { ...p, player_id: inPlayer.id, web_name: inPlayer.web_name, team: inPlayer.team, team_name: inPlayer.team_name, position: inPlayer.position, price: inPlayer.price }
+    : p);
+}
+
+// Best-XI total EP per navigable gameweek, for the trend visual -- same shape as
+// rankTrajectoryBlock()'s own bar-chart pattern elsewhere in this file.
+function squadEpTrajectory(squadRows, projByElement, gws) {
+  return gws.map(gw => {
+    const withEp = squadRows.map(p => ({ id: p.player_id, position: p.position, ep: epForElementAtGw(projByElement, p.player_id, gw) }));
+    const best = bestXIForSquad(withEp);
+    return { gw, totalEp: best ? best.totalEp : null };
+  });
+}
 
 function fixturesForClub(shortName, fromGw, count) {
   const out = [];
