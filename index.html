@@ -317,6 +317,11 @@
   .fdr-strip .fdr-num{width:20px;height:20px;border-radius:6px;color:#0B0B12;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;}
 
   .profile-menu-link{display:block;text-align:center;background:var(--card);border-radius:14px;padding:13px;font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:10px;text-decoration:none;}
+  .tip-list{background:var(--card);border-radius:16px;padding:4px 14px;margin-bottom:16px;}
+  .tip-row{padding:12px 0;border-top:1px solid var(--divider);}
+  .tip-row:first-child{border-top:none;}
+  .tip-row b{display:block;font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:3px;}
+  .tip-row span{font-size:11.5px;color:var(--ink-dim);line-height:1.5;}
 
   /* ---- flags (injury/news) ---- */
   .flag-banner{background:oklch(0.94 0.1 60);border-left:4px solid var(--amber);border-radius:10px;padding:11px 13px;font-size:12px;color:oklch(0.32 0.1 50);line-height:1.5;margin-bottom:14px;}
@@ -1268,6 +1273,10 @@ function route() {
   }
   if (hash === "injury-watch") {
     openInjuryWatchSheet();
+    return;
+  }
+  if (hash === "welcome") {
+    openOnboardingSheet();
     return;
   }
   closeSheet();
@@ -3177,10 +3186,45 @@ function devToggleBlock() {
     </div>`;
 }
 
+// ============================================================
+// first-run onboarding -- a short, one-time list of genuinely easy-to-miss functionality
+// (not a marketing tour of the whole app). Routed through the same hash-based sheet mechanism
+// as every other sheet (location.hash = "welcome") rather than opened directly, because the
+// single shared #sheet-close button always calls history.back() -- a sheet shown without its
+// own pushed hash entry would send that button "back" to whatever the browser's prior history
+// entry happened to be, not just close this sheet.
+// ============================================================
+const ONBOARDING_KEY = "fq_onboarding_seen";
+function hasSeenOnboarding() { return localStorage.getItem(ONBOARDING_KEY) === "1"; }
+function markOnboardingSeen() { try { localStorage.setItem(ONBOARDING_KEY, "1"); } catch {} }
+
+const ONBOARDING_TIPS = [
+  { title: "Swipe between tabs", body: "Drag left or right on any screen, or use the tab bar below -- both take you the same way through Home/Team/Transfers/Fixtures/Leagues." },
+  { title: "Pull down to refresh", body: "From the very top of any screen, pull down to fetch the latest data on demand instead of waiting for the next automatic check." },
+  { title: "Plan without commitment", body: "Open any player and set a local captain, vice-captain, or lock for the optimiser -- a private planning sandbox that's never submitted to FPL." },
+  { title: "See your team in future gameweeks", body: "The Planner (from Home's next-up card) shows your XI at any upcoming gameweek, including a hypothetical transfer." },
+];
+
+function openOnboardingSheet() {
+  markOnboardingSeen();
+  const content = document.getElementById("sheet-content");
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:10px;">
+      <div class="name" style="font-size:19px;">A few things worth knowing</div>
+      <div class="sub" style="max-width:280px;text-align:center;line-height:1.5;">Everything else in the app explains itself as you go -- this is just what's easy to miss.</div>
+    </div>
+    <div class="tip-list">
+      ${ONBOARDING_TIPS.map(t => `<div class="tip-row"><b>${t.title}</b><span>${t.body}</span></div>`).join("")}
+    </div>
+    <button class="local-btn active" style="width:100%;text-align:center;" onclick="history.back()">Got it</button>
+  `;
+  openSheet();
+}
+
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
-  if (!profile) { content.innerHTML = `<p class="empty-state">No profile data available for this account.</p>` + devToggleBlock(); }
+  if (!profile) { content.innerHTML = `<p class="empty-state">No profile data available for this account.</p><a class="profile-menu-link" href="#welcome">Show tips again &rsaquo;</a>` + devToggleBlock(); }
   else {
     content.innerHTML = `
       <div class="player-hero">
@@ -3205,6 +3249,7 @@ function openProfileSheet() {
       ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>
+      <a class="profile-menu-link" href="#welcome">Show tips again &rsaquo;</a>
       ${devToggleBlock()}
     `;
   }
@@ -3341,6 +3386,12 @@ async function init() {
     populateAccountSwitcher();
     updateStaleBanner();
     route();
+    // Only on a plain fresh open (never over a deep link like #player-123 or #team someone
+    // was actually sent here for) -- pushed as its own hash entry so the shared #sheet-close
+    // button's history.back() closes it back to Home, not somewhere unrelated.
+    if (!hasSeenOnboarding() && (location.hash === "" || location.hash === "#home")) {
+      location.hash = "welcome";
+    }
     pollLiveData();
     setInterval(pollLiveData, LIVE_POLL_INTERVAL_MS);
     setInterval(tickDeadlineCountdown, 60_000);
