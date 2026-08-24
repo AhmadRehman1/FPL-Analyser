@@ -23,16 +23,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout FPL-Analyser
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"
 
+      # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
+      # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here; an
+      # unpinned install could silently reintroduce squad_optimizer.solve()'s determinism bug).
       - name: Install dependencies
         run: pip install -r requirements.lock
+
+      # Fail-fast canary stage: test_schema_invariants.py (asof-scope/schema discipline) and
+      # test_squad_optimizer.py (SCIP determinism + PSD guardrails) are cheap and catch the two
+      # bug classes the README calls out most often, so a broken canary fails in seconds
+      # instead of waiting through the full suite.
+      - name: Fail-fast canary tests (determinism + asof-scope invariants)
+        run: PYTHONPATH=src python -m pytest tests/test_schema_invariants.py tests/test_squad_optimizer.py -q
 
       - name: Run test suite
         run: PYTHONPATH=src python -m pytest tests/ -v
@@ -41,10 +51,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout FPL-Analyser
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"
@@ -61,17 +71,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout FPL-Analyser
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: "pip"
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.lock
+          pip install -r requirements.txt
           pip install -r requirements-dev.txt
 
       # Advisory only, deliberately not gating: a first real run found 94 errors, nearly all

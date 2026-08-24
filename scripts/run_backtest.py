@@ -23,6 +23,15 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest, db  # noqa: E402
 
+# Phase B1 hardening: recalibrate()'s seed_dir writes a durable, git-committed copy of every
+# proposal this run makes (data/recalibration/seeds_<backtest_run_id>.json), independent of
+# the gitignored DuckDB file that also holds the same recalibration_proposals rows -- the
+# exact artifact whose loss previously meant fact_type_multiplier_params v8/
+# minutes_model_shrinkage_params v10's real winning values were gone for good (see README's
+# Design notes). Still requires scripts/review_recalibration.py's human confirm/reject gate
+# before anything here is auto-loaded back by run_ingestion.py.
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
+
 # Every param family below is currently seeded at version=1 by scripts/run_ingestion.py.
 PARAM_VERSIONS = dict(
     xi_params_version=1, rho_params_version=1,
@@ -67,10 +76,6 @@ def main() -> None:
     backtest_run_id = backtest.run(
         con, **PARAM_VERSIONS, n_antithetic_pairs=5000, run_monte_carlo=True,
         notes="M7 full walk-forward backtest",
-        # Priority 9c opt-in: without this, score_gameweek() never records
-        # model_squad_realized_points/avg_manager_benchmark_points, and beats_baseline()
-        # (review B2/roadmap Feature 7) has nothing to read for this run_id.
-        ownership_params_version=1,
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")
 
@@ -104,18 +109,9 @@ def main() -> None:
         minutes_param_grids=MINUTES_PARAM_GRIDS,
         current_kappa_tc_version=1,
         refit_kappa_tc_flag=True,
+        seed_dir=RECALIBRATION_SEED_DIR,
     )
     print(f"[recalibrate] {time.time() - t0:.1f}s -> {len(proposal_ids)} pending proposals: {proposal_ids}")
-
-    if proposal_ids:
-        # Review B1 (Gate G1): mirrors the recalibration_proposals rows just written into a
-        # committed JSON file, so the values survive independently of the local db/*.duckdb
-        # (gitignored, rebuilt fresh every run) that would otherwise be their only record.
-        # Every seed here is 'pending' -- see write_recalibration_seeds()'s own docstring for
-        # why this never activates anything; a human still has to review and re-author the
-        # seed's status before scripts/run_ingestion.py will ever load it.
-        seed_path = backtest.write_recalibration_seeds(con, backtest_run_id, proposal_ids)
-        print(f"[write_recalibration_seeds] wrote {seed_path} ({len(proposal_ids)} pending seeds)")
 
     con.close()
 

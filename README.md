@@ -267,6 +267,16 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     backtesting was deliberately deferred — the two loaded seasons are hardcoded in
     `tier_for()`, and inventing tier boundaries for hypothetical seasons with no real data to
     check them against would be premature.
+  - **Phase B2 hardening — `backtest.beats_baseline()`:** the crowd benchmark above was, until
+    this, only ever a per-gameweek `backtest_metrics` row, never compared against the model's
+    own season-level trajectory. `beats_baseline()` now scores three model-free baselines
+    (recent-form pick, ownership-popularity pick — both via a real `squad_optimizer.solve()`
+    call against the same budget/formation/club-cap constraints the real model plays under, not
+    an unconstrained strawman ranking — and the crowd benchmark) over the exact same walked
+    window a `run_season_simulation()` call produced, using the identical `asof_scope()`
+    discipline. Wired into `scripts/run_season_simulation.py` so a real run prints a real
+    verdict per baseline (beats/loses to/ties, by how much), not just an architecture
+    disclosure with no evidence either way attached to it.
   - **Priority 10 (field simulator):** a design doc, not code, per the roadmap's own explicit
     instruction (`docs/priority10_field_simulator_design.md`). Its key finding: unlike every
     other rival/field signal in this project, the public FPL API exposes real individual
@@ -385,8 +395,13 @@ src/fpl_quant/
                                      week-over-week diff report (snapshot_for_diff/diff_reports)
                                      live here too
 scripts/run_ingestion.py       -- end-to-end pipeline runner (M0-M6, one live gameweek)
+scripts/record_provenance.py    -- Phase A5: records this run's fragile upstream inputs (repo/
+                                     FPL-Core-Insights commit SHAs, evidence-workbook
+                                     sha256+size, installed package versions) to
+                                     data/report_history/provenance_<asof>.json
 scripts/run_backtest.py         -- M7: full walk-forward backtest + recalibration, all 76 gameweeks
 scripts/review_recalibration.py  -- M7: human review/confirm/reject gate for recalibration_proposals
+                                     (also keeps data/recalibration/seeds_*.json in sync -- Phase B1)
 scripts/run_transfer_planner.py   -- M8: bootstrap manager state + plan transfers/chips for one gameweek
 scripts/run_transfer_planner_for_real_squad.py -- M8: same, but bootstrapped from a real
                                      manager's actual live FPL squad (fetched by entry ID),
@@ -402,7 +417,8 @@ scripts/print_chip_timing_roadmap.py -- first-half-of-season chip-timing signal 
                                      scores against each account's actual current squad.
                                      Writes data/dashboard/chip_timing_roadmap.json
 scripts/run_season_simulation.py   -- M7/M8: one real season simulation + a real lambda/
-                                     concentration-cap sensitivity sweep against the real DB
+                                     concentration-cap sensitivity sweep against the real DB,
+                                     plus beats_baseline() (Phase B2) against the same window
 scripts/run_report.py              -- M9: build + print a real squad report from the project
                                      database; Priority 8c's diff-against-last-week + snapshot
                                      save now run here too
@@ -427,12 +443,23 @@ data/external/                 -- gitignored; extracted FPL-Core-Insights repo,
                                    FPL_202627_Master_Evidence_Database.xlsx, and
                                    FPL_Evidence_Claims_Research_Pull.xlsx go here
 data/report_history/           -- Priority 8c: small, committed per-gameweek report snapshots
-                                   (JSON) -- NOT gitignored, this is the point of persisting them
+                                   (JSON) -- NOT gitignored, this is the point of persisting them.
+                                   Also holds provenance_<asof>.json (Phase A5: repo/FPL-Core-
+                                   Insights commit SHAs, evidence-workbook sha256+size, installed
+                                   package versions -- scripts/record_provenance.py)
 data/dashboard/                 -- committed JSON the live dashboard (index.html) fetches:
                                    real_squad_<entry_id>.json (both real accounts' current
                                    transfer/hold/chip verdict) and chip_timing_roadmap.json
                                    (first-half fixture-swing signal) -- written by the
                                    scheduled workflow's real-squad and chip-timing steps
+data/recalibration/             -- Phase B1: committed seeds_<backtest_run_id>.json per real M7
+                                   recalibration run (backtest.write_recalibration_seed_file()),
+                                   a durable copy independent of the gitignored DuckDB file that
+                                   also holds the same recalibration_proposals rows -- NOT
+                                   gitignored, this is the point of persisting them. Only
+                                   'confirmed' entries are ever auto-loaded back
+                                   (load_confirmed_recalibration_seeds(), used by
+                                   run_ingestion.py)
 index.html                      -- the live mobile dashboard itself, served via GitHub Pages
                                    (Settings -> Pages -> Deploy from a branch -> master -> / root).
                                    Self-contained (no build step, no external dependencies),
@@ -618,6 +645,26 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   outcomes literally the *same* underlying event (not just parametrically correlated) and two
   opponents' clean-sheet/goals-conceded outcomes exact complements of the same scoreline, with
   no extra covariance machinery required to produce that structure.
+- **Per-player GOALS were originally drawn as independent `Poisson(Z_fixture*lambda_i)` per
+  squad player, with no constraint tying a fixture's summed squad goals to that same fixture's
+  own drawn `home_goals`/`away_goals` -- an internally inconsistent simulated match world,
+  flagged by an external review before it was fixed.** Clean sheet/goals-conceded already read
+  directly off the joint scoreline draw (previous bullet); goals themselves didn't. Fixed by
+  conditioning each side's squad players jointly on that side's own drawn goal total via the
+  standard sequential-binomial decomposition of a multinomial (`X_1 ~ Binomial(N, p_1)`,
+  `X_2 ~ Binomial(N-X_1, p_2/(1-p_1))`, etc, exact for conditioning independent Poissons on
+  their sum -- see `sample_binomial_vec()` and `simulate_fixture()`'s own "goal allocation"
+  section). The multinomial weights need the WHOLE team's scoring intensity, not just the 1-3
+  squad players who happen to be in a given fixture -- allocating 100% of a team's goals across
+  only its squad members would overstate them relative to real teammates outside the squad, so
+  every non-squad fixture participant's own static, mean-based expected goal count (`ep_goals`
+  from M3, already shrinkage/decay-adjusted -- the same conversion
+  `compute_lambda_representative()` uses) is pooled into an untracked "rest of the team" share
+  of the multinomial rather than left out of it. Assists are NOT conditioned the same way and
+  remain independent per-player Poisson draws -- an assist is credited to a different player
+  than the scorer, so there's no analogous "components sum to a drawn team total" constraint
+  the way there is for goals, and the spec's own generative-mechanism paragraph never names
+  assists as scoreline-bounded the way goals are.
 - **A real bug the first end-to-end run against real data caught**: `dict(rows)` on
   `(player_uid_a, player_uid_b, covariance)` 3-tuples raised `ValueError: dictionary update
   sequence element #0 has length 3; 2 is required` when building the M4-covariance lookup for
@@ -644,6 +691,16 @@ db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.
   relative to a mechanistically-honest model. Flagged here for M7's calibration pass, exactly
   the kind of disagreement `monte_carlo_empirical_covariance.m4_covariance` exists to surface,
   not a discrepancy to paper over.
+- **The dilution finding above is a single central-tendency range from one manual inspection of
+  one real run -- `z_fixture_variance()` itself only calibrates `sigma_z^2` to hit
+  `rho_residual` at ONE representative lambda (`compute_lambda_representative()`'s squad-wide
+  mean, ~0.141 in the real run), so the implied correlation genuinely varies by pair (a
+  high-lambda captain-grade forward and a low-lambda rotation-risk defender don't share it).**
+  `monte_carlo.z_fixture_correlation_distribution()` (wired into M9's report as
+  `z_fixture_correlation_dilution`) now computes the real min/p25/median/p75/max spread across
+  every teammate/opponent pair directly from `monte_carlo_empirical_covariance` for whichever
+  run is being reported, rather than this file's one-time 0.017-0.078 range standing in for
+  every future run's actual spread.
 - **Full pipeline integration is verified by running the real `scripts/run_ingestion.py`
   end-to-end against the real 2024-27 data, not by a large synthetic-DB pytest fixture.**
   `tests/test_monte_carlo.py` thoroughly unit-tests every standalone function (seeding,
@@ -1120,15 +1177,30 @@ for the existing (real-data) `lambda_value` finding above.
   `ParamNotFoundError` immediately on `team_strength.calibrate()`. Fixed two different ways
   depending on whether the winning value was actually recoverable: `xi`=0.005 and
   `rho_residual`=0.0 are both explicitly documented above (real, confirmed numbers, not a
-  guess), so they're re-written as their own immutable v2 rows directly in `run_ingestion.py`
-  now -- the real recalibration result, just re-materialized instead of re-derived.
+  guess) and re-written as their own immutable v2 rows -- originally as two hardcoded literals
+  directly in `run_ingestion.py`, since generalized (Phase B1 hardening) into a durable,
+  git-committed seed-file mechanism instead: `backtest.write_recalibration_seed_file()` writes
+  every `recalibration_proposals` row for a backtest run to
+  `data/recalibration/seeds_<backtest_run_id>.json`, independent of the DuckDB file that also
+  holds those rows (the exact artifact whose loss caused this incident in the first place);
+  `scripts/review_recalibration.py`'s confirm/reject flow re-writes that same file on every
+  status change, so the committed copy and the DB's own `recalibration_proposals.status` never
+  drift apart; `run_ingestion.py` now loads every `'confirmed'` seed from that directory
+  generically via `backtest.load_confirmed_recalibration_seeds()` rather than a growing list of
+  hardcoded literals, one per historically-recalibrated family. `xi`=0.005/`rho_residual`=0.0
+  themselves are hand-recorded into that same JSON shape in
+  `data/recalibration/seeds_historical_commit_7bf7604.json` (the original
+  `recalibration_proposals` rows that would have produced this file no longer exist to
+  regenerate it from -- re-typed from this file's own already-documented numbers, not
+  fabricated or guessed) so both re-materialized families now go through the identical,
+  reusable mechanism instead of one-off special-cased code.
   `fact_type_multiplier_params`/`minutes_model_shrinkage_params`'s actual winning v8/v10
   *values* were never recorded anywhere outside that lost database (only the version numbers
   a multi-round block coordinate descent landed on, not what they resolved to) -- rolled back
   to their honest, freshly-reproducible v1 baseline rather than fabricated, with the real fix
-  (re-run `backtest.refit_minutes_and_evidence_params()` for real and this time persist the
-  result somewhere durable, e.g. Drive-fetched into CI the same way the evidence workbooks are)
-  named here as a flagged follow-up, not silently done.
+  (re-run `backtest.refit_minutes_and_evidence_params()` for real, this time via `recalibrate()`
+  with `seed_dir=` set so the result lands in the same durable, git-committed seed-file
+  mechanism the fix above establishes) named here as a flagged follow-up, not silently done.
 - **A second real gap the same live run surfaced, one layer deeper: `team_strength.calibrate()`
   assumed the target season's own Elo data is always populated.** FPL-Core-Insights'
   `2026-2027/teams.csv` genuinely ships an `elo` column, but it's entirely blank for all 20

@@ -32,45 +32,52 @@ XI_POSITION_MAX = {"Defender": 5, "Midfielder": 5, "Forward": 3}
 BUDGET = 100.0
 
 
-class DivergenceCheckFailedError(Exception):
-    """The lambda=0 vs lambda=0.15 sanity check failed: both solves produced the identical
-    squad, proving the quadratic risk term is not affecting the solve at all. Per M5's own
-    frozen spec this is a hard stop, not a warning -- implementation must investigate
-    before trusting any output from this optimizer."""
+def _warn_if_sigma_not_psd(candidates: list[dict], sigma_pairs: dict, *, tol: float = 1e-8) -> None:
+    """Warn-only PSD check on the assembled Sigma right before it feeds the epigraph
+    reformulation (see module docstring: t >= w'Sigma*w is only a valid convex constraint when
+    Sigma is PSD). Real Sigma from M4/M6 is asserted PSD by construction, so a non-PSD Sigma
+    here most likely means an upstream covariance-assembly bug -- but this function must not
+    raise or project/clip: this module's own test suite deliberately builds small non-PSD toy
+    covariances (e.g. a cov entry exceeding sqrt(var_a*var_b)) to exercise the risk term without
+    needing a real M4/M6 run, and SCIP itself is the real arbiter of whether the resulting
+    constraint is solvable, not this check.
 
-
-def _warn_if_sigma_not_psd(candidates: list[dict], sigma_pairs: dict) -> bool:
-    """Warn-only PSD check on the candidate-pool Sigma assembled from `var` (diagonal) and
-    `sigma_pairs` (off-diagonal), run right before the MIQP epigraph reformulation below --
-    `t >= w'Sigma*w` is only a valid convex constraint when Sigma is PSD. Deliberately never
-    raises or projects Sigma onto the PSD cone: several existing solve() unit-test fixtures
-    intentionally pass a covariance too large relative to the paired variances (not PSD) to
-    exercise other, unrelated code paths, and this module's real backstop against a broken
-    risk term is the divergence check in run(), not this function. This exists purely so a
-    non-PSD Sigma is a diagnosable, named warning instead of an opaque SCIP solver failure.
-    Returns True when PSD (for tests), False when the warning fired.
+    Restricted to the players that actually appear in sigma_pairs -- a var-only diagonal (no
+    cross-covariance at all) is trivially PSD and not worth an O(n^2) matrix build against a
+    large real candidate pool.
     """
-    uids = [c["player_uid"] for c in candidates]
-    idx = {uid: i for i, uid in enumerate(uids)}
-    n = len(uids)
+    involved = {a for a, b in sigma_pairs} | {b for a, b in sigma_pairs}
+    if not involved:
+        return
+    uid_list = sorted(involved)
+    idx = {u: i for i, u in enumerate(uid_list)}
+    var_by_uid = {c["player_uid"]: c["var"] for c in candidates}
+    n = len(uid_list)
     sigma = np.zeros((n, n))
-    for c in candidates:
-        sigma[idx[c["player_uid"]], idx[c["player_uid"]]] = c["var"]
+    for u in uid_list:
+        sigma[idx[u], idx[u]] = var_by_uid.get(u, 0.0)
     for (a, b), cov in sigma_pairs.items():
         if a in idx and b in idx:
             sigma[idx[a], idx[b]] = cov
             sigma[idx[b], idx[a]] = cov
 
     min_eig = float(np.linalg.eigvalsh(sigma).min())
-    if min_eig < -1e-8:
+    if min_eig < -tol:
         print(
-            f"::warning::squad_optimizer.solve: assembled Sigma is not PSD "
-            f"(min eigenvalue={min_eig:.6g} over {n} candidates) -- the risk epigraph "
-            f"constraint t >= w'Sigma*w is not guaranteed convex for this solve; SCIP may "
-            f"reject or mis-solve it."
+            f"::warning::squad_optimizer.solve: assembled Sigma (restricted to the {n} player(s) "
+            f"with cross-covariance entries) is not PSD -- most negative eigenvalue {min_eig:.6g}. "
+            f"The epigraph constraint t >= w'Sigma*w is only a valid convex relaxation when Sigma "
+            f"is PSD; a non-PSD Sigma here likely means an M4/M6 covariance-assembly bug rather "
+            f"than real risk structure. Continuing without projecting or clipping Sigma -- SCIP "
+            f"may reject the model or return a result that understates true risk."
         )
-        return False
-    return True
+
+
+class DivergenceCheckFailedError(Exception):
+    """The lambda=0 vs lambda=0.15 sanity check failed: both solves produced the identical
+    squad, proving the quadratic risk term is not affecting the solve at all. Per M5's own
+    frozen spec this is a hard stop, not a warning -- implementation must investigate
+    before trusting any output from this optimizer."""
 
 
 def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:

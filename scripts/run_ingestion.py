@@ -23,9 +23,7 @@ from fpl_quant import (  # noqa: E402
 DATA_ROOT = REPO_ROOT / "data" / "external" / "FPL-Core-Insights-main" / "data"
 XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_202627_Master_Evidence_Database.xlsx"
 RESEARCH_PULL_XLSX_PATH = REPO_ROOT / "data" / "external" / "FPL_Evidence_Claims_Research_Pull.xlsx"
-# Review B1 (Gate G1): the committed, human-reviewed recalibration seed file -- see
-# data/recalibration/seeds_confirmed_v2.json for what's in it and why.
-RECALIBRATION_SEED_PATH = REPO_ROOT / "data" / "recalibration" / "seeds_confirmed_v2.json"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 # "Now", not a hardcoded date: a model run's data_asof has to be today for evidence ingested
 # today to actually be visible (a fixed past date would look-ahead-safely -- but wrongly --
 # exclude same-day evidence every time this script re-runs).
@@ -63,21 +61,6 @@ def main() -> None:
     # M1: Dixon & Coles (1997) pinned defaults.
     params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
     params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
-    # M7's real 76-gameweek walk-forward backtest confirmed xi=0.005 (fit NLL nearly halves,
-    # 1302->677 -- see README's own Status section) via scripts/review_recalibration.py. That
-    # confirmed result only ever lived in the local db/fpl_quant_v2.duckdb this project
-    # developed against (correctly gitignored as a build artifact, never committed) -- a fresh
-    # database (every scheduled CI run; db/*.duckdb doesn't persist between them) has to
-    # re-materialize it explicitly rather than resolve a version that was never written here.
-    # Review B1 (Gate G1): sourced from the committed, disclosed seed file instead of a bare
-    # inline literal -- see data/recalibration/seeds_confirmed_v2.json for why this specific
-    # pair is safe to load as an active default (already human-confirmed via commit 7bf7604,
-    # not a still-pending proposal). Falls back to the same value with a visible warning if
-    # that file is ever missing, so a fresh checkout still ingests successfully.
-    xi_seed = backtest.resolve_confirmed_seed_or_warn(
-        RECALIBRATION_SEED_PATH, "model_decay_params", "xi", fallback_value=0.005, fallback_params_version=2,
-    )
-    params.write_param(con, "model_decay_params", xi_seed["params_version"], "2026-08-12", "xi", value_numeric=xi_seed["value"])
     # M2 v1 defaults, adapted to the real injury-status vocabulary this workbook actually
     # uses (Out/Doubt/Doubt (improving)/Doubt (minutes)), not the spec's illustrative
     # Out/Doubtful/Minor-knock/Fit strings -- see README for the mapping rationale.
@@ -110,18 +93,30 @@ def main() -> None:
     transfer_planner.seed_v1_params(con)
     reporting.seed_v1_params(con)
     decay.seed_v1_params(con)
-    # Same re-materialization as model_decay_params.xi above: M7's real backtest confirmed
-    # rho_residual=0.0 (independent -- see README's own Status section), activated for real via
-    # commit 7bf7604, but that confirmed param_versions row only ever existed in the since-lost
-    # local db/fpl_quant_v2.duckdb. Review B1 (Gate G1): sourced from the same committed seed
-    # file, same fallback discipline as xi above.
-    rho_residual_seed = backtest.resolve_confirmed_seed_or_warn(
-        RECALIBRATION_SEED_PATH, "correlation_params", "rho_residual", fallback_value=0.0, fallback_params_version=2,
-    )
-    params.write_param(
-        con, "correlation_params", rho_residual_seed["params_version"], "2026-08-12",
-        "rho_residual", value_numeric=rho_residual_seed["value"],
-    )
+
+    # Re-materialization from a committed seed file, not hardcoded literals (Phase B1
+    # hardening). model_decay_params.xi=0.005 (v2) and correlation_params.rho_residual=0.0 (v2)
+    # were confirmed via a real M7 76-gameweek walk-forward backtest and activated for real in
+    # commit 7bf7604 -- but the recalibration_proposals rows and param_versions rows that
+    # justified them only ever existed in the local db/fpl_quant_v2.duckdb this project
+    # developed against, since lost (correctly gitignored as a build artifact, never
+    # committed). A fresh database (every scheduled CI run; db/*.duckdb doesn't persist between
+    # them) has to re-materialize them explicitly rather than resolve a version that was never
+    # written here -- previously done as two hardcoded params.write_param() literals; now
+    # data/recalibration/seeds_*.json (backtest.write_recalibration_seed_file()'s own committed
+    # output format -- these two were hand-recorded into that same shape rather than machine-
+    # generated, since the original recalibration_proposals rows no longer exist to regenerate
+    # them from) is the durable, git-committed record, and every FUTURE confirmed recalibration
+    # (see scripts/review_recalibration.py) is picked up here the same generic way, without
+    # needing a new hardcoded literal each time. Only 'confirmed' seeds are ever loaded (see
+    # load_confirmed_recalibration_seeds()'s own docstring) -- a 'pending' proposal never
+    # silently becomes a live default just by sitting in this file. write_param() is idempotent
+    # for an identical value, so this is a safe no-op on every run after the first.
+    for seed in backtest.load_confirmed_recalibration_seeds(RECALIBRATION_SEED_DIR):
+        params.write_param(
+            con, seed["param_family"], seed["new_params_version"], "2026-08-12",
+            seed["param_key"], value_numeric=seed["new_value"], dimensions=seed["dimensions"],
+        )
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "

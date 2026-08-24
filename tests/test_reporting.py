@@ -240,6 +240,44 @@ def test_build_report_headline_and_sections(con):
     assert report["automated_flags"] != report["human_prompt"]
 
 
+def test_build_report_z_fixture_correlation_dilution_absent_without_empirical_pairs(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+    assert report["z_fixture_correlation_dilution"] is None
+
+
+def test_build_report_z_fixture_correlation_dilution_reports_the_real_spread(con):
+    """Phase B hardening (see monte_carlo.z_fixture_correlation_distribution's own docstring):
+    a single representative-lambda calibration doesn't imply a single correlation across every
+    pair, so this must report the actual min/median/max spread, not just a mean."""
+    run_id, ep_mv, un_mv, mc_mv = _seed_full_squad_scenario(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'Player Three', 'Forward')")
+    con.execute(
+        "INSERT INTO monte_carlo_player_summary (model_version, player_uid, mean_total, var_total, "
+        "quantile_05, quantile_25, quantile_75, quantile_95, min_total, max_total) "
+        "VALUES (?, 'p3', 4.0, 8.0, 1.0, 3.0, 7.0, 9.0, 0.0, 15.0)", [mc_mv],
+    )
+    # p1/p2 var_total=2.0 each (see _seed_full_squad_scenario); p3 var_total=8.0 above.
+    # p1/p2 (opponents in fixture m1): corr = 1.0/sqrt(2*2) = 0.5
+    # p1/p3 (teammate, hypothetical): corr = 1.0/sqrt(2*8) = 0.25
+    # p2/p3 (teammate, hypothetical): corr = 3.0/sqrt(2*8) = 0.75
+    for a, b, relationship, cov in (("p1", "p2", "opponent", 1.0), ("p1", "p3", "teammate", 1.0), ("p2", "p3", "teammate", 3.0)):
+        con.execute(
+            "INSERT INTO monte_carlo_empirical_covariance "
+            "(model_version, player_uid_a, player_uid_b, relationship, empirical_covariance, m4_covariance) "
+            "VALUES (?, ?, ?, ?, ?, 0.15)",
+            [mc_mv, a, b, relationship, cov],
+        )
+
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+    dilution = report["z_fixture_correlation_dilution"]
+    assert dilution["n_pairs"] == 3
+    assert dilution["min"] == pytest.approx(0.25)
+    assert dilution["median"] == pytest.approx(0.5)
+    assert dilution["max"] == pytest.approx(0.75)
+    assert dilution["mean"] == pytest.approx(0.5)
+
+
 def test_render_report_text_includes_every_top_level_section(con):
     run_id, *_ = _seed_full_squad_scenario(con)
     report = reporting.build_report(con, run_id)

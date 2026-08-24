@@ -297,9 +297,109 @@
 
   /* ---- stale-data notice ---- */
   .stale-banner{max-width:460px;margin:0 auto 4px;padding:9px 16px;background:oklch(0.3 0.09 60/0.85);color:oklch(0.97 0.05 80);font-size:11.5px;font-weight:600;text-align:center;position:relative;z-index:3;}
+  .dev-banner{max-width:460px;margin:0 auto 4px;padding:9px 16px;background:linear-gradient(90deg,oklch(0.85 0.16 85),oklch(0.8 0.18 75));color:oklch(0.26 0.1 60);font-size:11px;font-weight:800;text-align:center;position:relative;z-index:4;letter-spacing:0.03em;text-transform:uppercase;}
 
   footer{text-align:center;font-size:10px;color:var(--on-dark-dim);padding:6px 20px 110px;position:relative;z-index:2;max-width:460px;margin:0 auto;}
   footer a{color:oklch(0.97 0.1 130);}
+
+  /* ==========================================================
+     Motion + accessibility layer
+     ========================================================== */
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible{
+    outline:2.5px solid var(--live); outline-offset:2px; border-radius:8px;
+  }
+
+  @keyframes fadeSlideUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+  .brand-row{animation:fadeSlideUp 0.4s cubic-bezier(0.22,1,0.36,1) both;}
+  .live-pill{animation:fadeSlideUp 0.45s cubic-bezier(0.22,1,0.36,1) both 0.05s;}
+  .anim-in{animation:fadeSlideUp 0.32s cubic-bezier(0.22,1,0.36,1) both;}
+  .avatar-btn{transition:transform 0.12s ease;}
+  .avatar-btn:active{transform:scale(0.9);}
+
+  @keyframes scoreGlow{0%{box-shadow:0 0 0 0 oklch(0.85 0.2 130/0.55);}100%{box-shadow:0 0 0 26px oklch(0.85 0.2 130/0);}}
+  .score-glow{animation:scoreGlow 0.6s ease-out;}
+  .num-pop{display:inline-block;animation:numPop 0.35s cubic-bezier(0.22,1,0.36,1);}
+  @keyframes numPop{0%{transform:scale(1);}40%{transform:scale(1.13);}100%{transform:scale(1);}}
+
+  /* ---- bottom nav active motion ---- */
+  .tab{transition:color 0.2s ease;}
+  .tab-icon-wrap{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:26px;border-radius:12px;transition:transform 0.2s cubic-bezier(0.22,1,0.36,1),background 0.2s ease;}
+  .tab.active .tab-icon-wrap{background:oklch(0.94 0.18 130/0.16);transform:scale(1.12);}
+  .tab span{transition:opacity 0.18s ease;}
+  .tab:active .tab-icon-wrap{transform:scale(0.94);}
+
+  /* ---- expandable recommendation rows ---- */
+  .action-row{cursor:pointer;background:none;border:none;width:100%;text-align:left;font:inherit;color:inherit;display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1.5px solid var(--divider);}
+  .action-row:first-of-type{border-top:none;padding-top:0;}
+  .action-row .chevron{flex-shrink:0;transition:transform 0.22s ease;color:var(--ink-dim2);display:flex;}
+  .action-row[aria-expanded="true"] .chevron{transform:rotate(180deg);}
+  .action-row:active{opacity:0.75;}
+  .badges{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;}
+  .badge{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;padding:3px 8px;border-radius:100px;white-space:nowrap;}
+  .badge-confidence-high{background:oklch(0.9 0.13 145/0.55);color:oklch(0.28 0.11 150);}
+  .badge-confidence-medium{background:oklch(0.92 0.1 85/0.6);color:oklch(0.4 0.1 70);}
+  .badge-confidence-low{background:oklch(0.92 0.06 40/0.5);color:oklch(0.42 0.1 40);}
+  .badge-risk{background:oklch(0.92 0.1 25/0.45);color:oklch(0.4 0.14 25);}
+  .action-detail{overflow:hidden;transition:grid-template-rows 0.3s cubic-bezier(0.22,1,0.36,1);display:grid;grid-template-rows:0fr;}
+  .action-detail.open{grid-template-rows:1fr;}
+  .action-detail-inner{min-height:0;overflow:hidden;}
+  .action-detail-body{padding:4px 0 10px;font-size:11.5px;color:var(--ink-dim);line-height:1.6;}
+  .action-detail-body .explain-line{margin-bottom:5px;}
+  .action-detail-body .explain-line b{color:var(--ink);}
+  .local-btn{background:var(--card-2);color:var(--ink);border:none;font-size:11px;font-weight:700;padding:9px 13px;border-radius:100px;margin:4px 6px 0 0;transition:transform 0.12s ease,background 0.12s ease;}
+  .local-btn:active{transform:scale(0.95);}
+  .local-btn.active{background:var(--green);color:white;}
+
+  /* ---- chip cards ---- */
+  .chip-tile{cursor:pointer;border:none;text-align:center;font:inherit;transition:transform 0.15s ease;position:relative;}
+  .chip-tile:active{transform:scale(0.94);}
+  .chip-tile.top::after{content:"";position:absolute;inset:-3px;border-radius:14px;background:radial-gradient(circle,oklch(0.9 0.15 85/0.55),transparent 72%);animation:chipGlow 2.6s ease-in-out infinite;z-index:-1;}
+  @keyframes chipGlow{0%,100%{opacity:0.45;}50%{opacity:1;}}
+
+  /* ---- bottom sheet motion ---- */
+  .sheet-overlay{transition:background-color 0.32s ease;background-color:oklch(0.1 0.02 150/0);}
+  .sheet-overlay.open{background-color:oklch(0.1 0.02 150/0.55);}
+  .sheet{transform:translateY(100%);transition:transform 0.36s cubic-bezier(0.22,1,0.36,1);}
+  .sheet-overlay.open .sheet{transform:translateY(0);}
+
+  /* ---- local team-state badges ---- */
+  .lock-badge{position:absolute;top:-4px;left:-2px;width:16px;height:16px;border-radius:50%;background:oklch(0.32 0.05 90);color:white;font-size:9px;display:flex;align-items:center;justify-content:center;border:2px solid oklch(0.24 0.09 150);}
+  .local-tag{position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);background:var(--live);color:#0B0B12;font-size:7.5px;font-weight:800;padding:1px 5px;border-radius:100px;white-space:nowrap;}
+  .bcard{position:relative;}
+  .bench-reorder{display:flex;gap:3px;margin-top:2px;}
+  .bench-reorder button{width:19px;height:17px;background:oklch(0.98 0.005 90/0.7);border:none;border-radius:4px;font-size:9px;line-height:1;color:var(--ink-dim);}
+  .bench-reorder button:disabled{opacity:0.3;}
+  .local-note{font-size:10.5px;color:var(--ink-dim2);line-height:1.6;background:var(--card-2);border-radius:12px;padding:11px 13px;margin-top:12px;}
+
+  /* ---- comparison ---- */
+  .compare-check{flex-shrink:0;width:22px;height:22px;border-radius:7px;border:1.5px solid var(--border);background:var(--card);display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:800;transition:background 0.15s ease,transform 0.12s ease;}
+  .compare-check.checked{background:var(--green);border-color:var(--green);}
+  .compare-check:active{transform:scale(0.9);}
+  .compare-bar{position:fixed;left:0;right:0;bottom:calc(78px + env(safe-area-inset-bottom) + 10px);z-index:6;display:flex;justify-content:center;padding:0 16px;pointer-events:none;}
+  .compare-bar-inner{max-width:428px;width:100%;background:var(--green);color:white;border-radius:16px;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 10px 30px oklch(0.1 0.05 150/0.5);font-size:12px;font-weight:700;pointer-events:auto;animation:fadeSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both;}
+  .compare-bar-inner button{background:oklch(1 0 0/0.2);color:white;border:none;font-size:11.5px;font-weight:800;padding:8px 13px;border-radius:100px;}
+  .compare-table{width:100%;border-collapse:collapse;font-size:12px;}
+  .compare-table th, .compare-table td{padding:9px 8px;text-align:center;border-bottom:1px solid var(--divider);}
+  .compare-table th:first-child, .compare-table td:first-child{text-align:left;color:var(--ink-dim);font-weight:600;width:38%;}
+  .compare-table td.win{color:var(--green);font-weight:800;}
+
+  /* ---- transfer review ---- */
+  .review-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+  .review-arrow{flex-shrink:0;color:var(--ink-dim2);}
+  .review-select{flex:1;background:var(--card);border-radius:14px;padding:12px 13px;text-align:left;border:1.5px dashed var(--border);font-size:12px;color:var(--ink-dim);font:inherit;width:100%;}
+  .review-select.filled{border-style:solid;border-color:var(--green);color:var(--ink);font-weight:600;}
+  .confirm-btn{width:100%;background:var(--green);color:white;font-weight:800;font-size:13.5px;padding:14px;border-radius:16px;border:none;margin-top:8px;transition:transform 0.12s ease,opacity 0.12s ease,background 0.2s ease;}
+  .confirm-btn:active{transform:scale(0.98);}
+  .confirm-btn:disabled{opacity:0.4;}
+  .confirm-btn.success{background:oklch(0.42 0.13 150);}
+
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration:0.01ms !important; animation-iteration-count:1 !important;
+      transition-duration:0.01ms !important; scroll-behavior:auto !important;
+    }
+  }
 </style>
 </head>
 <body>
@@ -309,7 +409,9 @@
   <path d="M20 110 h60 v100 h-60 z"/><path d="M320 110 h-60 v100 h60 z"/>
 </svg>
 
+<div class="dev-banner" id="dev-banner" hidden></div>
 <div class="stale-banner" id="stale-banner" hidden></div>
+<div class="sr-only" aria-live="polite" id="score-announcer"></div>
 <header class="topbar">
   <div class="brand-row">
     <h1>FPL Quant</h1>
@@ -337,28 +439,30 @@
   refreshed automatically before every real gameweek deadline.
 </footer>
 
-<nav class="tabbar">
-  <button class="tab" data-tab="home" onclick="location.hash='home'">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
+<nav class="tabbar" role="tablist" aria-label="Main">
+  <button class="tab" data-tab="home" role="tab" onclick="location.hash='home'">
+    <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg></span>
     <span>Home</span>
   </button>
-  <button class="tab" data-tab="team" onclick="location.hash='team'">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4l4-1 4 1 4 3-3 4-1-1v11H8V10l-1 1-3-4 4-3z"/></svg>
+  <button class="tab" data-tab="team" role="tab" onclick="location.hash='team'">
+    <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4l4-1 4 1 4 3-3 4-1-1v11H8V10l-1 1-3-4 4-3z"/></svg></span>
     <span>Team</span>
   </button>
-  <button class="tab" data-tab="transfers" onclick="location.hash='transfers'">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 20l-4-4 4-4"/></svg>
+  <button class="tab" data-tab="transfers" role="tab" onclick="location.hash='transfers'">
+    <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 20l-4-4 4-4"/></svg></span>
     <span>Transfers</span>
   </button>
-  <button class="tab" data-tab="fixtures" onclick="location.hash='fixtures'">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="3"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg>
+  <button class="tab" data-tab="fixtures" role="tab" onclick="location.hash='fixtures'">
+    <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="3"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg></span>
     <span>Fixtures</span>
   </button>
-  <button class="tab" data-tab="leagues" onclick="location.hash='leagues'">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4z"/><path d="M8 5H5a3 3 0 0 0 3 5M16 5h3a3 3 0 0 1-3 5"/><path d="M12 13v4M9 20h6"/></svg>
+  <button class="tab" data-tab="leagues" role="tab" onclick="location.hash='leagues'">
+    <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4z"/><path d="M8 5H5a3 3 0 0 0 3 5M16 5h3a3 3 0 0 1-3 5"/><path d="M12 13v4M9 20h6"/></svg></span>
     <span>Leagues</span>
   </button>
 </nav>
+
+<div id="compare-bar-mount"></div>
 
 <div class="sheet-overlay" id="sheet-overlay" hidden>
   <div class="sheet">
@@ -427,13 +531,307 @@ const state = {
   fixtures: null, roadmap: null,
   team: null, profile: null, leagues: null, realSquad: null, live: null,
   lastTab: "home",
-  transferFilter: { position: "All", strategy: "all", query: "" },
+  transferFilter: { position: "All", strategy: "all", priceBand: "any", sort: "form", query: "" },
+  isMock: false,
+  expandedRows: new Set(),
+  lastLiveTotal: null,
+  compareSelection: [],
 };
 
-// Each successful fetch is mirrored into localStorage (per-viewer only, per PWA convention) so
-// a later failed fetch (offline, a network blip) can fall back to the last real data this device
-// saw instead of just breaking -- and so the UI can say so honestly, not pretend it's live.
-const cacheKeyFor = (path) => `fq_cache_${path}`;
+// ============================================================
+// motion helpers
+// ============================================================
+
+function prefersReducedMotion() {
+  return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+// Counts a number element from its current displayed value up to `to` over ~350ms using
+// transform/opacity-free plain text updates (rAF-driven, no layout thrash) -- skipped entirely
+// under reduced-motion, where the value is just set immediately.
+function animateNumber(el, to, opts) {
+  const { decimals = 0, duration = 380 } = opts || {};
+  const from = Number(el.dataset.value ?? el.textContent.replace(/[^0-9.-]/g, "")) || 0;
+  el.dataset.value = to;
+  if (prefersReducedMotion() || from === to) { el.textContent = to.toFixed(decimals); return; }
+  const start = performance.now();
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  function tick(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const v = from + (to - from) * ease(t);
+    el.textContent = v.toFixed(decimals);
+    if (t < 1) requestAnimationFrame(tick);
+    else el.textContent = to.toFixed(decimals);
+  }
+  requestAnimationFrame(tick);
+}
+
+// ============================================================
+// bottom sheet open/close (slide + backdrop fade, reduced-motion aware)
+// ============================================================
+
+function openSheet() {
+  const overlay = document.getElementById("sheet-overlay");
+  overlay.hidden = false;
+  requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add("open")));
+}
+
+function closeSheet() {
+  const overlay = document.getElementById("sheet-overlay");
+  if (overlay.hidden) return;
+  overlay.classList.remove("open");
+  const finish = () => { overlay.hidden = true; };
+  if (prefersReducedMotion()) finish(); else setTimeout(finish, 340);
+}
+
+// ============================================================
+// local-only team state (captain/vice override, player lock, bench order) -- per account,
+// per-viewer via localStorage. Deliberately never touches the fetched squad/team JSON and is
+// never sent anywhere: this is a "what if" workspace for the user, not a submission mechanism.
+// See FPL_TRANSFERS_URL/FPL_MY_TEAM_URL above -- the only way this app ever gets a real change
+// onto the official FPL site is by linking the user to it themselves.
+// ============================================================
+
+function localStateKey(accountId) { return `fq_local_team_${accountId}`; }
+
+function loadLocalState(accountId) {
+  try {
+    return JSON.parse(localStorage.getItem(localStateKey(accountId))) || { captainId: null, viceId: null, lockedIds: [], benchOrder: [] };
+  } catch { return { captainId: null, viceId: null, lockedIds: [], benchOrder: [] }; }
+}
+
+function saveLocalState(accountId, patch) {
+  const current = loadLocalState(accountId);
+  const next = { ...current, ...patch };
+  localStorage.setItem(localStateKey(accountId), JSON.stringify(next));
+  return next;
+}
+
+function setLocalCaptain(playerId) {
+  const s = loadLocalState(state.accountId);
+  saveLocalState(state.accountId, { captainId: playerId, viceId: s.viceId === playerId ? null : s.viceId });
+  renderCurrentTab();
+}
+function setLocalVice(playerId) {
+  const s = loadLocalState(state.accountId);
+  saveLocalState(state.accountId, { viceId: playerId, captainId: s.captainId === playerId ? null : s.captainId });
+  renderCurrentTab();
+}
+function toggleLock(playerId) {
+  const s = loadLocalState(state.accountId);
+  const ids = new Set(s.lockedIds || []);
+  ids.has(playerId) ? ids.delete(playerId) : ids.add(playerId);
+  saveLocalState(state.accountId, { lockedIds: [...ids] });
+  renderCurrentTab();
+}
+function resetLocalOverrides() {
+  localStorage.removeItem(localStateKey(state.accountId));
+  renderCurrentTab();
+}
+function moveBenchLocal(benchIds, playerId, delta) {
+  const idx = benchIds.indexOf(playerId);
+  const swapWith = idx + delta;
+  if (idx < 0 || swapWith < 0 || swapWith >= benchIds.length) return;
+  [benchIds[idx], benchIds[swapWith]] = [benchIds[swapWith], benchIds[idx]];
+  saveLocalState(state.accountId, { benchOrder: benchIds });
+  renderCurrentTab();
+}
+
+// ============================================================
+// player comparison tray (up to 2 real players, side-by-side real stats -- no fabricated
+// expected-points figure, since app_players.json is a direct FPL bootstrap pass-through with
+// no model output attached to it; see README's app_export.py module docstring)
+// ============================================================
+
+function toggleCompare(playerId) {
+  const i = state.compareSelection.indexOf(playerId);
+  if (i >= 0) state.compareSelection.splice(i, 1);
+  else {
+    if (state.compareSelection.length >= 2) state.compareSelection.shift();
+    state.compareSelection.push(playerId);
+  }
+  renderCurrentTab();
+}
+
+function compareBarBlock() {
+  if (state.compareSelection.length === 0) return "";
+  const names = state.compareSelection.map(id => (state.playersById[id] || {}).web_name || "?").join(" vs ");
+  return `
+    <div class="compare-bar">
+      <div class="compare-bar-inner">
+        <span>${names}${state.compareSelection.length === 1 ? " — pick one more" : ""}</span>
+        <span style="display:flex;gap:6px;">
+          ${state.compareSelection.length === 2 ? `<button onclick="location.hash='compare'">Compare</button>` : ""}
+          <button onclick="state.compareSelection=[];renderCurrentTab();" aria-label="Clear comparison">Clear</button>
+        </span>
+      </div>
+    </div>`;
+}
+
+function compareStatRow(label, a, b, higherIsBetter) {
+  const av = a == null ? null : Number(a), bv = b == null ? null : Number(b);
+  const aWin = higherIsBetter && av != null && bv != null && av > bv;
+  const bWin = higherIsBetter && av != null && bv != null && bv > av;
+  return `<tr><td>${label}</td><td class="${aWin ? "win" : ""}">${a ?? "&mdash;"}</td><td class="${bWin ? "win" : ""}">${b ?? "&mdash;"}</td></tr>`;
+}
+
+function openCompareSheet() {
+  const [a, b] = state.compareSelection.map(id => state.playersById[id]);
+  const content = document.getElementById("sheet-content");
+  if (!a || !b) { content.innerHTML = `<p class="empty-state">Pick two players to compare.</p>`; openSheet(); return; }
+  content.innerHTML = `
+    <div class="section-title" style="color:var(--on-dark);margin-bottom:12px;"><span>Compare players</span></div>
+    <table class="compare-table" style="background:var(--card);border-radius:16px;overflow:hidden;">
+      <thead><tr><th></th><th>${escapeHtml(a.web_name)}</th><th>${escapeHtml(b.web_name)}</th></tr></thead>
+      <tbody>
+        ${compareStatRow("Position", a.position, b.position, false)}
+        ${compareStatRow("Price", fmtMoney(a.price).replace(/&mdash;/, "-"), fmtMoney(b.price).replace(/&mdash;/, "-"), false)}
+        ${compareStatRow("Form", a.form, b.form, true)}
+        ${compareStatRow("Points / game", a.points_per_game, b.points_per_game, true)}
+        ${compareStatRow("Total points", a.total_points, b.total_points, true)}
+        ${compareStatRow("Owned %", a.selected_by_percent, b.selected_by_percent, true)}
+        ${compareStatRow("ICT index", a.ict_index, b.ict_index, true)}
+        ${compareStatRow("Minutes", a.minutes, b.minutes, true)}
+      </tbody>
+    </table>
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:12px;">
+      Real season stats from the official FPL API. Expected-points/minutes-probability figures
+      the model computes internally aren't in this export yet, so they're not shown here rather
+      than estimated on the fly.
+    </p>
+    <button class="profile-menu-link" style="margin-top:4px;" onclick="state.compareSelection=[];closeSheet();renderCurrentTab();">Clear comparison</button>
+  `;
+  openSheet();
+}
+
+// ============================================================
+// transfer confirmations -- local-only record that the user reviewed and "confirmed" a
+// transfer inside this app. Never touches the official FPL site (see FPL_TRANSFERS_URL) --
+// purely so the UI can show a completed/confirmed state instead of a dead-end action.
+// ============================================================
+
+function confirmedTransferKey() { return `fq_transfer_confirmations_${state.accountId}`; }
+function loadConfirmedTransfers() {
+  try { return JSON.parse(localStorage.getItem(confirmedTransferKey())) || []; } catch { return []; }
+}
+function saveConfirmedTransfer(record) {
+  const list = loadConfirmedTransfers();
+  list.unshift({ ...record, confirmedAt: new Date().toISOString() });
+  localStorage.setItem(confirmedTransferKey(), JSON.stringify(list.slice(0, 20)));
+}
+
+// ============================================================
+// development data mode -- an explicit, isolated switch. When on, every screen renders from a
+// fixed, clearly-labeled mock payload instead of any network fetch; the two are never merged in
+// the same session. Toggle via the Profile sheet, or by loading the app with ?dev=1 once.
+// ============================================================
+
+const DEV_MODE_KEY = "fq_dev_mode";
+
+function isDevModeRequested() {
+  return localStorage.getItem(DEV_MODE_KEY) === "1" || new URLSearchParams(location.search).get("dev") === "1";
+}
+
+function setDevMode(on) {
+  if (on) { localStorage.setItem(DEV_MODE_KEY, "1"); } else { localStorage.removeItem(DEV_MODE_KEY); }
+  location.href = location.pathname + location.hash;
+  location.reload();
+}
+
+function updateDevBanner() {
+  const el = document.getElementById("dev-banner");
+  el.hidden = !state.isMock;
+  if (state.isMock) el.textContent = "Development data — not live FPL results";
+}
+
+// Deliberately small and self-contained -- shaped exactly like the real app_*.json/real_squad
+// payloads so every renderer works unmodified, but the values are fictional placeholders
+// (matching the product's own supplied visual reference) for interface development only.
+const MOCK_PLAYERS = [
+  { id: 9001, web_name: "Szoboszlai", full_name: "Dominik Szoboszlai", team: "LIV", team_name: "Liverpool", position: "MID", price: 6.9, total_points: 41, event_points: 9, form: 5.4, points_per_game: 5.1, selected_by_percent: 12.3, minutes: 630, goals_scored: 2, assists: 3, clean_sheets: 3, goals_conceded: 4, bonus: 4, yellow_cards: 1, red_cards: 0, ict_index: 88.2, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 22000, transfers_out_event: 4000 },
+  { id: 9002, web_name: "B.Fernandes", full_name: "Bruno Borges Fernandes", team: "MUN", team_name: "Man Utd", position: "MID", price: 8.5, total_points: 38, event_points: 8, form: 6.1, points_per_game: 5.4, selected_by_percent: 24.8, minutes: 630, goals_scored: 3, assists: 2, clean_sheets: 2, goals_conceded: 5, bonus: 5, yellow_cards: 0, red_cards: 0, ict_index: 101.4, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 51000, transfers_out_event: 8000 },
+  { id: 9003, web_name: "Haaland", full_name: "Erling Haaland", team: "MCI", team_name: "Man City", position: "FWD", price: 14.9, total_points: 44, event_points: 10, form: 7.8, points_per_game: 6.3, selected_by_percent: 61.2, minutes: 630, goals_scored: 6, assists: 1, clean_sheets: 1, goals_conceded: 3, bonus: 6, yellow_cards: 0, red_cards: 0, ict_index: 142.0, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 9000, transfers_out_event: 33000 },
+  { id: 9004, web_name: "Gordon", full_name: "Anthony Gordon", team: "NEW", team_name: "Newcastle", position: "MID", price: 7.2, total_points: 26, event_points: 4, form: 3.1, points_per_game: 3.7, selected_by_percent: 9.4, minutes: 590, goals_scored: 1, assists: 2, clean_sheets: 1, goals_conceded: 6, bonus: 1, yellow_cards: 2, red_cards: 0, ict_index: 64.0, status: "d", chance_of_playing_next_round: 75, news: "Knock - 75% chance of playing", news_added: null, transfers_in_event: 2000, transfers_out_event: 18000 },
+  { id: 9005, web_name: "Bowen", full_name: "Jarrod Bowen", team: "WHU", team_name: "West Ham", position: "MID", price: 7.6, total_points: 30, event_points: 6, form: 4.7, points_per_game: 4.3, selected_by_percent: 15.0, minutes: 630, goals_scored: 2, assists: 2, clean_sheets: 1, goals_conceded: 5, bonus: 3, yellow_cards: 1, red_cards: 0, ict_index: 79.6, status: "a", chance_of_playing_next_round: null, news: null, news_added: null, transfers_in_event: 31000, transfers_out_event: 3000 },
+];
+const MOCK_TEAM_SQUAD = [
+  { player_id: 9101, web_name: "Raya", team: "ARS", team_name: "Arsenal", position: "GKP", price: 5.5, squad_position: 1, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 3, minutes: 90 },
+  { player_id: 9102, web_name: "Gabriel", team: "ARS", team_name: "Arsenal", position: "DEF", price: 6.2, squad_position: 2, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 7, minutes: 90 },
+  { player_id: 9103, web_name: "Van Dijk", team: "LIV", team_name: "Liverpool", position: "DEF", price: 6.4, squad_position: 3, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 6, minutes: 90 },
+  { player_id: 9104, web_name: "Trippier", team: "NEW", team_name: "Newcastle", position: "DEF", price: 5.8, squad_position: 4, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 2, minutes: 90 },
+  { player_id: 9001, web_name: "Szoboszlai", team: "LIV", team_name: "Liverpool", position: "MID", price: 6.9, squad_position: 5, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 9, minutes: 90 },
+  { player_id: 9002, web_name: "B.Fernandes", team: "MUN", team_name: "Man Utd", position: "MID", price: 8.5, squad_position: 6, in_xi: true, multiplier: 2, is_captain: true, is_vice_captain: false, event_points: 8, minutes: 90 },
+  { player_id: 9005, web_name: "Bowen", team: "WHU", team_name: "West Ham", position: "MID", price: 7.6, squad_position: 7, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: true, event_points: 6, minutes: 90 },
+  { player_id: 9004, web_name: "Gordon", team: "NEW", team_name: "Newcastle", position: "MID", price: 7.2, squad_position: 8, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 4, minutes: 78 },
+  { player_id: 9003, web_name: "Haaland", team: "MCI", team_name: "Man City", position: "FWD", price: 14.9, squad_position: 9, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 10, minutes: 90 },
+  { player_id: 9105, web_name: "Watkins", team: "AVL", team_name: "Aston Villa", position: "FWD", price: 9.0, squad_position: 10, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 5, minutes: 90 },
+  { player_id: 9106, web_name: "Isak", team: "NEW", team_name: "Newcastle", position: "FWD", price: 10.4, squad_position: 11, in_xi: true, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 4, minutes: 90 },
+  { player_id: 9107, web_name: "Steele", team: "CRY", team_name: "Crystal Palace", position: "GKP", price: 4.0, squad_position: 12, in_xi: false, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 2, minutes: 90 },
+  { player_id: 9108, web_name: "Mykolenko", team: "EVE", team_name: "Everton", position: "DEF", price: 4.4, squad_position: 13, in_xi: false, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 2, minutes: 90 },
+  { player_id: 9109, web_name: "Aaronson", team: "LEE", team_name: "Leeds", position: "MID", price: 5.0, squad_position: 14, in_xi: false, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 1, minutes: 60 },
+  { player_id: 9110, web_name: "Ferguson", team: "BHA", team_name: "Brighton", position: "FWD", price: 5.5, squad_position: 15, in_xi: false, multiplier: 1, is_captain: false, is_vice_captain: false, event_points: 0, minutes: 0 },
+];
+
+function buildMockDashboard() {
+  const now = new Date();
+  const deadline = new Date(now.getTime() + 2 * 86400000 + 14 * 3600000).toISOString();
+  return {
+    players: { generated_at: now.toISOString(), players: MOCK_PLAYERS },
+    fixtures: {
+      generated_at: now.toISOString(),
+      gameweeks: [{
+        gameweek: 1, deadline_time: deadline, is_current: true,
+        fixtures: [
+          { id: 1, kickoff_time: deadline, finished: false, home: { name: "Arsenal", short_name: "ARS", difficulty: 2, score: null }, away: { name: "Liverpool", short_name: "LIV", difficulty: 4, score: null } },
+          { id: 2, kickoff_time: deadline, finished: false, home: { name: "Man City", short_name: "MCI", difficulty: 3, score: null }, away: { name: "Newcastle", short_name: "NEW", difficulty: 3, score: null } },
+        ],
+      }],
+    },
+    roadmap: null, trackRecord: null, priceWatch: null,
+    team: {
+      entry_id: state.accountId, team_name: "Dev Preview XI", manager_name: "Development data",
+      gameweek: 1, gameweek_points: 34, gameweek_points_on_bench: 3, bank: 0.8, team_value: 101.4,
+      active_chip: null, squad: MOCK_TEAM_SQUAD, free_transfers: 1,
+    },
+    profile: {
+      entry_id: state.accountId, team_name: "Dev Preview XI", manager_name: "Development data",
+      total_points: 34, overall_rank: 4667048,
+      chips: [
+        { chip_type: "wildcard", display_name: "Wildcard", used: false, used_gameweek: null },
+        { chip_type: "free_hit", display_name: "Free Hit", used: false, used_gameweek: null },
+        { chip_type: "3xc", display_name: "Triple Captain", used: false, used_gameweek: null },
+        { chip_type: "bboost", display_name: "Bench Boost", used: false, used_gameweek: null },
+      ],
+      recent_history: [],
+    },
+    leagues: { tiles: [], tables: [] },
+    realSquad: {
+      entry_id: state.accountId, label: "Development data", target_season: "mock",
+      current_gameweek: 1, plan_for_gameweek: 1, generated_at: now.toISOString(),
+      transfer_recommendations: [
+        { rank: 1, player_out: "Gordon", player_in: "Bowen", player_out_club: "Newcastle", player_in_club: "West Ham", gain: 4.8, cost: 0.0, net: 4.8 },
+      ],
+      hold_vs_transfer_now: { recommended_action: "hold", transfer_now_value: 61.4, hold_value: 66.2 },
+      chip_evaluations: [
+        { chip_type: "wildcard", recommended: true, score: 12.4 },
+        { chip_type: "free_hit", recommended: false, score: 2.1 },
+        { chip_type: "triple_captain", recommended: false, score: 1.0 },
+        { chip_type: "bench_boost", recommended: false, score: 0.6 },
+      ],
+      captain_recommendation: {
+        recommended_uid: "mock_bruno", recommended_name: "Bruno Fernandes", recommended_expected_points: 4.31,
+        current_uid: "mock_haaland", current_name: "Erling Haaland", current_expected_points: 4.17,
+        matches_current: false, potential_gain: 0.14,
+      },
+      explain: null,
+    },
+    live: {
+      gameweek: 1, live_total: 34,
+      players: [{ player_id: 9001, web_name: "Szoboszlai", provisional_bonus: 1 }],
+      rank_estimate: { estimated_rank: 4667048, percentile: 50.5, sample_size: 100 },
+    },
+  };
+}
 
 async function fetchJSON(path) {
   try {
@@ -469,7 +867,7 @@ async function fetchLiveData(entryId) {
 const LIVE_POLL_INTERVAL_MS = 60_000;
 
 async function pollLiveData() {
-  state.live = await fetchLiveData(state.accountId);
+  state.live = state.isMock ? buildMockDashboard().live : await fetchLiveData(state.accountId);
   if (state.lastTab === "home" || state.lastTab === "team") renderCurrentTab();
 }
 
@@ -527,6 +925,15 @@ function provenanceLine(p) {
 // ============================================================
 
 async function loadShared() {
+  if (state.isMock) {
+    const mock = buildMockDashboard();
+    state.players = mock.players.players;
+    state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
+    state.fixtures = mock.fixtures.gameweeks;
+    state.roadmap = mock.roadmap; state.trackRecord = mock.trackRecord; state.priceWatch = mock.priceWatch;
+    document.getElementById("updated-at").textContent = "Development data — not a real run";
+    return;
+  }
   const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence] = await Promise.all([
     fetchJSON("data/dashboard/app_players.json"),
     fetchJSON("data/dashboard/app_fixtures.json"),
@@ -555,6 +962,12 @@ async function loadShared() {
 }
 
 async function loadAccount(id) {
+  if (state.isMock) {
+    const mock = buildMockDashboard();
+    state.team = mock.team; state.profile = mock.profile; state.leagues = mock.leagues; state.realSquad = mock.realSquad;
+    document.getElementById("avatar-btn").textContent = "DEV";
+    return;
+  }
   const [team, profile, leagues, realSquad, squadGrade, decision] = await Promise.all([
     fetchJSON(`data/dashboard/app_team_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_profile_${id}.json`).catch(() => null),
@@ -607,8 +1020,6 @@ function populateAccountSwitcher() {
 // router
 // ============================================================
 
-function closeSheet() { document.getElementById("sheet-overlay").hidden = true; }
-
 function route() {
   const hash = (location.hash || "#home").slice(1);
   if (hash.startsWith("player-")) {
@@ -623,17 +1034,44 @@ function route() {
     openAddTeamSheet();
     return;
   }
+  if (hash === "transfer-review") {
+    openTransferReviewSheet(pendingReviewRec);
+    return;
+  }
+  if (hash.startsWith("chip-")) {
+    openChipSheet(hash.slice(5));
+    return;
+  }
+  if (hash === "compare") {
+    openCompareSheet();
+    return;
+  }
   closeSheet();
   const tab = TABS.includes(hash) ? hash : "home";
   state.lastTab = tab;
   document.querySelectorAll(".screen").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
-  document.querySelectorAll(".tab").forEach(el => el.classList.toggle("active", el.dataset.tab === tab));
+  document.querySelectorAll(".tab").forEach(el => {
+    const active = el.dataset.tab === tab;
+    el.classList.toggle("active", active);
+    if (active) el.setAttribute("aria-selected", "true"); else el.removeAttribute("aria-selected");
+  });
   renderCurrentTab();
+}
+
+let pendingReviewRec = null;
+function goToTransferReview(rec) {
+  pendingReviewRec = rec || null;
+  // location.hash assignment is a no-op (no hashchange fires) when already on this hash --
+  // e.g. tapping "Review this transfer" again for a different rec while the sheet is open.
+  if (location.hash === "#transfer-review") { openTransferReviewSheet(pendingReviewRec); return; }
+  location.hash = "transfer-review";
 }
 
 function renderCurrentTab() {
   const renderers = { home: renderHome, team: renderTeam, transfers: renderTransfers, fixtures: renderFixtures, leagues: renderLeagues };
   renderers[state.lastTab]();
+  const bar = document.getElementById("compare-bar-mount");
+  if (bar) bar.innerHTML = compareBarBlock();
 }
 
 window.addEventListener("hashchange", route);
@@ -655,7 +1093,7 @@ function verdictBlock(hold) {
 function recListBlock(recs, limit) {
   if (!recs || !recs.length) return `<p class="empty-state">No transfer recommendations available.</p>`;
   return recs.slice(0, limit || 3).map(r => `
-    <div class="rec">
+    <div class="rec" onclick="goToTransferReview(${JSON.stringify(r).replace(/"/g, "&quot;")})" style="cursor:pointer;">
       <span class="move"><span class="club-dot" style="background:${clubColor(r.player_out_club)}"></span><span class="out">${r.player_out}</span> &rarr; <span class="club-dot" style="background:${clubColor(r.player_in_club)}"></span><span class="in">${r.player_in}</span></span>
       <span class="net">+${r.net.toFixed(1)}</span>
     </div>`).join("");
@@ -666,10 +1104,191 @@ function chipRowBlock(chips) {
   const short = { wildcard: "WC", free_hit: "FH", triple_captain: "TC", bench_boost: "BB" };
   const maxScore = Math.max(...chips.map(c => c.score ?? -Infinity));
   return `<div class="chips">` + chips.map(c => `
-    <div class="chip-tile ${c.score === maxScore ? "top" : ""}">
+    <button class="chip-tile ${c.score === maxScore ? "top" : ""}" onclick="location.hash='chip-${c.chip_type}'" aria-label="${short[c.chip_type] || c.chip_type} chip details">
       <div class="k">${short[c.chip_type] || c.chip_type}</div>
       <div class="v">${c.score != null ? c.score.toFixed(1) : "&mdash;"}</div>
-    </div>`).join("") + `</div>`;
+    </button>`).join("") + `</div>`;
+}
+
+function openChipSheet(chipType) {
+  const rs = state.realSquad;
+  const names = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };
+  const chip = rs && rs.chip_evaluations && rs.chip_evaluations.find(c => c.chip_type === chipType);
+  const detail = rs && rs.explain && rs.explain.chips && rs.explain.chips[chipType] && rs.explain.chips[chipType].detail;
+  const gw19 = rs && rs.explain && rs.explain.gw19_deadline;
+  const content = document.getElementById("sheet-content");
+  if (!chip) { content.innerHTML = `<p class="empty-state">No evaluation available for this chip yet.</p>`; openSheet(); return; }
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:10px;">
+      <div class="name" style="font-size:19px;">${names[chipType] || chipType}</div>
+      <div class="sub">${chip.recommended ? "Recommended this week" : "Not recommended this week"}</div>
+    </div>
+    <div class="stat-grid4" style="grid-template-columns:repeat(2,1fr);">
+      <div class="g-tile"><div class="g-label">Model edge</div><div class="g-value">${chip.score != null ? chip.score.toFixed(2) : "&mdash;"}</div></div>
+      <div class="g-tile"><div class="g-label">State</div><div class="g-value" style="font-size:12px;">${chip.recommended ? "Play" : "Save"}</div></div>
+    </div>
+    ${gw19 && gw19.urgent ? `<div class="flag-banner"><b>GW19 deadline approaching</b> &mdash; unused Set 1 chips are forfeited after this gameweek.</div>` : ""}
+    <div class="section-title" style="color:var(--on-dark);"><span>Why</span></div>
+    <div class="stat-list">
+      ${renderDetailBullets(detail) || `<div class="sl-row"><div class="sl-label">Detailed rationale not available in this snapshot yet.</div></div>`}
+    </div>
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;">
+      This app never activates a chip for you &mdash; it only tells you what the model thinks.
+      Play it yourself on the official FPL site.
+    </p>
+    <a class="profile-menu-link" href="${FPL_TRANSFERS_URL}" target="_blank" rel="noopener">Open FPL transfers/chips &rsaquo;</a>
+  `;
+  openSheet();
+}
+
+// ============================================================
+// TRANSFER REVIEW -- select outgoing/replacement, compare, see the model's own rationale where
+// it exists, then a purely local "confirm" (never an FPL submission; see FPL_TRANSFERS_URL).
+// Re-renders just #review-body on every select change so the sheet doesn't have to reopen/
+// re-animate for each step of the flow.
+// ============================================================
+
+let reviewSelection = { outId: null, inId: null, rec: null };
+
+function openTransferReviewSheet(rec) {
+  const squad = (state.team && state.team.squad) || [];
+  let outId = null, inId = null;
+  if (rec) {
+    const outMatch = squad.find(s => s.web_name === rec.player_out);
+    outId = outMatch ? outMatch.player_id : null;
+    inId = playerIdByName(rec.player_in);
+  }
+  reviewSelection = { outId, inId, rec: rec || null };
+  document.getElementById("sheet-content").innerHTML = `<div id="review-body"></div>`;
+  renderTransferReviewBody();
+  openSheet();
+}
+
+function setReviewOut(v) { reviewSelection.outId = v ? Number(v) : null; reviewSelection.rec = null; renderTransferReviewBody(); }
+function setReviewIn(v) { reviewSelection.inId = v ? Number(v) : null; reviewSelection.rec = null; renderTransferReviewBody(); }
+
+function renderTransferReviewBody() {
+  const body = document.getElementById("review-body");
+  if (!body) return;
+  const squad = (state.team && state.team.squad) || [];
+  const outPlayer = reviewSelection.outId != null ? state.playersById[reviewSelection.outId] : null;
+  const inPlayer = reviewSelection.inId != null ? state.playersById[reviewSelection.inId] : null;
+  const rec = reviewSelection.rec;
+
+  const squadOptions = squad.map(s => `<option value="${s.player_id}" ${reviewSelection.outId === s.player_id ? "selected" : ""}>${escapeHtml(s.web_name)} (${s.position})</option>`).join("");
+  const playerOptions = (state.players || []).slice().sort((a, b) => a.web_name.localeCompare(b.web_name))
+    .map(p => `<option value="${p.id}" ${reviewSelection.inId === p.id ? "selected" : ""}>${escapeHtml(p.web_name)} (${p.position}, ${fmtMoney(p.price)})</option>`).join("");
+
+  const priceDiff = (outPlayer && inPlayer) ? (inPlayer.price - outPlayer.price) : null;
+  const formDiff = (outPlayer && inPlayer && outPlayer.form != null && inPlayer.form != null) ? (inPlayer.form - outPlayer.form) : null;
+  const ownDiff = (outPlayer && inPlayer) ? (inPlayer.selected_by_percent ?? 0) - (outPlayer.selected_by_percent ?? 0) : null;
+  const alreadyConfirmed = outPlayer && inPlayer && loadConfirmedTransfers().some(c => c.outId === outPlayer.id && c.inId === inPlayer.id);
+
+  body.innerHTML = `
+    <div class="player-hero" style="padding-bottom:8px;">
+      <div class="name" style="font-size:18px;">Review transfer</div>
+      <div class="sub" style="max-width:260px;text-align:center;">Local review only &mdash; nothing here is ever submitted to FPL.</div>
+    </div>
+    <label class="sr-only" for="review-out-select">Outgoing player</label>
+    <div class="review-row">
+      <select id="review-out-select" class="review-select ${outPlayer ? "filled" : ""}" onchange="setReviewOut(this.value)">
+        <option value="">Select outgoing player from your squad&hellip;</option>
+        ${squadOptions}
+      </select>
+    </div>
+    <div class="review-row" style="justify-content:center;"><span class="review-arrow" aria-hidden="true">&darr;</span></div>
+    <label class="sr-only" for="review-in-select">Replacement player</label>
+    <div class="review-row">
+      <select id="review-in-select" class="review-select ${inPlayer ? "filled" : ""}" onchange="setReviewIn(this.value)">
+        <option value="">Select replacement&hellip;</option>
+        ${playerOptions}
+      </select>
+    </div>
+    ${outPlayer && inPlayer ? `
+      <div class="stat-grid4" style="grid-template-columns:repeat(3,1fr);">
+        <div class="g-tile"><div class="g-label">Price change</div><div class="g-value" style="color:${priceDiff > 0 ? "var(--danger)" : priceDiff < 0 ? "var(--green)" : "var(--ink)"};font-size:13px;">${priceDiff > 0 ? "+" : ""}${priceDiff.toFixed(1)}m</div></div>
+        <div class="g-tile"><div class="g-label">Form change</div><div class="g-value" style="color:${formDiff > 0 ? "var(--green)" : formDiff < 0 ? "var(--danger)" : "var(--ink)"};font-size:13px;">${formDiff != null ? (formDiff > 0 ? "+" : "") + formDiff.toFixed(1) : "&mdash;"}</div></div>
+        <div class="g-tile"><div class="g-label">Owned % change</div><div class="g-value" style="font-size:13px;">${ownDiff != null ? (ownDiff >= 0 ? "+" : "") + ownDiff.toFixed(1) : "&mdash;"}</div></div>
+      </div>
+      <div class="section-title" style="color:var(--on-dark);"><span>Why</span></div>
+      <div class="stat-list">
+        ${rec ? `
+          <div class="sl-row"><div class="sl-label">Projected gain (horizon)</div><div class="sl-value">+${rec.gain.toFixed(1)}</div></div>
+          <div class="sl-row"><div class="sl-label">Transfer cost</div><div class="sl-value">${rec.cost}</div></div>
+          <div class="sl-row"><div class="sl-label">Net value</div><div class="sl-value">+${rec.net.toFixed(1)}</div></div>
+        ` : `<div class="sl-row"><div class="sl-label">This exact pairing isn't one of the model's current top recommendations, so no projected-points gain is shown &mdash; only real, available stats above.</div></div>`}
+      </div>
+      ${riskForPlayerName(inPlayer.web_name) ? `<div class="badges" style="margin-bottom:12px;">${riskBadge(riskForPlayerName(inPlayer.web_name))}</div>` : ""}
+      <button class="confirm-btn ${alreadyConfirmed ? "success" : ""}" onclick="confirmTransferReview(${outPlayer.id}, ${inPlayer.id})">
+        ${alreadyConfirmed ? "Confirmed locally ✓" : "Confirm locally"}
+      </button>
+      <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:10px;">
+        Confirming only saves this review on your device. Make the actual change yourself on the official FPL site.
+      </p>
+      <a class="profile-menu-link" href="${FPL_TRANSFERS_URL}" target="_blank" rel="noopener">Open FPL transfers &rsaquo;</a>
+    ` : `<p class="empty-state">Pick an outgoing squad player and a replacement to compare.</p>`}
+  `;
+}
+
+function confirmTransferReview(outId, inId) {
+  const outPlayer = state.playersById[outId], inPlayer = state.playersById[inId];
+  if (!outPlayer || !inPlayer) return;
+  saveConfirmedTransfer({ outId, inId, outName: outPlayer.web_name, inName: inPlayer.web_name });
+  renderTransferReviewBody();
+}
+
+// ---- confidence/risk labels -- deliberately NOT presented as a separate model output. No
+// per-recommendation confidence score is exported by the pipeline yet (reporting.
+// player_confidence_score() exists but isn't wired into this real-squad snapshot), so this is a
+// transparent, clearly-labeled UI heuristic derived from the recommendation's own real margin --
+// same "labeled, not a hidden model claim" convention as DIFFERENTIAL_MAX_OWNED/TEMPLATE_MIN_OWNED
+// above. Risk labels, by contrast, ARE real: they come straight from FPL's own player status flags.
+function estimateConfidence(magnitude, high, medium) {
+  if (magnitude == null || Number.isNaN(magnitude)) return null;
+  const abs = Math.abs(magnitude);
+  if (abs >= (high ?? 8)) return "high";
+  if (abs >= (medium ?? 3)) return "medium";
+  return "low";
+}
+function confidenceBadge(level) {
+  if (!level) return "";
+  const label = { high: "High confidence", medium: "Medium confidence", low: "Low confidence" }[level];
+  return `<span class="badge badge-confidence-${level}">${label}</span>`;
+}
+function riskBadge(text) {
+  return text ? `<span class="badge badge-risk">${escapeHtml(text)}</span>` : "";
+}
+function playerIdByName(name) {
+  if (!name || !state.players) return null;
+  const found = state.players.find(p => p.web_name === name || p.full_name === name);
+  return found ? found.id : null;
+}
+function riskForPlayerName(name) {
+  const id = playerIdByName(name);
+  const p = id != null ? state.playersById[id] : null;
+  if (!p || !isFlagged(p)) return null;
+  return isSevereFlag(p) ? "Injury/availability risk" : "Rotation/fitness doubt";
+}
+function humanizeKey(k) { return k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
+function formatDetailValue(v) {
+  if (v == null) return "&mdash;";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (Array.isArray(v)) return v.length ? escapeHtml(v.map(x => (typeof x === "object" ? JSON.stringify(x) : x)).join(", ")) : "&mdash;";
+  if (typeof v === "object") return null;
+  return escapeHtml(String(v));
+}
+// Generic renderer over whatever explain_plan()'s own `detail` JSON actually contains for a
+// given chip/hold recommendation -- deliberately not hardcoded to specific field names, so it
+// stays honest and in sync with the real model output rather than guessing a schema.
+function renderDetailBullets(detail) {
+  if (!detail || typeof detail !== "object") return "";
+  const lines = Object.entries(detail).map(([k, v]) => [k, formatDetailValue(v)]).filter(([, v]) => v !== null);
+  if (!lines.length) return "";
+  return lines.map(([k, v]) => `<div class="sl-row"><div class="sl-label">${humanizeKey(k)}</div><div class="sl-value">${v}</div></div>`).join("");
+}
+function explainLinesFallback() {
+  return `<div class="explain-line">Detailed rationale not available in this snapshot yet &mdash; a future scheduled run will include it.</div>`;
 }
 
 // ---- "Your moves this week" action list -- one directive each for transfer/captain/chip,
@@ -678,20 +1297,24 @@ function chipRowBlock(chips) {
 // the model thinks and gets you one tap from acting on it yourself.
 function transferDirective(hold, topRec) {
   if (!hold) return null;
+  const gap = Math.abs(hold.hold_value - hold.transfer_now_value);
   if (hold.recommended_action === "hold") {
     return {
       title: "Hold your transfer this week",
       sub: `Holding (${hold.hold_value.toFixed(1)}) beats using a transfer now (${hold.transfer_now_value.toFixed(1)}).`,
-      cta: "Review transfers",
+      cta: "Review transfers", confidence: estimateConfidence(gap, 6, 2), risk: null,
+      explainHtml: `<div class="explain-line">Over the horizon this plan looks at, holding your free transfer projects to more total points than using it right now &mdash; the gap is ${gap.toFixed(1)} points.</div>` + explainLinesFallback(),
     };
   }
   if (!topRec) {
-    return { title: "Use a transfer this week", sub: "Model favors transferring now over holding.", cta: "Make transfer" };
+    return { title: "Use a transfer this week", sub: "Model favors transferring now over holding.", cta: "Make transfer", confidence: estimateConfidence(gap, 6, 2), risk: null, explainHtml: explainLinesFallback() };
   }
   return {
     title: `${topRec.player_out} &rarr; ${topRec.player_in}`,
     sub: `Net gain +${topRec.net.toFixed(1)} over holding this transfer.`,
-    cta: "Make transfer",
+    cta: "Review transfer", confidence: estimateConfidence(topRec.net, 8, 3), risk: riskForPlayerName(topRec.player_in),
+    explainHtml: `<div class="explain-line">Projected gain of <b>${topRec.gain.toFixed(1)}</b> points over the planning horizon, at a cost of <b>${topRec.cost}</b> for a net of <b>+${topRec.net.toFixed(1)}</b>.</div>` + explainLinesFallback(),
+    reviewRec: topRec,
   };
 }
 
@@ -701,7 +1324,8 @@ function captainDirective(cr) {
     return {
       title: `Keep the armband on ${cr.recommended_name}`,
       sub: `Model's own top captain pick this week too &mdash; ${cr.recommended_expected_points} expected points.`,
-      cta: "Confirm captain",
+      cta: "Confirm captain", confidence: "high", risk: riskForPlayerName(cr.recommended_name),
+      explainHtml: `<div class="explain-line">${cr.recommended_name} projects the highest expected points among your squad this gameweek, so the model's captain pick and your current armband already agree.</div>`,
     };
   }
   return {
@@ -709,7 +1333,9 @@ function captainDirective(cr) {
     sub: cr.current_name
       ? `${cr.recommended_expected_points} expected points vs ${cr.current_expected_points} for ${cr.current_name} &mdash; +${cr.potential_gain.toFixed(1)}.`
       : `${cr.recommended_expected_points} expected points this week.`,
-    cta: "Set captain",
+    cta: "Set captain", confidence: estimateConfidence(cr.potential_gain, 1.0, 0.3), risk: riskForPlayerName(cr.recommended_name),
+    explainHtml: `<div class="explain-line">${cr.recommended_name}'s expected points (${cr.recommended_expected_points}) edge out ${cr.current_name || "your current captain"}${cr.current_expected_points != null ? ` (${cr.current_expected_points})` : ""} by ${cr.potential_gain.toFixed(2)} &mdash; captained, that difference is doubled.</div>`,
+    playerId: playerIdByName(cr.recommended_name),
   };
 }
 
@@ -717,33 +1343,55 @@ function chipDirective(chips) {
   if (!chips || !chips.length) return null;
   const short = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };
   const rec = chips.find(c => c.recommended);
-  if (!rec) return { title: "No chip recommended this week", sub: "Model says save your chips for a better window.", cta: "Review chips" };
+  if (!rec) return { title: "No chip recommended this week", sub: "Model says save your chips for a better window.", cta: "Review chips", confidence: "medium", risk: null, explainHtml: `<div class="explain-line">None of Wildcard, Free Hit, Triple Captain or Bench Boost currently clear the model's own recommendation threshold this week.</div>` };
   return {
     title: `Play ${short[rec.chip_type] || rec.chip_type} this week`,
     sub: rec.score != null ? `Model edge: +${rec.score.toFixed(1)}.` : "",
-    cta: "Play chip",
+    cta: "Play chip", confidence: estimateConfidence(rec.score, 15, 5), risk: null,
+    explainHtml: `<div class="explain-line">Tap through to see the full ${short[rec.chip_type] || rec.chip_type} breakdown.</div>`,
+    chipType: rec.chip_type,
   };
 }
 
-function actionRow(directive, url) {
+// Expandable action row: title/sub always visible; confidence + risk badges, a plain-English
+// "why", and the projected-impact numbers only reveal on tap (chevron rotates, height animates,
+// aria-expanded kept in sync for screen readers). The external CTA still always points at the
+// real official FPL screen -- expanding never substitutes for or auto-triggers that action.
+function actionRow(id, directive, url) {
   if (!directive) return "";
+  const expanded = state.expandedRows.has(id);
   return `
-    <div class="action-row">
+    <button class="action-row" aria-expanded="${expanded}" aria-controls="detail-${id}" onclick="toggleActionRow('${id}')">
       <div class="action-text">
         <div class="action-title">${directive.title}</div>
         ${directive.sub ? `<div class="action-sub">${directive.sub}</div>` : ""}
+        <div class="badges">${confidenceBadge(directive.confidence)}${riskBadge(directive.risk)}</div>
       </div>
-      <a class="action-cta" href="${url}" target="_blank" rel="noopener">${directive.cta}</a>
+      <span class="chevron" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></span>
+    </button>
+    <div class="action-detail ${expanded ? "open" : ""}" id="detail-${id}">
+      <div class="action-detail-inner"><div class="action-detail-body">
+        ${directive.explainHtml || ""}
+        ${directive.reviewRec ? `<button class="local-btn active" onclick="event.stopPropagation();goToTransferReview(${JSON.stringify(directive.reviewRec).replace(/"/g, "&quot;")})">Review this transfer</button>` : ""}
+        ${directive.chipType ? `<button class="local-btn active" onclick="event.stopPropagation();location.hash='chip-${directive.chipType}'">See chip detail</button>` : ""}
+        ${directive.playerId != null ? `<button class="local-btn" onclick="event.stopPropagation();setLocalCaptain(${directive.playerId})">Set captain (local)</button>` : ""}
+      </div></div>
+      <a class="action-cta" style="display:inline-block;margin-top:4px;" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation();">${directive.cta} on FPL &rsaquo;</a>
     </div>`;
+}
+
+function toggleActionRow(id) {
+  state.expandedRows.has(id) ? state.expandedRows.delete(id) : state.expandedRows.add(id);
+  renderCurrentTab();
 }
 
 function movesThisWeekCard() {
   const rs = state.realSquad;
   if (!rs) return "";
   const rows = [
-    actionRow(transferDirective(rs.hold_vs_transfer_now, rs.transfer_recommendations && rs.transfer_recommendations[0]), FPL_TRANSFERS_URL),
-    actionRow(captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL),
-    actionRow(chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL),
+    actionRow("transfer", transferDirective(rs.hold_vs_transfer_now, rs.transfer_recommendations && rs.transfer_recommendations[0]), FPL_TRANSFERS_URL),
+    actionRow("captain", captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL),
+    actionRow("chip", chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL),
   ].filter(Boolean).join("");
   if (!rows) return "";
   return `
@@ -751,7 +1399,7 @@ function movesThisWeekCard() {
     ${rows}
     <p style="font-size:10.5px;color:var(--ink-dim2);margin:12px 0 0;line-height:1.5;">
       These are the model's directives, not automatic &mdash; nothing is ever submitted for you.
-      Tap through to the official FPL site to actually make a change.
+      Tap a row to see why, tap through to the official FPL site to actually make a change.
     </p>`;
 }
 
@@ -847,14 +1495,16 @@ function liveNowBlock() {
   if (!live) return "";
   const rk = live.rank_estimate;
   const bonusEarners = live.players.filter(p => p.provisional_bonus > 0);
+  const startValue = state.lastLiveTotal != null ? state.lastLiveTotal : live.live_total;
+  const changed = state.lastLiveTotal != null && state.lastLiveTotal !== live.live_total;
   return `
-    <div class="section">
-      <div class="card" style="background:linear-gradient(155deg,oklch(0.95 0.05 130),oklch(0.92 0.08 130));">
+    <div class="section anim-in">
+      <div class="card ${changed ? "score-glow" : ""}" style="background:linear-gradient(155deg,oklch(0.95 0.05 130),oklch(0.92 0.08 130));">
         <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;">
           <span class="live"><span class="dot"></span>Live now &middot; GW${live.gameweek}</span>
         </div>
         <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">
-          <span style="font-family:'Anton',sans-serif;font-size:32px;">${live.live_total}</span>
+          <span style="font-family:'Anton',sans-serif;font-size:32px;" id="live-score-num" data-value="${startValue}">${startValue}</span>
           <span style="font-size:12px;color:var(--ink-dim);">points so far, bonus included</span>
         </div>
         ${bonusEarners.length ? `<div style="font-size:11.5px;color:var(--ink-dim);margin-bottom:8px;">
@@ -961,8 +1611,8 @@ function renderHome() {
     <div class="section">
       <div class="section-title"><span>Top performers this GW</span></div>
       <div class="hscroll">
-        ${topPerformers.map(p => `
-          <div class="player-chip" onclick="location.hash='player-${p.player_id}'">
+        ${topPerformers.map((p, i) => `
+          <div class="player-chip anim-in" style="animation-delay:${i * 45}ms" onclick="location.hash='player-${p.player_id}'">
             <div class="p-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
             <div class="p-name">${p.web_name}</div>
             <div class="p-team">${p.team || ""} &middot; ${p.position || ""}</div>
@@ -990,6 +1640,23 @@ function renderHome() {
       (points, rank, squad, news, league standings) is fetched live from the official FPL API.
     </div>
   `;
+  wireLiveScoreAnimation();
+}
+
+// Runs the count-up + brief glow on the live score number after the DOM is (re)painted, and
+// announces the change to screen readers -- separated from liveNowBlock()'s pure string
+// building so the "from" value (state.lastLiveTotal, the number the user was just looking at)
+// is only advanced to the new total AFTER the animation has been kicked off, not before.
+function wireLiveScoreAnimation() {
+  const scoreEl = document.getElementById("live-score-num");
+  if (!scoreEl || !state.live) return;
+  const previous = state.lastLiveTotal;
+  animateNumber(scoreEl, state.live.live_total);
+  if (previous != null && previous !== state.live.live_total) {
+    const announcer = document.getElementById("score-announcer");
+    if (announcer) announcer.textContent = `Live score updated to ${state.live.live_total} points`;
+  }
+  state.lastLiveTotal = state.live.live_total;
 }
 
 // ============================================================
@@ -1002,17 +1669,35 @@ function liveBonusFor(playerId) {
   return row ? row.provisional_bonus : 0;
 }
 
-function pitchRow(players) {
-  return `<div class="prow">${players.map(p => {
+// Local captain/vice/lock overrides win the ON-SCREEN badge once the user has set one (a
+// deliberate "what if" workspace, see loadLocalState()'s own docstring) -- but they never touch
+// state.team.squad itself, so is_captain/is_vice_captain still reflect the manager's real,
+// official picks underneath.
+function pitchRow(players, groupDelay, ls) {
+  return `<div class="prow">${players.map((p, i) => {
     const bonus = liveBonusFor(p.player_id);
+    const isLocalCap = ls.captainId === p.player_id;
+    const isLocalVice = ls.viceId === p.player_id;
+    const showCap = ls.captainId != null ? isLocalCap : p.is_captain;
+    const showVice = ls.viceId != null ? isLocalVice : p.is_vice_captain;
+    const locked = (ls.lockedIds || []).includes(p.player_id);
     return `
-    <div class="pcard" onclick="location.hash='player-${p.player_id}'">
+    <div class="pcard anim-in" style="animation-delay:${(groupDelay || 0) + i * 40}ms" onclick="location.hash='player-${p.player_id}'">
       <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
-      ${p.is_captain ? `<div class="cap-badge">C</div>` : p.is_vice_captain ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
+      ${locked ? `<div class="lock-badge" aria-label="Locked for optimiser" title="Locked for optimiser">&#128274;</div>` : ""}
+      ${showCap ? `<div class="cap-badge">C</div>` : showVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
+      ${(isLocalCap || isLocalVice) ? `<div class="local-tag">Local</div>` : ""}
       <div class="p-tag">${p.web_name}</div>
       <div class="p-pts-tag">${p.event_points + bonus}${bonus ? ` <span style="opacity:0.85;">(+${bonus})</span>` : ""}</div>
     </div>`;
   }).join("")}</div>`;
+}
+
+function effectiveBenchOrder(bench, ls) {
+  const ids = bench.map(p => p.player_id);
+  const hasValidOverride = ls.benchOrder && ls.benchOrder.length === ids.length && ls.benchOrder.every(id => ids.includes(id));
+  const order = hasValidOverride ? ls.benchOrder : ids;
+  return order.map(id => bench.find(p => p.player_id === id)).filter(Boolean);
 }
 
 function flaggedSquadRows() {
@@ -1071,6 +1756,10 @@ function renderTeam() {
   const bench = squad.filter(p => !p.in_xi).sort((a, b) => a.squad_position - b.squad_position);
   const byPos = (pos) => xi.filter(p => p.position === pos).sort((a, b) => a.squad_position - b.squad_position);
   const flagged = flaggedSquadRows();
+  const ls = loadLocalState(state.accountId);
+  const orderedBench = effectiveBenchOrder(bench, ls);
+  const benchIds = orderedBench.map(p => p.player_id);
+  const hasLocalOverrides = ls.captainId != null || ls.viceId != null || (ls.lockedIds || []).length > 0 || (ls.benchOrder || []).length > 0;
 
   el.innerHTML = `
     <div class="section-title" style="margin-bottom:12px;"><span>${state.team.team_name || "My Team"}</span><span class="link-sm">GW ${state.team.gameweek ?? ""}</span></div>
@@ -1092,22 +1781,39 @@ function renderTeam() {
         <div class="ln" style="left:26%;right:26%;bottom:8px;height:40px;border-bottom:0;"></div>
       </div>
       <div class="pitch-rows">
-        ${pitchRow(byPos("GKP"))}
-        ${pitchRow(byPos("DEF"))}
-        ${pitchRow(byPos("MID"))}
-        ${pitchRow(byPos("FWD"))}
+        ${pitchRow(byPos("GKP"), 0, ls)}
+        ${pitchRow(byPos("DEF"), 110, ls)}
+        ${pitchRow(byPos("MID"), 260, ls)}
+        ${pitchRow(byPos("FWD"), 420, ls)}
       </div>
     </div>
     <div class="bench-section">
-      <div class="bench-label">Bench</div>
+      <div class="bench-label">Bench ${orderedBench.length > 1 ? "&middot; use the arrows to reorder locally" : ""}</div>
       <div class="bench-row">
-        ${bench.map(p => `
-          <div class="bcard" onclick="location.hash='player-${p.player_id}'">
-            <div class="b-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
-            <div class="b-name">${p.web_name}</div>
-            <div class="b-pts">${p.position} &middot; ${p.event_points}</div>
-          </div>`).join("")}
+        ${orderedBench.map((p, i) => {
+          const locked = (ls.lockedIds || []).includes(p.player_id);
+          return `
+          <div class="bcard">
+            ${locked ? `<div class="lock-badge" style="top:-2px;left:2px;">&#128274;</div>` : ""}
+            <div onclick="location.hash='player-${p.player_id}'" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;">
+              <div class="b-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+              <div class="b-name">${p.web_name}</div>
+              <div class="b-pts">${p.position} &middot; ${p.event_points}</div>
+            </div>
+            <div class="bench-reorder">
+              <button aria-label="Move ${escapeHtml(p.web_name)} earlier on the bench" ${i === 0 ? "disabled" : ""} onclick="moveBenchLocal(${JSON.stringify(benchIds)}, ${p.player_id}, -1)">&larr;</button>
+              <button aria-label="Move ${escapeHtml(p.web_name)} later on the bench" ${i === orderedBench.length - 1 ? "disabled" : ""} onclick="moveBenchLocal(${JSON.stringify(benchIds)}, ${p.player_id}, 1)">&rarr;</button>
+            </div>
+          </div>`;
+        }).join("")}
       </div>
+    </div>
+    <div class="local-note">
+      <b style="color:var(--ink);">Local captain/vice/lock/bench changes</b> only live on this device and are never
+      submitted to FPL &mdash; they're a "what if" workspace for planning. Tap a player, then use the actions in
+      their sheet. Live points shown are real FPL scores for this gameweek; a full-squad pre-match projection
+      isn't in this export yet.
+      ${hasLocalOverrides ? `<br><button class="local-btn" style="margin-top:8px;" onclick="resetLocalOverrides()">Reset local changes</button>` : ""}
     </div>
     <a class="profile-menu-link" style="margin-top:14px;" href="https://fantasy.premierleague.com/entry/${state.team.entry_id}/event/${state.team.gameweek}" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
   `;
@@ -1118,12 +1824,16 @@ function renderTeam() {
 // ============================================================
 
 function playerRow(p) {
+  const inCompare = state.compareSelection.includes(p.id);
   return `
-    <div class="p-row" onclick="location.hash='player-${p.id}'">
-      <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
-      <div class="p-info">
-        <div class="p-name-row">${p.web_name}</div>
-        <div class="p-meta">${p.team || ""} &middot; ${p.position || ""} &middot; Form ${p.form ?? "&mdash;"}</div>
+    <div class="p-row">
+      <button class="compare-check ${inCompare ? "checked" : ""}" aria-label="${inCompare ? "Remove" : "Add"} ${escapeHtml(p.web_name)} ${inCompare ? "from" : "to"} comparison" onclick="toggleCompare(${p.id})">${inCompare ? "&check;" : ""}</button>
+      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;" onclick="location.hash='player-${p.id}'">
+        <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+        <div class="p-info">
+          <div class="p-name-row">${p.web_name}</div>
+          <div class="p-meta">${p.team || ""} &middot; ${p.position || ""} &middot; Form ${p.form ?? "&mdash;"}</div>
+        </div>
       </div>
       <div class="p-form-col">
         <div class="p-price">${fmtMoney(p.price)}</div>
@@ -1136,14 +1846,31 @@ function playerRow(p) {
 const DIFFERENTIAL_MAX_OWNED = 10;
 const TEMPLATE_MIN_OWNED = 30;
 
+// Real, exported fields only. Expected-points/start-probability filters aren't offered here --
+// app_players.json is a direct bootstrap-static pass-through (see app_export.py's module
+// docstring) with no model output attached per-player yet, and a filter that silently did
+// nothing (or worse, invented a number) would be worse than not offering it.
+const PRICE_BANDS = {
+  any: { label: "Any price", test: () => true },
+  budget: { label: "&le;£5.5m", test: (p) => (p.price ?? 0) <= 5.5 },
+  mid: { label: "£5.5&ndash;8.5m", test: (p) => (p.price ?? 0) > 5.5 && (p.price ?? 0) <= 8.5 },
+  premium: { label: "£8.5m+", test: (p) => (p.price ?? 0) > 8.5 },
+};
+const SORTS = {
+  form: { label: "Form", cmp: (a, b) => (b.form ?? -1) - (a.form ?? -1) },
+  price: { label: "Price", cmp: (a, b) => (b.price ?? -1) - (a.price ?? -1) },
+  ownership: { label: "Ownership", cmp: (a, b) => (b.selected_by_percent ?? -1) - (a.selected_by_percent ?? -1) },
+};
+
 function filteredPlayers() {
-  const { position, strategy, query } = state.transferFilter;
+  const { position, strategy, priceBand, sort, query } = state.transferFilter;
   return state.players
     .filter(p => position === "All" || p.position === position)
     .filter(p => strategy !== "differentials" || (p.selected_by_percent ?? 100) < DIFFERENTIAL_MAX_OWNED)
     .filter(p => strategy !== "template" || (p.selected_by_percent ?? 0) >= TEMPLATE_MIN_OWNED)
+    .filter((PRICE_BANDS[priceBand] || PRICE_BANDS.any).test)
     .filter(p => !query || p.web_name.toLowerCase().includes(query.toLowerCase()))
-    .sort((a, b) => (b.form ?? -1) - (a.form ?? -1));
+    .sort((SORTS[sort] || SORTS.form).cmp);
 }
 
 function renderTransferList() {
@@ -1162,6 +1889,18 @@ function setTransferFilter(position) {
 function setStrategyFilter(strategy) {
   state.transferFilter.strategy = strategy;
   document.querySelectorAll(".filter-chip[data-strategy]").forEach(el => el.classList.toggle("active", el.dataset.strategy === strategy));
+  renderTransferList();
+}
+
+function setPriceFilter(band) {
+  state.transferFilter.priceBand = band;
+  document.querySelectorAll(".filter-chip[data-price]").forEach(el => el.classList.toggle("active", el.dataset.price === band));
+  renderTransferList();
+}
+
+function setSortFilter(sort) {
+  state.transferFilter.sort = sort;
+  document.querySelectorAll(".filter-chip[data-sort]").forEach(el => el.classList.toggle("active", el.dataset.sort === sort));
   renderTransferList();
 }
 
@@ -1224,12 +1963,13 @@ function renderTransfers() {
   const el = document.getElementById("transfers-content");
   const recs = state.realSquad;
   el.innerHTML = `
-    <div class="section">
+    <div class="section anim-in">
       <div class="card">
         <div class="card-title">Model recommendation</div>
         ${verdictBlock(recs && recs.hold_vs_transfer_now)}
         ${recListBlock(recs && recs.transfer_recommendations, 5)}
-        ${actionRow(transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL)}
+        ${actionRow("transfer-screen", transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL)}
+        <button class="local-btn active" style="margin-top:10px;" onclick="goToTransferReview(null)">Start a manual transfer review</button>
       </div>
     </div>
     ${captainRankingBlock()}
@@ -1245,6 +1985,14 @@ function renderTransfers() {
         <button class="filter-chip ${state.transferFilter.strategy === "differentials" ? "active" : ""}" data-strategy="differentials" onclick="setStrategyFilter('differentials')">Differentials &lt;${DIFFERENTIAL_MAX_OWNED}%</button>
         <button class="filter-chip ${state.transferFilter.strategy === "template" ? "active" : ""}" data-strategy="template" onclick="setStrategyFilter('template')">Template ${TEMPLATE_MIN_OWNED}%+</button>
       </div>
+      <div class="filter-row">
+        ${Object.entries(PRICE_BANDS).map(([key, band]) => `<button class="filter-chip ${state.transferFilter.priceBand === key ? "active" : ""}" data-price="${key}" onclick="setPriceFilter('${key}')">${band.label}</button>`).join("")}
+      </div>
+      <div class="filter-row">
+        <span style="align-self:center;font-size:10.5px;color:var(--ink-dim2);font-weight:700;flex-shrink:0;">Sort:</span>
+        ${Object.entries(SORTS).map(([key, s]) => `<button class="filter-chip ${state.transferFilter.sort === key ? "active" : ""}" data-sort="${key}" onclick="setSortFilter('${key}')">${s.label}</button>`).join("")}
+      </div>
+      <p style="font-size:10.5px;color:var(--ink-dim2);margin:-4px 0 12px;">Tap the checkbox to compare up to 2 players &middot; tap a card for full details.</p>
       <div id="transfer-list"></div>
     </div>
   `;
@@ -1510,9 +2258,33 @@ function openPlayerSheet(id) {
       <div class="fdr-strip">
         ${upcoming.map(u => `<div class="fdr-item"><div class="fdr-opp">${u.opp} (${u.home ? "H" : "A"})</div><div class="fdr-num" style="background:${FDR_COLOR(u.difficulty)}">${u.difficulty ?? "-"}</div></div>`).join("")}
       </div>` : ""}
+      ${playerSheetLocalActions(p)}
+      <button class="local-btn ${state.compareSelection.includes(p.id) ? "active" : ""}" style="width:100%;margin-top:12px;text-align:center;" onclick="toggleCompare(${p.id});openPlayerSheet(${p.id});">
+        ${state.compareSelection.includes(p.id) ? "Remove from comparison" : "Add to comparison"}
+      </button>
     `;
   }
-  document.getElementById("sheet-overlay").hidden = false;
+  openSheet();
+}
+
+// Local squad actions (captain/vice/lock) only make sense for a player who's actually in the
+// viewed account's current squad -- shown only then, alongside a reset control and the same
+// "never submitted to FPL" disclaimer the Team screen carries.
+function playerSheetLocalActions(p) {
+  const inSquad = state.team && state.team.squad.some(s => s.player_id === p.id);
+  if (!inSquad) return "";
+  const ls = loadLocalState(state.accountId);
+  const isCap = ls.captainId === p.id, isVice = ls.viceId === p.id, isLocked = (ls.lockedIds || []).includes(p.id);
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Local squad actions</span></div>
+    <div style="margin-bottom:4px;">
+      <button class="local-btn ${isCap ? "active" : ""}" onclick="setLocalCaptain(${isCap ? "null" : p.id});openPlayerSheet(${p.id});">${isCap ? "Captain (local) ✓" : "Make captain (local)"}</button>
+      <button class="local-btn ${isVice ? "active" : ""}" onclick="setLocalVice(${isVice ? "null" : p.id});openPlayerSheet(${p.id});">${isVice ? "Vice-captain (local) ✓" : "Make vice-captain (local)"}</button>
+      <button class="local-btn ${isLocked ? "active" : ""}" onclick="toggleLock(${p.id});openPlayerSheet(${p.id});">${isLocked ? "Locked for optimiser ✓" : "Lock for optimiser (local)"}</button>
+    </div>
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin:6px 0 0;">
+      Local only &mdash; a planning workspace on this device. Nothing here is ever submitted to FPL.
+    </p>`;
 }
 
 // ============================================================
@@ -1523,6 +2295,12 @@ function openPlayerSheet(id) {
 // baselines a manager could follow with none of this project's machinery -- see
 // backtest.beats_baseline()'s own docstring on why this reports a baseline win exactly as
 // visibly as a model win ("a leaderboard that only shows wins is not a leaderboard").
+// Reads leaderboard_latest.json, written by scripts/export_leaderboard.py from a real
+// backtest.run_season_simulation() + backtest.beats_baseline() pair (Phase B2 hardening) --
+// each baseline row's own n_gameweeks can differ from the model's (a baseline skips a
+// gameweek it can't legally fill a squad for), so model_beats_baseline_by is the real,
+// already-computed comparison over just the gameweeks that baseline actually has data for,
+// not a naive total-points subtraction across mismatched windows.
 function leaderboardBlock() {
   const lb = state.leaderboard;
   if (!lb || !lb.rows || !lb.rows.length) return "";
@@ -1533,15 +2311,18 @@ function leaderboardBlock() {
     <div class="section-title" style="color:var(--on-dark);"><span>Model vs baselines</span></div>
     <div class="stat-list" style="margin-bottom:10px;">
       <div class="sl-row"><div class="sl-label" style="font-weight:700;color:var(--ink);">${escapeHtml(modelRow.name)}</div>
-        <div class="sl-value">${modelRow.ep.toFixed(2)} <span style="color:var(--ink-dim2);font-weight:500;">[${modelRow.ci_low.toFixed(1)}, ${modelRow.ci_high.toFixed(1)}]</span></div></div>
+        <div class="sl-value">${modelRow.total_points.toFixed(1)} pts <span style="color:var(--ink-dim2);font-weight:500;">over ${modelRow.n_gameweeks} GW</span></div></div>
       ${baselineRows.map(r => {
-        const beats = /recent/.test(r.name) ? modelRow.beats_recent_points : /price|ownership/.test(r.name) ? modelRow.beats_price_ownership : modelRow.beats_crowd;
-        return `<div class="sl-row"><div class="sl-label">${escapeHtml(r.name)}</div>
-          <div class="sl-value" style="color:${beats ? "var(--green)" : "var(--red)"};font-size:12px;">${r.ep.toFixed(2)} ${beats ? "&#10003;" : "&#10007;"}</div></div>`;
+        const beats = r.model_beats_baseline_by > 0;
+        const tie = r.model_beats_baseline_by === 0;
+        return `<div class="sl-row"><div class="sl-label">${escapeHtml(r.name)}${r.n_gameweeks_skipped ? ` <span style="color:var(--ink-dim2);">(${r.n_gameweeks_skipped} skipped)</span>` : ""}</div>
+          <div class="sl-value" style="color:${tie ? "var(--ink-dim)" : beats ? "var(--green)" : "var(--red)"};font-size:12px;">
+            ${r.total_points.toFixed(1)} pts ${tie ? "&mdash;" : beats ? "&#10003;" : "&#10007;"} <span style="font-weight:500;">(${beats ? "+" : ""}${r.model_beats_baseline_by.toFixed(1)})</span>
+          </div></div>`;
       }).join("")}
     </div>
     <p style="font-size:11px;line-height:1.6;color:var(--on-dark-dim);margin:-6px 0 16px;">
-      Over ${lb.walked_gameweeks} real walk-forward backtested gameweek${lb.walked_gameweeks === 1 ? "" : "s"}.
+      ${escapeHtml(lb.season || "")} GW${lb.start_gameweek ?? "?"}&ndash;${lb.end_gameweek ?? "?"}, a real season-long simulation (one evolving squad, not a fresh pick every week).
       ${lb.honest_losses && lb.honest_losses.length
         ? `Honest disclosure: the model did NOT beat ${lb.honest_losses.map(escapeHtml).join(", ")} over this window.`
         : "The model beat every baseline over this window."}
@@ -1623,13 +2404,28 @@ function openAddTeamSheet() {
     status.style.color = "var(--on-dark-dim)";
     status.textContent = `Opened a GitHub issue for "${label}". Once it's processed, come back and pick it from the account switcher at the top.`;
   };
-  document.getElementById("sheet-overlay").hidden = false;
+  openSheet();
+}
+
+function devToggleBlock() {
+  return `
+    <div class="section-title" style="color:var(--on-dark);margin-top:6px;"><span>Developer settings</span></div>
+    <div class="stat-list" style="margin-bottom:10px;padding:14px 16px;">
+      <p style="font-size:11.5px;color:var(--ink-dim);line-height:1.6;margin:0 0 10px;">
+        Development data swaps every screen for a small, clearly-labeled fictional dataset (matching this
+        app's own design reference) so the interface can be reviewed without a live FPL account or network
+        access. It never mixes with real data.
+      </p>
+      <button class="local-btn ${state.isMock ? "active" : ""}" onclick="setDevMode(${state.isMock ? "false" : "true"})">
+        ${state.isMock ? "Turn off development data" : "Turn on development data"}
+      </button>
+    </div>`;
 }
 
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
-  if (!profile) { content.innerHTML = `<p class="empty-state">No profile data available for this account.</p>`; }
+  if (!profile) { content.innerHTML = `<p class="empty-state">No profile data available for this account.</p>` + devToggleBlock(); }
   else {
     content.innerHTML = `
       <div class="player-hero">
@@ -1654,9 +2450,10 @@ function openProfileSheet() {
       ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>
+      ${devToggleBlock()}
     `;
   }
-  document.getElementById("sheet-overlay").hidden = false;
+  openSheet();
 }
 
 // ============================================================
@@ -1669,6 +2466,8 @@ if ("serviceWorker" in navigator) {
 
 async function init() {
   try {
+    state.isMock = isDevModeRequested();
+    updateDevBanner();
     state.staleSince = null;
     await loadShared();
     await loadAccount(state.accountId);

@@ -106,30 +106,29 @@ def fit_dixon_coles(
     result = minimize(neg_log_likelihood, x0, method="L-BFGS-B")
     if not result.success:
         print(
-            f"::warning::team_strength.fit_dixon_coles: scipy.optimize.minimize did not "
-            f"converge (message={result.message!r}, nit={result.nit}) for asof={asof_date}, "
-            f"xi={xi}, rho={rho} -- the returned attack/defence values come from whatever "
-            f"point the optimizer stopped at, not a verified MLE optimum."
+            f"::warning::team_strength.fit_dixon_coles: scipy.optimize.minimize did not converge "
+            f"(message={result.message!r}, nit={result.nit}) -- attack/defence/home_advantage below "
+            f"are the best iterate found, not a verified local optimum"
         )
     attack, defence, home_adv = unpack(result.x)
 
-    # Re-evaluate tau(x,y;rho) at the converged optimum (not inside the per-iteration
-    # neg_log_likelihood closure, which would fire this on every intermediate optimizer step)
-    # to check how many real low-score cells needed the 1e-10 floor -- a floored cell means
-    # tau(x,y;rho) went <=0 there, i.e. this (xi, rho) pair produced an invalid
-    # (non-positive-probability) adjustment for at least one actual match at the fitted lambdas.
-    lam_home_opt = np.clip(np.exp(attack[hi] - defence[ai] + home_adv), 1e-6, 1e6)
-    lam_away_opt = np.clip(np.exp(attack[ai] - defence[hi]), 1e-6, 1e6)
-    tau_vals_opt = np.ones(len(home_goals))
+    # Re-check tau at the converged fit (not during the search, where this would fire on every
+    # objective evaluation): a cell floored at 1e-10 here means tau(x,y;rho) went <=0 for that
+    # cell's fitted lambdas, i.e. (xi, rho) is in an invalid-tau region for this data -- the
+    # log-likelihood those cells contribute is then dominated by the floor, not the real
+    # Dixon-Coles adjustment, which would silently distort the fit if it went unreported.
+    lam_home_final = np.clip(np.exp(attack[hi] - defence[ai] + home_adv), 1e-6, 1e6)
+    lam_away_final = np.clip(np.exp(attack[ai] - defence[hi]), 1e-6, 1e6)
+    raw_tau = np.ones(len(home_goals))
     for k in np.nonzero(low_score_mask)[0]:
-        tau_vals_opt[k] = tau(int(home_goals[k]), int(away_goals[k]), lam_home_opt[k], lam_away_opt[k], rho)
-    n_floored = int(np.sum(tau_vals_opt <= 1e-10))
+        raw_tau[k] = tau(int(home_goals[k]), int(away_goals[k]), lam_home_final[k], lam_away_final[k], rho)
+    n_floored = int(np.sum(raw_tau <= 1e-10))
     if n_floored > 0:
         print(
             f"::warning::team_strength.fit_dixon_coles: {n_floored}/{int(low_score_mask.sum())} "
-            f"low-score tau(x,y;rho) values hit the 1e-10 floor at the fitted optimum "
-            f"(rho={rho} is in an invalid-tau region for these matches' fitted lambdas) -- "
-            f"the Dixon-Coles low-score correction is degenerate for at least one real match."
+            f"low-score match cells had tau(x,y;rho={rho}) <= 0 at the converged fit, clipped to "
+            f"the 1e-10 floor -- likely means (xi={xi}, rho={rho}) is in an invalid-tau region for "
+            f"this data"
         )
 
     shift = attack.mean()

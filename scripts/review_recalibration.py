@@ -6,8 +6,14 @@ explicit-version-only per params.py's own docstring) plus a recalibration_propos
 recording the metric delta that justifies it, status='pending'. This script is the review
 step: it never edits scripts/run_ingestion.py's version-number arguments itself -- confirming
 a proposal here only marks it reviewed; a human still has to go update the explicit version
-number the live pipeline passes for that param family, same discipline as every other version
-bump in this project.
+number the live pipeline passes for that param family (or, for a family run_ingestion.py loads
+via load_confirmed_recalibration_seeds(), the confirmed value is picked up automatically on the
+next run -- see SEED_DIR below).
+
+Every status change here also re-writes the JSON seed file for that proposal's backtest run
+(backtest.write_recalibration_seed_file()), so the committed file and the DB's own
+recalibration_proposals.status never drift apart -- confirming/rejecting only in the DB and
+forgetting to touch the file would silently leave a stale status sitting in git.
 
 Usage (from repo root):
     .venv/Scripts/python scripts/review_recalibration.py                       # list pending
@@ -23,7 +29,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from fpl_quant import backtest  # noqa: E402
 from fpl_quant import db  # noqa: E402
+
+SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
 
 def list_pending(con) -> None:
@@ -46,19 +55,25 @@ def list_pending(con) -> None:
 
 
 def set_status(con, proposal_id: int, status: str, reviewed_by: str | None) -> None:
-    row = con.execute("SELECT status FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]).fetchone()
+    row = con.execute(
+        "SELECT status, backtest_run_id FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]
+    ).fetchone()
     if row is None:
         print(f"No proposal #{proposal_id} found.")
         return
+    old_status, backtest_run_id = row
     con.execute(
         "UPDATE recalibration_proposals SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE proposal_id = ?",
         [status, reviewed_by, datetime.now(timezone.utc), proposal_id],
     )
-    print(f"#{proposal_id} -> {status} (was {row[0]}).")
+    seed_path = backtest.write_recalibration_seed_file(con, backtest_run_id, SEED_DIR)
+    print(f"#{proposal_id} -> {status} (was {old_status}). Seed file updated: {seed_path}")
     if status == "confirmed":
         print(
-            "Reminder: this does not activate the new version. Update the explicit version-number "
-            "argument scripts/run_ingestion.py passes for this param family to actually use it live."
+            "Reminder: this does not activate the new version by itself. If run_ingestion.py loads "
+            "this param family via load_confirmed_recalibration_seeds(), the confirmed value is picked "
+            "up automatically on the next run -- otherwise, update the explicit version-number argument "
+            "scripts/run_ingestion.py passes for this param family to actually use it live."
         )
 
 

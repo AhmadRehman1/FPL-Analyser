@@ -1,5 +1,8 @@
 from datetime import datetime
 
+import pytest
+import requests
+
 from fpl_quant import ingest_fpl_entry_picks as ifp
 
 
@@ -185,3 +188,42 @@ def test_most_owned_players_excludes_zero_multiplier_bench_picks(con):
         entry_picks_by_id={100: [{"element": 1, "is_captain": False, "multiplier": 0}]},
     )
     assert ifp.most_owned_players(con, "2025-2026", 5) == []
+
+
+# ============================================================
+# _fetch_json -- retry/backoff (Phase B hardening, same mechanism as app_export._fetch_json)
+# ============================================================
+
+class _FakeResponse:
+    def __init__(self, status_code, json_payload=None, headers=None):
+        self.status_code = status_code
+        self._json_payload = json_payload
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
+
+    def json(self):
+        return self._json_payload
+
+
+def test_fetch_json_retries_on_429_then_succeeds(monkeypatch):
+    responses = [_FakeResponse(429), _FakeResponse(200, {"ok": True})]
+    monkeypatch.setattr(ifp.requests, "get", lambda url, timeout, headers: responses.pop(0))
+    monkeypatch.setattr(ifp.time, "sleep", lambda s: None)
+    assert ifp._fetch_json("https://example.test/x") == {"ok": True}
+
+
+def test_fetch_json_does_not_retry_on_404(monkeypatch):
+    calls = []
+
+    def fake_get(url, timeout, headers):
+        calls.append(url)
+        return _FakeResponse(404)
+
+    monkeypatch.setattr(ifp.requests, "get", fake_get)
+    monkeypatch.setattr(ifp.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("should not sleep/retry on a 404")))
+    with pytest.raises(requests.HTTPError):
+        ifp._fetch_json("https://example.test/x")
+    assert len(calls) == 1

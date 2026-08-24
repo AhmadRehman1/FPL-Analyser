@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import requests
 
 from fpl_quant import app_export as ax
 
@@ -314,7 +315,7 @@ def test_build_leagues_attaches_ownership_when_provided():
 
 
 # ============================================================
-# _fetch_json retry/backoff (Review B7)
+# _fetch_json -- retry/backoff (Phase B7 hardening)
 # ============================================================
 
 class _FakeResponse:
@@ -325,7 +326,6 @@ class _FakeResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            import requests
             raise requests.HTTPError(f"{self.status_code} error", response=self)
 
     def json(self):
@@ -355,14 +355,12 @@ def test_fetch_json_retries_on_429_then_succeeds(monkeypatch):
     monkeypatch.setattr(ax.requests, "get", fake_get)
     monkeypatch.setattr(ax.time, "sleep", lambda s: sleeps.append(s))
 
-    result = ax._fetch_json("http://example.test", max_retries=4, backoff_seconds=1.0)
+    result = ax._fetch_json("http://example.test", max_attempts=4, base_backoff_seconds=1.0)
     assert result == {"ok": True}
     assert sleeps == [1.0, 2.0]  # exponential backoff: 1*2**0, 1*2**1
 
 
 def test_fetch_json_retries_on_connection_error_then_succeeds(monkeypatch):
-    import requests
-
     calls = {"n": 0}
 
     def fake_get(url, **kwargs):
@@ -384,7 +382,7 @@ def test_fetch_json_raises_upstream_unavailable_after_exhausting_retries(monkeyp
     monkeypatch.setattr(ax.time, "sleep", lambda s: None)
 
     with pytest.raises(ax.UpstreamUnavailableError):
-        ax._fetch_json("http://example.test", max_retries=2)
+        ax._fetch_json("http://example.test", max_attempts=2)
 
 
 def test_fetch_json_honors_retry_after_header(monkeypatch):
@@ -411,7 +409,6 @@ def test_fetch_json_does_not_retry_a_real_404(monkeypatch):
     monkeypatch.setattr(ax.requests, "get", fake_get)
     monkeypatch.setattr(ax.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("must not sleep/retry on a real 404")))
 
-    import requests
     with pytest.raises(requests.HTTPError):
         ax._fetch_json("http://example.test")
     assert calls["n"] == 1
@@ -425,7 +422,7 @@ def test_fetch_entry_picks_still_returns_none_on_404(monkeypatch):
 
 
 # ============================================================
-# append_live_rank_snapshot / last_known_rank_snapshot (Review Feature 6)
+# append_live_rank_snapshot / last_known_rank_snapshot (Roadmap Feature 6)
 # ============================================================
 
 def test_append_live_rank_snapshot_creates_file_when_missing(tmp_path):
