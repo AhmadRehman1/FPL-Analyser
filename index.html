@@ -673,11 +673,13 @@ function saveLocalState(accountId, patch) {
 function setLocalCaptain(playerId) {
   const s = loadLocalState(state.accountId);
   saveLocalState(state.accountId, { captainId: playerId, viceId: s.viceId === playerId ? null : s.viceId });
+  if (playerId != null) hapticTick(); // only on actually putting the armband on, not clearing it
   renderCurrentTab();
 }
 function setLocalVice(playerId) {
   const s = loadLocalState(state.accountId);
   saveLocalState(state.accountId, { viceId: playerId, captainId: s.captainId === playerId ? null : s.captainId });
+  if (playerId != null) hapticTick();
   renderCurrentTab();
 }
 function toggleLock(playerId) {
@@ -1529,6 +1531,7 @@ function confirmTransferReview(outId, inId) {
   const outPlayer = state.playersById[outId], inPlayer = state.playersById[inId];
   if (!outPlayer || !inPlayer) return;
   saveConfirmedTransfer({ outId, inId, outName: outPlayer.web_name, inName: inPlayer.web_name });
+  hapticTick();
   renderTransferReviewBody();
 }
 
@@ -1841,7 +1844,7 @@ function actionRow(id, directive, url) {
         ${directive.chipType ? `<button class="local-btn active" onclick="event.stopPropagation();location.hash='chip-${directive.chipType}'">See chip detail</button>` : ""}
         ${directive.playerId != null ? `<button class="local-btn" onclick="event.stopPropagation();setLocalCaptain(${directive.playerId})">Set captain (local)</button>` : ""}
       </div></div>
-      <a class="action-cta" style="display:inline-block;margin-top:4px;" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation();">${directive.cta} on FPL &rsaquo;</a>
+      <a class="action-cta" style="display:inline-block;margin-top:4px;" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation();hapticTick();">${directive.cta} on FPL &rsaquo;</a>
     </div>`;
 }
 
@@ -2151,6 +2154,7 @@ function wireLiveScoreAnimation() {
   if (previous != null && previous !== state.live.live_total) {
     const announcer = document.getElementById("score-announcer");
     if (announcer) announcer.textContent = `Live score updated to ${state.live.live_total} points`;
+    if (state.live.live_total > previous) hapticTick(); // a real gain, not just a re-render with the same total
   }
   state.lastLiveTotal = state.live.live_total;
 }
