@@ -162,6 +162,15 @@ def main() -> None:
     if captain_recommendation:
         print(f"\n--- captain recommendation ---\n  {captain_recommendation}")
 
+    # M9's own explainability adapter (transfer_planner.explain_plan()) -- pure assembly over
+    # this same run_id, no new computation. Exported as-is so the dashboard can show the real
+    # per-chip/hold rationale (detail JSON) instead of the frontend inventing explanatory text.
+    # player_uid-keyed (top_transfers/top_multi_transfers use player_uid, not display names --
+    # unlike recs_out above) since explain_plan() itself is a generic, non-dashboard-specific
+    # adapter; the frontend falls back to showing the uid when a name lookup isn't available.
+    explain = tp.explain_plan(con, run_id, top_n=5)
+    print(f"\n[explain] attached transfer_planner.explain_plan() output (gw19_urgent={explain['gw19_deadline']})")
+
     con.close()
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
@@ -176,6 +185,7 @@ def main() -> None:
         "hold_vs_transfer_now": hold_out,
         "chip_evaluations": chips_out,
         "captain_recommendation": captain_recommendation,
+        "explain": explain,
     }
     out_path = DASHBOARD_DIR / f"real_squad_{entry_id}.json"
     out_path.write_text(json.dumps(snapshot, indent=2))
