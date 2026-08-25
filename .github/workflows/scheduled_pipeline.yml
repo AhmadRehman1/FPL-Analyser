@@ -240,6 +240,16 @@ jobs:
           EVENT: ${{ steps.gw.outputs.event }}
         run: PYTHONPATH=src python scripts/export_projections.py "$EVENT"
 
+      # Roadmap P2 item: track_elite.py (Feature 9, elite-manager divergence) was written and
+      # tested but never invoked anywhere -- same "built but never invoked" gap as the projections
+      # export above. It already no-ops safely when data/elite_managers.json's `managers` list is
+      # empty (its own default), so wiring it in now is inert until an operator populates real
+      # entry IDs there -- this step just removes the "nothing ever runs it" gap.
+      - name: Track elite-manager divergence
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: PYTHONPATH=src python scripts/track_elite.py "$EVENT"
+
       # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
       # a one-off re-check) without needing a code change -- the two real accounts above always
       # run regardless of this input. workflow_dispatch inputs are an insider-only threat
