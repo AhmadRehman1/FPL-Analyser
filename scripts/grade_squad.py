@@ -22,15 +22,21 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, ingest_fpl_entry_picks as ifp, reporting, squad_grade as sg, transfer_planner as tp  # noqa: E402
+from fpl_quant import backtest, db, ingest_fpl_entry_picks as ifp, reporting, squad_grade as sg, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-PARAM_VERSIONS = dict(
-    scoring_params_version=1, bps_params_version=1, tau_params_version=1,
-    rho_residual_params_version=2, corr_params_version=1,
-)
+
+# Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version/
+# lambda_params_version resolve from the git-committed confirmed-seed files, not a hardcoded
+# literal -- see backtest.active_recalibratable_versions()'s own docstring.
+def _param_versions(active: dict) -> dict:
+    return dict(
+        scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
+    )
 
 
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
@@ -68,8 +74,9 @@ def main() -> None:
         raise SystemExit("no team_strength/minutes model versions found -- run scripts/run_ingestion.py first")
 
     calibration_asof_date = date.today()
+    active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
     horizon_ep_versions = tp.compute_horizon_ep(
-        con, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, 1, **PARAM_VERSIONS,
+        con, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, 1, **_param_versions(active),
     )
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]
 
@@ -81,7 +88,7 @@ def main() -> None:
     grade = sg.grade_squad(
         con, entry_id, calibration_asof_date, TARGET_SEASON, plan_for_gameweek,
         current_holdings, horizon_ep_versions,
-        lambda_params_version=1, guardrail_params_version=1,
+        lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
     )
 
     data_asof = calibration_asof_date.isoformat()

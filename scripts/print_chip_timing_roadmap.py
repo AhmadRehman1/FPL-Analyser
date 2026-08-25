@@ -49,7 +49,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import app_export as ax, db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, ingest_workbook as iw  # noqa: E402
+from fpl_quant import app_export as ax, backtest, db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, ingest_workbook as iw  # noqa: E402
 from fpl_quant import params as params_mod, squad_optimizer as so_mod, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
@@ -69,12 +69,22 @@ LONG_WINDOW_GAMEWEEKS = 8
 # parameterized for a single-week chip instead of inventing a second metric.
 FREE_HIT_SHORT_WINDOW_GAMEWEEKS = 1
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-# Every one of these is currently seeded at version=1 by scripts/run_ingestion.py -- same
-# real-solve param set explain_my_move.py/grade_squad.py already use for a real account.
+# Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version/
+# lambda_params_version resolve from the git-committed confirmed-seed files, not a hardcoded
+# literal -- see backtest.active_recalibratable_versions()'s own docstring. Every other family
+# below isn't one recalibrate() can produce a new version for, so those stay hardcoded literals,
+# same real-solve param set explain_my_move.py/grade_squad.py already use for a real account.
+# Resolved at import time (not inside main()) because PARAM_VERSIONS is read by
+# _real_wildcard_gain()/_real_free_hit_gain() below, separate module-level functions main() only
+# calls -- threading it through their signatures instead would be a bigger refactor for no real
+# behavior change in this project's actual usage (each script is a fresh, short-lived process
+# per invocation; only reads committed files, never the DB, so there's nothing to go stale).
+_ACTIVE = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
 PARAM_VERSIONS = dict(
     scoring_params_version=1, bps_params_version=1, tau_params_version=1,
-    rho_residual_params_version=2, corr_params_version=1,
+    rho_residual_params_version=_ACTIVE["rho_residual_params_version"], corr_params_version=1,
 )
 
 ACCOUNTS = [
@@ -170,7 +180,7 @@ def _real_wildcard_gain(con, entry_id: int, event: int, target_gameweek: int) ->
             # the best realistic alternative, never an understatement.
             best_transfer_net_value=0.0,
             horizon_ep_versions=wc_horizon,
-            lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+            lambda_params_version=_ACTIVE["lambda_params_version"], guardrail_params_version=1, threshold_params_version=1,
             current_holdings=holdings,
         )
         return {"gain": round(result["gain"], 2), "recommended": result["recommended"]}
@@ -223,7 +233,7 @@ def _real_free_hit_gain(con, entry_id: int, event: int, target_gameweek: int) ->
         tp.seed_v1_params(con)
         result = tp.evaluate_free_hit(
             con, calibration_asof_date, TARGET_SEASON, target_gameweek, holdings, fh_horizon,
-            lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+            lambda_params_version=_ACTIVE["lambda_params_version"], guardrail_params_version=1, threshold_params_version=1,
         )
         return {"gain": round(result["gain"], 2), "recommended": result["recommended"]}
     except Exception as e:  # noqa: BLE001 -- best-effort, see this function's own docstring

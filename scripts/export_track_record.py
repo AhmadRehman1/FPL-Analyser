@@ -26,27 +26,42 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, reporting  # noqa: E402
+from fpl_quant import backtest, db, reporting  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
 # Same param-version set run_report.py's own ACTIVE_PARAM_VERSIONS uses -- duplicated rather
 # than cross-imported, matching this project's own convention of small literal constants
 # (TARGET_SEASON itself included) living independently in each script rather than sharing
-# imports between sibling scripts/ files.
-ACTIVE_PARAM_VERSIONS = {
-    "source_tier_weights": 1, "fact_type_multiplier_params": 1, "model_decay_params": 1,
-    "minutes_adjustment_params": 1, "minutes_model_decay_params": 1, "minutes_model_shrinkage_params": 1,
-    "base_scoring_matrix": 1, "bps_formula_params": 1, "bps_dispersion_params": 1,
-    "correlation_params": 1, "cross_player_correlation_params": 1, "risk_aversion_params": 1,
-    "squad_optimizer_guardrail_params": 1, "planning_horizon_params": 1, "transfer_cost_params": 1,
-    "tc_risk_aversion_params": 1, "wildcard_gain_threshold_params": 1,
-}
+# imports between sibling scripts/ files. See run_report.py's own comment on why the
+# recalibratable families below resolve from active (Track B, docs/plans/2026-08_roadmap_plan.md)
+# rather than staying hardcoded -- this transparency panel would otherwise misreport what's
+# actually active. model_decay_params (xi/rho) is the one exception, left hardcoded at 1 --
+# see run_report.py's own comment on why a single family-level number can't safely represent
+# two independently-versioned keys here without either showing a stale value or dropping a row.
+def _active_param_versions(active: dict) -> dict:
+    return {
+        "source_tier_weights": 1,
+        "fact_type_multiplier_params": active["fact_multiplier_params_version"],
+        "model_decay_params": 1,
+        "minutes_adjustment_params": active["adjustment_params_version"],
+        "minutes_model_decay_params": 1,
+        "minutes_model_shrinkage_params": active["shrinkage_params_version"],
+        "base_scoring_matrix": 1, "bps_formula_params": 1, "bps_dispersion_params": 1,
+        "correlation_params": active["rho_residual_params_version"],
+        "cross_player_correlation_params": 1,
+        "risk_aversion_params": active["lambda_params_version"],
+        "squad_optimizer_guardrail_params": 1, "planning_horizon_params": 1, "transfer_cost_params": 1,
+        "tc_risk_aversion_params": active["kappa_tc_params_version"], "wildcard_gain_threshold_params": 1,
+    }
 
 
 def main() -> None:
     con = db.connect()
+    _ACTIVE = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+    ACTIVE_PARAM_VERSIONS = _active_param_versions(_ACTIVE)
 
     real_run_id = con.execute(
         "SELECT run_id FROM squad_optimizer_runs WHERE target_season = ? AND is_manager_snapshot = FALSE "
@@ -76,7 +91,7 @@ def main() -> None:
         sanity_check_params_version=1,
         consensus_check_params_version=1,
         evidence_decay_params_version=1,
-        evidence_fact_multiplier_params_version=1,
+        evidence_fact_multiplier_params_version=_ACTIVE["fact_multiplier_params_version"],
         bench_quality_params_version=1,
         confidence_score_params_version=1,
         report_asof=datetime.now(),

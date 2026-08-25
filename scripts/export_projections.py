@@ -34,19 +34,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import app_export as ax  # noqa: E402
-from fpl_quant import db, ingest_fpl_entry_picks as ifp, projections as proj  # noqa: E402
+from fpl_quant import backtest, db, ingest_fpl_entry_picks as ifp, projections as proj  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 TARGET_GAMEWEEK = 1
 PLANNER_HORIZON_GAMEWEEKS = 8
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
-
-# Every one of these is currently seeded at version=1 by scripts/run_ingestion.py -- kept
-# explicit here (not re-derived) to match this project's own no-invented-defaults discipline.
-PARAM_VERSIONS = dict(
-    scoring_params_version=1, bps_params_version=1, tau_params_version=1,
-    rho_residual_params_version=2, corr_params_version=1,
-)
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
 
 def _latest_model_version(con, table: str) -> int:
@@ -85,9 +79,19 @@ def main() -> None:
     ts_mv = _latest_model_version(con, "team_strength_model_versions")
     mm_mv = _latest_model_version(con, "minutes_model_versions")
 
+    # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version
+    # resolves from the git-committed confirmed-seed files, not a hardcoded literal -- see
+    # backtest.active_recalibratable_versions()'s own docstring. Every other family below isn't
+    # one recalibrate() can produce a new version for, so those stay hardcoded literals.
+    active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+    param_versions = dict(
+        scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
+    )
+
     rows = proj.build_projections(
         con, calibration_asof_date=date.today(), target_season=TARGET_SEASON, gameweeks=gameweeks,
-        ts_model_version=ts_mv, mm_model_version=mm_mv, **PARAM_VERSIONS,
+        ts_model_version=ts_mv, mm_model_version=mm_mv, **param_versions,
     )
     captain_ranking = proj.build_captain_ranking(rows, gw=gameweeks[0])
     element_id_by_uid = proj.resolve_element_ids(con, TARGET_SEASON, _fetch_element_names())

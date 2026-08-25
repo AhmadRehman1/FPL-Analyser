@@ -32,14 +32,25 @@ from fpl_quant import backtest, db  # noqa: E402
 # before anything here is auto-loaded back by run_ingestion.py.
 RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-# Every param family below is currently seeded at version=1 by scripts/run_ingestion.py.
-PARAM_VERSIONS = dict(
-    xi_params_version=1, rho_params_version=1,
-    decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1, fact_multiplier_params_version=1,
-    scoring_params_version=1, bps_params_version=1, tau_params_version=1,
-    rho_residual_params_version=1, corr_params_version=1,
-    lambda_params_version=1, guardrail_params_version=1,
-)
+# Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): the recalibratable families
+# below (xi/rho/rho_residual/adjustment/shrinkage/fact_multiplier/lambda) resolve from the
+# git-committed confirmed-seed files via backtest.active_recalibratable_versions(), not a
+# hardcoded literal -- this backtest run has to measure the model against the version that's
+# ACTUALLY active elsewhere in the pipeline, or it silently validates a stale baseline nobody
+# else is using (a real, previously-existing bug this closes: xi/rho_residual were already
+# confirmed at v2 and used by most other scripts, but this file's own PARAM_VERSIONS was still
+# hardcoded at v1). Every other family below (scoring/bps/tau/corr/guardrail) isn't one
+# recalibrate() can produce a new version for, so those stay hardcoded literals as before.
+def _param_versions(active: dict) -> dict:
+    return dict(
+        xi_params_version=active["xi_params_version"], rho_params_version=active["rho_params_version"],
+        decay_params_version=1, adjustment_params_version=active["adjustment_params_version"],
+        shrinkage_params_version=active["shrinkage_params_version"],
+        fact_multiplier_params_version=active["fact_multiplier_params_version"],
+        scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
+        lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
+    )
 
 # Modest, explicit blocks for the M2 coordinate descent -- kept small deliberately (this runs
 # len(candidates) x len(warm+mature eval steps) minutes_model.run() calls per block per round,
@@ -71,10 +82,12 @@ MINUTES_PARAM_GRIDS = [
 
 def main() -> None:
     con = db.connect()
+    active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+    param_versions = _param_versions(active)
 
     t0 = time.time()
     backtest_run_id = backtest.run(
-        con, **PARAM_VERSIONS, n_antithetic_pairs=5000, run_monte_carlo=True,
+        con, **param_versions, n_antithetic_pairs=5000, run_monte_carlo=True,
         notes="M7 full walk-forward backtest",
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")
@@ -95,23 +108,44 @@ def main() -> None:
     for tier, name, n, avg in metrics:
         print(f"  [{tier}] {name}: n={n} mean={avg:.4f}")
 
+    # current_*_version args below must match the TRUE active version (per `active` above), not
+    # a hardcoded assumption -- recalibrate() uses these as the baseline it compares proposed
+    # values against (see refit_xi_rho()'s own current_xi/current_rho resolution), and as
+    # old_params_version on any new proposal it writes. Passing a stale "1" here for an already-
+    # confirmed-to-2 family would corrupt both: the refit search would explore around the wrong
+    # current value, and any new proposal's audit trail would record the wrong prior version.
     t0 = time.time()
     proposal_ids = backtest.recalibrate(
         con, backtest_run_id,
-        current_xi_version=1, current_rho_version=1,
-        current_rho_residual_version=1,
+        current_xi_version=active["xi_params_version"], current_rho_version=active["rho_params_version"],
+        current_rho_residual_version=active["rho_residual_params_version"],
         current_minutes_versions={
-            "decay_params_version": 1, "adjustment_params_version": 1,
-            "shrinkage_params_version": 1, "fact_multiplier_params_version": 1,
+            "decay_params_version": 1, "adjustment_params_version": active["adjustment_params_version"],
+            "shrinkage_params_version": active["shrinkage_params_version"],
+            "fact_multiplier_params_version": active["fact_multiplier_params_version"],
         },
-        current_lambda_version=1,
+        current_lambda_version=active["lambda_params_version"],
         guardrail_cap=3,
         minutes_param_grids=MINUTES_PARAM_GRIDS,
-        current_kappa_tc_version=1,
+        current_kappa_tc_version=active["kappa_tc_params_version"],
         refit_kappa_tc_flag=True,
         seed_dir=RECALIBRATION_SEED_DIR,
     )
     print(f"[recalibrate] {time.time() - t0:.1f}s -> {len(proposal_ids)} pending proposals: {proposal_ids}")
+
+    # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): automated promotion --
+    # review_recalibration.py's human --confirm/--reject stays available (and is still how a
+    # promotion here gets reverted, see evaluate_and_promote_proposal()'s own docstring), but a
+    # real regression-gated pass now runs unconditionally too. Writes go through the same
+    # write_recalibration_seed_file() call review_recalibration.py already uses, so the
+    # workflow's existing `git add data/recalibration/` step (weekly_backtest.yml) picks up any
+    # promotion here with no separate wiring needed.
+    t0 = time.time()
+    promotion_results = backtest.auto_promote_pending_proposals(con, backtest_run_id, RECALIBRATION_SEED_DIR)
+    n_promoted = sum(1 for r in promotion_results if r["action"] == "promoted")
+    print(f"[auto_promote] {time.time() - t0:.1f}s -> {n_promoted}/{len(promotion_results)} proposals promoted")
+    for r in promotion_results:
+        print(f"  #{r['proposal_id']}: {r['action']} -- {r['reason']}")
 
     con.close()
 
