@@ -659,7 +659,16 @@
 </div>
 
 <script>
-const REPO_RAW = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
+// Origin-aware data source (Plan Phase D-1, docs/plans/2026-08_roadmap_plan.md): GitHub Pages
+// stages this shell only (see deploy_pages.yml) -- data/ is never deployed there, so a same-origin
+// fetch on the live site would always 404. isLocalDev is false on the deployed hostname, so
+// DATA_BASE still resolves to RAW_FALLBACK there -- production behavior (and the add-team SLA:
+// raw.githubusercontent.com reflects a new commit within seconds, vs. waiting on a Pages
+// redeploy) is unchanged. Relative fetches only ever happen on localhost/127.0.0.1, where data/
+// exists on disk alongside this file. Same pattern already proven in track-record.html.
+const RAW_FALLBACK = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
+const isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+const DATA_BASE = (location.protocol === "file:" || !isLocalDev) ? RAW_FALLBACK : "";
 
 const ACCOUNTS = [
   { id: 7139944, label: "ChatGPT template team" },
@@ -1140,13 +1149,26 @@ function buildMockDashboard() {
 }
 
 async function fetchJSON(path) {
+  const primary = DATA_BASE ? `${DATA_BASE}/${path}` : path;
   try {
-    const res = await fetch(`${REPO_RAW}/${path}?t=${Date.now()}`, { cache: "no-store" });
+    const res = await fetch(`${primary}?t=${Date.now()}`, { cache: "no-store" });
     if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
     const data = await res.json();
     try { localStorage.setItem(cacheKeyFor(path), JSON.stringify({ data, cachedAt: Date.now() })); } catch {}
     return data;
   } catch (err) {
+    // Local dev with data/ missing (e.g. served without the repo's own data/ present) -> try raw
+    // before falling back to a stale cached copy, same as track-record.html's fallback order.
+    if (!DATA_BASE && RAW_FALLBACK) {
+      try {
+        const res = await fetch(`${RAW_FALLBACK}/${path}?t=${Date.now()}`, { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          try { localStorage.setItem(cacheKeyFor(path), JSON.stringify({ data, cachedAt: Date.now() })); } catch {}
+          return data;
+        }
+      } catch {}
+    }
     let cached = null;
     try { cached = JSON.parse(localStorage.getItem(cacheKeyFor(path))); } catch {}
     if (cached) {
@@ -1161,10 +1183,16 @@ async function fetchJSON(path) {
 // not "the network failed, fall back to whatever was last cached" -- fetchJSON's stale-data
 // fallback would otherwise resurrect a match that ended hours ago and present it as in-play.
 async function fetchLiveData(entryId) {
+  const relPath = `data/dashboard/app_live_${entryId}.json`;
+  const primary = DATA_BASE ? `${DATA_BASE}/${relPath}` : relPath;
   try {
-    const res = await fetch(`${REPO_RAW}/data/dashboard/app_live_${entryId}.json?t=${Date.now()}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return await res.json();
+    const res = await fetch(`${primary}?t=${Date.now()}`, { cache: "no-store" });
+    if (res.ok) return await res.json();
+    if (!DATA_BASE && RAW_FALLBACK) {
+      const rawRes = await fetch(`${RAW_FALLBACK}/${relPath}?t=${Date.now()}`, { cache: "no-store" });
+      if (rawRes.ok) return await rawRes.json();
+    }
+    return null;
   } catch {
     return null;
   }
