@@ -471,7 +471,7 @@ def test_evaluate_wildcard_current_squad_value_per_gw_is_a_real_per_gameweek_sum
 def _seed_real_wildcard_chip_evaluation(con, old_state_version, target_gameweek=2):
     """Real evaluate_wildcard() call (a genuine squad_optimizer.run() solve) plus the same
     transfer_plan_runs/chip_evaluations rows run() itself would write -- the exact shape
-    apply_recommendation()'s Wildcard-accept path reads via _read_fresh_chip_squad()."""
+    apply_recommendation()'s Wildcard-accept path reads via read_fresh_chip_squad()."""
     horizon_ep_versions, _holdings = _seed_real_squad_optimizer_candidate_pool(con, target_gameweek=target_gameweek)
     so.seed_v1_params(con)
     tp.params_mod.write_param(con, "wildcard_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=8.0)

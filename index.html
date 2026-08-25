@@ -927,7 +927,46 @@ function buildMockDashboard() {
         ],
       }],
     },
-    roadmap: null, trackRecord: null, priceWatch: null,
+    // Real shape from print_chip_timing_roadmap.py's own accounts[] entries -- weekly_swing
+    // covers FIRST_HALF_GAMEWEEKS (GW3-19); negative avg_squad_swing = an easier near-term run.
+    roadmap: {
+      target_season: "mock", first_half_gameweeks: [3, 19], n_matches_played_this_season: 30,
+      reliability_note: "Fixture/form signals are noisier the fewer real matches have been played this season.",
+      generated_at: now.toISOString(),
+      accounts: [{
+        entry_id: state.accountId, label: "Development data",
+        squad_clubs: ["Arsenal", "Liverpool", "Man City", "Man Utd", "Newcastle"],
+        weekly_swing: [
+          { gameweek: 3, avg_squad_swing: 0.04, n_teams_with_data: 5 },
+          { gameweek: 4, avg_squad_swing: -0.02, n_teams_with_data: 5 },
+          { gameweek: 5, avg_squad_swing: -0.18, n_teams_with_data: 5 },
+          { gameweek: 6, avg_squad_swing: -0.24, n_teams_with_data: 5 },
+          { gameweek: 7, avg_squad_swing: -0.09, n_teams_with_data: 5 },
+          { gameweek: 8, avg_squad_swing: 0.06, n_teams_with_data: 5 },
+          { gameweek: 9, avg_squad_swing: 0.15, n_teams_with_data: 5 },
+          { gameweek: 10, avg_squad_swing: 0.27, n_teams_with_data: 5 },
+          { gameweek: 11, avg_squad_swing: 0.11, n_teams_with_data: 5 },
+          { gameweek: 12, avg_squad_swing: -0.05, n_teams_with_data: 5 },
+          { gameweek: 13, avg_squad_swing: -0.13, n_teams_with_data: 5 },
+          { gameweek: 14, avg_squad_swing: 0.02, n_teams_with_data: 5 },
+          { gameweek: 15, avg_squad_swing: 0.08, n_teams_with_data: 5 },
+          { gameweek: 16, avg_squad_swing: -0.06, n_teams_with_data: 5 },
+          { gameweek: 17, avg_squad_swing: -0.11, n_teams_with_data: 5 },
+          { gameweek: 18, avg_squad_swing: 0.03, n_teams_with_data: 5 },
+          { gameweek: 19, avg_squad_swing: -0.04, n_teams_with_data: 5 },
+        ],
+        best_bench_boost_triple_captain_window: { gameweek: 6, avg_squad_swing: -0.24, n_teams_with_data: 5 },
+        toughest_window_wildcard_candidate: {
+          gameweek: 10, avg_squad_swing: 0.27, n_teams_with_data: 5,
+          real_wildcard_check: { gain: 9.4, recommended: true },
+        },
+        free_hit_candidate_window: {
+          gameweek: 10, avg_squad_swing: 0.27, n_teams_with_data: 5,
+          real_free_hit_check: { gain: 3.1, recommended: false },
+        },
+      }],
+    },
+    trackRecord: null, priceWatch: null,
     team: {
       entry_id: state.accountId, team_name: "Dev Preview XI", manager_name: "Development data",
       gameweek: 1, gameweek_points: 34, gameweek_points_on_bench: 3, bank: 0.8, team_value: 101.4,
@@ -958,8 +997,36 @@ function buildMockDashboard() {
       ],
       hold_vs_transfer_now: { recommended_action: "hold", transfer_now_value: 61.4, hold_value: 66.2 },
       chip_evaluations: [
-        { chip_type: "wildcard", recommended: true, score: 12.4 },
-        { chip_type: "free_hit", recommended: false, score: 2.1 },
+        {
+          chip_type: "wildcard", recommended: true, score: 12.4,
+          // Real shape from run_transfer_planner_for_real_squad.py's own preview_squad export
+          // (player_name/club, resolved client-side via playerIdByName() against MOCK_PLAYERS/
+          // MOCK_TEAM_SQUAD below -- exercises the exact same resolution path real data does).
+          preview_squad: [
+            { player_name: "Raya", club: "Arsenal", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Van Dijk", club: "Liverpool", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Trippier", club: "Newcastle", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Gabriel", club: "Arsenal", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "B.Fernandes", club: "Man Utd", in_xi: true, is_captain: true, is_vice: false },
+            { player_name: "Szoboszlai", club: "Liverpool", in_xi: true, is_captain: false, is_vice: true },
+            { player_name: "Bowen", club: "West Ham", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Gordon", club: "Newcastle", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Haaland", club: "Man City", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Watkins", club: "Aston Villa", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Isak", club: "Newcastle", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Steele", club: "Crystal Palace", in_xi: false, is_captain: false, is_vice: false },
+            { player_name: "Mykolenko", club: "Everton", in_xi: false, is_captain: false, is_vice: false },
+            { player_name: "Aaronson", club: "Leeds", in_xi: false, is_captain: false, is_vice: false },
+            // Deliberately absent from MOCK_PLAYERS -- exercises chipPreviewSquadBlock()'s
+            // unmatched-name fallback (real dim_player.canonical_name vs FPL web_name/full_name
+            // mismatches happen occasionally, see README's own entity-resolution notes).
+            { player_name: "Unmatched Name Test", club: "Brentford", in_xi: false, is_captain: false, is_vice: false },
+          ],
+        },
+        { chip_type: "free_hit", recommended: false, score: 2.1, preview_squad: [
+          { player_name: "Raya", club: "Arsenal", in_xi: true, is_captain: false, is_vice: false },
+          { player_name: "Haaland", club: "Man City", in_xi: true, is_captain: true, is_vice: false },
+        ] },
         { chip_type: "triple_captain", recommended: false, score: 1.0 },
         { chip_type: "bench_boost", recommended: false, score: 0.6 },
       ],
@@ -1485,6 +1552,7 @@ function openChipSheet(chipType) {
     <div class="stat-list">
       ${renderDetailBullets(detail) || `<div class="sl-row"><div class="sl-label">Detailed rationale not available in this snapshot yet.</div></div>`}
     </div>
+    ${chipPreviewSquadBlock(chipType, chip.preview_squad)}
     <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;">
       This app never activates a chip for you &mdash; it only tells you what the model thinks.
       Play it yourself on the official FPL site.
@@ -2277,6 +2345,87 @@ function pitchRow(players, groupDelay, ls) {
   }).join("")}</div>`;
 }
 
+// ============================================================
+// CHIP PREVIEW SQUAD -- Wildcard/Free Hit already ran a real, solved candidate squad to
+// produce their own recommendation score (see run_transfer_planner_for_real_squad.py's own
+// comment on why this is zero extra solve cost); chip_evaluations[...].preview_squad exports
+// it as {player_name, club, in_xi, is_captain, is_vice} rows. A deliberately lighter sibling
+// of pitchRow() above, not a reuse of it: this is a hypothetical, not-yet-played squad, so
+// there's no live event_points/bonus/multiplier to show -- price stands in for it instead.
+// ============================================================
+
+function resolvePreviewSquad(previewSquad) {
+  return (previewSquad || []).map(entry => {
+    const id = playerIdByName(entry.player_name);
+    const base = id != null ? state.playersById[id] : null;
+    return {
+      id,
+      web_name: base ? base.web_name : entry.player_name,
+      team_name: base ? base.team_name : entry.club,
+      position: base ? base.position : null,
+      price: base ? base.price : null,
+      in_xi: entry.in_xi, isCaptain: entry.is_captain, isVice: entry.is_vice,
+    };
+  });
+}
+
+function previewPitchRow(players) {
+  return `<div class="prow">${players.map((p, i) => `
+    <div class="pcard anim-in" style="animation-delay:${i * 40}ms" ${p.id != null ? `onclick="location.hash='player-${p.id}'"` : ""}>
+      <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      ${p.isCaptain ? `<div class="cap-badge">C</div>` : p.isVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
+      <div class="p-tag">${p.web_name}</div>
+      <div class="p-pts-tag">${p.price != null ? fmtMoney(p.price) : "&mdash;"}</div>
+    </div>`).join("")}</div>`;
+}
+
+function chipPreviewSquadBlock(chipType, previewSquad) {
+  if (!previewSquad || !previewSquad.length) return "";
+  const resolved = resolvePreviewSquad(previewSquad);
+  const xi = resolved.filter(p => p.in_xi);
+  const bench = resolved.filter(p => !p.in_xi);
+  const byPos = (pos) => xi.filter(p => p.position === pos);
+  // Unresolved names (no match in app_players.json -- see playerIdByName()'s own name-match
+  // caveat) have no known position, so they can't join a GKP/DEF/MID/FWD pitch row honestly;
+  // shown as a plain fallback list instead of being silently dropped from the preview.
+  const unmatched = xi.filter(p => p.position == null);
+  const title = chipType === "wildcard" ? "What Wildcard would look like" : "What Free Hit would look like";
+  return `
+    <div class="section-title" style="color:var(--on-dark);margin-top:4px;"><span>${title}</span></div>
+    <div class="pitch-wrap" style="margin-bottom:12px;">
+      <div class="pitch-stripe"></div>
+      <div class="pitch-lines">
+        <div class="ln" style="left:8px;right:8px;top:8px;bottom:8px;"></div>
+        <div class="ln" style="left:8px;right:8px;top:50%;height:0;"></div>
+        <div class="circle" style="width:70px;height:70px;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
+        <div class="ln" style="left:26%;right:26%;top:8px;height:40px;border-top:0;"></div>
+        <div class="ln" style="left:26%;right:26%;bottom:8px;height:40px;border-bottom:0;"></div>
+      </div>
+      <div class="pitch-rows">
+        ${previewPitchRow(byPos("GKP"))}
+        ${previewPitchRow(byPos("DEF"))}
+        ${previewPitchRow(byPos("MID"))}
+        ${previewPitchRow(byPos("FWD"))}
+        ${unmatched.length ? previewPitchRow(unmatched) : ""}
+      </div>
+    </div>
+    ${bench.length ? `
+    <div class="bench-section" style="margin-bottom:12px;">
+      <div class="bench-label">Bench</div>
+      <div class="bench-row">
+        ${bench.map(p => `
+          <div class="bcard" ${p.id != null ? `onclick="location.hash='player-${p.id}'" style="cursor:pointer;"` : ""}>
+            <div class="b-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+            <div class="b-name">${p.web_name}</div>
+            <div class="b-pts">${[p.position, p.price != null ? fmtMoney(p.price) : null].filter(Boolean).join(" &middot; ")}</div>
+          </div>`).join("")}
+      </div>
+    </div>` : ""}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin:-2px 0 14px;">
+      A real candidate squad the model already solved while evaluating this chip &mdash; not a live pick, and never submitted to FPL.
+    </p>`;
+}
+
 function effectiveBenchOrder(bench, ls) {
   const ids = bench.map(p => p.player_id);
   const hasValidOverride = ls.benchOrder && ls.benchOrder.length === ids.length && ls.benchOrder.every(id => ids.includes(id));
@@ -2780,6 +2929,8 @@ function swingRoadmapCard(account, maxAbs) {
   const best = account.best_bench_boost_triple_captain_window;
   const worst = account.toughest_window_wildcard_candidate;
   const wc = worst && worst.real_wildcard_check;
+  const freeHit = account.free_hit_candidate_window;
+  const fhc = freeHit && freeHit.real_free_hit_check;
   const roadmap = state.roadmap;
   // "about six gameweeks" (~10 matches each) is the point real FPL strategy guidance treats
   // fixture/form signals as having settled -- below that, disclose the thinner sample rather
@@ -2794,17 +2945,24 @@ function swingRoadmapCard(account, maxAbs) {
       <div style="font-size:11px;color:var(--ink-dim);margin-bottom:${thinSample ? "6px" : "12px"};">Negative = easier run for this squad's clubs</div>
       ${thinSample ? `<div style="font-size:10.5px;color:oklch(0.55 0.15 60);background:oklch(0.94 0.06 60);border-radius:8px;padding:6px 9px;margin-bottom:12px;">Only ${roadmap.n_matches_played_this_season} matches played so far this season &mdash; ${roadmap.reliability_note}</div>` : ""}
       ${rows}
-      <div style="display:flex;gap:10px;margin-top:14px;">
-        <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));">
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Easiest run</div>
-          <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.3 0.1 150);margin-top:2px;">${best ? `GW${best.gameweek}` : "&mdash;"}</div>
-          <div style="font-size:9px;color:oklch(0.3 0.1 150);opacity:0.75;margin-top:1px;">Bench Boost / Triple Captain window</div>
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));">
+          <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Easiest run</div>
+          <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.3 0.1 150);margin-top:2px;">${best ? `GW${best.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:8.5px;color:oklch(0.3 0.1 150);opacity:0.75;margin-top:1px;">Bench Boost / Triple Captain</div>
         </div>
-        <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));">
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Toughest run</div>
-          <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.4 0.16 30);margin-top:2px;">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div>
-          <div style="font-size:9px;color:oklch(0.4 0.16 30);opacity:0.85;margin-top:1px;">
-            ${wc ? `Wildcard ${wc.gain >= 0 ? "+" : ""}${wc.gain.toFixed(1)} EP &mdash; ${wc.recommended ? "recommended" : "below threshold"}` : (worst ? "Wildcard candidate window" : "")}
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));">
+          <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Toughest run</div>
+          <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.4 0.16 30);margin-top:2px;">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:8.5px;color:oklch(0.4 0.16 30);opacity:0.85;margin-top:1px;">
+            ${wc ? `Wildcard ${wc.gain >= 0 ? "+" : ""}${wc.gain.toFixed(1)} EP &mdash; ${wc.recommended ? "recommended" : "below threshold"}` : (worst ? "Wildcard candidate" : "")}
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));">
+          <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Free Hit week</div>
+          <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.32 0.1 250);margin-top:2px;">${freeHit ? `GW${freeHit.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:8.5px;color:oklch(0.32 0.1 250);opacity:0.85;margin-top:1px;">
+            ${fhc ? `Free Hit ${fhc.gain >= 0 ? "+" : ""}${fhc.gain.toFixed(1)} EP &mdash; ${fhc.recommended ? "recommended" : "below threshold"}` : (freeHit ? "Toughest single week" : "")}
           </div>
         </div>
       </div>
@@ -3243,9 +3401,9 @@ function openAddTeamSheet() {
       <div class="name" style="font-size:19px;">Add your team</div>
       <div class="sub" style="max-width:280px;text-align:center;line-height:1.5;">
         Enter your FPL team ID to get your own real transfer plan and dashboard. This opens a
-        GitHub issue that a workflow processes automatically &mdash; usually ready in 1&ndash;2
-        minutes, if your GitHub account is already a collaborator on this repo. If not, a
-        maintainer needs to add you first (or open the request on your behalf).
+        GitHub issue that a workflow processes automatically for any GitHub account &mdash;
+        usually ready in 1&ndash;2 minutes, no approval needed. (Capped at a few requests per
+        account per day, just to keep this free for everyone.)
       </div>
     </div>
     <div class="stat-list" style="margin-bottom:14px;padding:16px;">

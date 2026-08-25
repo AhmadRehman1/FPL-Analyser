@@ -56,3 +56,72 @@ def test_real_wildcard_gain_returns_none_and_warns_rather_than_raising_on_failur
     result = pctr._real_wildcard_gain(con, entry_id=999, event=2, target_gameweek=2)
 
     assert result is None
+
+
+def test_real_free_hit_gain_uses_a_single_gameweek_horizon_not_wildcards_multi_gameweek_one(con, monkeypatch):
+    """_real_free_hit_gain() must request horizon_gameweeks=1 for BOTH its compute_horizon_ep()
+    calls (bootstrap metadata AND the fh_horizon EP sum evaluate_free_hit() actually scores
+    against) -- unlike _real_wildcard_gain(), which correctly widens its second call to the
+    real 5-gameweek planning horizon (see the regression test above). evaluate_free_hit()'s own
+    fresh_gw_value/current_gw_value are single-gameweek sums (the squad reverts after
+    target_gameweek), so requesting a wider horizon here would be the mirror-image bug: paying
+    for EP versions the evaluator never reads."""
+    horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
+    so.seed_v1_params(con)
+    pctr.tp.seed_v1_params(con)
+
+    element_names = {i: uid for i, uid in enumerate(h["player_uid"] for h in holdings)}
+    picks = [
+        {"element": i, "position": i + 1, "is_captain": i == 0, "is_vice_captain": i == 1}
+        for i in element_names
+    ]
+    monkeypatch.setattr(pctr.ifp, "fetch_bootstrap_elements", lambda: element_names)
+    monkeypatch.setattr(pctr.ifp, "fetch_entry_picks", lambda entry_id, event: picks)
+
+    horizon_gameweeks_requested = []
+
+    def _spy_compute_horizon_ep(con, calibration_asof_date, target_season, start_gameweek, ts_mv, mm_mv, horizon_gameweeks, *args, **kwargs):
+        horizon_gameweeks_requested.append(horizon_gameweeks)
+        return horizon_ep_versions
+
+    monkeypatch.setattr(pctr.tp, "compute_horizon_ep", _spy_compute_horizon_ep)
+
+    result = pctr._real_free_hit_gain(con, entry_id=999, event=2, target_gameweek=2)
+
+    assert result is not None
+    assert "gain" in result
+    assert horizon_gameweeks_requested == [1, 1]
+
+
+def test_real_free_hit_gain_returns_none_and_warns_rather_than_raising_on_failure(con, monkeypatch, capsys):
+    monkeypatch.setattr(pctr.ifp, "fetch_bootstrap_elements", lambda: {})
+    monkeypatch.setattr(pctr.ifp, "fetch_entry_picks", lambda entry_id, event: [])
+
+    result = pctr._real_free_hit_gain(con, entry_id=999, event=2, target_gameweek=2)
+
+    assert result is None
+
+
+def test_weekly_avg_squad_swing_matches_manual_average(con):
+    """Real DB read, no monkeypatching: seeds a team strength snapshot and real fixtures across
+    the full FIRST_HALF_GAMEWEEKS range, then confirms _weekly_avg_squad_swing() reports the
+    same per-gameweek value rolling_swing_score() itself computes for that squad's one club,
+    not some other aggregation -- and that every requested gameweek is present in order."""
+    from fpl_quant import fixture_swing as fs
+    from test_fixture_swing import _insert_fixture, _seed_teams_and_strength
+
+    ts_mv = _seed_teams_and_strength(con, [("team_a", 0.3, -0.1), ("team_b", -0.2, 0.2)])
+    for gw in pctr.FIRST_HALF_GAMEWEEKS:
+        _insert_fixture(con, f"m{gw}", "2026-2027", gw, "team_a", "team_b")
+
+    weekly = pctr._weekly_avg_squad_swing(con, {"team_a"}, short_window=1)
+
+    assert [w["gameweek"] for w in weekly] == list(pctr.FIRST_HALF_GAMEWEEKS)
+    probe_gw = pctr.FIRST_HALF_GAMEWEEKS.start
+    expected = fs.rolling_swing_score(
+        con, "team_a", "2026-2027", probe_gw, ts_mv,
+        short_window=1, long_window=pctr.LONG_WINDOW_GAMEWEEKS,
+    )
+    probe_row = next(w for w in weekly if w["gameweek"] == probe_gw)
+    assert probe_row["avg_squad_swing"] == round(expected.swing_score, 3)
+    assert probe_row["n_teams_with_data"] == 1

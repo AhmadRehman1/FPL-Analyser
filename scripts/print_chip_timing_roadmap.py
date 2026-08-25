@@ -61,6 +61,13 @@ TS_MODEL_VERSION = 1
 FIRST_HALF_GAMEWEEKS = range(3, 20)
 SHORT_WINDOW_GAMEWEEKS = 3
 LONG_WINDOW_GAMEWEEKS = 8
+# Free Hit reverts after ONE gameweek (see evaluate_free_hit()'s own docstring: "a single
+# gameweek with an unusually poor fixture swing... not DGW exploitation"), so its candidate
+# window is the single worst gameweek relative to the surrounding baseline, not a multi-
+# gameweek transition the way Wildcard's own SHORT_WINDOW_GAMEWEEKS=3 signal is -- short_window
+# of exactly 1 reuses rolling_swing_score()'s own short-vs-long delta mechanism unchanged, just
+# parameterized for a single-week chip instead of inventing a second metric.
+FREE_HIT_SHORT_WINDOW_GAMEWEEKS = 1
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 
 # Every one of these is currently seeded at version=1 by scripts/run_ingestion.py -- same
@@ -172,6 +179,84 @@ def _real_wildcard_gain(con, entry_id: int, event: int, target_gameweek: int) ->
         return None
 
 
+def _real_free_hit_gain(con, entry_id: int, event: int, target_gameweek: int) -> dict | None:
+    """One real evaluate_free_hit() check at target_gameweek -- same best-effort contract as
+    _real_wildcard_gain() above (any failure is caught, disclosed, and returns None; the
+    roadmap's fixture-swing signal still stands on its own either way).
+
+    Deliberately a 1-gameweek horizon, not _real_wildcard_gain()'s 5-gameweek
+    planning_horizon_params: evaluate_free_hit()'s own fresh_gw_value/current_gw_value are both
+    single-gameweek sums (the squad reverts after target_gameweek), so a wider horizon would
+    just waste a compute_horizon_ep() call building EP versions this evaluator never reads."""
+    try:
+        element_names = ifp.fetch_bootstrap_elements()
+        picks = ifp.fetch_entry_picks(entry_id, event)
+        if not picks:
+            return None
+        squad = [
+            {"player_name": element_names.get(p["element"]), "in_xi": p["position"] <= 11,
+             "is_captain": bool(p.get("is_captain")), "is_vice": bool(p.get("is_vice_captain"))}
+            for p in picks
+        ]
+        calibration_asof_date = date.today()
+        ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+        mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+        if ts_mv is None or mm_mv is None:
+            return None
+
+        bootstrap_horizon = tp.compute_horizon_ep(
+            con, calibration_asof_date, TARGET_SEASON, event, ts_mv, mm_mv, 1, **PARAM_VERSIONS,
+        )
+        if event not in bootstrap_horizon:
+            return None
+        ep_mv, un_mv = bootstrap_horizon[event]
+        state_version = tp.bootstrap_from_real_squad(con, calibration_asof_date, TARGET_SEASON, event, ep_mv, un_mv, squad)
+        holdings = tp._read_holdings(con, state_version)
+
+        fh_horizon = tp.compute_horizon_ep(
+            con, calibration_asof_date, TARGET_SEASON, target_gameweek, ts_mv, mm_mv, 1, **PARAM_VERSIONS,
+        )
+        if target_gameweek not in fh_horizon:
+            return None
+
+        so_mod.seed_v1_params(con)
+        tp.seed_v1_params(con)
+        result = tp.evaluate_free_hit(
+            con, calibration_asof_date, TARGET_SEASON, target_gameweek, holdings, fh_horizon,
+            lambda_params_version=1, guardrail_params_version=1, threshold_params_version=1,
+        )
+        return {"gain": round(result["gain"], 2), "recommended": result["recommended"]}
+    except Exception as e:  # noqa: BLE001 -- best-effort, see this function's own docstring
+        print(f"::warning::print_chip_timing_roadmap: real free-hit-gain check failed for entry_id={entry_id} at GW{target_gameweek} ({e}) -- omitted.")
+        return None
+
+
+def _weekly_avg_squad_swing(con, squad_team_uids: set[str], short_window: int) -> list[dict]:
+    """rolling_swing_score() (see its own module docstring: short_window_avg_difficulty minus
+    long_window_avg_difficulty) averaged across a squad's clubs, for every gameweek in
+    FIRST_HALF_GAMEWEEKS. Shared by the Wildcard/Bench-Boost/Triple-Captain series
+    (short_window=SHORT_WINDOW_GAMEWEEKS, a multi-gameweek transition) and the Free Hit series
+    (short_window=FREE_HIT_SHORT_WINDOW_GAMEWEEKS=1, a single gameweek's own difficulty) --
+    same mechanism, different window, not two independently-invented signals."""
+    weekly = []
+    for gw in FIRST_HALF_GAMEWEEKS:
+        scores = fs.swing_scores_by_team(
+            con, TARGET_SEASON, gw, TS_MODEL_VERSION,
+            short_window=short_window, long_window=LONG_WINDOW_GAMEWEEKS,
+        )
+        squad_swings = [
+            scores[t].swing_score for t in squad_team_uids
+            if t in scores and scores[t].swing_score is not None
+        ]
+        avg_swing = sum(squad_swings) / len(squad_swings) if squad_swings else None
+        weekly.append({
+            "gameweek": gw,
+            "avg_squad_swing": round(avg_swing, 3) if avg_swing is not None else None,
+            "n_teams_with_data": len(squad_swings),
+        })
+    return weekly
+
+
 def main() -> None:
     # Both accounts' current-squad read-from gameweek -- the same bootstrap-static-derived
     # app_export.current_event() scheduled_pipeline.yml's own "Determine current gameweek" step
@@ -207,23 +292,9 @@ def main() -> None:
         squad_team_uids = _account_team_uids(con, account["entry_id"], event, team_by_player)
         print(f"  {len(squad_team_uids)} distinct clubs in squad")
 
-        weekly = []
-        for gw in FIRST_HALF_GAMEWEEKS:
-            scores = fs.swing_scores_by_team(
-                con, TARGET_SEASON, gw, TS_MODEL_VERSION,
-                short_window=SHORT_WINDOW_GAMEWEEKS, long_window=LONG_WINDOW_GAMEWEEKS,
-            )
-            squad_swings = [
-                scores[t].swing_score for t in squad_team_uids
-                if t in scores and scores[t].swing_score is not None
-            ]
-            avg_swing = sum(squad_swings) / len(squad_swings) if squad_swings else None
-            weekly.append({
-                "gameweek": gw,
-                "avg_squad_swing": round(avg_swing, 3) if avg_swing is not None else None,
-                "n_teams_with_data": len(squad_swings),
-            })
-            print(f"  GW{gw}: avg_squad_swing={weekly[-1]['avg_squad_swing']} ({weekly[-1]['n_teams_with_data']} teams)")
+        weekly = _weekly_avg_squad_swing(con, squad_team_uids, SHORT_WINDOW_GAMEWEEKS)
+        for w in weekly:
+            print(f"  GW{w['gameweek']}: avg_squad_swing={w['avg_squad_swing']} ({w['n_teams_with_data']} teams)")
 
         valid = [w for w in weekly if w["avg_squad_swing"] is not None]
         best_window = min(valid, key=lambda w: w["avg_squad_swing"]) if valid else None
@@ -237,6 +308,19 @@ def main() -> None:
                 verdict = "clears" if real_check["recommended"] else "does NOT clear"
                 print(f"  GW{worst_window['gameweek']}: real wildcard gain={real_check['gain']:+.2f} EP -- {verdict} the model's own recommendation threshold")
 
+        # Free Hit's own series -- a single toughest gameweek, not the multi-gameweek transition
+        # `weekly` above looks for (see FREE_HIT_SHORT_WINDOW_GAMEWEEKS' own comment).
+        weekly_fh = _weekly_avg_squad_swing(con, squad_team_uids, FREE_HIT_SHORT_WINDOW_GAMEWEEKS)
+        valid_fh = [w for w in weekly_fh if w["avg_squad_swing"] is not None]
+        free_hit_window = max(valid_fh, key=lambda w: w["avg_squad_swing"]) if valid_fh else None
+        if free_hit_window is not None:
+            print(f"  checking real free-hit EP-gain at the candidate window (GW{free_hit_window['gameweek']})...")
+            real_fh_check = _real_free_hit_gain(con, account["entry_id"], event, free_hit_window["gameweek"])
+            free_hit_window = {**free_hit_window, "real_free_hit_check": real_fh_check}
+            if real_fh_check:
+                verdict = "clears" if real_fh_check["recommended"] else "does NOT clear"
+                print(f"  GW{free_hit_window['gameweek']}: real free-hit gain={real_fh_check['gain']:+.2f} EP -- {verdict} the model's own recommendation threshold")
+
         roadmap["accounts"].append({
             "entry_id": account["entry_id"],
             "label": account["label"],
@@ -244,6 +328,7 @@ def main() -> None:
             "weekly_swing": weekly,
             "best_bench_boost_triple_captain_window": best_window,
             "toughest_window_wildcard_candidate": worst_window,
+            "free_hit_candidate_window": free_hit_window,
         })
 
     con.close()

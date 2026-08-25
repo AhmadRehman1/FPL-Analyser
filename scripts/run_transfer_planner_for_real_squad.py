@@ -50,6 +50,25 @@ def _order_chip_evaluations(chips_out: list[dict]) -> list[dict]:
     return sorted(chips_out, key=lambda c: order.get(c["chip_type"], len(order)))
 
 
+def _build_chip_preview_squad(
+    preview_rows: list[dict], name_by_uid: dict[str, str], team_by_player: dict[str, str], team_names: dict[str, str],
+) -> list[dict]:
+    """Pure transform from transfer_planner.read_fresh_chip_squad()'s raw
+    (player_uid, in_xi, is_captain, is_vice) rows to the dashboard's preview_squad shape
+    (player_name/club, not player_uid -- see main()'s own comment on why: the frontend has no
+    player_uid->FPL-element-id mapping, only a name lookup). Split out from main() so this
+    reshaping is unit-testable without a DB connection, matching this project's own
+    unit-the-math/integrate-against-real-data split (see _order_chip_evaluations() above)."""
+    return [
+        {
+            "player_name": name_by_uid.get(p["player_uid"], p["player_uid"]),
+            "club": team_names.get(team_by_player.get(p["player_uid"])),
+            "in_xi": bool(p["in_xi"]), "is_captain": bool(p["is_captain"]), "is_vice": bool(p["is_vice"]),
+        }
+        for p in preview_rows
+    ]
+
+
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
     element_names = ifp.fetch_bootstrap_elements()
     picks = ifp.fetch_entry_picks(entry_id, event)
@@ -157,7 +176,30 @@ def main() -> None:
     tc_detail = None
     for chip_type, recommended, score, detail in chips:
         print(f"  {chip_type}: recommended={recommended} score={score}")
-        chips_out.append({"chip_type": chip_type, "recommended": bool(recommended), "score": round(score, 3) if score is not None else None})
+        entry = {"chip_type": chip_type, "recommended": bool(recommended), "score": round(score, 3) if score is not None else None}
+        # Wildcard/Free Hit already ran a real, solved M5 candidate squad to produce this very
+        # score (evaluate_wildcard()/evaluate_free_hit() call squad_optimizer.run()
+        # unconditionally, before the recommended/not-recommended threshold check even happens)
+        # -- so a manager can preview it in the app's chip detail sheet at zero extra solve
+        # cost, whether or not the chip clears its recommendation threshold this week.
+        # player_name/club (not player_uid) to match this script's own recs_out convention
+        # above: the frontend has no player_uid->FPL-element-id mapping, only a name lookup
+        # (playerIdByName()), same as transfer_recommendations' player_out/player_in already are.
+        if chip_type in ("wildcard", "free_hit") and detail and json.loads(detail).get("fresh_run_id") is not None:
+            try:
+                preview = tp.read_fresh_chip_squad(con, run_id, chip_type)
+                preview_uids = [p["player_uid"] for p in preview]
+                preview_name_by_uid = dict(con.execute(
+                    "SELECT player_uid, canonical_name FROM dim_player WHERE player_uid = ANY(?)", [preview_uids],
+                ).fetchall()) if preview_uids else {}
+                entry["preview_squad"] = _build_chip_preview_squad(preview, preview_name_by_uid, team_by_player, team_names)
+                print(f"    preview_squad: {len(entry['preview_squad'])} players")
+            except ValueError as exc:
+                # A secondary, nice-to-have panel failing to build shouldn't break the export
+                # for the whole account -- same allowed-to-fail-independently philosophy as the
+                # "Grade squad + explain best move" step's own continue-on-error in the workflow.
+                print(f"    preview_squad: skipped ({exc})")
+        chips_out.append(entry)
         if chip_type == "triple_captain" and detail:
             tc_detail = json.loads(detail)
 
