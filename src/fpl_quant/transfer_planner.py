@@ -1528,13 +1528,17 @@ def run(
     return run_id
 
 
-def _read_fresh_chip_squad(con: duckdb.DuckDBPyConnection, run_id: int, chip_type: str) -> list[dict]:
+def read_fresh_chip_squad(con: duckdb.DuckDBPyConnection, run_id: int, chip_type: str) -> list[dict]:
     """Reads the fresh M5 squad a Wildcard/Free Hit recommendation evaluated, via the
     fresh_run_id captured in chip_evaluations.detail (see evaluate_wildcard()'s/
     evaluate_free_hit()'s own return dicts, both of which include "fresh_run_id"). Shared by
-    apply_recommendation()'s Wildcard-accept squad rebuild and by a season simulation's
-    one-off Free Hit scoring (see backtest.run_season_simulation()) -- one real read against
-    the actual solved squad, not two places independently re-deriving the same thing."""
+    apply_recommendation()'s Wildcard-accept squad rebuild, by a season simulation's one-off
+    Free Hit scoring (see backtest.run_season_simulation()), and by
+    scripts/run_transfer_planner_for_real_squad.py's dashboard export (the "preview this chip"
+    squad shown in the app's chip detail sheet) -- one real read against the actual solved
+    squad, not separate places independently re-deriving the same thing. Public (no leading
+    underscore) because it's a real cross-module/cross-script API at this point, not private
+    to this file."""
     row = con.execute(
         "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = ?", [run_id, chip_type]
     ).fetchone()
@@ -1570,7 +1574,7 @@ def apply_recommendation(
     unchanged on accept_chip="free_hit" is correct, not an oversight: nothing should persist
     forward from a one-week-only rebuild. Scoring that one gameweek off the fresh Free Hit
     squad, then continuing next week from the pre-Free-Hit holdings, is the caller's job --
-    see backtest.run_season_simulation() and _read_fresh_chip_squad() above.) accept_chip
+    see backtest.run_season_simulation() and read_fresh_chip_squad() above.) accept_chip
     and accept_transfer_rank are mutually exclusive when the chip is "wildcard": a real M5
     solve already replaces every holding, so layering a single-player transfer on top of it
     isn't a coherent action, not a case to silently pick one of two winners for."""
@@ -1600,7 +1604,7 @@ def apply_recommendation(
         # bank the same way bootstrap_from_squad_optimizer_run() does for any real M5-solved
         # squad (leftover against BUDGET), since the old bank figure belonged to a squad that
         # no longer exists after a full rebuild.
-        fresh_holdings = _read_fresh_chip_squad(con, run_id, "wildcard")
+        fresh_holdings = read_fresh_chip_squad(con, run_id, "wildcard")
         holdings_by_uid = {h["player_uid"]: h for h in fresh_holdings}
         new_bank = _compute_bank_for_squad(con, target_season, list(holdings_by_uid.keys()))
         new_free_transfers = min(5, free_transfers_available + 1)  # Wildcard doesn't consume/grant transfers beyond the normal weekly allocation

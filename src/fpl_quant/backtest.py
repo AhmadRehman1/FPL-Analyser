@@ -1055,7 +1055,7 @@ def run_season_simulation(
                 )
 
                 if accept_chip == "free_hit":
-                    free_hit_squad = transfer_planner._read_fresh_chip_squad(con, plan_run_id, "free_hit")
+                    free_hit_squad = transfer_planner.read_fresh_chip_squad(con, plan_run_id, "free_hit")
 
                 # Same look-ahead leak as the bootstrap call above, same fix: apply_recommendation()'s
                 # Wildcard-accept branch calls _compute_bank_for_squad() too, and this call used to

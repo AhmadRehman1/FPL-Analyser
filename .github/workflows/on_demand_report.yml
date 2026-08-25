@@ -22,6 +22,19 @@ name: On-demand manager report (multi-user, no new hosting)
 # injection path just because it happens to still be shell-metacharacter-safe today. Not instant:
 # expect ~1-2 minutes (DB restore + a real M8/M9 solve). `concurrency` below serializes requests
 # rather than letting an unbounded public queue run in parallel.
+#
+# Open to the general public, not just collaborators: this used to be gated to repo
+# collaborators (OWNER/COLLABORATOR/MEMBER author_association) specifically to stop an
+# unauthenticated public trigger from spamming issues to burn Actions minutes on a ~1-2 minute
+# job each time -- the injection angle was already closed (see SECURITY above), so that gate was
+# purely an anti-abuse measure, and it made "add your own team" (this workflow's whole
+# documented purpose) require a maintainer to manually add every single real user as a repo
+# collaborator first, which is not a self-serve flow. The `rate-limit` job below replaces it
+# with the anti-abuse control this file's own prior version suggested as the alternative: a
+# per-author cap (MAX_REQUESTS_PER_AUTHOR_PER_DAY) via the Search API's `author:`/`created:`
+# filters, rather than a maintainer-applied label or an entry_id allowlist -- either of those
+# is still a manual per-request gate, just a lighter one than "become a collaborator"; a rolling
+# per-account cap is the only one of the three that's actually automatic end-to-end.
 
 on:
   issues:
@@ -35,23 +48,55 @@ concurrency:
   group: on-demand-manager-report
   cancel-in-progress: false
 
+env:
+  # Generous enough for legitimate retries (a mistyped entry_id, trying a second team), tight
+  # enough that spinning up many GitHub accounts is a much higher-effort abuse path than the
+  # collaborator gate this replaces was defending against.
+  MAX_REQUESTS_PER_AUTHOR_PER_DAY: 3
+
 jobs:
+  rate-limit:
+    if: startsWith(github.event.issue.title, '[add-manager]')
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      # Counts this author's own [add-manager] issues (any state) opened in the last 24h,
+      # excluding the one that just triggered this run. author_association can't be spoofed by
+      # issue content (GitHub computes it server-side from the real account that opened the
+      # issue), and the Search API query below is built entirely from trusted event fields
+      # (repo slug, numeric issue number, login, ISO timestamp) -- never issue body/title text.
+      - name: Check per-author rate limit
+        id: check
+        uses: actions/github-script@v9
+        env:
+          MAX_PER_DAY: ${{ env.MAX_REQUESTS_PER_AUTHOR_PER_DAY }}
+        with:
+          script: |
+            const author = context.payload.issue.user.login;
+            const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('.')[0] + 'Z';
+            const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue author:${author} "[add-manager]" in:title created:>=${since}`;
+            const result = await github.rest.search.issuesAndPullRequests({ q, per_page: 10 });
+            const countExcludingThisOne = result.data.items.filter(i => i.number !== context.issue.number).length;
+            const maxPerDay = Number(process.env.MAX_PER_DAY);
+            const allowed = countExcludingThisOne < maxPerDay;
+            core.setOutput('allowed', String(allowed));
+            if (!allowed) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+                body: `You've already opened ${countExcludingThisOne} of these in the last 24 hours (limit: ${maxPerDay}/day, to keep this free for everyone). Feel free to reopen this issue after the window resets.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+                state: "closed", state_reason: "not_planned",
+              });
+            }
+
   handle-request:
-    # Gated to repo collaborators: this workflow's sanitization (see the SECURITY note above)
-    # closes the injection angle, but an unauthenticated public trigger still lets anyone spam
-    # issues to fetch+commit arbitrary entry_ids and burn Actions minutes on a ~1-2 minute job
-    # each time. author_association is GitHub's own computed relationship between the issue's
-    # author and this repo (OWNER/COLLABORATOR/MEMBER for a genuine collaborator, CONTRIBUTOR/
-    # NONE/FIRST_TIME_CONTRIBUTOR/etc for the general public) -- can't be spoofed by issue body
-    # content since it's derived server-side from the actual GitHub account that opened the
-    # issue. Trade-off accepted deliberately: this narrows "anyone can add their team" (this
-    # workflow's original documented purpose, see the top-of-file comment) down to repo
-    # collaborators only -- a maintainer would need to add a manager as a collaborator (or, for
-    # a fully public self-serve flow again later, layer on a maintainer-applied approval label
-    # or an entry_id allowlist instead) rather than this staying open to the general public.
+    needs: rate-limit
     if: |
       startsWith(github.event.issue.title, '[add-manager]') &&
-      contains(fromJSON('["OWNER", "COLLABORATOR", "MEMBER"]'), github.event.issue.author_association)
+      needs.rate-limit.outputs.allowed == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout FPL-Analyser

@@ -958,8 +958,36 @@ function buildMockDashboard() {
       ],
       hold_vs_transfer_now: { recommended_action: "hold", transfer_now_value: 61.4, hold_value: 66.2 },
       chip_evaluations: [
-        { chip_type: "wildcard", recommended: true, score: 12.4 },
-        { chip_type: "free_hit", recommended: false, score: 2.1 },
+        {
+          chip_type: "wildcard", recommended: true, score: 12.4,
+          // Real shape from run_transfer_planner_for_real_squad.py's own preview_squad export
+          // (player_name/club, resolved client-side via playerIdByName() against MOCK_PLAYERS/
+          // MOCK_TEAM_SQUAD below -- exercises the exact same resolution path real data does).
+          preview_squad: [
+            { player_name: "Raya", club: "Arsenal", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Van Dijk", club: "Liverpool", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Trippier", club: "Newcastle", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Gabriel", club: "Arsenal", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "B.Fernandes", club: "Man Utd", in_xi: true, is_captain: true, is_vice: false },
+            { player_name: "Szoboszlai", club: "Liverpool", in_xi: true, is_captain: false, is_vice: true },
+            { player_name: "Bowen", club: "West Ham", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Gordon", club: "Newcastle", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Haaland", club: "Man City", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Watkins", club: "Aston Villa", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Isak", club: "Newcastle", in_xi: true, is_captain: false, is_vice: false },
+            { player_name: "Steele", club: "Crystal Palace", in_xi: false, is_captain: false, is_vice: false },
+            { player_name: "Mykolenko", club: "Everton", in_xi: false, is_captain: false, is_vice: false },
+            { player_name: "Aaronson", club: "Leeds", in_xi: false, is_captain: false, is_vice: false },
+            // Deliberately absent from MOCK_PLAYERS -- exercises chipPreviewSquadBlock()'s
+            // unmatched-name fallback (real dim_player.canonical_name vs FPL web_name/full_name
+            // mismatches happen occasionally, see README's own entity-resolution notes).
+            { player_name: "Unmatched Name Test", club: "Brentford", in_xi: false, is_captain: false, is_vice: false },
+          ],
+        },
+        { chip_type: "free_hit", recommended: false, score: 2.1, preview_squad: [
+          { player_name: "Raya", club: "Arsenal", in_xi: true, is_captain: false, is_vice: false },
+          { player_name: "Haaland", club: "Man City", in_xi: true, is_captain: true, is_vice: false },
+        ] },
         { chip_type: "triple_captain", recommended: false, score: 1.0 },
         { chip_type: "bench_boost", recommended: false, score: 0.6 },
       ],
@@ -1485,6 +1513,7 @@ function openChipSheet(chipType) {
     <div class="stat-list">
       ${renderDetailBullets(detail) || `<div class="sl-row"><div class="sl-label">Detailed rationale not available in this snapshot yet.</div></div>`}
     </div>
+    ${chipPreviewSquadBlock(chipType, chip.preview_squad)}
     <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;">
       This app never activates a chip for you &mdash; it only tells you what the model thinks.
       Play it yourself on the official FPL site.
@@ -2275,6 +2304,87 @@ function pitchRow(players, groupDelay, ls) {
       <div class="p-pts-tag">${p.event_points * multiplier + bonusContribution}${bonus ? ` <span style="opacity:0.85;">(+${bonusContribution})</span>` : ""}</div>
     </div>`;
   }).join("")}</div>`;
+}
+
+// ============================================================
+// CHIP PREVIEW SQUAD -- Wildcard/Free Hit already ran a real, solved candidate squad to
+// produce their own recommendation score (see run_transfer_planner_for_real_squad.py's own
+// comment on why this is zero extra solve cost); chip_evaluations[...].preview_squad exports
+// it as {player_name, club, in_xi, is_captain, is_vice} rows. A deliberately lighter sibling
+// of pitchRow() above, not a reuse of it: this is a hypothetical, not-yet-played squad, so
+// there's no live event_points/bonus/multiplier to show -- price stands in for it instead.
+// ============================================================
+
+function resolvePreviewSquad(previewSquad) {
+  return (previewSquad || []).map(entry => {
+    const id = playerIdByName(entry.player_name);
+    const base = id != null ? state.playersById[id] : null;
+    return {
+      id,
+      web_name: base ? base.web_name : entry.player_name,
+      team_name: base ? base.team_name : entry.club,
+      position: base ? base.position : null,
+      price: base ? base.price : null,
+      in_xi: entry.in_xi, isCaptain: entry.is_captain, isVice: entry.is_vice,
+    };
+  });
+}
+
+function previewPitchRow(players) {
+  return `<div class="prow">${players.map((p, i) => `
+    <div class="pcard anim-in" style="animation-delay:${i * 40}ms" ${p.id != null ? `onclick="location.hash='player-${p.id}'"` : ""}>
+      <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      ${p.isCaptain ? `<div class="cap-badge">C</div>` : p.isVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
+      <div class="p-tag">${p.web_name}</div>
+      <div class="p-pts-tag">${p.price != null ? fmtMoney(p.price) : "&mdash;"}</div>
+    </div>`).join("")}</div>`;
+}
+
+function chipPreviewSquadBlock(chipType, previewSquad) {
+  if (!previewSquad || !previewSquad.length) return "";
+  const resolved = resolvePreviewSquad(previewSquad);
+  const xi = resolved.filter(p => p.in_xi);
+  const bench = resolved.filter(p => !p.in_xi);
+  const byPos = (pos) => xi.filter(p => p.position === pos);
+  // Unresolved names (no match in app_players.json -- see playerIdByName()'s own name-match
+  // caveat) have no known position, so they can't join a GKP/DEF/MID/FWD pitch row honestly;
+  // shown as a plain fallback list instead of being silently dropped from the preview.
+  const unmatched = xi.filter(p => p.position == null);
+  const title = chipType === "wildcard" ? "What Wildcard would look like" : "What Free Hit would look like";
+  return `
+    <div class="section-title" style="color:var(--on-dark);margin-top:4px;"><span>${title}</span></div>
+    <div class="pitch-wrap" style="margin-bottom:12px;">
+      <div class="pitch-stripe"></div>
+      <div class="pitch-lines">
+        <div class="ln" style="left:8px;right:8px;top:8px;bottom:8px;"></div>
+        <div class="ln" style="left:8px;right:8px;top:50%;height:0;"></div>
+        <div class="circle" style="width:70px;height:70px;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
+        <div class="ln" style="left:26%;right:26%;top:8px;height:40px;border-top:0;"></div>
+        <div class="ln" style="left:26%;right:26%;bottom:8px;height:40px;border-bottom:0;"></div>
+      </div>
+      <div class="pitch-rows">
+        ${previewPitchRow(byPos("GKP"))}
+        ${previewPitchRow(byPos("DEF"))}
+        ${previewPitchRow(byPos("MID"))}
+        ${previewPitchRow(byPos("FWD"))}
+        ${unmatched.length ? previewPitchRow(unmatched) : ""}
+      </div>
+    </div>
+    ${bench.length ? `
+    <div class="bench-section" style="margin-bottom:12px;">
+      <div class="bench-label">Bench</div>
+      <div class="bench-row">
+        ${bench.map(p => `
+          <div class="bcard" ${p.id != null ? `onclick="location.hash='player-${p.id}'" style="cursor:pointer;"` : ""}>
+            <div class="b-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+            <div class="b-name">${p.web_name}</div>
+            <div class="b-pts">${[p.position, p.price != null ? fmtMoney(p.price) : null].filter(Boolean).join(" &middot; ")}</div>
+          </div>`).join("")}
+      </div>
+    </div>` : ""}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin:-2px 0 14px;">
+      A real candidate squad the model already solved while evaluating this chip &mdash; not a live pick, and never submitted to FPL.
+    </p>`;
 }
 
 function effectiveBenchOrder(bench, ls) {
@@ -3243,9 +3353,9 @@ function openAddTeamSheet() {
       <div class="name" style="font-size:19px;">Add your team</div>
       <div class="sub" style="max-width:280px;text-align:center;line-height:1.5;">
         Enter your FPL team ID to get your own real transfer plan and dashboard. This opens a
-        GitHub issue that a workflow processes automatically &mdash; usually ready in 1&ndash;2
-        minutes, if your GitHub account is already a collaborator on this repo. If not, a
-        maintainer needs to add you first (or open the request on your behalf).
+        GitHub issue that a workflow processes automatically for any GitHub account &mdash;
+        usually ready in 1&ndash;2 minutes, no approval needed. (Capped at a few requests per
+        account per day, just to keep this free for everyone.)
       </div>
     </div>
     <div class="stat-list" style="margin-bottom:14px;padding:16px;">
