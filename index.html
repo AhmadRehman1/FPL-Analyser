@@ -927,7 +927,46 @@ function buildMockDashboard() {
         ],
       }],
     },
-    roadmap: null, trackRecord: null, priceWatch: null,
+    // Real shape from print_chip_timing_roadmap.py's own accounts[] entries -- weekly_swing
+    // covers FIRST_HALF_GAMEWEEKS (GW3-19); negative avg_squad_swing = an easier near-term run.
+    roadmap: {
+      target_season: "mock", first_half_gameweeks: [3, 19], n_matches_played_this_season: 30,
+      reliability_note: "Fixture/form signals are noisier the fewer real matches have been played this season.",
+      generated_at: now.toISOString(),
+      accounts: [{
+        entry_id: state.accountId, label: "Development data",
+        squad_clubs: ["Arsenal", "Liverpool", "Man City", "Man Utd", "Newcastle"],
+        weekly_swing: [
+          { gameweek: 3, avg_squad_swing: 0.04, n_teams_with_data: 5 },
+          { gameweek: 4, avg_squad_swing: -0.02, n_teams_with_data: 5 },
+          { gameweek: 5, avg_squad_swing: -0.18, n_teams_with_data: 5 },
+          { gameweek: 6, avg_squad_swing: -0.24, n_teams_with_data: 5 },
+          { gameweek: 7, avg_squad_swing: -0.09, n_teams_with_data: 5 },
+          { gameweek: 8, avg_squad_swing: 0.06, n_teams_with_data: 5 },
+          { gameweek: 9, avg_squad_swing: 0.15, n_teams_with_data: 5 },
+          { gameweek: 10, avg_squad_swing: 0.27, n_teams_with_data: 5 },
+          { gameweek: 11, avg_squad_swing: 0.11, n_teams_with_data: 5 },
+          { gameweek: 12, avg_squad_swing: -0.05, n_teams_with_data: 5 },
+          { gameweek: 13, avg_squad_swing: -0.13, n_teams_with_data: 5 },
+          { gameweek: 14, avg_squad_swing: 0.02, n_teams_with_data: 5 },
+          { gameweek: 15, avg_squad_swing: 0.08, n_teams_with_data: 5 },
+          { gameweek: 16, avg_squad_swing: -0.06, n_teams_with_data: 5 },
+          { gameweek: 17, avg_squad_swing: -0.11, n_teams_with_data: 5 },
+          { gameweek: 18, avg_squad_swing: 0.03, n_teams_with_data: 5 },
+          { gameweek: 19, avg_squad_swing: -0.04, n_teams_with_data: 5 },
+        ],
+        best_bench_boost_triple_captain_window: { gameweek: 6, avg_squad_swing: -0.24, n_teams_with_data: 5 },
+        toughest_window_wildcard_candidate: {
+          gameweek: 10, avg_squad_swing: 0.27, n_teams_with_data: 5,
+          real_wildcard_check: { gain: 9.4, recommended: true },
+        },
+        free_hit_candidate_window: {
+          gameweek: 10, avg_squad_swing: 0.27, n_teams_with_data: 5,
+          real_free_hit_check: { gain: 3.1, recommended: false },
+        },
+      }],
+    },
+    trackRecord: null, priceWatch: null,
     team: {
       entry_id: state.accountId, team_name: "Dev Preview XI", manager_name: "Development data",
       gameweek: 1, gameweek_points: 34, gameweek_points_on_bench: 3, bank: 0.8, team_value: 101.4,
@@ -2890,6 +2929,8 @@ function swingRoadmapCard(account, maxAbs) {
   const best = account.best_bench_boost_triple_captain_window;
   const worst = account.toughest_window_wildcard_candidate;
   const wc = worst && worst.real_wildcard_check;
+  const freeHit = account.free_hit_candidate_window;
+  const fhc = freeHit && freeHit.real_free_hit_check;
   const roadmap = state.roadmap;
   // "about six gameweeks" (~10 matches each) is the point real FPL strategy guidance treats
   // fixture/form signals as having settled -- below that, disclose the thinner sample rather
@@ -2904,17 +2945,24 @@ function swingRoadmapCard(account, maxAbs) {
       <div style="font-size:11px;color:var(--ink-dim);margin-bottom:${thinSample ? "6px" : "12px"};">Negative = easier run for this squad's clubs</div>
       ${thinSample ? `<div style="font-size:10.5px;color:oklch(0.55 0.15 60);background:oklch(0.94 0.06 60);border-radius:8px;padding:6px 9px;margin-bottom:12px;">Only ${roadmap.n_matches_played_this_season} matches played so far this season &mdash; ${roadmap.reliability_note}</div>` : ""}
       ${rows}
-      <div style="display:flex;gap:10px;margin-top:14px;">
-        <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));">
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Easiest run</div>
-          <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.3 0.1 150);margin-top:2px;">${best ? `GW${best.gameweek}` : "&mdash;"}</div>
-          <div style="font-size:9px;color:oklch(0.3 0.1 150);opacity:0.75;margin-top:1px;">Bench Boost / Triple Captain window</div>
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));">
+          <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Easiest run</div>
+          <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.3 0.1 150);margin-top:2px;">${best ? `GW${best.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:8.5px;color:oklch(0.3 0.1 150);opacity:0.75;margin-top:1px;">Bench Boost / Triple Captain</div>
         </div>
-        <div style="flex:1;border-radius:13px;padding:11px 13px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));">
-          <div style="font-size:9px;font-weight:700;text-transform:uppercase;opacity:0.7;">Toughest run</div>
-          <div style="font-family:'Anton',sans-serif;font-size:15px;color:oklch(0.4 0.16 30);margin-top:2px;">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div>
-          <div style="font-size:9px;color:oklch(0.4 0.16 30);opacity:0.85;margin-top:1px;">
-            ${wc ? `Wildcard ${wc.gain >= 0 ? "+" : ""}${wc.gain.toFixed(1)} EP &mdash; ${wc.recommended ? "recommended" : "below threshold"}` : (worst ? "Wildcard candidate window" : "")}
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));">
+          <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Toughest run</div>
+          <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.4 0.16 30);margin-top:2px;">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:8.5px;color:oklch(0.4 0.16 30);opacity:0.85;margin-top:1px;">
+            ${wc ? `Wildcard ${wc.gain >= 0 ? "+" : ""}${wc.gain.toFixed(1)} EP &mdash; ${wc.recommended ? "recommended" : "below threshold"}` : (worst ? "Wildcard candidate" : "")}
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));">
+          <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Free Hit week</div>
+          <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.32 0.1 250);margin-top:2px;">${freeHit ? `GW${freeHit.gameweek}` : "&mdash;"}</div>
+          <div style="font-size:8.5px;color:oklch(0.32 0.1 250);opacity:0.85;margin-top:1px;">
+            ${fhc ? `Free Hit ${fhc.gain >= 0 ? "+" : ""}${fhc.gain.toFixed(1)} EP &mdash; ${fhc.recommended ? "recommended" : "below threshold"}` : (freeHit ? "Toughest single week" : "")}
           </div>
         </div>
       </div>
