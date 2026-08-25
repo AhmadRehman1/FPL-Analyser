@@ -61,31 +61,34 @@ Then Phase B (joint simulation core), Phase C (rank-distribution diagnostic, opt
 ### Key Decisions
 
 - **[A1] Sampling scale: 2,000 entries from the Overall league** (10x the current 200), Overall-league-only (no additional mini-leagues — none was named). *Basis:* [assumed: 2,000 as a round order-of-magnitude increase — if wrong: the A-1 build phase measures real timing/error-rate at this scale first, so the number is easy to revise before Phase B depends on it]. Blast radius if wrong: re-run A-1 at a different N; nothing downstream breaks because Phase B reads whatever sample size exists.
+- **[A9] Retention policy: `fact_rival_squad_sample` retains only the current season's rows.** A scheduled purge removes rows from any prior season. *Basis:* Phase D (backtest validation) is already scoped to the current live season only (verified: `docs/priority10_field_simulator_design.md:103-109`) — no downstream use case in this plan ever reads a prior season's rival-squad sample, so nothing is lost by not keeping it. This is the actual engineering control for the landmine named in Risks & Landmines below ("increased real personal data retention at scale") — rate-limiting (A-1) and excluding mini-leagues bound *load* and *breadth*, but only this purge bounds the *volume of real people's picks retained over time* as sampling scales 10x. Without it, "scale up sampling" plus "keep running this indefinitely" means unbounded accumulation of real managers' squad choices, which the no-names design in `fact_rival_squad_sample` (schema `0017_priority10_phaseA_rival_squad_sample.sql`) reduces the sensitivity of but does not itself bound the volume of.
 - Phase C remains diagnostic-only, never wired into `squad_optimizer`'s search (verified: `docs/priority10_field_simulator_design.md:93-102` — matches the existing, already-shipped pattern of `monte_carlo.run()` never influencing the MIQP search).
 - Phase D is scoped to the current live season only (verified: `docs/priority10_field_simulator_design.md:103-109`).
 
 ### Data Changes
 
-New additive migration `schema/00NN_priority10_phaseB_joint_simulation.sql` (exact number assigned at execution time, after whichever of Track A/B/C is built first) adding a table for per-run diagnostic output (candidate identifier, season, gameweek, rank-distribution summary). No existing table is altered.
+New additive migration `schema/00NN_priority10_phaseB_joint_simulation.sql` (exact number assigned at execution time, after whichever of Track A/B/C is built first) adding a table for per-run diagnostic output (candidate identifier, season, gameweek, rank-distribution summary). No existing table is altered. A season-scoped purge (per [A9]) deletes rows rather than adding a table.
 
 ### Edge Cases
 
 - A gameweek with too few sampled rival squads (e.g., early in a season before Phase A had accumulated data) → Phase C reports "insufficient field sample," not a fabricated distribution.
 - A sampled entry that goes private or is deleted between ingestion and simulation → already handled by Phase A (404→`None`, verified: `ingest_fpl_entry_picks.py`).
+- A purge (per [A9]) runs while a backtest validation (Phase D) job for the current season is mid-run → purge only ever targets rows tagged with a season strictly earlier than the current one, so it cannot race with or delete data a same-season job is using.
 
 ### Requirements
 
 - **R1**: WHEN the operator runs the scaled-up ingestion THE SYSTEM SHALL complete within a measured, logged time/error-rate budget and record that measurement in this doc.
+- **R1b**: WHEN a season rolls over THE SYSTEM SHALL purge `fact_rival_squad_sample` rows belonging to any prior season, retaining only the current season's data.
 - **R2**: WHEN Phase B is invoked with a fixed random seed THE SYSTEM SHALL produce identical simulated totals across repeated runs (determinism, matching `field_covariance.py`'s existing test pattern).
 - **R3**: WHEN Phase C's diagnostic is not explicitly opted into THE SYSTEM SHALL NOT invoke it from `squad_optimizer`'s default path.
 - **R4**: WHEN backtest validation runs on a gameweek with no rival-squad samples THE SYSTEM SHALL report "insufficient sample," not a distribution.
 
 ### Build Phases
 
-- [ ] **Phase A-1: Scale up and validate rival-squad ingestion at n=2,000** *(risky — run the Critique Engine at build time, see below)*
-  Done when: a manual run of `run_rival_sample_ingestion.py 2000` completes with a logged error rate under 5% and a recorded wall-clock time; `tests/test_ingest_fpl_entry_picks.py` gains a parametrized larger-n case (mocked).
-  Steps: bump the default/CLI arg; add timing + error-rate logging; run once against a real live gameweek; add the test case; record the actual measured numbers back into [A1] above.
-  Covers: R1; checks: [A1]
+- [ ] **Phase A-1: Scale up ingestion at n=2,000, with a season-scoped retention policy** *(risky — run the Critique Engine at build time, see below)*
+  Done when: a manual run of `run_rival_sample_ingestion.py 2000` completes with a logged error rate under 5% and a recorded wall-clock time; `tests/test_ingest_fpl_entry_picks.py` gains a parametrized larger-n case (mocked); a purge routine exists and is tested to confirm it deletes only prior-season rows and leaves the current season's rows untouched.
+  Steps: bump the default/CLI arg; add timing + error-rate logging; run once against a real live gameweek; add the test case; record the actual measured numbers back into [A1] above; add the season-scoped purge (per [A9]) and a test covering both the delete and the preserve path.
+  Covers: R1, R1b; checks: [A1], [A9]
 - [ ] **Phase A-2: Joint simulation core (Phase B)** *(risky)*
   Done when: a new function produces per-draw simulated totals for the candidate squad plus every sampled rival squad, unit-tested for determinism and against a hand-computed 2-rival-squad case.
   Steps: add `joint_field_simulation.py` (new module, to avoid overloading `monte_carlo.py`'s existing scope) reusing `deterministic_seed`/`sample_z_fixture`; write unit tests; document the I/O contract in the module's header, mirroring `field_covariance.py`'s docstring style.
@@ -142,7 +145,7 @@ New additive migration adding `active_param_versions` (per [A3]) and a `status='
   Covers: R6; checks: [A2]
 - [ ] **Phase B-3: Wire into the weekly cadence + reversibility** *(risky)*
   Done when: `weekly_backtest.yml`'s existing Sunday run calls Phase B-2's function right after `recalibrate()`; a documented rollback command exists and is tested end-to-end on a scratch DB, confirming it restores prior behavior exactly.
-  Steps: workflow edit; write/document the rollback command (extends `review_recalibration.py`'s CLI shape); dry-run the full workflow locally; verify rollback.
+  Steps: workflow edit; write/document the rollback command (extends `review_recalibration.py`'s CLI shape); dry-run by invoking `scripts/run_backtest.py` followed by Phase B-2's promotion function directly via CLI against a scratch copy of the DuckDB file — the same way `tests/test_backtest.py` already exercises `recalibrate()`, not by running the YAML workflow through a GitHub Actions emulator; verify rollback.
   Covers: R7; checks: [A3]
 
 ---
@@ -184,8 +187,8 @@ New additive table `planner_decision_log(season, gameweek, recommended_action, a
   Steps: schema migration; extend the existing report-generation script; unit test the hold case.
   Covers: R8
 - [ ] **Phase C-2: Realize the outcome once results are known**
-  Done when: a step added to the existing scheduled pipeline (after results ingestion) fills in the two realized-points fields for the prior gameweek's row, tested against at least one real completed gameweek's fixture data.
-  Steps: add the pipeline step; test with a known-result fixture.
+  Done when: a step added immediately after the "Run ingestion (M0-M6)" step in `scheduled_pipeline.yml` (verified: `.github/workflows/scheduled_pipeline.yml:133-134` — this is where each run's real gameweek results become available in the DB) fills in the two realized-points fields for the prior gameweek's row, tested against at least one real completed gameweek's fixture data.
+  Steps: add the new step right after `scheduled_pipeline.yml:134`; test with a known-result fixture.
   Covers: R9
 - [ ] **Phase C-3: Surface the aggregate once enough data exists**
   Done when: `app_track_record.json`/`track-record.html` show a new "planner decision accuracy" section once [A4]'s threshold is met, and an honest below-threshold state before that; both states are tested.
@@ -199,7 +202,7 @@ New additive table `planner_decision_log(season, gameweek, recommended_action, a
 ### Key Decisions
 
 - **D1** ports `track-record.html:133-158`'s already-working `isLocalDev`/`DATA_BASE`/`RAW_FALLBACK` pattern into `index.html` verbatim, rather than inventing a new mechanism — it's already production-tested code.
-- **D2** wires `track_elite.py` into `scheduled_pipeline.yml` (matching `export_projections.py`'s existing pattern, `scheduled_pipeline.yml:238-241`); it will safely no-op until `data/elite_managers.json`'s empty `managers` list is populated (matches commit `fd33924`'s own documented intent) — populating it with real entry IDs is a content decision for the operator, listed in Open Items, not a code gap.
+- **D2** wires `track_elite.py` into `scheduled_pipeline.yml` (matching `export_projections.py`'s existing pattern, `scheduled_pipeline.yml:238-241`); it will safely no-op until `data/elite_managers.json`'s empty `managers` list is populated (matches commit `c381c36`'s own documented intent — `load_elite_managers()` is "empty by default, no entry_ids hardcoded anywhere") — populating it with real entry IDs is a content decision for the operator, listed in Open Items, not a code gap.
 - **D3**: **[A5] analytics vendor: Plausible** [assumed — if wrong, swap the one script tag's `src`/`data-domain` for Umami's equivalent; the integration shape is identical either way]. Self-hosting the analytics instance is external infrastructure I cannot provision — Open Item.
 - **D4**: I can add the `CNAME` file and the `deploy_pages.yml` staging step; registering a domain and configuring DNS/Cloudflare are the operator's own external actions — Open Item with exact steps listed.
 
@@ -243,11 +246,12 @@ New additive table `planner_decision_log(season, gameweek, recommended_action, a
 | A6 | New schema migration numbers assigned at execution time (whichever track is built first claims the next number) | tracks may be built in any order | none — purely a filename/ordering detail | at build time |
 | A7 | D1's origin-aware change must not alter the add-team SLA behavior the raw-URL design was chosen for | explicit statement in `docs/BUSINESS_PLAN.md:91-98` | could silently regress the one thing the raw-URL design was protecting | Phase D-1 done-check includes manual verification on the deployed Pages URL |
 | A8 | Recommended execution order across tracks: D1/D2 (quick, low-risk) → C-1 (start the data clock early since Track C needs months to mature) → B (highest standalone value, "core moat") → A (largest, most externally-sensitive) | effort/risk sequencing, not a hard dependency | none — tracks are independently executable; reordering costs nothing | executor's choice |
+| A9 | `fact_rival_squad_sample` retains only the current season's rows; prior-season rows are purged | Phase D never reads a prior season's rival-squad sample (it's already scoped current-season-only), so nothing downstream needs the older rows kept | without this, scaling sampling 10x means real people's squad picks accumulate indefinitely with no bound | Phase A-1 tests both the delete and preserve path of the purge |
 
 ## Risks, Landmines & Adaptations
 
 - **Automated parameter promotion removes a deliberate, already-shipped human safety gate** (`review_recalibration.py`) from a path that drives live user-facing recommendations → adaptation: a regression-gated auto-promotion (threshold [A2]) plus a full audit trail plus a cheap, tested rollback path (versions are immutable, so reverting is just re-pointing a pointer) — see Track B throughout, flagged again here because it is the single highest-stakes decision in this plan and was a deliberate user override of my recommendation.
-- **Priority 10 at increased scale retains more real individual FPL managers' picks** (still no names, per Phase A's existing design) → adaptation: Phase A-1 explicitly re-validates rate-limiting/timing at the new scale rather than assuming the n=200 numbers hold at n=2,000; no mini-leagues are added without an explicit future decision (parked in Open Items).
+- **Priority 10 at increased scale retains more real individual FPL managers' picks** (still no names, per Phase A's existing design) → adaptation: a season-scoped retention purge ([A9]) bounds how long that data is kept — rows from any season but the current one are deleted, since Phase D never uses them — rather than letting 10x sampling accumulate indefinitely; Phase A-1 also re-validates rate-limiting/timing at the new scale, and no mini-leagues are added without an explicit future decision (parked in Open Items). Rate-limiting and scope-narrowing alone would only have bounded *load* and *breadth*, not the growing *volume* of retained real personal data — the purge is what actually closes that gap.
 - **Building new planner-decision logging could, if scoped wrong, contradict the app's existing "sends nothing about the user anywhere" privacy commitment** → adaptation: the explicit Non-Goal in Track C restricts this to the already-server-side, already-scheduled report path for the operator's own tracked manager(s); Phase C-1 is marked risky specifically so its done-check double-checks this boundary was honored in the actual diff, not just the plan.
 - **D1 touches `index.html`'s data-loading path, which the roadmap doc calls out as an intentional design choice** (`docs/BUSINESS_PLAN.md:91-98`) → adaptation: reuse the exact pattern already proven in `track-record.html` rather than a new design, and require manual verification on the deployed Pages URL as part of the done-check.
 - **Residual risk, not further mitigated here**: analytics and custom domain (Track D3/D4) cannot be verified end-to-end without external infrastructure the operator must provision — named explicitly in Open Items rather than glossed over.
