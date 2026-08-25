@@ -542,6 +542,28 @@ def test_load_report_snapshot_none_when_missing(tmp_path):
     assert reporting.load_report_snapshot("2026-2027", 1, tmp_path) is None
 
 
+def test_save_and_load_decision_log_entry_round_trips(tmp_path):
+    row = {"recommended_action": "hold", "recommended_transfer_out": None}
+    saved_path = reporting.save_decision_log_entry(7139944, "2026-2027", 15, row, tmp_path)
+    assert saved_path.name == "7139944_2026-2027_gw15.json"
+
+    loaded = reporting.load_decision_log_entry(7139944, "2026-2027", 15, tmp_path)
+    assert loaded == row
+
+
+def test_save_decision_log_entry_same_key_overwrites_not_duplicates(tmp_path):
+    # This script runs twice daily -- a same-day rerun must overwrite, not accumulate.
+    reporting.save_decision_log_entry(7139944, "2026-2027", 15, {"recommended_action": "hold"}, tmp_path)
+    reporting.save_decision_log_entry(7139944, "2026-2027", 15, {"recommended_action": "transfer_now"}, tmp_path)
+    assert list(tmp_path.glob("7139944_2026-2027_gw15*.json")) != []
+    assert len(list(tmp_path.glob("*.json"))) == 1
+    assert reporting.load_decision_log_entry(7139944, "2026-2027", 15, tmp_path)["recommended_action"] == "transfer_now"
+
+
+def test_load_decision_log_entry_none_when_missing(tmp_path):
+    assert reporting.load_decision_log_entry(7139944, "2026-2027", 15, tmp_path) is None
+
+
 # ============================================================
 # build_captain_recommendation
 # ============================================================

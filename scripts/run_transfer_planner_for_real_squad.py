@@ -33,6 +33,7 @@ from fpl_quant import backtest as bt, db, fixture_swing as fs, ingest_fpl_entry_
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+DECISION_LOG_DIR = REPO_ROOT / "data" / "decision_log"
 
 
 # More than one chip can legitimately clear its own recommendation threshold in the same
@@ -118,7 +119,13 @@ def main() -> None:
     if len(sys.argv) not in (3, 4):
         raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label]")
     entry_id, current_event = int(sys.argv[1]), int(sys.argv[2])
-    label = sys.argv[3] if len(sys.argv) == 4 else str(entry_id)
+    # Same signal this project already uses to distinguish the two accounts scheduled_pipeline.yml
+    # runs twice daily (always passed a label) from the ad-hoc, workflow_dispatch-only, one-off
+    # third-account path (never passed one) -- reused below to scope planner_decision_log to the
+    # two recurring, tracked accounts a hold-vs-use backtest can actually mean something for, not
+    # every one-off manual check anyone with push access ever runs.
+    is_tracked_account = len(sys.argv) == 4
+    label = sys.argv[3] if is_tracked_account else str(entry_id)
     plan_for_gameweek = current_event + 1
 
     con = db.connect()
@@ -249,27 +256,30 @@ def main() -> None:
         print(f"\n--- captain recommendation ---\n  {captain_recommendation}")
 
     # Roadmap P1 item (Track C, docs/plans/2026-08_roadmap_plan.md): log this run's own
-    # recommendation to planner_decision_log -- new, see schema/0018's own comment for why
-    # nothing before this persisted a recommendation across gameweeks.
-    decision_row = _resolve_decision_log_row(hold_rec, recs_out, chips_out, captain_recommendation)
-    con.execute(
-        "INSERT INTO planner_decision_log (entry_id, target_season, target_gameweek, run_id, "
-        "recommended_action, recommended_transfer_out, recommended_transfer_in, recommended_chip, "
-        "recommended_captain, logged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT (entry_id, target_season, target_gameweek) DO UPDATE SET "
-        "run_id = excluded.run_id, recommended_action = excluded.recommended_action, "
-        "recommended_transfer_out = excluded.recommended_transfer_out, "
-        "recommended_transfer_in = excluded.recommended_transfer_in, "
-        "recommended_chip = excluded.recommended_chip, recommended_captain = excluded.recommended_captain, "
-        "logged_at = excluded.logged_at",
-        [
-            entry_id, TARGET_SEASON, plan_for_gameweek, run_id,
-            decision_row["recommended_action"], decision_row["recommended_transfer_out"],
-            decision_row["recommended_transfer_in"], decision_row["recommended_chip"],
-            decision_row["recommended_captain"], datetime.now(timezone.utc),
-        ],
-    )
-    print(f"\n[planner_decision_log] logged '{decision_row['recommended_action']}' for entry_id={entry_id}, GW{plan_for_gameweek}")
+    # recommendation as a committed JSON file (reporting.save_decision_log_entry() -- see its
+    # own docstring for why this is a file, not a DuckDB table: db/fpl_quant_v2.duckdb doesn't
+    # survive to the next scheduled run, so a DB-only row would be gone before Phase C-2 could
+    # ever read it back). Only for the two recurring, tracked accounts (is_tracked_account) --
+    # an ad-hoc one-off dispatch isn't part of the twice-daily cadence a hold-vs-use comparison
+    # needs, and was never in scope (see Track C's own Non-Goal). Ordered the same way the
+    # dashboard snapshot below is (_order_chip_evaluations, not the raw DB-insertion order) so
+    # the two outputs of this same run can never disagree about which chip was recommended.
+    if is_tracked_account:
+        decision_row = _resolve_decision_log_row(
+            hold_rec, recs_out, _order_chip_evaluations(chips_out), captain_recommendation,
+        )
+        decision_row.update({
+            "entry_id": entry_id,
+            "target_season": TARGET_SEASON,
+            "target_gameweek": plan_for_gameweek,
+            "run_id": run_id,
+            "actual_action_taken": None,
+            "realized_points_actual": None,
+            "realized_points_if_recommendation_followed": None,
+            "logged_at": datetime.now(timezone.utc).isoformat(),
+        })
+        reporting.save_decision_log_entry(entry_id, TARGET_SEASON, plan_for_gameweek, decision_row, DECISION_LOG_DIR)
+        print(f"\n[decision_log] logged '{decision_row['recommended_action']}' for entry_id={entry_id}, GW{plan_for_gameweek}")
 
     # M9's own explainability adapter (transfer_planner.explain_plan()) -- pure assembly over
     # this same run_id, no new computation. Exported as-is so the dashboard can show the real

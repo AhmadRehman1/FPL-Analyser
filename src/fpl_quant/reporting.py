@@ -840,6 +840,34 @@ def load_report_snapshot(season: str, gameweek: int, history_dir: Path | str) ->
     return json.loads(path.read_text())
 
 
+def save_decision_log_entry(entry_id: int, season: str, gameweek: int, row: dict, log_dir: Path | str) -> Path:
+    """Roadmap P1 item (Track C, docs/plans/2026-08_roadmap_plan.md): one committed JSON file
+    per (entry_id, season, gameweek), same "small, git-committed snapshot is the real cross-run
+    memory" convention as save_report_snapshot() above -- not a DuckDB table. db/fpl_quant_v2.duckdb
+    is gitignored and rebuilt from scratch on every scheduled run (see run_report.py's own
+    comment on this), so anything that needs to survive to a *later* run (as this log explicitly
+    does, to be read back once next gameweek's results are known) has to live here instead.
+    Safe to re-run: a second save for the same (entry_id, season, gameweek) just overwrites,
+    matching save_report_snapshot()'s own "latest run wins" shape -- this script runs twice
+    daily, and only the last run before the deadline should be judged as "the recommendation.\""""
+    log_dir = Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    out_path = log_dir / f"{entry_id}_{season}_gw{gameweek}.json"
+    out_path.write_text(json.dumps(row, indent=2))
+    return out_path
+
+
+def load_decision_log_entry(entry_id: int, season: str, gameweek: int, log_dir: Path | str) -> dict | None:
+    """None (not an exception) when no entry was ever logged for this (entry_id, season,
+    gameweek) -- e.g. an ad-hoc one-off run never logs one at all (see
+    run_transfer_planner_for_real_squad.py's own guard), which is a real, expected state, not
+    an error."""
+    path = Path(log_dir) / f"{entry_id}_{season}_gw{gameweek}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
 def diff_reports(previous_snapshot: dict | None, current_report: dict) -> dict:
     """Compares a previously-saved snapshot (see save_report_snapshot()) against a freshly
     built current report. previous_snapshot=None (no prior gameweek's snapshot found) returns

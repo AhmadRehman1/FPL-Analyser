@@ -123,6 +123,29 @@ def test_resolve_decision_log_row_no_chip_recommended_is_none():
     assert row["recommended_chip"] is None
 
 
+def test_resolve_decision_log_row_must_be_called_with_priority_ordered_chips():
+    # Real, observed scenario this file's own header comment already documents: chip_evaluations
+    # rows come back wildcard/free_hit/triple_captain/bench_boost (DB insertion order), the
+    # reverse of CHIP_PRIORITY's bench_boost-before-triple_captain -- and both can legitimately
+    # clear their own recommendation threshold in the same gameweek. The dashboard snapshot
+    # correctly resolves this via _order_chip_evaluations(); the decision log must use the exact
+    # same resolution, or the two outputs of one run would disagree about what was recommended.
+    raw_db_order = [
+        {"chip_type": "wildcard", "recommended": False, "score": 1.0},
+        {"chip_type": "free_hit", "recommended": False, "score": 2.0},
+        {"chip_type": "triple_captain", "recommended": True, "score": 3.7},
+        {"chip_type": "bench_boost", "recommended": True, "score": 9.0},
+    ]
+    unordered_row = _resolve_decision_log_row(("hold", 1.0, 2.0), recs_out=[], chips_out=raw_db_order, captain_recommendation=None)
+    ordered_row = _resolve_decision_log_row(
+        ("hold", 1.0, 2.0), recs_out=[], chips_out=_order_chip_evaluations(raw_db_order), captain_recommendation=None,
+    )
+    # Calling with the raw, unordered rows silently picks the wrong winner -- this assertion
+    # documents *why* main() must always order chips_out first, not that it's desirable.
+    assert unordered_row["recommended_chip"] == "triple_captain"
+    assert ordered_row["recommended_chip"] == "bench_boost"
+
+
 def test_resolve_decision_log_row_captain_change_is_logged():
     captain_recommendation = {"recommended_name": "Erling Haaland", "matches_current": False}
     row = _resolve_decision_log_row(("hold", 1.0, 2.0), recs_out=[], chips_out=[], captain_recommendation=captain_recommendation)
