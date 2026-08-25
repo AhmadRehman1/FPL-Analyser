@@ -4,7 +4,7 @@
   "gameweek": 1,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 35,
+  "live_total": 40,
   "players": [
     {
       "player_id": 496,
@@ -79,9 +79,9 @@
     {
       "player_id": 165,
       "web_name": "Jo\u00e3o Pedro",
-      "live_points": 8,
-      "provisional_bonus": 3,
-      "contribution": 8
+      "live_points": 13,
+      "provisional_bonus": 2,
+      "contribution": 13
     }
   ],
   "rank_estimate": {
@@ -252,12 +252,12 @@
       "home": {
         "short_name": "FUL",
         "name": "Fulham",
-        "score": 0
+        "score": 2
       },
       "away": {
         "short_name": "CHE",
         "name": "Chelsea",
-        "score": 1
+        "score": 3
       }
     }
   ],
@@ -309,6 +309,14 @@
       "event": "own_goal",
       "count": 1,
       "fixture_id": 7
+    },
+    {
+      "player_id": 40,
+      "web_name": "Rogers",
+      "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 10
     },
     {
       "player_id": 68,
@@ -410,6 +418,14 @@
       "player_id": 154,
       "web_name": "Palmer",
       "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
+      "player_id": 154,
+      "web_name": "Palmer",
+      "team": 6,
       "event": "assist",
       "count": 1,
       "fixture_id": 10
@@ -419,6 +435,22 @@
       "web_name": "Jo\u00e3o Pedro",
       "team": 6,
       "event": "goal",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
+      "player_id": 165,
+      "web_name": "Jo\u00e3o Pedro",
+      "team": 6,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
+      "player_id": 200,
+      "web_name": "Lacroix",
+      "team": 6,
+      "event": "assist",
       "count": 1,
       "fixture_id": 10
     },
@@ -455,12 +487,28 @@
       "fixture_id": 3
     },
     {
+      "player_id": 258,
+      "web_name": "Castagne",
+      "team": 10,
+      "event": "assist",
+      "count": 2,
+      "fixture_id": 10
+    },
+    {
       "player_id": 267,
       "web_name": "Luki\u0107",
       "team": 12,
       "event": "assist",
       "count": 1,
       "fixture_id": 5
+    },
+    {
+      "player_id": 268,
+      "web_name": "King",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 10
     },
     {
       "player_id": 279,
@@ -631,6 +679,14 @@
       "fixture_id": 2
     },
     {
+      "player_id": 569,
+      "web_name": "Gonzalo",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 10
+    },
+    {
       "player_id": 586,
       "web_name": "Mendy",
       "team": 11,
@@ -647,5 +703,5 @@
       "fixture_id": 5
     }
   ],
-  "generated_at": "2026-08-24T19:18:02.632619+00:00"
+  "generated_at": "2026-08-24T22:56:12.761636+00:00"
 }

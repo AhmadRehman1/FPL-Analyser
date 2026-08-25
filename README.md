@@ -285,6 +285,102 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     distribution output (Phases B/C) remain undesigned-in-detail, explicitly gated on
     real product decisions (which field to sample, how much rival-squad data is comfortable
     to collect) rather than built speculatively.
+- **Multi-gameweek transfer planner ("Plan" tab, new frontend feature, not part of the frozen
+  M0-M9 build).** A "draft" -- a hypothetical future squad state, entirely separate from the
+  live squad and never submitted anywhere -- with up to 5 saved per account (localStorage, no
+  accounts system exists to persist to server-side). Modeled as an event-sourced reducer
+  (`planner/model.js`): one base squad/bank/free-transfer snapshot per draft plus a sparse
+  per-gameweek map of transfers/chip/captain choices, replayed forward on every read so
+  carrying state from one planned gameweek to the next is a property of the replay, not
+  separately-maintained state that can drift. Real FPL rules mirrored from
+  `transfer_planner.py`'s own confirmed-not-assumed constants (5-transfer bank cap, -4/hit, 2
+  sets of 4 chips with the GW19 no-rollover cutoff) rather than re-derived independently.
+  Squad-validity rules (15-man 2/5/5/3 composition, 3-per-club cap, 1/3-5/2-5/1-3 starting-XI
+  formation, non-negative budget) live in their own pure module (`planner/rules.js`) and block
+  confirming a transfer in the UI until every warning clears. `planner/solver.js` is a v1
+  greedy single-transfer suggester (multi-transfer combinatorial search explicitly deferred,
+  per this feature's own staged scope). All four `planner/*.js` modules are dependency-free,
+  dual-loadable (plain `<script>` in the browser, `require()`-able in Node) and unit-tested via
+  Node's own built-in test runner (`npm test`, `tests/planner/*.test.js`, 61 tests) --
+  deliberately kept out of the Python pytest suite since this is frontend-only logic, same
+  "separate, testable module from the UI" split the feature was scoped around. Two real bugs
+  the tests caught before anything else could: `computeStateAtGameweek()`'s free-transfer
+  accrual originally reported next-week's count instead of the current week's (conflating "en
+  route to next week" with "as of now"), and `canAssignChip()` had a dead, unreachable
+  first-half-chip-set guard (GW19 itself already resolves to chip set 2, so a
+  `set1 && gameweek >= 19` check can never fire) that a wrong test had briefly asserted was
+  real, correct behavior.
+  **A real, disclosed data gap found and fixed along the way**: `scripts/export_projections.py`
+  (real M3 xPts per player, 8-gameweek horizon, confidence bands -- exactly the "expected points
+  per player" this feature needs, already fetched by the frontend via
+  `data/dashboard/projections_latest.json`) existed in the codebase and was already wired into
+  `index.html`'s fetch calls, but was never actually invoked by either GitHub Actions workflow --
+  same "built but never run" pattern this README already documents for `grade_squad.py`/
+  `explain_my_move.py` above. Fixed by adding it to `scheduled_pipeline.yml`; until that runs for
+  real, both the new Plan tab and the existing Team-tab Planner correctly show "no projections
+  published yet" rather than a fabricated number (verified in a real headless-Chromium run
+  against this repo's own real `data/dashboard/*.json` -- see below). Ownership% and an
+  expected-minutes signal reuse `app_players.json`'s own real `selected_by_percent`/
+  `chance_of_playing_next_round`/`status` fields; season-to-date chip usage (so a fresh draft
+  never lets a manager "replan" a chip already burned for real) reuses `app_profile_<id>.json`'s
+  own real `chips[]` history. No new data source was invented anywhere in this feature.
+  Verified end-to-end in a real headless Chromium session (Playwright against the pre-installed
+  browser, this repo's own real committed `data/dashboard/*.json` served via request
+  interception, zero page/console errors): gameweek navigation with free-transfer carry-forward,
+  a confirmed transfer correctly updating bank/squad and blocking confirmation with a real
+  "Too many selected from MUN (4/3)" warning when it would violate the club cap, Wildcard
+  correctly relaxing the transfer limit, a draft surviving a full page reload via localStorage,
+  the solver/compare/list-view sheets, and branching a second draft from the first. Not yet
+  built: CI wiring for `npm test` alongside the existing pytest job.
+- **Multi-transfer planner solver, bounded 2-for-2 combinatorial search (follow-up, same
+  feature).** `planner/solver.js`'s `suggestMultiTransfers()` mirrors
+  `transfer_planner.py`'s own `evaluate_multi_transfers()` design rather than inventing a
+  separate approach for the frontend: sell any 2 unlocked held players, buy any 2 unignored
+  candidates whose combined position multiset exactly matches the two sold, ranked by
+  COMBINED net value (not two independent single transfers), with the same real bound the
+  backend uses and the same disclosed reasoning for it (bounding the incoming side to the
+  top-K candidates per position by horizon EP, since a genuinely low-EP candidate essentially
+  never appears in an EP-maximizing combo -- the one real gap this accepts is a specifically
+  cheap, low-EP player that's the only way to afford another leg of the combo within budget,
+  which a pure EP-ranked top-K can prune away). Stopped at 2-for-2 for the same tractability
+  and real-play reasons the backend already documented; not extended to 3-for-3. 10 new unit
+  tests (71 total in `tests/planner/`) cover same-position and cross-position combos, the
+  combined budget/club-cap constraints, the -4-per-hit-beyond-free-transfers generalization
+  at n=2, locked/ignored-player exclusion, and the top-K bounding itself. Wired into the
+  Plan tab's "Suggested transfers" sheet as a second "Double transfer (2-for-2)" section
+  alongside the existing single-transfer list; selecting a combo stages BOTH pairs into the
+  same pending-transfer preview/confirm flow a single transfer already used (generalized to
+  accept an array of {outId, inId} pairs instead of just one). Verified end-to-end in a real
+  headless Chromium session against a synthetic local projections file (the real
+  `projections_latest.json` still doesn't exist in production until the workflow fix above
+  actually runs): a real 2-for-2 combo selected from the solver correctly staged both pairs,
+  showed the combined price/EP/hit-cost preview, and on confirm updated the squad, recorded 2
+  transfers for the gameweek, and charged the correct -4 hit.
+- **Drag-and-drop transfers (follow-up, same feature).** The spec's own "either/or" was already
+  satisfied by tap-to-select; this adds native HTML5 drag-and-drop as a genuine second input
+  path rather than leaving it unimplemented, scoped to what the app's existing single-panel
+  mobile-sheet layout can actually support simultaneously-visible drag sources and targets for
+  (checked concretely, not assumed: `.sheet` is `max-height:92vh`, so a bottom sheet leaves too
+  thin a sliver of the pitch view visible to drag between the two at once). Two real
+  interactions: (1) drag one squad/bench card onto another anywhere in the pitch or list view to
+  swap their starting-XI/bench status -- a new `planner/model.js` primitive
+  (`swapXIStatus()`/`setXIStatus()`, a per-gameweek `xiOverrides` plan field alongside the
+  existing captain/vice overrides, carrying forward the same way) needed adding since nothing
+  in the reducer previously represented a lineup change independent of a transfer; (2) inside
+  the sidebar sheet's replacement-picker mode, drag a candidate row onto a drop zone to confirm
+  it, wired to the exact same `planSelectIn()` a tap already uses. Every drag target remains
+  independently tappable/clickable -- nothing is drag-only, since touch devices can't rely on
+  native HTML5 drag the way a mouse can. 5 new model.js unit tests (76 total in
+  `tests/planner/`) cover the swap itself, the same-status no-op case, the invalid-player fail
+  case, cross-gameweek carry-forward, and composing multiple swaps in one gameweek without
+  clobbering each other. Verified end-to-end in headless Chromium with a REAL pixel-level
+  native drag gesture (Playwright's `dragTo()`, not a simulated function call) dragging a real
+  bench goalkeeper onto a real starting pitch card: the swap applied correctly, no spurious
+  formation warning fired (both players were the same position), and the app's own existing
+  `validateDraftSquad()` banner is reused as-is for the case where a swap WOULD break formation
+  -- no new validation logic needed. The sidebar drop-zone was verified via direct wiring
+  (a synthetic drag event, since simulating a real cross-sheet-transition drag in headless mode
+  is unreliable) and confirmed it stages an identical pending transfer to tapping the same row.
 
 ## Quick start
 
@@ -468,6 +564,18 @@ index.html                      -- the live mobile dashboard itself, served via 
                                    the scheduled workflow most recently committed, no redeploy
                                    needed. iOS "Add to Home Screen" launches it standalone (no
                                    Safari chrome).
+planner/                        -- the multi-gameweek transfer planner's DOM-free logic (see the
+                                   Status section's own entry above): rules.js (squad-validity
+                                   rules), model.js (the draft event-sourced reducer), solver.js
+                                   (greedy transfer suggestions), fixtures.js (fixture-difficulty
+                                   helpers), storage.js (localStorage draft persistence). Loaded
+                                   by index.html as plain <script> tags (its own "Plan" tab is
+                                   the UI over these) and required directly by tests/planner/.
+tests/planner/                  -- Node's built-in test runner (`npm test`), 61 tests over
+                                   planner/*.js -- separate from the Python pytest suite in
+                                   tests/ since this is frontend-only logic
+package.json                    -- present only to give tests/planner/ an `npm test` script; no
+                                   runtime dependencies (planner/*.js ships zero third-party code)
 db/fpl_quant_v2.duckdb         -- gitignored; rebuild via scripts/run_ingestion.py
 ```
 

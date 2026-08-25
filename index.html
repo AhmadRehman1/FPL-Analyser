@@ -382,6 +382,40 @@
   .badge-confidence-high{background:oklch(0.9 0.13 145/0.55);color:oklch(0.28 0.11 150);}
   .badge-confidence-medium{background:oklch(0.92 0.1 85/0.6);color:oklch(0.4 0.1 70);}
   .badge-confidence-low{background:oklch(0.92 0.06 40/0.5);color:oklch(0.42 0.1 40);}
+
+  /* ---- Plan tab: draft picker, chips, view toggle, transfer preview ---- */
+  .draft-pill-row{display:flex;gap:8px;overflow-x:auto;padding:2px 0 4px;margin-bottom:10px;}
+  .draft-pill{flex-shrink:0;padding:8px 14px;border-radius:100px;font-size:11.5px;font-weight:700;background:var(--card-2);color:var(--ink-dim);border:1.5px solid transparent;white-space:nowrap;}
+  .draft-pill.active{background:var(--green-soft);color:oklch(0.3 0.1 150);border-color:oklch(0.5 0.14 150/0.4);}
+  .draft-pill.new-draft{background:transparent;border:1.5px dashed var(--border,oklch(0.85 0.01 90));color:var(--ink-dim2);}
+  .chip-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+  .chip-btn{padding:11px 4px;border-radius:14px;background:var(--card-2);color:var(--ink);font-size:10.5px;font-weight:700;text-align:center;line-height:1.3;border:1.5px solid transparent;}
+  .chip-btn .chip-icon{font-size:15px;display:block;margin-bottom:3px;}
+  .chip-btn.active{background:linear-gradient(155deg,var(--gold),oklch(0.88 0.12 85));color:var(--gold-ink);border-color:oklch(0.7 0.14 80/0.6);}
+  .chip-btn:disabled{opacity:0.4;}
+  .view-toggle{display:flex;background:var(--card-2);border-radius:100px;padding:3px;margin-bottom:12px;width:fit-content;}
+  .view-toggle button{padding:7px 16px;border-radius:100px;font-size:11.5px;font-weight:700;color:var(--ink-dim);}
+  .view-toggle button.active{background:var(--card);color:var(--ink);box-shadow:0 1px 4px oklch(0.2 0.05 150/0.15);}
+  .plan-list-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--divider);font-size:12.5px;}
+  .plan-list-row:first-child{border-top:none;}
+  .plan-list-row .p-avatar-sm{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;}
+  .plan-list-row .name-block{flex:1;min-width:0;}
+  .plan-list-row .name-block .nm{font-weight:700;color:var(--ink);}
+  .plan-list-row .name-block .sub{font-size:10.5px;color:var(--ink-dim2);}
+  .plan-list-row .ep-val{font-family:"Anton",sans-serif;font-size:14px;color:var(--green);flex-shrink:0;min-width:34px;text-align:right;}
+  .plan-list-row.selected-out{background:oklch(0.95 0.1 25/0.5);border-radius:10px;}
+  .plan-pending{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));border-radius:16px;padding:14px 16px;margin-bottom:14px;}
+  .watch-star{background:none;border:none;font-size:16px;line-height:1;color:var(--ink-dim2);flex-shrink:0;}
+  .watch-star.on{color:var(--gold-ink);}
+  .compare-table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  .compare-table th, .compare-table td{padding:8px 6px;text-align:left;border-top:1px solid var(--divider);}
+  .compare-table th{font-size:9.5px;text-transform:uppercase;color:var(--ink-dim2);}
+  [draggable="true"]{cursor:grab;}
+  [draggable="true"]:active{cursor:grabbing;}
+  .dnd-zone{border:1.5px dashed oklch(0.98 0.005 90/0.35);border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--on-dark-dim);text-align:center;transition:background-color 0.15s ease,border-color 0.15s ease;}
+  .dnd-zone.drag-over{background:oklch(0.98 0.005 90/0.12);border-color:var(--gold);color:var(--on-dark);}
+  .dnd-zone.pick-target{border-color:oklch(0.5 0.14 150/0.5);color:var(--ink-dim);}
+  .dnd-zone.pick-target.drag-over{background:var(--green-soft);border-color:var(--green);color:oklch(0.3 0.1 150);}
   .badge-risk{background:oklch(0.92 0.1 25/0.45);color:oklch(0.4 0.14 25);}
   .badge-setpiece{background:oklch(0.9 0.08 260/0.5);color:oklch(0.36 0.12 260);}
   .superseded-note{display:flex;align-items:flex-start;gap:6px;font-size:10.5px;line-height:1.5;color:oklch(0.4 0.1 250);background:oklch(0.94 0.06 250/0.6);border-radius:9px;padding:7px 10px;margin-top:8px;}
@@ -535,6 +569,7 @@
   <section class="screen" data-tab="transfers"><div class="content" id="transfers-content"></div></section>
   <section class="screen" data-tab="fixtures"><div class="content" id="fixtures-content"></div></section>
   <section class="screen" data-tab="leagues"><div class="content" id="leagues-content"></div></section>
+  <section class="screen" data-tab="plan"><div class="content" id="plan-content"></div></section>
 </main>
 
 <footer>
@@ -563,6 +598,10 @@
     <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4z"/><path d="M8 5H5a3 3 0 0 0 3 5M16 5h3a3 3 0 0 1-3 5"/><path d="M12 13v4M9 20h6"/></svg></span>
     <span>Leagues</span>
   </button>
+  <button class="tab" data-tab="plan" role="tab" onclick="location.hash='plan'">
+    <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="17" height="17" rx="3"/><path d="M8 3v3M16 3v3M3.5 10h17"/><path d="M8.5 14.5l2.5 2.5 4.5-5"/></svg></span>
+    <span>Plan</span>
+  </button>
 </nav>
 
 <div id="compare-bar-mount"></div>
@@ -570,6 +609,12 @@
 <button class="back-to-top" id="back-to-top" aria-label="Back to top" onclick="scrollToTopSmooth()">
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
 </button>
+
+<script src="planner/rules.js"></script>
+<script src="planner/model.js"></script>
+<script src="planner/fixtures.js"></script>
+<script src="planner/solver.js"></script>
+<script src="planner/storage.js"></script>
 
 <div class="sheet-overlay" id="sheet-overlay" hidden>
   <div class="sheet">
@@ -599,7 +644,7 @@ function saveCustomAccount(account) {
 function allAccounts() {
   return [...ACCOUNTS, ...loadCustomAccounts()];
 }
-const TABS = ["home", "team", "transfers", "fixtures", "leagues"];
+const TABS = ["home", "team", "transfers", "fixtures", "leagues", "plan"];
 
 // Real Premier League primary colors -- public club brand colors, not invented.
 const CLUB_COLORS = {
@@ -1362,6 +1407,18 @@ function route() {
     openPlannerSheet();
     return;
   }
+  if (hash === "plan-sidebar") {
+    openPlanSidebarSheet();
+    return;
+  }
+  if (hash === "plan-suggestions") {
+    openPlanSuggestionsSheet();
+    return;
+  }
+  if (hash === "plan-compare") {
+    openPlanCompareSheet();
+    return;
+  }
   if (hash.startsWith("chip-")) {
     openChipSheet(hash.slice(5));
     return;
@@ -1409,7 +1466,7 @@ function goToTransferReview(rec) {
 }
 
 function renderCurrentTab() {
-  const renderers = { home: renderHome, team: renderTeam, transfers: renderTransfers, fixtures: renderFixtures, leagues: renderLeagues };
+  const renderers = { home: renderHome, team: renderTeam, transfers: renderTransfers, fixtures: renderFixtures, leagues: renderLeagues, plan: renderPlan };
   renderers[state.lastTab]();
   const bar = document.getElementById("compare-bar-mount");
   if (bar) bar.innerHTML = compareBarBlock();
@@ -2928,6 +2985,686 @@ function renderTransfers() {
   `;
   document.getElementById("player-search").oninput = (e) => { state.transferFilter.query = e.target.value; renderTransferList(); };
   renderTransferList();
+}
+
+// ============================================================
+// PLAN -- multi-gameweek transfer planner. Draft data/rules/carry-forward/solver logic all
+// lives in planner/*.js (loaded above, before this script) so it's DOM-free and unit-tested
+// (tests/planner/*.test.js, run via `npm test`) -- everything in this section is UI glue over
+// those pure modules, same split the task's own implementation notes ask for.
+//
+// A "draft" is a hypothetical future squad state, entirely separate from the live squad
+// (state.team) and never submitted anywhere -- same local-workspace convention as
+// fq_local_team_<accountId> elsewhere in this file. Up to 5 saved per account (PlannerStorage's
+// own cap), persisted to localStorage since this app has no accounts system.
+// ============================================================
+
+const PLAN_HORIZON_GAMEWEEKS = 5;
+
+function planActiveIdKey() { return `fq_planner_active_draft_id_${state.accountId}`; }
+function planWatchlistKey() { return `fq_planner_watchlist_${state.accountId}`; }
+
+function loadPlanWatchlist() {
+  try { return JSON.parse(localStorage.getItem(planWatchlistKey())) || []; } catch { return []; }
+}
+function togglePlanWatchlist(playerId) {
+  const ids = new Set(state.planWatchlist || loadPlanWatchlist());
+  ids.has(playerId) ? ids.delete(playerId) : ids.add(playerId);
+  state.planWatchlist = [...ids];
+  localStorage.setItem(planWatchlistKey(), JSON.stringify(state.planWatchlist));
+  renderPlanSidebarSheet();
+  renderPlan();
+}
+
+// FPL's own chip codes (app_profile_<id>.json's chips[].chip_type, straight from bootstrap's
+// entry/history endpoint) don't match this planner's own chip-type strings -- see
+// app_export.CHIP_DISPLAY_NAMES for the canonical source of the left-hand codes.
+const FPL_CHIP_CODE_TO_PLANNER_TYPE = { wildcard: "wildcard", freehit: "free_hit", "3xc": "triple_captain", bboost: "bench_boost" };
+
+/** Splits this account's REAL, already-used chips (app_profile_<id>.json's own chips[], not
+ * guessed) into the two half-season sets a fresh draft needs to respect -- without this, a new
+ * draft would silently let a manager "re-plan" a chip they already burned for real earlier this
+ * season. Gracefully empty (no profile data yet) rather than blocking draft creation. */
+function planChipHistoryFromProfile() {
+  const chips = (state.profile && state.profile.chips) || [];
+  const set1 = [], set2 = [];
+  chips.forEach(c => {
+    if (!c.used) return;
+    const type = FPL_CHIP_CODE_TO_PLANNER_TYPE[c.chip_type];
+    if (!type) return;
+    (c.used_gameweek < PlannerModel.GW19_DEADLINE_GAMEWEEK ? set1 : set2).push(type);
+  });
+  return { set1, set2 };
+}
+
+/** Builds a fresh draft from this account's real, live squad (data/dashboard/app_team_<id>.json)
+ * -- the "existing squad" a real manager actually holds, not a from-scratch M5-style pick. */
+function planDraftFromLiveSquad() {
+  const team = state.team;
+  const baseSquad = team.squad.map(p => ({ playerId: p.player_id, inXI: p.in_xi, isCaptain: p.is_captain, isVice: p.is_vice_captain }));
+  const chipHistory = planChipHistoryFromProfile();
+  return PlannerModel.createDraft({
+    name: "My squad plan", entryId: state.accountId, baseGameweek: team.gameweek,
+    baseSquad, baseBank: team.bank || 0, baseFreeTransfers: team.free_transfers != null ? team.free_transfers : 1,
+    chipsUsedSet1: chipHistory.set1, chipsUsedSet2: chipHistory.set2,
+  });
+}
+
+function persistPlanDraft() {
+  const result = PlannerStorage.saveDraft(localStorage, state.planDraft);
+  state.planSaveError = result.ok ? null : result.reason;
+  if (result.ok) { state.planDraft = result.draft; localStorage.setItem(planActiveIdKey(), state.planDraft.id); }
+  return result;
+}
+
+function ensurePlanDraft() {
+  if (!state.planWatchlist) state.planWatchlist = loadPlanWatchlist();
+  if (state.planDraft) return;
+  const activeId = localStorage.getItem(planActiveIdKey());
+  let draft = activeId ? PlannerStorage.getDraft(localStorage, activeId) : null;
+  if (!draft) {
+    draft = PlannerStorage.listDrafts(localStorage).find(d => d.entryId === state.accountId) || null;
+  }
+  if (!draft && state.team) draft = planDraftFromLiveSquad();
+  state.planDraft = draft;
+  state.planViewGw = draft ? draft.baseGameweek : null;
+  state.planPendingTransfer = null;
+  state.planSelectedOutId = null;
+  if (draft) persistPlanDraft();
+}
+
+function planSwitchDraft(id) {
+  const d = PlannerStorage.getDraft(localStorage, id);
+  if (!d) return;
+  state.planDraft = d;
+  state.planViewGw = d.baseGameweek;
+  state.planPendingTransfer = null;
+  state.planSelectedOutId = null;
+  localStorage.setItem(planActiveIdKey(), d.id);
+  renderPlan();
+}
+
+/** Forks a new draft: `source==="live"` starts from the real live squad; `source==="current"`
+ * starts from the currently-active draft's squad AT THE GAMEWEEK BEING VIEWED -- exactly what
+ * lets a manager branch two strategies from the same decision point to compare them. */
+function planNewDraft(source) {
+  let fresh;
+  if (source === "live" && state.team) {
+    fresh = planDraftFromLiveSquad();
+  } else if (state.planDraft) {
+    const computed = planComputedState();
+    fresh = PlannerModel.createDraft({
+      name: state.planDraft.name + " (branch)", entryId: state.accountId, baseGameweek: state.planViewGw,
+      baseSquad: computed.squad, baseBank: computed.bank, baseFreeTransfers: computed.freeTransfersAvailable,
+      chipsUsedSet1: computed.chipsUsedSet1, chipsUsedSet2: computed.chipsUsedSet2,
+    });
+  } else return;
+  const result = PlannerStorage.saveDraft(localStorage, fresh);
+  if (!result.ok) { state.planSaveError = result.reason; renderPlan(); return; }
+  planSwitchDraft(result.draft.id);
+}
+
+function planDuplicateDraft() {
+  if (!state.planDraft) return;
+  const result = PlannerStorage.duplicateDraft(localStorage, state.planDraft.id);
+  if (!result.ok) { state.planSaveError = result.reason; renderPlan(); return; }
+  planSwitchDraft(result.draft.id);
+}
+
+function planDeleteDraft(id) {
+  PlannerStorage.deleteDraft(localStorage, id);
+  if (state.planDraft && state.planDraft.id === id) {
+    state.planDraft = null;
+    localStorage.removeItem(planActiveIdKey());
+    ensurePlanDraft();
+  }
+  renderPlan();
+}
+
+function planRenameDraft(name) {
+  if (!state.planDraft || !name || !name.trim()) return;
+  state.planDraft = PlannerModel.renameDraft(state.planDraft, name.trim());
+  persistPlanDraft();
+  renderPlan();
+}
+
+function shiftPlanGw(delta) {
+  if (!state.planDraft) return;
+  const next = Math.max(state.planDraft.baseGameweek, Math.min(PlannerModel.LAST_GAMEWEEK, state.planViewGw + delta));
+  if (next === state.planViewGw) return;
+  state.planViewGw = next;
+  state.planPendingTransfer = null;
+  state.planSelectedOutId = null;
+  renderPlan();
+}
+
+function setPlanViewMode(mode) {
+  state.planViewMode = mode;
+  renderPlan();
+}
+
+function planComputedState() {
+  return PlannerModel.computeStateAtGameweek(state.planDraft, state.planViewGw, state.playersById);
+}
+
+function planHorizonGws(fromGw) {
+  const gws = [];
+  for (let gw = fromGw; gw < fromGw + PLAN_HORIZON_GAMEWEEKS && gw <= PlannerModel.LAST_GAMEWEEK; gw++) gws.push(gw);
+  return gws;
+}
+
+function planProjByElement() {
+  return PlannerSolver.projectionsByElementId(state.projections);
+}
+
+// ---- transfers -------------------------------------------------------------------------
+
+function planSelectOut(playerId) {
+  state.planSelectedOutId = state.planSelectedOutId === playerId ? null : playerId;
+  state.planPendingTransfer = null;
+  if (state.planSelectedOutId != null) { location.hash = "plan-sidebar"; }
+  else { renderPlan(); }
+}
+
+function planSelectIn(inId) {
+  if (state.planSelectedOutId == null) return;
+  state.planPendingTransfer = [{ outId: state.planSelectedOutId, inId }];
+  history.back(); // closes the sidebar sheet via the normal route()/closeSheet() path
+}
+
+/** Stages a whole combo of transfer pairs (e.g. a 2-for-2 from the multi-transfer solver) as
+ * the pending transfer in one go -- same preview/confirm/cancel flow as a single tap-selected
+ * transfer, just with more than one {outId, inId} pair. */
+function planSelectMultiSuggestion(pairsArr) {
+  state.planSelectedOutId = null;
+  state.planPendingTransfer = pairsArr;
+  history.back();
+}
+
+/** Applies every pending transfer pair, in order, to a SCRATCH copy of the draft (never
+ * mutates state.planDraft) so the UI can preview their COMBINED effect -- resulting squad,
+ * bank, and Rules.validateDraftSquad() warnings -- before the manager confirms. This is the
+ * "block confirming until resolved" mechanism: the Confirm button below stays disabled while
+ * `validation.valid` is false. Works identically for a single tap-selected transfer (an
+ * array of length 1) and a multi-transfer combo from the solver (length 2+). */
+function planPendingPreview() {
+  const t = state.planPendingTransfer;
+  if (!t || !t.length || !state.planDraft) return null;
+  let scratchDraft = state.planDraft;
+  t.forEach(pair => { scratchDraft = PlannerModel.applyTransfer(scratchDraft, state.planViewGw, pair.outId, pair.inId); });
+  const computed = PlannerModel.computeStateAtGameweek(scratchDraft, state.planViewGw, state.playersById);
+  const validation = PlannerRules.validateDraftSquad(computed.squad, state.playersById, computed.bank);
+  return { scratchDraft, computed, validation };
+}
+
+function planConfirmPendingTransfer() {
+  const preview = planPendingPreview();
+  if (!preview || !preview.validation.valid) return;
+  state.planDraft = preview.scratchDraft;
+  state.planPendingTransfer = null;
+  state.planSelectedOutId = null;
+  persistPlanDraft();
+  renderPlan();
+}
+
+function planCancelPendingTransfer() {
+  state.planPendingTransfer = null;
+  state.planSelectedOutId = null;
+  renderPlan();
+}
+
+function planUndoTransfer(index) {
+  state.planDraft = PlannerModel.undoTransfer(state.planDraft, state.planViewGw, index);
+  persistPlanDraft();
+  renderPlan();
+}
+
+// ---- drag-and-drop: an alternative to tap-to-select, for both rearranging the lineup (drag
+// one squad/bench card onto another within the pitch/list view to swap their starting-XI/bench
+// status) and picking a transfer replacement (drag a candidate row onto the drop zone in the
+// sidebar sheet). Native HTML5 DnD -- a desktop-mouse enhancement layered on top of the
+// tap-to-select flow, which stays the primary, always-working path (touch devices can't rely
+// on native HTML5 drag the way a mouse can, and every drag target here is also directly
+// tappable/clickable, so nothing is drag-only).
+let _planDragPlayerId = null;
+
+function planDragStart(event, playerId) {
+  _planDragPlayerId = playerId;
+  try { event.dataTransfer.setData("text/plain", String(playerId)); event.dataTransfer.effectAllowed = "move"; } catch (e) {}
+}
+
+function planDragOverZone(event) {
+  event.preventDefault();
+  event.currentTarget.classList.add("drag-over");
+}
+function planDragLeaveZone(event) {
+  event.currentTarget.classList.remove("drag-over");
+}
+
+/** Reads the dragged player's id off the drop event -- dataTransfer first (the real,
+ * spec-correct source), falling back to the module-level var set in planDragStart() for
+ * environments where a same-page drag's dataTransfer.getData() isn't reliably readable on
+ * drop (a documented cross-browser inconsistency, not a made-up concern). */
+function planDroppedPlayerId(event) {
+  event.preventDefault();
+  event.currentTarget.classList.remove("drag-over");
+  let id = null;
+  try { const raw = event.dataTransfer.getData("text/plain"); if (raw) id = Number(raw); } catch (e) {}
+  if (id == null) id = _planDragPlayerId;
+  _planDragPlayerId = null;
+  return id;
+}
+
+function planDropSwapXI(event, targetPlayerId) {
+  const draggedId = planDroppedPlayerId(event);
+  if (draggedId == null || draggedId === targetPlayerId) return;
+  try {
+    state.planDraft = PlannerModel.swapXIStatus(state.planDraft, state.planViewGw, state.playersById, draggedId, targetPlayerId);
+    persistPlanDraft();
+    renderPlan();
+  } catch (e) {
+    state.planSaveError = e.message;
+    renderPlan();
+  }
+}
+
+function planDropSelectIn(event) {
+  const droppedId = planDroppedPlayerId(event);
+  if (droppedId == null) return;
+  planSelectIn(droppedId);
+}
+
+// ---- chips ------------------------------------------------------------------------------
+
+function planToggleChip(chipType) {
+  if (!state.planDraft) return;
+  const computed = planComputedState();
+  try {
+    state.planDraft = PlannerModel.setChip(state.planDraft, state.planViewGw, computed.activeChip === chipType ? null : chipType);
+    persistPlanDraft();
+  } catch (e) {
+    state.planSaveError = e.message;
+  }
+  renderPlan();
+}
+
+// ---- sidebar sheet: search/filter + replacement picker + watchlist ----------------------
+
+function openPlanSidebarSheet() { renderPlanSidebarSheet(); openSheet(); }
+
+function planSidebarRowHtml(p, opts) {
+  const projByElement = opts.projByElement;
+  const ep = PlannerSolver.horizonEp(projByElement, p.id, opts.horizon).toFixed(1);
+  const hasEp = PlannerSolver.hasProjections(projByElement);
+  const watched = (state.planWatchlist || []).includes(p.id);
+  const upcoming = fixturesForClub(p.team, opts.fromGw, 1)[0];
+  return `
+    <div class="plan-list-row" ${opts.pickMode ? `onclick="planSelectIn(${p.id})" style="cursor:pointer;" draggable="true" ondragstart="planDragStart(event, ${p.id})"` : ""}>
+      <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      <div class="name-block">
+        <div class="nm">${escapeHtml(p.web_name)} <span style="font-weight:500;color:var(--ink-dim2);">${fmtMoney(p.price)}</span></div>
+        <div class="sub">${p.team_name || ""} &middot; ${p.selected_by_percent ?? "&mdash;"}% owned${upcoming ? ` &middot; ${upcoming.opp} (${upcoming.home ? "H" : "A"})` : ""}</div>
+      </div>
+      ${upcoming ? `<span class="fdr-num" style="background:${FDR_COLOR(upcoming.difficulty)};width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;flex-shrink:0;">${upcoming.difficulty ?? "-"}</span>` : ""}
+      <div class="ep-val">${hasEp ? ep : "&mdash;"}</div>
+      <button class="watch-star ${watched ? "on" : ""}" aria-label="${watched ? "Remove from" : "Add to"} watchlist" onclick="event.stopPropagation();togglePlanWatchlist(${p.id})">${watched ? "&#9733;" : "&#9734;"}</button>
+    </div>`;
+}
+
+function renderPlanSidebarSheet() {
+  const content = document.getElementById("sheet-content");
+  if (!content || !state.planDraft) return;
+  const f = state.planFilter || (state.planFilter = { query: "", position: "All", fixtureEase: false, watchlistOnly: false });
+  const computed = planComputedState();
+  const projByElement = planProjByElement();
+  const horizon = planHorizonGws(state.planViewGw);
+  const pickMode = state.planSelectedOutId != null;
+  const outPlayer = pickMode ? state.playersById[state.planSelectedOutId] : null;
+
+  let pool;
+  if (pickMode && outPlayer) {
+    const ownedIds = new Set(computed.squad.map(h => h.playerId));
+    pool = PlannerSolver.candidatesForSlot(outPlayer, state.players, { bank: computed.bank, ownedIds });
+  } else {
+    pool = (state.players || []).slice();
+  }
+  if (f.position !== "All") pool = pool.filter(p => p.position === f.position);
+  if (f.query) { const q = f.query.toLowerCase(); pool = pool.filter(p => p.web_name.toLowerCase().includes(q)); }
+  if (f.watchlistOnly) { const w = new Set(state.planWatchlist || []); pool = pool.filter(p => w.has(p.id)); }
+  if (f.fixtureEase) {
+    pool = PlannerFixtures.playersByFixtureEase(pool, { gameweeks: state.fixtures }, state.planViewGw, 3, 2.5).map(r => r.player);
+  }
+  pool = pool.slice().sort((a, b) => PlannerSolver.horizonEp(projByElement, b.id, horizon) - PlannerSolver.horizonEp(projByElement, a.id, horizon));
+  pool = pool.slice(0, 60);
+
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:6px;">
+      <div class="name" style="font-size:16px;">${pickMode ? `Replace ${escapeHtml(outPlayer ? outPlayer.web_name : "")}` : "Search &amp; watchlist"}</div>
+      ${pickMode ? `<div class="sub">Spending power ${fmtMoney(computed.bank + (outPlayer ? outPlayer.price : 0))} &middot; same position only</div>` : ""}
+    </div>
+    ${pickMode ? `<div class="dnd-zone pick-target" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSelectIn(event)">Drag a player here (or tap one below) to confirm the replacement</div>` : ""}
+    <input class="search-input" id="plan-sidebar-search" type="search" placeholder="Search players&hellip;" value="${escapeHtml(f.query)}">
+    <div class="filter-row">
+      ${["All", "GKP", "DEF", "MID", "FWD"].map(pos => `<button class="filter-chip ${pos === f.position ? "active" : ""}" onclick="state.planFilter.position='${pos}';renderPlanSidebarSheet();">${pos}</button>`).join("")}
+    </div>
+    <div class="filter-row">
+      <button class="filter-chip ${f.fixtureEase ? "active" : ""}" onclick="state.planFilter.fixtureEase=!state.planFilter.fixtureEase;renderPlanSidebarSheet();">Easy fixtures (next 3 GW)</button>
+      <button class="filter-chip ${f.watchlistOnly ? "active" : ""}" onclick="state.planFilter.watchlistOnly=!state.planFilter.watchlistOnly;renderPlanSidebarSheet();">Watchlist only</button>
+    </div>
+    <p style="font-size:10px;color:var(--ink-dim2);margin:2px 0 8px;">xPts summed over the next ${horizon.length} planned gameweek${horizon.length === 1 ? "" : "s"} (GW${horizon[0] ?? state.planViewGw}${horizon.length > 1 ? `&ndash;${horizon[horizon.length - 1]}` : ""})${PlannerSolver.hasProjections(projByElement) ? "" : " &mdash; not published yet, showing &mdash;"}.</p>
+    <div>${pool.map(p => planSidebarRowHtml(p, { projByElement, horizon, fromGw: state.planViewGw, pickMode })).join("") || `<p class="empty-state">No players match.</p>`}</div>
+  `;
+  const search = document.getElementById("plan-sidebar-search");
+  if (search) search.oninput = (e) => { state.planFilter.query = e.target.value; renderPlanSidebarSheet(); };
+}
+
+// ---- solver: greedy transfer suggestions -------------------------------------------------
+
+function openPlanSuggestionsSheet() { renderPlanSuggestionsSheet(); openSheet(); }
+
+function planSelectSuggestion(outId, inId) {
+  planSelectMultiSuggestion([{ outId, inId }]);
+}
+
+/** window-global so the onclick markup below can pass a combo's pairs without re-deriving them
+ * from a stringified attribute -- suggestions are re-generated fresh on every sheet render, so
+ * indexing into the last-rendered array by position is safe and avoids escaping player-name
+ * strings into inline JS. */
+let _planLastMultiSuggestions = [];
+
+function planSelectMultiSuggestionAt(index) {
+  const s = _planLastMultiSuggestions[index];
+  if (!s) return;
+  const pairsArr = s.outIds.map((outId, i) => ({ outId, inId: s.inIds[i] }));
+  planSelectMultiSuggestion(pairsArr);
+}
+
+function renderPlanSuggestionsSheet() {
+  const content = document.getElementById("sheet-content");
+  if (!content || !state.planDraft) return;
+  const computed = planComputedState();
+  const projByElement = planProjByElement();
+  if (!PlannerSolver.hasProjections(projByElement)) {
+    content.innerHTML = `
+      <div class="player-hero" style="padding-bottom:8px;"><div class="name" style="font-size:16px;">Suggested transfers</div></div>
+      <p class="empty-state">No projections published yet (data/dashboard/projections_latest.json) &mdash; check back after the next scheduled run.</p>`;
+    return;
+  }
+  const horizon = planHorizonGws(state.planViewGw);
+  const freeTransfersAvailable = computed.unlimitedTransfersThisGw ? 999 : computed.freeTransfersAvailable;
+  const suggestions = PlannerSolver.suggestTransfers(computed, state.playersById, state.players, projByElement, {
+    horizonGameweeks: horizon, freeTransfersAvailable, maxSuggestions: 8,
+  });
+  const multiSuggestions = PlannerSolver.suggestMultiTransfers(computed, state.playersById, state.players, projByElement, {
+    horizonGameweeks: horizon, freeTransfersAvailable, maxSuggestions: 6,
+  });
+  _planLastMultiSuggestions = multiSuggestions;
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:8px;">
+      <div class="name" style="font-size:16px;">Suggested transfers</div>
+      <div class="sub">Ranked by projected GW${horizon[0]}&ndash;${horizon[horizon.length - 1]} points minus any hit cost.</div>
+    </div>
+    <div class="section-title" style="color:var(--ink);margin-bottom:6px;"><span>Single transfer</span></div>
+    ${suggestions.length ? suggestions.map(s => `
+      <div class="rec" onclick="planSelectSuggestion(${s.outId}, ${s.inId})" style="cursor:pointer;">
+        <div class="move"><span class="out">${escapeHtml(s.outName)}</span>&rarr;<span class="in">${escapeHtml(s.inName)}</span></div>
+        <div class="net">${s.net >= 0 ? "+" : ""}${s.net.toFixed(1)}</div>
+      </div>`).join("") : `<p class="empty-state">No net-positive single transfer found for this squad right now.</p>`}
+    <div class="section-title" style="color:var(--ink);margin:14px 0 6px;"><span>Double transfer (2-for-2)</span></div>
+    <p style="font-size:10px;color:var(--ink-dim2);margin:0 0 4px;">Bounded combinatorial search &mdash; both legs of a combo evaluated together, not as two independent swaps.</p>
+    ${multiSuggestions.length ? multiSuggestions.map((s, i) => `
+      <div class="rec" onclick="planSelectMultiSuggestionAt(${i})" style="cursor:pointer;">
+        <div class="move"><span class="out">${s.outNames.map(escapeHtml).join(" + ")}</span>&rarr;<span class="in">${s.inNames.map(escapeHtml).join(" + ")}</span></div>
+        <div class="net">${s.net >= 0 ? "+" : ""}${s.net.toFixed(1)}</div>
+      </div>`).join("") : `<p class="empty-state">No net-positive 2-for-2 combo found for this squad right now.</p>`}
+  `;
+}
+
+// ---- compare drafts side by side ---------------------------------------------------------
+
+function openPlanCompareSheet() { renderPlanCompareSheet(); openSheet(); }
+
+function planFurthestGw(draft) {
+  const keys = Object.keys(draft.gwPlans).map(Number);
+  return keys.length ? Math.max(draft.baseGameweek, ...keys) : draft.baseGameweek;
+}
+
+function renderPlanCompareSheet() {
+  const content = document.getElementById("sheet-content");
+  if (!content) return;
+  const drafts = PlannerStorage.listDrafts(localStorage).filter(d => d.entryId === state.accountId);
+  const projByElement = planProjByElement();
+  const rows = drafts.map(d => {
+    const gw = planFurthestGw(d);
+    const computed = PlannerModel.computeStateAtGameweek(d, gw, state.playersById);
+    const projectedPoints = computed.squad.filter(h => h.inXI).reduce((sum, h) => sum + PlannerSolver.horizonEp(projByElement, h.playerId, [gw]), 0);
+    return {
+      draft: d, gameweek: gw, bank: computed.bank,
+      squadValue: PlannerModel.squadValue(computed.squad, state.playersById),
+      cumulativeCost: computed.cumulativeTransferCost, projectedPoints,
+    };
+  });
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:8px;"><div class="name" style="font-size:16px;">Compare drafts</div><div class="sub">Each compared at its own furthest-planned gameweek.</div></div>
+    ${rows.length ? `
+    <div style="overflow-x:auto;">
+    <table class="compare-table">
+      <thead><tr><th>Draft</th><th>GW</th><th>Proj. XI pts</th><th>Bank</th><th>Squad value</th><th>Hits cost</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>${escapeHtml(r.draft.name)}${state.planDraft && r.draft.id === state.planDraft.id ? " &middot; active" : ""}</td><td>${r.gameweek}</td><td>${PlannerSolver.hasProjections(projByElement) ? r.projectedPoints.toFixed(1) : "&mdash;"}</td><td>${fmtMoney(r.bank)}</td><td>${fmtMoney(r.squadValue)}</td><td>${r.cumulativeCost ? "-" + r.cumulativeCost : "0"}</td></tr>`).join("")}</tbody>
+    </table>
+    </div>` : `<p class="empty-state">Save at least one more draft to compare.</p>`}
+  `;
+}
+
+// ---- main render --------------------------------------------------------------------------
+
+function planTeamInfoBlock(computed) {
+  const gw19 = PlannerModel.checkGw19Deadline(state.planViewGw, computed.chipsUsedSet1);
+  return `
+    <div class="stat-row">
+      <div class="stat-tile"><div class="k">Bank</div><div class="v">${fmtMoney(computed.bank)}</div></div>
+      <div class="stat-tile"><div class="k">Squad value</div><div class="v">${fmtMoney(PlannerModel.squadValue(computed.squad, state.playersById))}</div></div>
+      <div class="stat-tile"><div class="k">Spending power</div><div class="v">${fmtMoney(PlannerModel.spendingPower(computed.squad, computed.bank, state.playersById))}</div></div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-tile"><div class="k">Free transfers</div><div class="v ${computed.unlimitedTransfersThisGw ? "g" : ""}">${computed.unlimitedTransfersThisGw ? "Unlimited" : computed.freeTransfersAvailable}</div></div>
+      <div class="stat-tile"><div class="k">This GW's hit</div><div class="v" style="${computed.transferCostThisGw ? "color:var(--red);" : ""}">${computed.transferCostThisGw ? "-" + computed.transferCostThisGw : "0"}</div></div>
+      <div class="stat-tile"><div class="k">Active chip</div><div class="v" style="font-size:12.5px;">${computed.activeChip ? CHIP_LABELS[computed.activeChip] : "None"}</div></div>
+    </div>
+    ${gw19.urgent ? `<div class="flag-banner"><b>Chip set 1 closes at the GW19 deadline</b> &mdash; ${gw19.unusedSet1Chips.map(c => CHIP_LABELS[c]).join(", ")} still unused, ${gw19.gameweeksUntilGw19} gameweek${gw19.gameweeksUntilGw19 === 1 ? "" : "s"} left.</div>` : ""}
+    ${gw19.forfeitedNow ? `<div class="flag-banner severe"><b>First-half chip set is closed.</b> ${gw19.unusedSet1Chips.map(c => CHIP_LABELS[c]).join(", ")} went unused before GW19 and ${gw19.unusedSet1Chips.length === 1 ? "is" : "are"} gone for this half of the season.</div>` : ""}
+  `;
+}
+
+const CHIP_LABELS = { wildcard: "Wildcard", free_hit: "Free Hit", bench_boost: "Bench Boost", triple_captain: "Triple Captain" };
+const CHIP_ICONS = { wildcard: "&#127183;", free_hit: "&#9889;", bench_boost: "&#128282;", triple_captain: "&#127942;" };
+
+function planChipRowBlock(computed) {
+  return `<div class="chip-row">
+    ${PlannerModel.ALL_CHIP_TYPES.map(chip => {
+      const active = computed.activeChip === chip;
+      const check = PlannerModel.canAssignChip(state.planDraft, state.planViewGw, chip);
+      const disabled = !active && !check.allowed;
+      return `<button class="chip-btn ${active ? "active" : ""}" ${disabled ? "disabled" : ""} title="${disabled ? escapeHtml(check.reason) : ""}" onclick="planToggleChip('${chip}')">
+        <span class="chip-icon">${CHIP_ICONS[chip]}</span>${CHIP_LABELS[chip]}
+      </button>`;
+    }).join("")}
+  </div>`;
+}
+
+function planPendingBlock() {
+  const preview = planPendingPreview();
+  if (!preview) return "";
+  const pairsArr = state.planPendingTransfer;
+  const horizon = planHorizonGws(state.planViewGw);
+  const projByElement = planProjByElement();
+  let priceDelta = 0, epGain = 0;
+  const moveLines = pairsArr.map(pair => {
+    const outPlayer = state.playersById[pair.outId], inPlayer = state.playersById[pair.inId];
+    priceDelta += (inPlayer ? inPlayer.price : 0) - (outPlayer ? outPlayer.price : 0);
+    epGain += PlannerSolver.horizonEp(projByElement, pair.inId, horizon) - PlannerSolver.horizonEp(projByElement, pair.outId, horizon);
+    return `${escapeHtml(outPlayer ? outPlayer.web_name : "?")} &rarr; ${escapeHtml(inPlayer ? inPlayer.web_name : "?")}`;
+  });
+  return `
+    <div class="plan-pending">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+        <span style="font-weight:700;font-size:13px;color:oklch(0.32 0.1 250);">${moveLines.join(" &middot; ")}</span>
+        <span style="font-size:11px;font-weight:700;color:oklch(0.38 0.05 250);">${PlannerSolver.hasProjections(projByElement) ? `${epGain >= 0 ? "+" : ""}${epGain.toFixed(1)} pts` : ""}</span>
+      </div>
+      <div style="font-size:11px;color:oklch(0.38 0.05 250);margin-bottom:10px;">Price change ${priceDelta.toFixed(1)}m &middot; resulting bank ${fmtMoney(preview.computed.bank)}${preview.computed.transferCostThisGw ? ` &middot; hit -${preview.computed.transferCostThisGw}` : ""}</div>
+      ${!preview.validation.valid ? preview.validation.warnings.map(w => `<div class="flag-banner severe" style="margin-bottom:8px;">${escapeHtml(w.message)}</div>`).join("") : ""}
+      <button class="local-btn ${preview.validation.valid ? "active" : ""}" ${preview.validation.valid ? "" : "disabled"} onclick="planConfirmPendingTransfer()">Confirm ${pairsArr.length > 1 ? "transfers" : "transfer"}</button>
+      <button class="local-btn" onclick="planCancelPendingTransfer()">Cancel</button>
+    </div>`;
+}
+
+function planTransferHistoryBlock() {
+  const plan = PlannerModel.planFor(state.planDraft, state.planViewGw);
+  if (!plan.transfersOut.length) return "";
+  return `
+    <div class="section-title" style="color:var(--on-dark);margin-top:4px;"><span>Transfers this GW</span></div>
+    <div class="stat-list">
+      ${plan.transfersOut.map((outId, i) => {
+        const outP = state.playersById[outId], inP = state.playersById[plan.transfersIn[i]];
+        return `<div class="sl-row"><div class="sl-label">${escapeHtml(outP ? outP.web_name : "?")} &rarr; ${escapeHtml(inP ? inP.web_name : "?")}</div><div class="sl-value"><button class="local-btn" style="margin:0;" onclick="planUndoTransfer(${i})">Undo</button></div></div>`;
+      }).join("")}
+    </div>`;
+}
+
+function planPlayerCardData(holding, projByElement, horizon) {
+  const p = state.playersById[holding.playerId];
+  if (!p) return null;
+  const upcoming = fixturesForClub(p.team, state.planViewGw, 1)[0];
+  const ep = PlannerSolver.horizonEp(projByElement, p.id, [state.planViewGw]);
+  return { p, holding, upcoming, ep };
+}
+
+function planPitchCardHtml(row) {
+  if (!row) return "";
+  const { p, holding, upcoming, ep } = row;
+  const selected = state.planSelectedOutId === p.id;
+  return `
+    <div class="pcard anim-in" style="${selected ? "outline:2.5px solid oklch(0.6 0.2 25);border-radius:14px;" : ""}" onclick="planSelectOut(${p.id})"
+      draggable="true" ondragstart="planDragStart(event, ${p.id})" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSwapXI(event, ${p.id})">
+      <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      ${holding.isCaptain ? `<div class="cap-badge">C</div>` : holding.isVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
+      <div class="p-tag">${escapeHtml(p.web_name)}</div>
+      <div class="p-pts-tag">${PlannerSolver.hasProjections(planProjByElement()) ? ep.toFixed(1) : "&mdash;"}${upcoming ? ` <span style="opacity:0.7;">${upcoming.opp}</span>` : ""}</div>
+    </div>`;
+}
+
+function planPitchHtml(computed) {
+  const projByElement = planProjByElement();
+  const byPos = (pos) => computed.squad.filter(h => h.inXI && state.playersById[h.playerId] && state.playersById[h.playerId].position === pos);
+  const bench = computed.squad.filter(h => !h.inXI);
+  const rowHtml = (pos) => `<div class="prow">${byPos(pos).map(h => planPitchCardHtml(planPlayerCardData(h, projByElement, null))).join("")}</div>`;
+  return `
+    <div class="pitch-wrap">
+      <div class="pitch-stripe"></div>
+      <div class="pitch-lines">
+        <div class="ln" style="left:8px;right:8px;top:8px;bottom:8px;"></div>
+        <div class="ln" style="left:8px;right:8px;top:50%;height:0;"></div>
+        <div class="circle" style="width:70px;height:70px;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
+      </div>
+      <div class="pitch-rows">
+        ${rowHtml("GKP")}${rowHtml("DEF")}${rowHtml("MID")}${rowHtml("FWD")}
+      </div>
+    </div>
+    <div class="bench-section">
+      <div class="bench-label">Bench</div>
+      <div class="bench-row">
+        ${bench.map(h => {
+          const row = planPlayerCardData(h, projByElement, null);
+          if (!row) return "";
+          const selected = state.planSelectedOutId === row.p.id;
+          return `<div class="bcard" style="${selected ? "outline:2.5px solid oklch(0.6 0.2 25);border-radius:14px;" : ""}" onclick="planSelectOut(${row.p.id})"
+            draggable="true" ondragstart="planDragStart(event, ${row.p.id})" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSwapXI(event, ${row.p.id})">
+            <div class="b-avatar" style="background:${clubColor(row.p.team_name)}">${jerseyIcon()}</div>
+            <div class="b-name">${escapeHtml(row.p.web_name)}</div>
+            <div class="b-pts">${row.p.position} &middot; ${PlannerSolver.hasProjections(projByElement) ? row.ep.toFixed(1) : "&mdash;"}</div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`;
+}
+
+function planListHtml(computed) {
+  const projByElement = planProjByElement();
+  const horizon = [state.planViewGw];
+  const rows = computed.squad.slice().sort((a, b) => (b.inXI - a.inXI));
+  return `<div class="stat-list">${rows.map(h => {
+    const row = planPlayerCardData(h, projByElement, horizon);
+    if (!row) return "";
+    const selected = state.planSelectedOutId === row.p.id;
+    return `<div class="plan-list-row ${selected ? "selected-out" : ""}" style="cursor:pointer;" onclick="planSelectOut(${row.p.id})"
+      draggable="true" ondragstart="planDragStart(event, ${row.p.id})" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSwapXI(event, ${row.p.id})">
+      <div class="p-avatar-sm" style="background:${clubColor(row.p.team_name)}">${jerseyIcon()}</div>
+      <div class="name-block">
+        <div class="nm">${escapeHtml(row.p.web_name)} ${h.isCaptain ? "(C)" : h.isVice ? "(V)" : ""} ${!h.inXI ? "&middot; bench" : ""}</div>
+        <div class="sub">${row.p.position} &middot; ${fmtMoney(row.p.price)}${row.upcoming ? ` &middot; ${row.upcoming.opp} (${row.upcoming.home ? "H" : "A"})` : ""}</div>
+      </div>
+      <div class="ep-val">${PlannerSolver.hasProjections(projByElement) ? row.ep.toFixed(1) : "&mdash;"}</div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function planDraftPickerBlock() {
+  const drafts = PlannerStorage.listDrafts(localStorage).filter(d => d.entryId === state.accountId);
+  return `<div class="draft-pill-row">
+    ${drafts.map(d => `<button class="draft-pill ${state.planDraft && d.id === state.planDraft.id ? "active" : ""}" onclick="planSwitchDraft('${d.id}')">${escapeHtml(d.name)}</button>`).join("")}
+    <button class="draft-pill new-draft" onclick="planNewDraft('current')">+ Branch this plan</button>
+    ${state.team ? `<button class="draft-pill new-draft" onclick="planNewDraft('live')">+ From live squad</button>` : ""}
+  </div>`;
+}
+
+function renderPlan() {
+  const el = document.getElementById("plan-content");
+  if (state.isMock) { el.innerHTML = `<p class="empty-state">Transfer planner needs real account data &mdash; not available in development mode.</p>`; return; }
+  ensurePlanDraft();
+  if (!state.planDraft) { el.innerHTML = `<div class="skel skel-block"></div><div class="skel skel-block"></div>`; return; }
+
+  const computed = planComputedState();
+  const deadlineGw = state.fixtures && state.fixtures.find(g => g.gameweek === state.planViewGw);
+  const countdown = deadlineGw ? PlannerFixtures.deadlineCountdown(deadlineGw.deadline_time, new Date()) : null;
+  const validation = PlannerRules.validateDraftSquad(computed.squad, state.playersById, computed.bank);
+  const mode = state.planViewMode || "pitch";
+
+  el.innerHTML = `
+    <div class="section-title" style="margin-bottom:10px;"><span>Transfer planner</span><span class="link-sm" onclick="location.hash='plan-compare'">Compare drafts &rsaquo;</span></div>
+    ${planDraftPickerBlock()}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
+      <input class="review-select" style="width:auto;flex:1;padding:9px 12px;font-size:12.5px;" value="${escapeHtml(state.planDraft.name)}" onchange="planRenameDraft(this.value)">
+      <button class="local-btn" style="margin:0;" onclick="planDuplicateDraft()">Duplicate</button>
+      <button class="local-btn" style="margin:0;" onclick="planDeleteDraft('${state.planDraft.id}')">Delete</button>
+    </div>
+    ${state.planSaveError ? `<div class="flag-banner severe">${escapeHtml(state.planSaveError)}</div>` : ""}
+    <div class="gw-switch" style="margin:0 auto 6px;width:fit-content;">
+      <button class="gw-btn" ${state.planViewGw <= state.planDraft.baseGameweek ? "disabled" : ""} onclick="shiftPlanGw(-1)" aria-label="Previous gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+      <span class="gw-label">GW ${state.planViewGw}</span>
+      <button class="gw-btn" ${state.planViewGw >= PlannerModel.LAST_GAMEWEEK ? "disabled" : ""} onclick="shiftPlanGw(1)" aria-label="Next gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+    ${countdown ? `<p style="text-align:center;font-size:10.5px;color:var(--on-dark-dim);margin:0 0 14px;">${countdown.isPast ? "Deadline has passed" : `Deadline in ${countdown.days}d ${countdown.hours}h ${countdown.minutes}m`}</p>` : `<p style="text-align:center;font-size:10.5px;color:var(--on-dark-dim);margin:0 0 14px;">No deadline data for this gameweek.</p>`}
+    ${planTeamInfoBlock(computed)}
+    ${planChipRowBlock(computed)}
+    ${!validation.valid ? `<div class="flag-banner severe">${validation.warnings.map(w => escapeHtml(w.message)).join("<br>")}</div>` : ""}
+    ${planPendingBlock()}
+    ${planTransferHistoryBlock()}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;">
+      <div class="view-toggle">
+        <button class="${mode === "pitch" ? "active" : ""}" onclick="setPlanViewMode('pitch')">Pitch</button>
+        <button class="${mode === "list" ? "active" : ""}" onclick="setPlanViewMode('list')">List</button>
+      </div>
+      <span style="display:flex;gap:8px;">
+        <button class="local-btn" style="margin:0;" onclick="location.hash='plan-sidebar'">Search players</button>
+        <button class="local-btn" style="margin:0;" onclick="location.hash='plan-suggestions'">Suggest transfer</button>
+      </span>
+    </div>
+    <p style="font-size:10px;color:var(--on-dark-dim);margin:8px 0 12px;">Tap a player to transfer them out, then pick a replacement &mdash; or drag one player onto another to swap them between the starting XI and bench.</p>
+    ${mode === "pitch" ? planPitchHtml(computed) : planListHtml(computed)}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:14px;">
+      Local workspace only &mdash; nothing here is ever submitted to FPL.
+    </p>
+  `;
 }
 
 // ============================================================
