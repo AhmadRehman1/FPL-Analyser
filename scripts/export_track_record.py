@@ -31,6 +31,9 @@ from fpl_quant import backtest, db, reporting  # noqa: E402
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
+DECISION_LOG_DIR = REPO_ROOT / "data" / "decision_log"
+# Same two recurring, tracked accounts Phase C-1/C-2 log/realize decisions for.
+TRACKED_ENTRY_IDS = [7139944, 1305242]
 
 # Same param-version set run_report.py's own ACTIVE_PARAM_VERSIONS uses -- duplicated rather
 # than cross-imported, matching this project's own convention of small literal constants
@@ -98,6 +101,9 @@ def main() -> None:
     )
 
     track_record = reporting.build_track_record_summary(con, report, backtest_run_id)
+    track_record["planner_decision_accuracy"] = reporting.build_planner_decision_summary(
+        DECISION_LOG_DIR, TRACKED_ENTRY_IDS, TARGET_SEASON,
+    )
     track_record["generated_at"] = datetime.now().isoformat()
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     track_record_path = DASHBOARD_DIR / "app_track_record.json"

@@ -868,6 +868,121 @@ def load_decision_log_entry(entry_id: int, season: str, gameweek: int, log_dir: 
     return json.loads(path.read_text())
 
 
+def compute_counterfactual_points(
+    baseline_picks: list[dict], live_points_by_element: dict[int, int],
+    name_to_element_id: dict[str, int], decision_row: dict,
+) -> int | None:
+    """Phase C-2 (Track C, docs/plans/2026-08_roadmap_plan.md): "what would this gameweek's
+    points have been had the manager followed the logged recommendation instead of whatever
+    they actually did." Built from the PRE-recommendation baseline squad -- the real squad the
+    recommendation was generated against, one gameweek before the logged target_gameweek (see
+    run_transfer_planner_for_real_squad.py's own bootstrap_from_real_squad() call) -- not the
+    manager's actual post-decision squad.
+
+    baseline_picks: the raw picks list from ingest_fpl_entry_picks.fetch_entry_picks()/
+    app_export.fetch_entry_picks() for that baseline gameweek -- dicts with 'element',
+    'position' (<=11 means starting XI), 'is_captain'.
+    live_points_by_element: element id -> real FPL points for the target gameweek (from
+    app_export.fetch_event_live()).
+    name_to_element_id: canonical player name -> FPL element id (reverse of
+    ingest_fpl_entry_picks.fetch_bootstrap_elements()) -- decision_log entries store names,
+    picks use element ids.
+    decision_row: one data/decision_log/ entry, in Phase C-1's own shape
+    (_resolve_decision_log_row()'s return value plus the envelope fields
+    run_transfer_planner_for_real_squad.py adds).
+
+    Returns None when the recommendation can't be honestly reconstructed from what was logged
+    -- a wildcard/free_hit recommendation replaces the WHOLE squad, and Phase C-1 never logged
+    what that replacement squad actually was (only the chip type), so fabricating one here would
+    misrepresent a real number as more certain than it is.
+
+    Disclosed simplification: does not model FPL's real auto-substitution rule (a starting
+    player who scores 0 because they didn't play is never swapped for a bench player here) --
+    no auto-substitution logic exists anywhere in this project, and reimplementing the real rule
+    (goalkeeper-for-goalkeeper, formation-legality-preserving bench order) correctly is a
+    separate undertaking. realized_points_actual (FPL's own entry_history.points for the real
+    squad) IS auto-sub-correct; this counterfactual number is not -- for a squad that would have
+    needed a substitution, the two numbers are not perfectly apples-to-apples, and that
+    asymmetry is real, not hidden.
+
+    Disclosed simplification #2 (found in critique): if the recommended transfer sells the
+    player who actually holds the baseline armband, and no separate recommended_captain override
+    is also logged for that same gameweek, the captaincy falls back to the baseline
+    vice-captain (`is_vice_captain` in baseline_picks) rather than the multiplier silently
+    applying to nobody -- a real squad always carries a valid captain, and FPL's own rule already
+    promotes the vice when the captain can't be used. This is still an approximation (a real
+    manager might have explicitly picked a third player as the new captain), not a guarantee of
+    the manager's actual choice.
+    """
+    if decision_row.get("recommended_chip") in ("wildcard", "free_hit"):
+        return None
+
+    xi_elements = {p["element"] for p in baseline_picks if p["position"] <= 11}
+    captain_element = next((p["element"] for p in baseline_picks if p.get("is_captain")), None)
+    vice_element = next((p["element"] for p in baseline_picks if p.get("is_vice_captain")), None)
+
+    if decision_row.get("recommended_action") == "transfer_now":
+        out_id = name_to_element_id.get(decision_row.get("recommended_transfer_out"))
+        in_id = name_to_element_id.get(decision_row.get("recommended_transfer_in"))
+        if out_id in xi_elements and in_id is not None:
+            xi_elements = (xi_elements - {out_id}) | {in_id}
+
+    if decision_row.get("recommended_chip") == "bench_boost":
+        xi_elements = {p["element"] for p in baseline_picks}  # every player, no bench cut
+
+    recommended_captain_id = name_to_element_id.get(decision_row.get("recommended_captain"))
+    if recommended_captain_id is not None:
+        captain_element = recommended_captain_id
+
+    if captain_element not in xi_elements:
+        captain_element = vice_element if vice_element in xi_elements else None
+
+    captain_multiplier = 3 if decision_row.get("recommended_chip") == "triple_captain" else 2
+    return sum(
+        live_points_by_element.get(element, 0) * (captain_multiplier if element == captain_element else 1)
+        for element in xi_elements
+    )
+
+
+def build_planner_decision_summary(
+    log_dir: Path | str, entry_ids: list[int], season: str, min_gameweeks: int = 8,
+) -> dict:
+    """Phase C-3 (Track C, docs/plans/2026-08_roadmap_plan.md [A4]): aggregates every REALIZED
+    data/decision_log/ entry (Phase C-2's own output -- both realized_points_actual and
+    realized_points_if_recommendation_followed present; a wildcard/free_hit recommendation Phase
+    C-2 couldn't honestly counterfactual-price is excluded, not counted as a loss) across the
+    given tracked entry_ids into one honest summary.
+
+    Below min_gameweeks realized entries, 'ready' is False and every other field is omitted --
+    an aggregate over 1-2 gameweeks would overstate what's actually known this early (see [A4]'s
+    own basis: no real week-to-week variance data exists yet to say what a meaningful sample
+    size is, so this default should be revisited once some does).
+    """
+    log_dir = Path(log_dir)
+    rows = []
+    if log_dir.is_dir():
+        for entry_id in entry_ids:
+            for path in sorted(log_dir.glob(f"{entry_id}_{season}_gw*.json")):
+                row = json.loads(path.read_text())
+                if row.get("realized_points_actual") is not None and row.get("realized_points_if_recommendation_followed") is not None:
+                    rows.append(row)
+
+    n_realized = len(rows)
+    if n_realized < min_gameweeks:
+        return {"ready": False, "n_realized": n_realized, "min_gameweeks": min_gameweeks}
+
+    deltas = [r["realized_points_if_recommendation_followed"] - r["realized_points_actual"] for r in rows]
+    return {
+        "ready": True,
+        "n_realized": n_realized,
+        "min_gameweeks": min_gameweeks,
+        "mean_point_delta_if_followed": round(sum(deltas) / n_realized, 2),
+        "n_recommendation_would_have_scored_more": sum(1 for d in deltas if d > 0),
+        "n_actual_scored_more": sum(1 for d in deltas if d < 0),
+        "n_tied": sum(1 for d in deltas if d == 0),
+    }
+
+
 def diff_reports(previous_snapshot: dict | None, current_report: dict) -> dict:
     """Compares a previously-saved snapshot (see save_report_snapshot()) against a freshly
     built current report. previous_snapshot=None (no prior gameweek's snapshot found) returns
