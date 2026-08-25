@@ -157,6 +157,37 @@ def test_apply_scenario_raises_on_unknown_player(con, monkeypatch):
         scen.apply_scenario(con, base_state, scen.Scenario(kind="injury", player_uid="totally-not-a-player"))
 
 
+def test_apply_scenario_reuses_a_supplied_baseline_instead_of_recomputing(con, monkeypatch):
+    """A caller evaluating multiple scenarios against the same base_state (run_scenarios.py's
+    real usage) must be able to compute the baseline once and pass it in -- apply_scenario()
+    should then call recommend_best_move() only for the perturbed leg, not the baseline too."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    base_state = _base_state(state_version, ts_mv, mm_mv)
+
+    call_count = 0
+    real_recommend = de.recommend_best_move
+
+    def counting_recommend(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return real_recommend(*args, **kwargs)
+
+    monkeypatch.setattr(de, "recommend_best_move", counting_recommend)
+
+    baseline = de.recommend_best_move(con, **base_state, include_sensitivity=False)
+    assert call_count == 1
+
+    result_a = scen.apply_scenario(con, base_state, scen.Scenario(kind="injury", player_uid="def0"), baseline=baseline)
+    result_b = scen.apply_scenario(con, base_state, scen.Scenario(kind="price_change", player_uid="def0", delta=0.5), baseline=baseline)
+
+    # Two more calls total (one perturbed leg per scenario) -- NOT four (which a recomputed
+    # baseline on each call would produce).
+    assert call_count == 3
+    assert result_a.baseline_decision == baseline
+    assert result_b.baseline_decision == baseline
+
+
 def test_apply_scenario_dgw_swing_raises_not_implemented(con, monkeypatch):
     state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
     monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)

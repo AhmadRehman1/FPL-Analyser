@@ -48,7 +48,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
+from fpl_quant import db, decision_engine as de, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
 from fpl_quant import scenario as scen  # noqa: E402
 from fpl_quant import transfer_planner as tp  # noqa: E402
 
@@ -147,10 +147,21 @@ def main() -> None:
         ts_model_version=ts_mv, mm_model_version=mm_mv, **PARAM_VERSIONS,
     )
 
+    # Every scenario below shares the exact same base_state, so its baseline leg (the
+    # unperturbed recommend_best_move() call) is byte-for-byte the same deterministic result
+    # every time -- computed once here and reused, instead of apply_scenario() silently paying
+    # for a full transfer_planner.run() pass (multi-gameweek EP + all-4-chip-evaluation, not
+    # cheap) again on every one of the up to 6 scenarios below. Real, measured cost cut, not a
+    # hypothetical one: this was the dominant contributor to this script's own wall-clock time.
+    print("[scenario] computing shared baseline decision...")
+    baseline = de.recommend_best_move(con, **base_state, include_sensitivity=False)
+
     rows = []
     for player_uid in bench_player_uids(current_holdings):
         print(f"[scenario] lineup_change (starting) for {player_uid}...")
-        result = scen.apply_scenario(con, base_state, scen.Scenario(kind="lineup_change", player_uid=player_uid, starting=True))
+        result = scen.apply_scenario(
+            con, base_state, scen.Scenario(kind="lineup_change", player_uid=player_uid, starting=True), baseline=baseline,
+        )
         rows.append(scenario_result_row(player_uid, result))
     # Most-actionable first: the bench player whose hypothetical start would improve the plan
     # the most.
@@ -159,7 +170,7 @@ def main() -> None:
     armband_rows = []
     for role, player_uid in armband_uids(current_holdings).items():
         print(f"[scenario] injury for {role} ({player_uid})...")
-        result = scen.apply_scenario(con, base_state, scen.Scenario(kind="injury", player_uid=player_uid))
+        result = scen.apply_scenario(con, base_state, scen.Scenario(kind="injury", player_uid=player_uid), baseline=baseline)
         row = scenario_result_row(player_uid, result)
         row["role"] = role
         armband_rows.append(row)
