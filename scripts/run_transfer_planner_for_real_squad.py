@@ -69,6 +69,35 @@ def _build_chip_preview_squad(
     ]
 
 
+def _resolve_decision_log_row(
+    hold_rec: tuple | None, recs_out: list[dict], chips_out: list[dict], captain_recommendation: dict | None,
+) -> dict:
+    """Pure transform from this run's already-computed hold/transfer/chip/captain outputs to a
+    single planner_decision_log row -- split out so the 'hold' case (recommended_action='hold',
+    still a real logged row, not an absent one -- see Plan Track C's own edge case) and the other
+    branches are unit-testable without a DB/network, same split-out-the-pure-part convention as
+    _order_chip_evaluations()/_build_chip_preview_squad() above.
+
+    hold_rec: the raw (recommended_action, transfer_now_value, hold_value) row from
+    hold_recommendations, or None. hold_recommendations.run_id is a PRIMARY KEY REFERENCES
+    transfer_plan_runs, so this is always populated for a real run_id in practice; the
+    'no_action_available' fallback here only guards the type, matching the same enum value
+    evaluate_hold_recommendation() itself already uses for that case.
+    """
+    recommended_action = hold_rec[0] if hold_rec else "no_action_available"
+    return {
+        "recommended_action": recommended_action,
+        "recommended_transfer_out": recs_out[0]["player_out"] if recommended_action == "transfer_now" and recs_out else None,
+        "recommended_transfer_in": recs_out[0]["player_in"] if recommended_action == "transfer_now" and recs_out else None,
+        "recommended_chip": next((c["chip_type"] for c in chips_out if c["recommended"]), None),
+        "recommended_captain": (
+            captain_recommendation["recommended_name"]
+            if captain_recommendation and not captain_recommendation["matches_current"]
+            else None
+        ),
+    }
+
+
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
     element_names = ifp.fetch_bootstrap_elements()
     picks = ifp.fetch_entry_picks(entry_id, event)
@@ -218,6 +247,29 @@ def main() -> None:
     captain_recommendation = reporting.build_captain_recommendation(tc_detail, actual_captain_uid, player_name_by_uid)
     if captain_recommendation:
         print(f"\n--- captain recommendation ---\n  {captain_recommendation}")
+
+    # Roadmap P1 item (Track C, docs/plans/2026-08_roadmap_plan.md): log this run's own
+    # recommendation to planner_decision_log -- new, see schema/0018's own comment for why
+    # nothing before this persisted a recommendation across gameweeks.
+    decision_row = _resolve_decision_log_row(hold_rec, recs_out, chips_out, captain_recommendation)
+    con.execute(
+        "INSERT INTO planner_decision_log (entry_id, target_season, target_gameweek, run_id, "
+        "recommended_action, recommended_transfer_out, recommended_transfer_in, recommended_chip, "
+        "recommended_captain, logged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT (entry_id, target_season, target_gameweek) DO UPDATE SET "
+        "run_id = excluded.run_id, recommended_action = excluded.recommended_action, "
+        "recommended_transfer_out = excluded.recommended_transfer_out, "
+        "recommended_transfer_in = excluded.recommended_transfer_in, "
+        "recommended_chip = excluded.recommended_chip, recommended_captain = excluded.recommended_captain, "
+        "logged_at = excluded.logged_at",
+        [
+            entry_id, TARGET_SEASON, plan_for_gameweek, run_id,
+            decision_row["recommended_action"], decision_row["recommended_transfer_out"],
+            decision_row["recommended_transfer_in"], decision_row["recommended_chip"],
+            decision_row["recommended_captain"], datetime.now(timezone.utc),
+        ],
+    )
+    print(f"\n[planner_decision_log] logged '{decision_row['recommended_action']}' for entry_id={entry_id}, GW{plan_for_gameweek}")
 
     # M9's own explainability adapter (transfer_planner.explain_plan()) -- pure assembly over
     # this same run_id, no new computation. Exported as-is so the dashboard can show the real
