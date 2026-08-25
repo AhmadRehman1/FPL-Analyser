@@ -3,10 +3,11 @@
 // directly from raw.githubusercontent.com with cache: "no-store" by index.html itself, and must
 // always hit the network for fresh gameweek data. Bumping CACHE_NAME is the only thing needed to
 // invalidate old shells on a deploy.
-const CACHE_NAME = "fq-shell-v3";
+const CACHE_NAME = "fq-shell-v4";
 const SHELL_URLS = [
   "./",
   "./index.html",
+  "./landing.html",
   "./track-record.html",
   "./manifest.json",
   "./icons/icon-192.png",

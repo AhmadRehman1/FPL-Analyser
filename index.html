@@ -429,6 +429,9 @@
   .local-btn{background:var(--card-2);color:var(--ink);border:none;font-size:11px;font-weight:700;padding:9px 13px;border-radius:100px;margin:4px 6px 0 0;transition:transform 0.12s ease,background 0.12s ease;}
   .local-btn:active{transform:scale(0.95);}
   .local-btn.active{background:var(--green);color:white;}
+  .local-btn:disabled{opacity:0.45;cursor:default;}
+  /* One-line toast for share/install feedback */
+  .fq-toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0) + 14px);left:50%;transform:translateX(-50%) translateY(20px);background:oklch(0.2 0.06 152);color:oklch(0.98 0.005 90);font-size:12.5px;font-weight:600;padding:11px 18px;border-radius:999px;z-index:1000;opacity:0;transition:opacity 0.18s ease,transform 0.18s ease;max-width:88vw;overflow-wrap:anywhere;box-shadow:0 8px 24px oklch(0.2 0.02 90 / 0.3);}
 
   /* ---- chip cards ---- */
   .chip-tile{cursor:pointer;border:none;text-align:center;font:inherit;transition:transform 0.15s ease;position:relative;}
@@ -1271,6 +1274,26 @@ function initials(name) {
 function escapeHtml(s) {
   if (s == null) return "";
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Transient bottom toast for non-critical feedback (share link copied, etc.).
+let toastTimer = null;
+function flashToast(msg) {
+  let el = document.querySelector(".fq-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "fq-toast";
+    el.setAttribute("role", "status");
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  // restart the entrance transition on each call
+  requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateX(-50%) translateY(0)"; });
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.style.opacity = "0";
+    el.style.transform = "translateX(-50%) translateY(20px)";
+  }, 2600);
 }
 
 // Every new roadmap panel (projections, squad grade, explain-my-move, leaderboard, elite
@@ -4203,6 +4226,58 @@ function devToggleBlock() {
 }
 
 // ============================================================
+// share & install -- closes the growth loop opened by landing.html. The install side reuses
+// the existing promptInstall()/deferredInstallPrompt machinery below (Chromium's
+// beforeinstallprompt); this just adds sharing via navigator.share, with a clipboard fallback
+// that copies the public Pages URL (never a localhost URL someone is browsing locally).
+// ============================================================
+const PAGES_URL = `https://${REPO_SLUG.split("/")[0].toLowerCase()}.github.io/${REPO_SLUG.split("/")[1]}/`;
+
+function shareAppUrl() {
+  // Prefer the public Pages URL; only fall back to window.location if it already looks public.
+  const here = location.href;
+  return /^https?:\/\/localhost|^file:\/\//.test(here) ? PAGES_URL : here.split("#")[0];
+}
+
+async function shareFplQuant() {
+  const url = shareAppUrl();
+  const data = {
+    title: "FPL Quant",
+    text: "Fantasy Premier League transfer, captain and chip decisions with a public model track record.",
+    url,
+  };
+  try {
+    if (navigator.share) { await navigator.share(data); return; }
+  } catch (e) { /* user cancelled or share failed -- fall through to clipboard */ }
+  try {
+    await navigator.clipboard.writeText(url);
+    flashToast("Link copied — paste it anywhere.");
+  } catch {
+    flashToast("Copy this link: " + url);
+  }
+}
+
+function shareInstallBlock() {
+  // deferredInstallPrompt is the same one promptInstall() below uses; it's set by
+  // beforeinstallprompt, so the install button only renders when an install is actually
+  // available (never a dead button).
+  const canInstall = !!deferredInstallPrompt;
+  const isStandalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+  return `
+    <div class="section-title" style="color:var(--on-dark);margin-top:6px;"><span>Share &amp; install</span></div>
+    <div class="stat-list" style="margin-bottom:10px;padding:14px 16px;">
+      <button class="local-btn" onclick="shareFplQuant()">Share FPL Quant</button>
+      ${isStandalone ? `` : `
+        <button class="local-btn" id="install-btn" onclick="promptInstall()" ${canInstall ? "" : "hidden"}>
+          Install app
+        </button>
+        ${canInstall ? `` : `<p style="font-size:11.5px;color:var(--ink-dim);line-height:1.55;margin:8px 0 0;">
+          Use your browser menu → Share → Add to Home Screen to install FPL Quant as an app.
+        </p>`}`}
+    </div>`;
+}
+
+// ============================================================
 // first-run onboarding -- a short, one-time list of genuinely easy-to-miss functionality
 // (not a marketing tour of the whole app). Routed through the same hash-based sheet mechanism
 // as every other sheet (location.hash = "welcome") rather than opened directly, because the
@@ -4304,6 +4379,7 @@ function openProfileSheet() {
       ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>
+      ${shareInstallBlock()}
       <a class="profile-menu-link" href="#welcome">Show tips again &rsaquo;</a>
       ${devToggleBlock()}
     `;

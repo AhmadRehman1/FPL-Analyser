@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FPL Quant — Fantasy Premier League decisions, backed by transparent model evidence</title>
+<meta name="description" content="FPL Quant turns your real Fantasy Premier League squad into weekly transfer, captain and chip decisions — with a public track record and data provenance behind every recommendation. Free.">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg-deep: oklch(0.29 0.065 152);
+    --card: oklch(0.985 0.004 90);
+    --card-2: oklch(0.955 0.006 90);
+    --ink: oklch(0.2 0.01 90);
+    --ink-dim: oklch(0.5 0.01 90);
+    --ink-dim2: oklch(0.55 0.01 90);
+    --on-dark: oklch(0.98 0.005 90);
+    --on-dark-dim: oklch(0.85 0.03 150);
+    --green: oklch(0.38 0.12 150);
+    --green-soft: oklch(0.93 0.15 145);
+    --gold: oklch(0.94 0.1 85);
+    --gold-ink: oklch(0.36 0.13 60);
+    --red: oklch(0.52 0.19 25);
+    --amber: oklch(0.75 0.14 75);
+    --divider: oklch(0.92 0.005 90);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;background:var(--bg-deep);color:var(--ink);font-family:"Barlow",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  body{
+    position:relative;
+    background:
+      radial-gradient(140% 60% at 10% -10%, oklch(0.52 0.12 150 / 0.85), transparent 55%),
+      radial-gradient(120% 55% at 105% 0%, oklch(0.4 0.1 155 / 0.75), transparent 50%),
+      var(--bg-deep);
+    background-attachment:fixed;
+  }
+  a{color:oklch(0.62 0.18 40);}
+  .wrap{max-width:780px;margin:0 auto;padding:0 18px 90px;position:relative;z-index:2;}
+
+  /* Top bar */
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 0 0;}
+  .brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--on-dark);}
+  .brand .mark{width:34px;height:34px;flex-shrink:0;}
+  .brand .name{font-family:"Anton",sans-serif;font-size:22px;letter-spacing:0.02em;line-height:1;}
+  .topbar .top-links{display:flex;gap:8px;}
+  .topbar .top-links a{font-size:12.5px;font-weight:600;color:var(--on-dark);text-decoration:none;background:oklch(0.2 0.05 152 / 0.5);padding:8px 13px;border-radius:999px;}
+  .topbar .top-links a:hover{background:oklch(0.2 0.05 152 / 0.85);}
+
+  /* Hero */
+  .hero{padding:40px 0 26px;color:var(--on-dark);}
+  .hero .eyebrow{font-size:12px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--on-dark-dim);margin-bottom:10px;}
+  .hero h1{font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(34px,9.2vw,56px);line-height:0.98;margin:0 0 14px;letter-spacing:0.01em;}
+  .hero p.lede{font-size:16px;line-height:1.55;color:var(--on-dark-dim);max-width:58ch;margin:0 0 22px;}
+
+  /* CTAs */
+  .cta-row{display:flex;flex-wrap:wrap;gap:10px;}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-size:14.5px;font-weight:700;padding:13px 20px;border-radius:14px;text-decoration:none;border:none;cursor:pointer;font-family:inherit;line-height:1;}
+  .btn-primary{background:var(--gold);color:var(--gold-ink);}
+  .btn-primary:hover{background:oklch(0.96 0.13 80);}
+  .btn-ghost{background:oklch(0.2 0.05 152 / 0.5);color:var(--on-dark);}
+  .btn-ghost:hover{background:oklch(0.2 0.05 152 / 0.85);}
+  .btn .arrow{font-size:16px;line-height:1;}
+
+  /* Cards */
+  .card{background:var(--card);border-radius:18px;padding:22px;margin-top:16px;box-shadow:0 1px 0 oklch(0.2 0.02 90 / 0.04),0 8px 30px oklch(0.2 0.02 90 / 0.06);}
+  .card h2{font-family:"Anton",sans-serif;font-weight:400;font-size:23px;margin:0 0 4px;letter-spacing:0.01em;color:var(--ink);}
+  .card .sub{font-size:13.5px;color:var(--ink-dim);margin:0 0 14px;line-height:1.5;}
+
+  /* Section heading (dark) */
+  .section-h{color:var(--on-dark);font-family:"Anton",sans-serif;font-size:21px;letter-spacing:0.01em;margin:34px 0 2px;}
+  .section-sub{color:var(--on-dark-dim);font-size:13.5px;line-height:1.55;margin:0 0 6px;max-width:58ch;}
+
+  /* Feature grid */
+  .feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;}
+  .feat{background:var(--card);border-radius:16px;padding:18px;}
+  .feat .ico{width:30px;height:30px;color:var(--green);margin-bottom:10px;}
+  .feat .t{font-size:14.5px;font-weight:700;color:var(--ink);margin-bottom:4px;line-height:1.25;}
+  .feat .d{font-size:12.5px;line-height:1.5;color:var(--ink-dim);}
+
+  /* Numbered steps */
+  .step{display:grid;grid-template-columns:38px 1fr;gap:14px;align-items:start;padding:14px 0;border-bottom:1px solid var(--divider);}
+  .step:last-child{border-bottom:none;}
+  .step .n{font-family:"Anton",sans-serif;font-size:24px;line-height:1;color:var(--green);}
+  .step .st{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:3px;}
+  .step .sd{font-size:12.5px;line-height:1.5;color:var(--ink-dim);}
+
+  /* Honest banner */
+  .banner{display:flex;gap:13px;align-items:flex-start;background:var(--gold);color:var(--gold-ink);border-radius:16px;padding:16px 18px;margin-top:16px;}
+  .banner .ico{font-size:20px;line-height:1.2;flex-shrink:0;}
+  .banner .txt{font-size:13.5px;line-height:1.5;}
+  .banner strong{font-weight:700;}
+
+  /* Final CTA band */
+  .final{margin-top:26px;background:oklch(0.2 0.05 152 / 0.55);border:1px solid oklch(0.5 0.06 150 / 0.35);border-radius:20px;padding:26px 22px;color:var(--on-dark);}
+  .final h2{font-family:"Anton",sans-serif;font-weight:400;font-size:26px;margin:0 0 8px;letter-spacing:0.01em;}
+  .final p{font-size:14px;line-height:1.55;color:var(--on-dark-dim);margin:0 0 18px;max-width:52ch;}
+
+  .footer{color:var(--on-dark-dim);font-size:12.5px;line-height:1.6;margin-top:30px;padding-top:18px;border-top:1px solid oklch(0.5 0.03 150 / 0.3);}
+  .footer a{color:var(--on-dark);}
+  .footer .frow{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:10px;}
+
+  @media (max-width:560px){
+    .feat-grid{grid-template-columns:1fr;}
+    .topbar .top-links a.lbl-cta{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <a class="brand" href="index.html" aria-label="FPL Quant home">
+      <svg class="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="37" height="37" rx="11" fill="oklch(0.38 0.12 150)"/>
+        <path d="M9 27 L16 20 L21 24 L31 13" stroke="oklch(0.98 0.005 90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <circle cx="31" cy="13" r="3.2" fill="oklch(0.94 0.1 85)"/>
+      </svg>
+      <span class="name">FPL&nbsp;Quant</span>
+    </a>
+    <div class="top-links">
+      <a href="track-record.html" class="lbl-cta">Track record</a>
+      <a href="index.html">Open app</a>
+    </div>
+  </div>
+
+  <header class="hero">
+    <div class="eyebrow">Fantasy Premier League · Decision support</div>
+    <h1>Weekly FPL decisions,<br>backed by model evidence.</h1>
+    <p class="lede">FPL Quant reads your real Fantasy Premier League squad and turns it into clear transfer, captain and chip calls each gameweek &mdash; with a dated audit trail and data provenance behind every recommendation. No invented accuracy scores.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="index.html">Open the app <span class="arrow">&rsaquo;</span></a>
+      <a class="btn btn-ghost" href="track-record.html">View model track record</a>
+    </div>
+  </header>
+
+  <h2 class="section-h">What it gives you</h2>
+  <p class="section-sub">A second opinion on the three decisions that decide most FPL gameweeks &mdash; built from your actual squad, not a generic template.</p>
+  <div class="card">
+    <div class="feat-grid">
+      <div class="feat">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+        <div class="t">Transfer calls</div>
+        <div class="d">Hold vs. use your free transfer, ranked player swaps, and the horizon value of each &mdash; per gameweek.</div>
+      </div>
+      <div class="feat">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <div class="t">Captain &amp; chips</div>
+        <div class="d">Who gets the armband this week, and whether Wildcard, Free Hit, Triple Captain or Bench Boost is worth playing now.</div>
+      </div>
+      <div class="feat">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        <div class="t">Future planner</div>
+        <div class="d">See your squad and projected points across upcoming gameweeks, and try a hypothetical transfer before you commit.</div>
+      </div>
+      <div class="feat">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg>
+        <div class="t">Live tracking</div>
+        <div class="d">Rank movement and live points during matches, plus price-watch and injury news surfaced when they matter.</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-h">Add your team in a minute</h2>
+  <p class="section-sub">No account to create here &mdash; it runs on free infrastructure you already have.</p>
+  <div class="card">
+    <div class="step">
+      <div class="n">1</div>
+      <div>
+        <div class="st">Open the app</div>
+        <div class="sd">Tap &ldquo;Open the app&rdquo; above. It loads instantly as a installable web app &mdash; no install required to try it.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">2</div>
+      <div>
+        <div class="st">Add your FPL team ID</div>
+        <div class="sd">From your team&rsquo;s URL on fantasy.premierleague.com. This opens a GitHub issue that a workflow processes automatically &mdash; usually ready in 1&ndash;2 minutes, no approval needed.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">3</div>
+      <div>
+        <div class="st">Get your weekly plan</div>
+        <div class="sd">Your real squad&rsquo;s transfer, captain and chip recommendations refresh on a schedule. Everything is read-only &mdash; nothing is ever submitted to FPL for you.</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-h">Trust, not marketing</h2>
+  <p class="section-sub">Every recommendation links to the evidence behind it &mdash; and there&rsquo;s a public page for the model&rsquo;s whole history.</p>
+  <div class="card">
+    <div class="feat-grid">
+      <div class="feat">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        <div class="t">Public track record</div>
+        <div class="d">A dated, per-gameweek audit trail of what the model recommended &mdash; plus data provenance for every run. <a href="track-record.html">See it &rsaquo;</a></div>
+      </div>
+      <div class="feat">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6 4 4 6-7"/><path d="M14 8h6v6"/></svg>
+        <div class="t">Honest about limits</div>
+        <div class="d">The model is v1 &mdash; not yet recalibrated or walk-forward backtested. The track record page says so plainly rather than hiding it.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="banner">
+    <span class="ico" aria-hidden="true">&#9432;</span>
+    <div class="txt"><strong>What this is, and isn&rsquo;t.</strong> FPL Quant is decision support, not a promise of points. The model is early-stage and openly not yet backtested &mdash; treat its calls as a transparent second opinion alongside your own judgement.</div>
+  </div>
+
+  <div class="final">
+    <h2>Try it with your team</h2>
+    <p>Free, no signup, installable as an app on your phone. Your squad&rsquo;s real recommendations load in a couple of minutes.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="index.html">Open the app <span class="arrow">&rsaquo;</span></a>
+      <a class="btn btn-ghost" href="track-record.html">See the track record</a>
+    </div>
+  </div>
+
+  <footer class="footer">
+    FPL Quant is an open, free project &mdash; the model code, data pipeline, and this page are all on
+    <a href="https://github.com/AhmadRehman1/FPL-Analyser">GitHub</a>. Data is fetched live from
+    the same source as the app (<code>raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master</code>).
+    <div class="frow">
+      <a href="https://github.com/AhmadRehman1/FPL-Analyser">Source code</a>
+      <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">Roadmap &amp; business plan</a>
+      <a href="track-record.html">Model track record</a>
+      <a href="index.html">Open the app</a>
+    </div>
+  </footer>
+</div>
+</body>
+</html>
