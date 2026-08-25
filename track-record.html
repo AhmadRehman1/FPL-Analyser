@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FPL Quant — Model Track Record</title>
+<meta name="description" content="An honest, dated audit trail of FPL Quant's model recommendations: every gameweek snapshot, the week-over-week diff, and the data provenance behind each run.">
+
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg-deep: oklch(0.29 0.065 152);
+    --card: oklch(0.985 0.004 90);
+    --card-2: oklch(0.955 0.006 90);
+    --ink: oklch(0.2 0.01 90);
+    --ink-dim: oklch(0.5 0.01 90);
+    --ink-dim2: oklch(0.55 0.01 90);
+    --on-dark: oklch(0.98 0.005 90);
+    --on-dark-dim: oklch(0.85 0.03 150);
+    --green: oklch(0.38 0.12 150);
+    --green-soft: oklch(0.93 0.15 145);
+    --gold: oklch(0.94 0.1 85);
+    --gold-ink: oklch(0.36 0.13 60);
+    --red: oklch(0.52 0.19 25);
+    --amber: oklch(0.75 0.14 75);
+    --divider: oklch(0.92 0.005 90);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;background:var(--bg-deep);color:var(--ink);font-family:"Barlow",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  body{
+    position:relative;
+    background:
+      radial-gradient(140% 60% at 10% -10%, oklch(0.52 0.12 150 / 0.85), transparent 55%),
+      radial-gradient(120% 55% at 105% 0%, oklch(0.4 0.1 155 / 0.75), transparent 50%),
+      var(--bg-deep);
+    background-attachment:fixed;
+  }
+  a{color:oklch(0.62 0.18 40);}
+  .wrap{max-width:760px;margin:0 auto;padding:0 18px 80px;position:relative;z-index:2;}
+
+  /* Hero */
+  .hero{padding:42px 0 26px;color:var(--on-dark);}
+  .hero .eyebrow{font-size:12px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--on-dark-dim);margin-bottom:8px;}
+  .hero h1{font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(34px,9vw,52px);line-height:0.98;margin:0 0 12px;letter-spacing:0.01em;}
+  .hero p{font-size:15.5px;line-height:1.55;color:var(--on-dark-dim);max-width:60ch;margin:0;}
+  .hero .back{display:inline-flex;align-items:center;gap:6px;margin-top:18px;font-size:13px;font-weight:600;color:var(--on-dark);background:oklch(0.2 0.05 152 / 0.6);padding:8px 14px;border-radius:999px;text-decoration:none;}
+  .hero .back:hover{background:oklch(0.2 0.05 152 / 0.9);}
+
+  /* Status pill */
+  .status-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px;}
+  .pill{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;background:var(--gold);color:var(--gold-ink);}
+  .pill .dot{width:8px;height:8px;border-radius:50%;background:var(--gold-ink);}
+  .pill.live{background:oklch(0.94 0.18 130);color:oklch(0.3 0.12 150);}
+  .pill.live .dot{background:oklch(0.4 0.16 150);}
+
+  /* Cards */
+  .card{background:var(--card);border-radius:18px;padding:20px;margin-top:16px;box-shadow:0 1px 0 oklch(0.2 0.02 90 / 0.04),0 8px 30px oklch(0.2 0.02 90 / 0.06);}
+  .card h2{font-family:"Anton",sans-serif;font-weight:400;font-size:22px;margin:0 0 4px;letter-spacing:0.01em;}
+  .card .sub{font-size:13px;color:var(--ink-dim);margin:0 0 14px;line-height:1.5;}
+
+  /* Honest-state banner */
+  .banner{display:flex;gap:13px;align-items:flex-start;background:var(--gold);color:var(--gold-ink);border-radius:16px;padding:16px 18px;margin-top:16px;}
+  .banner .ico{font-size:20px;line-height:1.2;flex-shrink:0;}
+  .banner .txt{font-size:13.5px;line-height:1.5;}
+  .banner strong{font-weight:700;}
+
+  /* KPI row */
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;}
+  .kpi{background:var(--card-2);border-radius:13px;padding:14px 12px;text-align:center;}
+  .kpi .v{font-family:"Anton",sans-serif;font-size:26px;line-height:1;}
+  .kpi .l{font-size:10.5px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.06em;margin-top:6px;line-height:1.3;}
+
+  /* Snapshot timeline */
+  .timeline{margin-top:6px;}
+  .snap{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:13px 0;border-bottom:1px solid var(--divider);}
+  .snap:last-child{border-bottom:none;}
+  .snap .gw{font-family:"Anton",sans-serif;font-size:24px;line-height:1;color:var(--green);min-width:54px;}
+  .snap .gw small{display:block;font-family:"Barlow",sans-serif;font-size:10.5px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.05em;margin-top:3px;}
+  .snap .meta{font-size:13.5px;line-height:1.4;}
+  .snap .meta .cap{color:var(--ink-dim);font-size:12.5px;}
+  .snap .ep{font-family:"Anton",sans-serif;font-size:19px;color:var(--ink);text-align:right;}
+  .snap .ep small{display:block;font-family:"Barlow",sans-serif;font-size:10px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.05em;}
+
+  /* Diff */
+  .diff-tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
+  .tag{font-size:12px;font-weight:600;padding:5px 10px;border-radius:8px;}
+  .tag.in{background:var(--green-soft);color:oklch(0.32 0.13 150);}
+  .tag.out{background:oklch(0.93 0.13 25);color:oklch(0.4 0.16 25);}
+  .tag.cap{background:var(--gold);color:var(--gold-ink);}
+  .empty-note{font-size:13px;color:var(--ink-dim);font-style:italic;margin:6px 0 0;line-height:1.5;}
+
+  /* Provenance */
+  .kv{display:grid;grid-template-columns:1fr auto;gap:8px 14px;font-size:13px;margin-top:6px;}
+  .kv .k{color:var(--ink-dim);}
+  .kv .v{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--ink);text-align:right;word-break:break-all;max-width:46ch;}
+  .kv .v.mono-sm{font-size:11px;}
+  .pkg-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 18px;margin-top:10px;}
+  .pkg{display:flex;justify-content:space-between;gap:8px;font-size:12px;}
+  .pkg .n{color:var(--ink-dim);}
+  .pkg .ver{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;}
+
+  .footer{color:var(--on-dark-dim);font-size:12.5px;line-height:1.6;margin-top:26px;padding-top:18px;border-top:1px solid oklch(0.5 0.03 150 / 0.3);}
+  .footer a{color:var(--on-dark);}
+  .err{background:var(--red);color:oklch(0.98 0.005 90);border-radius:14px;padding:14px 16px;font-size:13px;line-height:1.5;}
+  .skeleton{background:var(--card-2);border-radius:13px;height:64px;margin-top:10px;opacity:0.6;animation:pulse 1.3s ease-in-out infinite;}
+  @keyframes pulse{50%{opacity:0.35;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">FPL Quant · Transparency</div>
+    <h1>Model Track Record</h1>
+    <p>An honest, dated audit trail of what the model recommended each gameweek — plus the provenance of the data behind every run. No invented accuracy figures: realized-vs-projected metrics appear here once the walk-forward backtest is run and scored.</p>
+    <a class="back" href="index.html">&larr; Back to the app</a>
+    <div class="status-row" id="status-row"></div>
+  </header>
+
+  <div id="content"></div>
+
+  <footer class="footer">
+    Every row above is a real, time-stamped artifact the pipeline already produced — not a
+    retrofitted claim. Data is fetched live from the same source as the app
+    (<code>raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master</code>). See
+    <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">docs/BUSINESS_PLAN.md</a>
+    for the full roadmap, including when the realized-accuracy backtest lands on this page.
+  </footer>
+</div>
+
+<script>
+// Origin-aware data source: raw.githubusercontent.com in production (GitHub Pages stages
+// shell-only, so a same-origin data/ fetch would always 404 there), and relative data/ only
+// for local dev on localhost/127.0.0.1 where the repo root is served alongside this page.
+// file:// (opened as a local file) can't fetch relative JSON, so it also uses raw. This is a
+// standalone public page (not the time-sensitive add-team path), so a raw fallback is safe here.
+const RAW_FALLBACK = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
+const isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+const DATA_BASE = (location.protocol === "file:" || !isLocalDev) ? RAW_FALLBACK : "";
+
+async function fetchJSON(path) {
+  const primary = DATA_BASE ? `${DATA_BASE}/${path}` : path;
+  try {
+    const res = await fetch(`${primary}?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+    return res.json();
+  } catch (err) {
+    // Local dev with data/ missing -> fall back to raw, which always has the latest
+    // committed JSON once the scheduled report run has written it.
+    if (!DATA_BASE && RAW_FALLBACK) {
+      const res = await fetch(`${RAW_FALLBACK}/${path}?t=${Date.now()}`, { cache: "no-store" });
+      if (res.ok) return res.json();
+    }
+    throw err;
+  }
+}
+
+function fmtTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return "—";
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function renderStatus(row, generatedAt) {
+  const steps = row?.backtest?.n_gameweek_steps;
+  const backtested = row?.backtest?.parameters_backtested;
+  const total = row?.backtest?.parameters_total;
+  const notYet = steps === null || steps === undefined;
+  row.innerHTML = "";
+  const pill = notYet
+    ? `<span class="pill"><span class="dot"></span>Backtest: not yet run</span>`
+    : `<span class="pill live"><span class="dot"></span>Backtested · ${steps} GW steps</span>`;
+  const stamp = `<span class="pill" style="background:oklch(0.2 0.05 152 / 0.6);color:var(--on-dark-dim);">Last run: ${fmtTime(generatedAt)}</span>`;
+  row.innerHTML = pill + stamp;
+}
+
+function render(data) {
+  const el = document.getElementById("content");
+  const tr = data || {};
+  const log = tr.transparency_log || {};
+  const bt = log.backtest || {};
+  const snaps = log.snapshots || [];
+  const diff = log.latest_diff;
+  const prov = log.provenance || {};
+
+  const steps = bt.n_gameweek_steps;
+  const notYet = steps === null || steps === undefined;
+  const paramsBacktested = bt.parameters_backtested ?? 0;
+  const paramsTotal = bt.parameters_total ?? 0;
+
+  const metricsHtml = (bt.metrics || []).map(m =>
+    `<div class="pkg"><span class="n">${esc(m.metric_name)}</span><span class="ver">${m.mean_value != null ? m.mean_value : "—"} (n=${m.n_observations ?? 0})</span></div>`).join("");
+
+  el.innerHTML = `
+    <div class="banner">
+      <div class="ico">&#9432;</div>
+      <div class="txt"><strong>${notYet ? "No realized-accuracy backtest yet." : `Backtest run: ${steps} gameweek steps.`}</strong>
+      ${notYet
+        ? "This page shows the model's real, dated recommendation history and data provenance instead — the honest substitute for an accuracy figure until the walk-forward backtest is run and scored. Nothing here is retrofitted."
+        : "Per-metric averages from the walk-forward backtest are listed below."}</div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="v">${snaps.length}</div><div class="l">Gameweek snapshots</div></div>
+      <div class="kpi"><div class="v">${paramsBacktested}/${paramsTotal}</div><div class="l">Params backtested</div></div>
+      <div class="kpi"><div class="v">${steps ?? "—"}</div><div class="l">Backtest GW steps</div></div>
+    </div>
+
+    ${bt.metrics && bt.metrics.length ? `
+    <section class="card">
+      <h2>Backtest metrics</h2>
+      <p class="sub">Real per-metric averages recorded by the M7 walk-forward backtest — kept as separate scores, never collapsed into a single "accuracy %".</p>
+      <div class="pkg-grid">${metricsHtml}</div>
+    </section>` : ""}
+
+    <section class="card">
+      <h2>Recommendation timeline</h2>
+      <p class="sub">Every real, dated per-gameweek snapshot the model has produced — what it projected, who it captained, and the squad it picked. Newest first.</p>
+      <div class="timeline">${snaps.length ? snaps.map(s => `
+        <div class="snap">
+          <div class="gw">GW${s.gameweek}<small>${esc(s.season)}</small></div>
+          <div class="meta">
+            Captain: <strong>${esc(s.captain_name ?? "—")}</strong><br>
+            <span class="cap">${s.in_xi_count ?? 0} in XI · ${s.squad_size ?? 0} in squad</span>
+          </div>
+          <div class="ep">${s.total_projected_ep != null ? Number(s.total_projected_ep).toFixed(1) : "—"}<small>proj. EP</small></div>
+        </div>`).join("") : `<p class="empty-note">No snapshots committed yet — the first scheduled run will appear here.</p>`}</div>
+    </section>
+
+    <section class="card">
+      <h2>Latest week-over-week diff</h2>
+      <p class="sub">What changed between this gameweek's recommendation and the previous one.</p>
+      ${diff && diff.has_previous ? `
+        <div class="diff-tags">
+          ${(diff.squad_changes?.in || []).map(n => `<span class="tag in">+ ${esc(n)}</span>`).join("")}
+          ${(diff.squad_changes?.out || []).map(n => `<span class="tag out">&minus; ${esc(n)}</span>`).join("")}
+          ${diff.captain_changed ? `<span class="tag cap">Captain: ${esc(diff.previous_captain)} &rarr; ${esc(diff.current_captain)}</span>` : `<span class="tag" style="background:var(--card-2);color:var(--ink-dim);">Captain unchanged</span>`}
+          ${diff.total_projected_ep_delta != null ? `<span class="tag" style="background:var(--card-2);color:var(--ink-dim);">EP delta ${diff.total_projected_ep_delta >= 0 ? "+" : ""}${diff.total_projected_ep_delta.toFixed(1)}</span>` : ""}
+        </div>` : `<p class="empty-note">No previous gameweek to diff against yet — the first real report of a season has nothing prior.</p>`}
+    </section>
+
+    <section class="card">
+      <h2>Data provenance</h2>
+      <p class="sub">Exactly what the model ran on, when — so every recommendation above is independently reproducible from committed inputs.</p>
+      <div class="kv">
+        <span class="k">Data as of</span><span class="v">${esc(prov.data_asof ?? "—")}</span>
+        <span class="k">Repo commit</span><span class="v mono-sm">${esc((prov.fpl_analyser_commit_sha ?? "—").slice(0,12))}</span>
+        <span class="k">Evidence workbook</span><span class="v mono-sm">${prov.evidence_workbook ? esc((prov.evidence_workbook.sha256 ?? "").slice(0,12)) + " · " + (prov.evidence_workbook.size_bytes ?? 0) + " bytes" : "—"}</span>
+        <span class="k">Recorded</span><span class="v">${esc(prov.recorded_at ?? "—")}</span>
+      </div>
+      ${prov.installed_packages ? `
+      <div style="margin-top:14px;font-size:11px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.05em;">Installed packages</div>
+      <div class="pkg-grid">${Object.entries(prov.installed_packages).map(([n,v]) => `<div class="pkg"><span class="n">${esc(n)}</span><span class="ver">${esc(v)}</span></div>`).join("")}</div>` : ""}
+    </section>
+  `;
+}
+
+async function load() {
+  renderStatus(document.getElementById("status-row"), null);
+  const el = document.getElementById("content");
+  el.innerHTML = `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
+  try {
+    const data = await fetchJSON("data/dashboard/app_track_record.json");
+    renderStatus(document.getElementById("status-row"), data.generated_at);
+    render(data);
+  } catch (err) {
+    el.innerHTML = `<div class="err">Couldn't load the track record. This file is written by the scheduled report run — if the app has never run a report yet, it won't exist. <br><br>${esc(err.message)}</div>`;
+  }
+}
+load();
+</script>
+</body>
+</html>

@@ -4098,10 +4098,22 @@ function leaderboardBlock() {
 function trackRecordBlock() {
   const tr = state.trackRecord;
   if (!tr) return "";
+  // Priority 8d: the per-gameweek snapshot timeline + provenance from the public transparency
+  // log (built by reporting.build_transparency_log() and shipped alongside the backtest
+  // summary in the same app_track_record.json). Shown inline here, and linked out to the
+  // standalone public track-record.html page for a shareable, full audit-trail view.
+  const log = tr.transparency_log || {};
+  const snaps = log.snapshots || [];
+  const prov = log.provenance || {};
+  const snapRows = snaps.slice(0, 3).map(s => `
+    <div class="sl-row"><div class="sl-label">GW${s.gameweek} &middot; ${s.season}</div><div class="sl-value">${s.captain_name || "&mdash;"} &middot; ${s.total_projected_ep != null ? Number(s.total_projected_ep).toFixed(1) + " EP" : "&mdash;"}</div></div>`).join("");
   if (tr.backtest_run_id == null) {
     return `
       <div class="section-title" style="color:var(--on-dark);"><span>Model track record</span></div>
-      <p class="empty-state" style="margin-bottom:16px;">No walk-forward backtest has been run yet.</p>`;
+      <p class="empty-state" style="margin-bottom:12px;">No walk-forward backtest has been run yet &mdash; here's the dated recommendation history and data provenance instead.</p>
+      ${snaps.length ? `<div class="stat-list" style="margin-bottom:12px;">${snapRows}</div>` : ""}
+      ${prov.data_asof ? `<div class="stat-list" style="margin-bottom:12px;"><div class="sl-row"><div class="sl-label">Data as of</div><div class="sl-value">${prov.data_asof}</div></div></div>` : ""}
+      <a class="profile-menu-link" href="track-record.html" style="background:var(--green-soft);color:oklch(0.3 0.13 150);">View full public track record &rsaquo;</a>`;
   }
   const metricRows = tr.metrics.map(m => `
     <div class="sl-row"><div class="sl-label">${m.metric_name.replace(/_/g, " ")}</div><div class="sl-value">${m.mean_value} <span style="color:var(--ink-dim2);font-weight:500;">(${m.n_observations} obs)</span></div></div>`).join("");
@@ -4113,6 +4125,8 @@ function trackRecordBlock() {
       <div class="sl-row"><div class="sl-label">Parameters backtested</div><div class="sl-value">${tr.parameters_backtested} / ${tr.parameters_total}</div></div>
       <div class="sl-row"><div class="sl-label">Still literature defaults</div><div class="sl-value">${tr.parameters_still_invented}</div></div>
     </div>
+    ${snaps.length ? `<div class="stat-list" style="margin-bottom:12px;">${snapRows}</div>` : ""}
+    <a class="profile-menu-link" href="track-record.html" style="background:var(--green-soft);color:oklch(0.3 0.13 150);">View full public track record &rsaquo;</a>
     <p style="font-size:11px;line-height:1.6;color:var(--on-dark-dim);margin:-6px 0 16px;">
       Real numbers from the model's own walk-forward backtest, not a marketing accuracy score &mdash;
       the parameter count is deliberately honest about what's still a literature default vs. what's
