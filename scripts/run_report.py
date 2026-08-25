@@ -36,6 +36,19 @@ ACTIVE_PARAM_VERSIONS = {
 }
 
 
+def _would_regress_track_record(new_track_record: dict, existing_track_record: dict | None) -> bool:
+    """True when writing new_track_record would discard real backtest coverage a previous run
+    already captured and committed -- see main()'s own comment on why this can happen (this
+    script runs twice daily against an ephemeral, backtest-less DB; scripts/run_backtest.py's
+    real ~1-2 hour job runs on its own separate, less frequent schedule). Pure and DB-free so
+    this specific regression is unit-testable without a live database."""
+    return (
+        new_track_record.get("backtest_run_id") is None
+        and existing_track_record is not None
+        and existing_track_record.get("backtest_run_id") is not None
+    )
+
+
 def main() -> None:
     con = db.connect()
 
@@ -94,11 +107,39 @@ def main() -> None:
     # app's Track Record screen -- see reporting.build_track_record_summary()'s own docstring
     # for why this is two honest numbers (real backtest coverage + real parameter-transparency
     # count) rather than one invented "accuracy %".
+    #
+    # backtest_run_id above comes from THIS run's own DuckDB file, which -- unlike the committed
+    # data/dashboard/ JSON this step writes to -- never persists across scheduled runs
+    # (db/fpl_quant_v2.duckdb is gitignored and rebuilt from scratch by run_ingestion.py every
+    # time; see README's own "Layout" note). scripts/run_backtest.py is a real ~1-2 hour job
+    # deliberately NOT run on this script's own twice-daily schedule (see its own module
+    # docstring) -- it runs on its own, less frequent schedule and commits its own fresh
+    # app_track_record.json after a real backtest_runs row exists. Without the guard below,
+    # THIS script's own very next twice-daily run -- starting from a fresh, backtest-less DB --
+    # would silently overwrite that real track record right back to "no backtest yet", discarding
+    # a ~1-2 hour job's actual output within ~12 hours. Keep the existing committed file
+    # (real backtest data already captured) rather than regress it; still write fresh when this
+    # run has its own real backtest_run_id, or when nothing's been committed yet.
     track_record = reporting.build_track_record_summary(con, report, backtest_run_id)
     track_record["generated_at"] = datetime.now().isoformat()
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
-    (DASHBOARD_DIR / "app_track_record.json").write_text(json.dumps(track_record, indent=2))
-    print(f"\n[dashboard] track record written to {DASHBOARD_DIR / 'app_track_record.json'}")
+    track_record_path = DASHBOARD_DIR / "app_track_record.json"
+    existing_track_record = None
+    if track_record_path.exists():
+        try:
+            existing_track_record = json.loads(track_record_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing_track_record = None
+    if _would_regress_track_record(track_record, existing_track_record):
+        print(
+            f"\n[dashboard] app_track_record.json NOT overwritten -- this run has no real "
+            f"backtest_run_id, but the committed file already has one "
+            f"({existing_track_record['backtest_run_id']}) from a real scripts/run_backtest.py "
+            f"run. Keeping it."
+        )
+    else:
+        track_record_path.write_text(json.dumps(track_record, indent=2))
+        print(f"\n[dashboard] track record written to {track_record_path}")
 
     print("\n--- section sizes (sanity check) ---")
     print(f"category_breakdown: {len(report['category_breakdown'])} players")

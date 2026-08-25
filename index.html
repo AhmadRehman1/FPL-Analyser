@@ -1569,7 +1569,7 @@ function openChipSheet(chipType) {
 // re-animate for each step of the flow.
 // ============================================================
 
-let reviewSelection = { outId: null, inId: null, rec: null };
+let reviewSelection = { outId: null, inId: null, rec: null, inQuery: "" };
 
 function openTransferReviewSheet(rec) {
   const squad = (state.team && state.team.squad) || [];
@@ -1579,14 +1579,61 @@ function openTransferReviewSheet(rec) {
     outId = outMatch ? outMatch.player_id : null;
     inId = playerIdByName(rec.player_in);
   }
-  reviewSelection = { outId, inId, rec: rec || null };
+  reviewSelection = { outId, inId, rec: rec || null, inQuery: "" };
   document.getElementById("sheet-content").innerHTML = `<div id="review-body"></div>`;
   renderTransferReviewBody();
   openSheet();
 }
 
 function setReviewOut(v) { reviewSelection.outId = v ? Number(v) : null; reviewSelection.rec = null; renderTransferReviewBody(); }
-function setReviewIn(v) { reviewSelection.inId = v ? Number(v) : null; reviewSelection.rec = null; renderTransferReviewBody(); }
+function setReviewIn(id) { reviewSelection.inId = id ? Number(id) : null; reviewSelection.rec = null; reviewSelection.inQuery = ""; renderTransferReviewBody(); }
+function setReviewInQuery(q) { reviewSelection.inQuery = q; renderReviewInResults(); }
+function clearReviewIn() { reviewSelection.inId = null; reviewSelection.inQuery = ""; reviewSelection.rec = null; renderTransferReviewBody(); }
+
+// Real FPL rule: a transfer replaces like-for-like position -- the picker only ever offered
+// every player in the game regardless of position (a real gap, found while fixing the search
+// UX below: a GK could be "selected" as a MID's replacement and the sheet would happily show a
+// comparison for a transfer FPL itself would reject). Filters once an outgoing player is
+// picked; before that there's no position to filter against yet.
+function reviewInCandidates(query, outPlayer) {
+  const q = (query || "").trim().toLowerCase();
+  return (state.players || [])
+    .filter(p => !outPlayer || p.position === outPlayer.position)
+    .filter(p => !q || p.web_name.toLowerCase().includes(q) || (p.full_name || "").toLowerCase().includes(q))
+    .sort((a, b) => (b.form ?? -1) - (a.form ?? -1));
+}
+
+const REVIEW_IN_RESULTS_LIMIT = 8;
+
+function reviewInResultRow(p) {
+  return `
+    <div class="p-row" style="cursor:pointer;" onclick="setReviewIn(${p.id})">
+      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+        <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+        <div class="p-info">
+          <div class="p-name-row">${escapeHtml(p.web_name)}</div>
+          <div class="p-meta">${p.team || ""} &middot; ${p.position || ""} &middot; Form ${p.form ?? "&mdash;"}</div>
+        </div>
+      </div>
+      <div class="p-form-col">
+        <div class="p-price">${fmtMoney(p.price)}</div>
+        <div class="p-own">${p.selected_by_percent ?? "&mdash;"}% owned</div>
+      </div>
+    </div>`;
+}
+
+function renderReviewInResults() {
+  const el = document.getElementById("review-in-results");
+  if (!el) return;
+  const outPlayer = reviewSelection.outId != null ? state.playersById[reviewSelection.outId] : null;
+  const matches = reviewInCandidates(reviewSelection.inQuery, outPlayer);
+  const shown = matches.slice(0, REVIEW_IN_RESULTS_LIMIT);
+  el.innerHTML = shown.map(reviewInResultRow).join("")
+    || `<p class="empty-state" style="padding:14px 10px;">No ${outPlayer ? escapeHtml(outPlayer.position) + " " : ""}players match &ldquo;${escapeHtml(reviewSelection.inQuery)}&rdquo;.</p>`;
+  if (matches.length > REVIEW_IN_RESULTS_LIMIT) {
+    el.innerHTML += `<p style="font-size:10.5px;color:var(--ink-dim2);text-align:center;padding:6px 0 0;">+${matches.length - REVIEW_IN_RESULTS_LIMIT} more &mdash; keep typing to narrow it down</p>`;
+  }
+}
 
 function renderTransferReviewBody() {
   const body = document.getElementById("review-body");
@@ -1597,8 +1644,6 @@ function renderTransferReviewBody() {
   const rec = reviewSelection.rec;
 
   const squadOptions = squad.map(s => `<option value="${s.player_id}" ${reviewSelection.outId === s.player_id ? "selected" : ""}>${escapeHtml(s.web_name)} (${s.position})</option>`).join("");
-  const playerOptions = (state.players || []).slice().sort((a, b) => a.web_name.localeCompare(b.web_name))
-    .map(p => `<option value="${p.id}" ${reviewSelection.inId === p.id ? "selected" : ""}>${escapeHtml(p.web_name)} (${p.position}, ${fmtMoney(p.price)})</option>`).join("");
 
   const priceDiff = (outPlayer && inPlayer) ? (inPlayer.price - outPlayer.price) : null;
   const formDiff = (outPlayer && inPlayer && outPlayer.form != null && inPlayer.form != null) ? (inPlayer.form - outPlayer.form) : null;
@@ -1618,13 +1663,26 @@ function renderTransferReviewBody() {
       </select>
     </div>
     <div class="review-row" style="justify-content:center;"><span class="review-arrow" aria-hidden="true">&darr;</span></div>
-    <label class="sr-only" for="review-in-select">Replacement player</label>
-    <div class="review-row">
-      <select id="review-in-select" class="review-select ${inPlayer ? "filled" : ""}" onchange="setReviewIn(this.value)">
-        <option value="">Select replacement&hellip;</option>
-        ${playerOptions}
-      </select>
-    </div>
+    ${inPlayer ? `
+      <div class="review-row">
+        <div class="p-row" style="width:100%;">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+            <div class="p-avatar-sm" style="background:${clubColor(inPlayer.team_name)}">${jerseyIcon()}</div>
+            <div class="p-info">
+              <div class="p-name-row">${escapeHtml(inPlayer.web_name)}</div>
+              <div class="p-meta">${inPlayer.team || ""} &middot; ${inPlayer.position || ""} &middot; ${fmtMoney(inPlayer.price)}</div>
+            </div>
+          </div>
+          <button style="background:none;border:none;font-size:11.5px;font-weight:700;color:var(--ink-dim2);flex-shrink:0;cursor:pointer;font-family:inherit;" onclick="clearReviewIn()">Change</button>
+        </div>
+      </div>
+    ` : `
+      <label class="sr-only" for="review-in-search">Search replacement player</label>
+      <div class="review-row">
+        <input class="search-input" id="review-in-search" type="text" placeholder="${outPlayer ? `Search ${escapeHtml(outPlayer.position)} replacements…` : "Search replacement players…"}" value="${escapeHtml(reviewSelection.inQuery)}" oninput="setReviewInQuery(this.value)">
+      </div>
+      <div id="review-in-results" style="margin-bottom:14px;"></div>
+    `}
     ${outPlayer && inPlayer ? `
       <div class="stat-grid4" style="grid-template-columns:repeat(3,1fr);">
         <div class="g-tile"><div class="g-label">Price change</div><div class="g-value" style="color:${priceDiff > 0 ? "var(--danger)" : priceDiff < 0 ? "var(--green)" : "var(--ink)"};font-size:13px;">${priceDiff > 0 ? "+" : ""}${priceDiff.toFixed(1)}m</div></div>
@@ -1649,6 +1707,7 @@ function renderTransferReviewBody() {
       <a class="profile-menu-link" href="${FPL_TRANSFERS_URL}" target="_blank" rel="noopener">Open FPL transfers &rsaquo;</a>
     ` : `<p class="empty-state">Pick an outgoing squad player and a replacement to compare.</p>`}
   `;
+  if (!inPlayer) renderReviewInResults();
 }
 
 function confirmTransferReview(outId, inId) {
@@ -2726,6 +2785,11 @@ const SORTS = {
   form: { label: "Form", cmp: (a, b) => (b.form ?? -1) - (a.form ?? -1) },
   price: { label: "Price", cmp: (a, b) => (b.price ?? -1) - (a.price ?? -1) },
   ownership: { label: "Ownership", cmp: (a, b) => (b.selected_by_percent ?? -1) - (a.selected_by_percent ?? -1) },
+  // ict_index is real, already-exported bootstrap-static data (the player sheet's own "Season
+  // breakdown" already shows it) -- just never offered as a sort here before. Model-derived
+  // stats (xG, expected points) deliberately still aren't: see PRICE_BANDS' own comment above
+  // on why this list only offers what's actually exported, not what would be nice to have.
+  ict: { label: "ICT Index", cmp: (a, b) => (b.ict_index ?? -1) - (a.ict_index ?? -1) },
 };
 
 function filteredPlayers() {
