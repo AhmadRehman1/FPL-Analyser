@@ -331,9 +331,7 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   "Too many selected from MUN (4/3)" warning when it would violate the club cap, Wildcard
   correctly relaxing the transfer limit, a draft surviving a full page reload via localStorage,
   the solver/compare/list-view sheets, and branching a second draft from the first. Not yet
-  built: drag-and-drop (the spec's own "either/or" is satisfied via tap-to-select instead, the
-  more mobile-appropriate of the two), and CI wiring for `npm test` alongside the existing
-  pytest job.
+  built: CI wiring for `npm test` alongside the existing pytest job.
 - **Multi-transfer planner solver, bounded 2-for-2 combinatorial search (follow-up, same
   feature).** `planner/solver.js`'s `suggestMultiTransfers()` mirrors
   `transfer_planner.py`'s own `evaluate_multi_transfers()` design rather than inventing a
@@ -358,6 +356,31 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   actually runs): a real 2-for-2 combo selected from the solver correctly staged both pairs,
   showed the combined price/EP/hit-cost preview, and on confirm updated the squad, recorded 2
   transfers for the gameweek, and charged the correct -4 hit.
+- **Drag-and-drop transfers (follow-up, same feature).** The spec's own "either/or" was already
+  satisfied by tap-to-select; this adds native HTML5 drag-and-drop as a genuine second input
+  path rather than leaving it unimplemented, scoped to what the app's existing single-panel
+  mobile-sheet layout can actually support simultaneously-visible drag sources and targets for
+  (checked concretely, not assumed: `.sheet` is `max-height:92vh`, so a bottom sheet leaves too
+  thin a sliver of the pitch view visible to drag between the two at once). Two real
+  interactions: (1) drag one squad/bench card onto another anywhere in the pitch or list view to
+  swap their starting-XI/bench status -- a new `planner/model.js` primitive
+  (`swapXIStatus()`/`setXIStatus()`, a per-gameweek `xiOverrides` plan field alongside the
+  existing captain/vice overrides, carrying forward the same way) needed adding since nothing
+  in the reducer previously represented a lineup change independent of a transfer; (2) inside
+  the sidebar sheet's replacement-picker mode, drag a candidate row onto a drop zone to confirm
+  it, wired to the exact same `planSelectIn()` a tap already uses. Every drag target remains
+  independently tappable/clickable -- nothing is drag-only, since touch devices can't rely on
+  native HTML5 drag the way a mouse can. 5 new model.js unit tests (76 total in
+  `tests/planner/`) cover the swap itself, the same-status no-op case, the invalid-player fail
+  case, cross-gameweek carry-forward, and composing multiple swaps in one gameweek without
+  clobbering each other. Verified end-to-end in headless Chromium with a REAL pixel-level
+  native drag gesture (Playwright's `dragTo()`, not a simulated function call) dragging a real
+  bench goalkeeper onto a real starting pitch card: the swap applied correctly, no spurious
+  formation warning fired (both players were the same position), and the app's own existing
+  `validateDraftSquad()` banner is reused as-is for the case where a swap WOULD break formation
+  -- no new validation logic needed. The sidebar drop-zone was verified via direct wiring
+  (a synthetic drag event, since simulating a real cross-sheet-transition drag in headless mode
+  is unreliable) and confirmed it stages an identical pending transfer to tapping the same row.
 
 ## Quick start
 

@@ -179,6 +179,61 @@ test("checkGw19Deadline flags urgency inside the warning window and forfeiture a
   assert.equal(allUsed.forfeitedNow, false);
 });
 
+// ---- starting-XI/bench swaps (drag-and-drop lineup rearrangement) ---------------------------
+
+test("swapXIStatus exchanges two squad members' starting-XI/bench status", () => {
+  const squad = [holding(1, true), holding(2, false)]; // 1 starts, 2 is benched
+  const playersById = { 1: player(1, "MID", "ARS", 5.0), 2: player(2, "MID", "LIV", 5.0) };
+  let draft = Model.createDraft({ baseGameweek: 2, baseSquad: squad, baseBank: 0, baseFreeTransfers: 1 });
+  draft = Model.swapXIStatus(draft, 2, playersById, 1, 2);
+  const state = Model.computeStateAtGameweek(draft, 2, playersById);
+  assert.equal(state.squad.find((h) => h.playerId === 1).inXI, false);
+  assert.equal(state.squad.find((h) => h.playerId === 2).inXI, true);
+});
+
+test("swapXIStatus is a harmless no-op when both players already share the same XI status", () => {
+  const squad = [holding(1, true), holding(2, true)];
+  const playersById = { 1: player(1, "MID", "ARS", 5.0), 2: player(2, "MID", "LIV", 5.0) };
+  let draft = Model.createDraft({ baseGameweek: 2, baseSquad: squad, baseBank: 0, baseFreeTransfers: 1 });
+  draft = Model.swapXIStatus(draft, 2, playersById, 1, 2);
+  const state = Model.computeStateAtGameweek(draft, 2, playersById);
+  assert.equal(state.squad.find((h) => h.playerId === 1).inXI, true);
+  assert.equal(state.squad.find((h) => h.playerId === 2).inXI, true);
+});
+
+test("swapXIStatus throws if either player isn't in the squad at that gameweek", () => {
+  const squad = [holding(1, true)];
+  const playersById = { 1: player(1, "MID", "ARS", 5.0), 99: player(99, "MID", "LIV", 5.0) };
+  const draft = Model.createDraft({ baseGameweek: 2, baseSquad: squad, baseBank: 0, baseFreeTransfers: 1 });
+  assert.throws(() => Model.swapXIStatus(draft, 2, playersById, 1, 99));
+});
+
+test("an XI override carries forward into future gameweeks until changed again, same as captain", () => {
+  const squad = [holding(1, true), holding(2, false)];
+  const playersById = { 1: player(1, "MID", "ARS", 5.0), 2: player(2, "MID", "LIV", 5.0) };
+  let draft = Model.createDraft({ baseGameweek: 2, baseSquad: squad, baseBank: 0, baseFreeTransfers: 1 });
+  draft = Model.swapXIStatus(draft, 2, playersById, 1, 2);
+  const laterState = Model.computeStateAtGameweek(draft, 5, playersById); // nothing planned for GW3-5
+  assert.equal(laterState.squad.find((h) => h.playerId === 1).inXI, false);
+  assert.equal(laterState.squad.find((h) => h.playerId === 2).inXI, true);
+});
+
+test("multiple XI overrides in the same gameweek compose instead of overwriting each other", () => {
+  const squad = [holding(1, true), holding(2, false), holding(3, true), holding(4, false)];
+  const playersById = {
+    1: player(1, "MID", "ARS", 5.0), 2: player(2, "MID", "LIV", 5.0),
+    3: player(3, "DEF", "MUN", 4.0), 4: player(4, "DEF", "CHE", 4.0),
+  };
+  let draft = Model.createDraft({ baseGameweek: 2, baseSquad: squad, baseBank: 0, baseFreeTransfers: 1 });
+  draft = Model.swapXIStatus(draft, 2, playersById, 1, 2); // MID swap
+  draft = Model.swapXIStatus(draft, 2, playersById, 3, 4); // DEF swap, same gameweek
+  const state = Model.computeStateAtGameweek(draft, 2, playersById);
+  assert.equal(state.squad.find((h) => h.playerId === 1).inXI, false);
+  assert.equal(state.squad.find((h) => h.playerId === 2).inXI, true);
+  assert.equal(state.squad.find((h) => h.playerId === 3).inXI, false);
+  assert.equal(state.squad.find((h) => h.playerId === 4).inXI, true);
+});
+
 // ---- squad value / spending power -----------------------------------------------------------
 
 test("squadValue and spendingPower sum real player prices plus bank", () => {

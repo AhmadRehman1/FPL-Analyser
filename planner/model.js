@@ -69,7 +69,7 @@
   }
 
   function emptyPlan() {
-    return { transfersOut: [], transfersIn: [], chip: null, captainId: null, viceId: null, benchOrder: null };
+    return { transfersOut: [], transfersIn: [], chip: null, captainId: null, viceId: null, benchOrder: null, xiOverrides: {} };
   }
 
   function planFor(draft, gameweek) {
@@ -135,8 +135,8 @@
       ? Math.min(FREE_TRANSFER_CAP, freeTransfersAvailable + 1)
       : Math.min(FREE_TRANSFER_CAP, Math.max(0, freeTransfersAvailable - freeUsed) + 1);
 
-    // Captain/vice/bench-order overrides for this gameweek, applied on top of the post-transfer
-    // squad (a transfer can hand a fresh player the armband the same week it arrives).
+    // Captain/vice overrides for this gameweek, applied on top of the post-transfer squad (a
+    // transfer can hand a fresh player the armband the same week it arrives).
     if (plan.captainId != null || plan.viceId != null) {
       nextSquad = nextSquad.map(function (h) {
         return {
@@ -144,6 +144,22 @@
           inXI: h.inXI,
           isCaptain: plan.captainId != null ? h.playerId === plan.captainId : h.isCaptain,
           isVice: plan.viceId != null ? h.playerId === plan.viceId : h.isVice,
+        };
+      });
+    }
+
+    // Starting-XI/bench overrides -- e.g. a drag-and-drop swap of two squad members' XI
+    // status. Explicit per-player, not a swap primitive at this layer: swapXIStatus() below
+    // computes both sides' target inXI value before calling here, so this stays a simple,
+    // order-independent "set inXI for these player ids" apply, the same shape captain/vice
+    // overrides already use. Like captain/vice, once applied it's baked into nextSquad and so
+    // carries forward into future gameweeks by default (a lineup choice persists until
+    // explicitly changed again), matching real FPL behavior.
+    if (plan.xiOverrides && Object.keys(plan.xiOverrides).length) {
+      nextSquad = nextSquad.map(function (h) {
+        var override = plan.xiOverrides[h.playerId];
+        return override === undefined ? h : {
+          playerId: h.playerId, inXI: override, isCaptain: h.isCaptain, isVice: h.isVice,
         };
       });
     }
@@ -337,6 +353,35 @@
   function setBenchOrder(draft, gameweek, orderedPlayerIds) {
     return mutatePlan(draft, gameweek, { benchOrder: orderedPlayerIds });
   }
+
+  /** Sets explicit starting-XI/bench status for one or more players at `gameweek` -- merged
+   * on top of whatever's already overridden that week, not replacing it wholesale, so several
+   * separate drag-and-drop swaps in the same session compose correctly. `overrides` is a plain
+   * { playerId: boolean } map (true = starting, false = benched). */
+  function setXIStatus(draft, gameweek, overrides) {
+    var current = planFor(draft, gameweek);
+    var merged = Object.assign({}, current.xiOverrides, overrides);
+    return mutatePlan(draft, gameweek, { xiOverrides: merged });
+  }
+
+  /** The drag-and-drop lineup swap: exchanges two squad members' starting-XI/bench status at
+   * `gameweek` (e.g. dragging a bench player onto a starting slot). Reads each player's CURRENT
+   * inXI value at that gameweek (via computeStateAtGameweek, so it's correct even after prior
+   * transfers/overrides) rather than assuming the caller already knows it. Both ids must
+   * already be in the squad at that gameweek -- throws rather than silently no-opping,
+   * matching setChip()'s own fail-fast convention for an invalid request. */
+  function swapXIStatus(draft, gameweek, playersById, playerIdA, playerIdB) {
+    var state = computeStateAtGameweek(draft, gameweek, playersById);
+    var holdingA = state.squad.find(function (h) { return h.playerId === playerIdA; });
+    var holdingB = state.squad.find(function (h) { return h.playerId === playerIdB; });
+    if (!holdingA || !holdingB) {
+      throw new Error("swapXIStatus: both players must already be in the squad at GW" + gameweek);
+    }
+    var overrides = {};
+    overrides[playerIdA] = holdingB.inXI;
+    overrides[playerIdB] = holdingA.inXI;
+    return setXIStatus(draft, gameweek, overrides);
+  }
   function renameDraft(draft, name) {
     var next = clone(draft);
     next.name = name;
@@ -366,6 +411,8 @@
     setCaptain: setCaptain,
     setVice: setVice,
     setBenchOrder: setBenchOrder,
+    setXIStatus: setXIStatus,
+    swapXIStatus: swapXIStatus,
     renameDraft: renameDraft,
     planFor: planFor,
   };

@@ -410,6 +410,12 @@
   .compare-table{width:100%;border-collapse:collapse;font-size:11.5px;}
   .compare-table th, .compare-table td{padding:8px 6px;text-align:left;border-top:1px solid var(--divider);}
   .compare-table th{font-size:9.5px;text-transform:uppercase;color:var(--ink-dim2);}
+  [draggable="true"]{cursor:grab;}
+  [draggable="true"]:active{cursor:grabbing;}
+  .dnd-zone{border:1.5px dashed oklch(0.98 0.005 90/0.35);border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--on-dark-dim);text-align:center;transition:background-color 0.15s ease,border-color 0.15s ease;}
+  .dnd-zone.drag-over{background:oklch(0.98 0.005 90/0.12);border-color:var(--gold);color:var(--on-dark);}
+  .dnd-zone.pick-target{border-color:oklch(0.5 0.14 150/0.5);color:var(--ink-dim);}
+  .dnd-zone.pick-target.drag-over{background:var(--green-soft);border-color:var(--green);color:oklch(0.3 0.1 150);}
   .badge-risk{background:oklch(0.92 0.1 25/0.45);color:oklch(0.4 0.14 25);}
   .badge-setpiece{background:oklch(0.9 0.08 260/0.5);color:oklch(0.36 0.12 260);}
   .superseded-note{display:flex;align-items:flex-start;gap:6px;font-size:10.5px;line-height:1.5;color:oklch(0.4 0.1 250);background:oklch(0.94 0.06 250/0.6);border-radius:9px;padding:7px 10px;margin-top:8px;}
@@ -3000,6 +3006,61 @@ function planUndoTransfer(index) {
   renderPlan();
 }
 
+// ---- drag-and-drop: an alternative to tap-to-select, for both rearranging the lineup (drag
+// one squad/bench card onto another within the pitch/list view to swap their starting-XI/bench
+// status) and picking a transfer replacement (drag a candidate row onto the drop zone in the
+// sidebar sheet). Native HTML5 DnD -- a desktop-mouse enhancement layered on top of the
+// tap-to-select flow, which stays the primary, always-working path (touch devices can't rely
+// on native HTML5 drag the way a mouse can, and every drag target here is also directly
+// tappable/clickable, so nothing is drag-only).
+let _planDragPlayerId = null;
+
+function planDragStart(event, playerId) {
+  _planDragPlayerId = playerId;
+  try { event.dataTransfer.setData("text/plain", String(playerId)); event.dataTransfer.effectAllowed = "move"; } catch (e) {}
+}
+
+function planDragOverZone(event) {
+  event.preventDefault();
+  event.currentTarget.classList.add("drag-over");
+}
+function planDragLeaveZone(event) {
+  event.currentTarget.classList.remove("drag-over");
+}
+
+/** Reads the dragged player's id off the drop event -- dataTransfer first (the real,
+ * spec-correct source), falling back to the module-level var set in planDragStart() for
+ * environments where a same-page drag's dataTransfer.getData() isn't reliably readable on
+ * drop (a documented cross-browser inconsistency, not a made-up concern). */
+function planDroppedPlayerId(event) {
+  event.preventDefault();
+  event.currentTarget.classList.remove("drag-over");
+  let id = null;
+  try { const raw = event.dataTransfer.getData("text/plain"); if (raw) id = Number(raw); } catch (e) {}
+  if (id == null) id = _planDragPlayerId;
+  _planDragPlayerId = null;
+  return id;
+}
+
+function planDropSwapXI(event, targetPlayerId) {
+  const draggedId = planDroppedPlayerId(event);
+  if (draggedId == null || draggedId === targetPlayerId) return;
+  try {
+    state.planDraft = PlannerModel.swapXIStatus(state.planDraft, state.planViewGw, state.playersById, draggedId, targetPlayerId);
+    persistPlanDraft();
+    renderPlan();
+  } catch (e) {
+    state.planSaveError = e.message;
+    renderPlan();
+  }
+}
+
+function planDropSelectIn(event) {
+  const droppedId = planDroppedPlayerId(event);
+  if (droppedId == null) return;
+  planSelectIn(droppedId);
+}
+
 // ---- chips ------------------------------------------------------------------------------
 
 function planToggleChip(chipType) {
@@ -3025,7 +3086,7 @@ function planSidebarRowHtml(p, opts) {
   const watched = (state.planWatchlist || []).includes(p.id);
   const upcoming = fixturesForClub(p.team, opts.fromGw, 1)[0];
   return `
-    <div class="plan-list-row" ${opts.pickMode ? `onclick="planSelectIn(${p.id})" style="cursor:pointer;"` : ""}>
+    <div class="plan-list-row" ${opts.pickMode ? `onclick="planSelectIn(${p.id})" style="cursor:pointer;" draggable="true" ondragstart="planDragStart(event, ${p.id})"` : ""}>
       <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
       <div class="name-block">
         <div class="nm">${escapeHtml(p.web_name)} <span style="font-weight:500;color:var(--ink-dim2);">${fmtMoney(p.price)}</span></div>
@@ -3068,6 +3129,7 @@ function renderPlanSidebarSheet() {
       <div class="name" style="font-size:16px;">${pickMode ? `Replace ${escapeHtml(outPlayer ? outPlayer.web_name : "")}` : "Search &amp; watchlist"}</div>
       ${pickMode ? `<div class="sub">Spending power ${fmtMoney(computed.bank + (outPlayer ? outPlayer.price : 0))} &middot; same position only</div>` : ""}
     </div>
+    ${pickMode ? `<div class="dnd-zone pick-target" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSelectIn(event)">Drag a player here (or tap one below) to confirm the replacement</div>` : ""}
     <input class="search-input" id="plan-sidebar-search" type="search" placeholder="Search players&hellip;" value="${escapeHtml(f.query)}">
     <div class="filter-row">
       ${["All", "GKP", "DEF", "MID", "FWD"].map(pos => `<button class="filter-chip ${pos === f.position ? "active" : ""}" onclick="state.planFilter.position='${pos}';renderPlanSidebarSheet();">${pos}</button>`).join("")}
@@ -3269,7 +3331,8 @@ function planPitchCardHtml(row) {
   const { p, holding, upcoming, ep } = row;
   const selected = state.planSelectedOutId === p.id;
   return `
-    <div class="pcard anim-in" style="${selected ? "outline:2.5px solid oklch(0.6 0.2 25);border-radius:14px;" : ""}" onclick="planSelectOut(${p.id})">
+    <div class="pcard anim-in" style="${selected ? "outline:2.5px solid oklch(0.6 0.2 25);border-radius:14px;" : ""}" onclick="planSelectOut(${p.id})"
+      draggable="true" ondragstart="planDragStart(event, ${p.id})" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSwapXI(event, ${p.id})">
       <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
       ${holding.isCaptain ? `<div class="cap-badge">C</div>` : holding.isVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
       <div class="p-tag">${escapeHtml(p.web_name)}</div>
@@ -3301,7 +3364,8 @@ function planPitchHtml(computed) {
           const row = planPlayerCardData(h, projByElement, null);
           if (!row) return "";
           const selected = state.planSelectedOutId === row.p.id;
-          return `<div class="bcard" style="${selected ? "outline:2.5px solid oklch(0.6 0.2 25);border-radius:14px;" : ""}" onclick="planSelectOut(${row.p.id})">
+          return `<div class="bcard" style="${selected ? "outline:2.5px solid oklch(0.6 0.2 25);border-radius:14px;" : ""}" onclick="planSelectOut(${row.p.id})"
+            draggable="true" ondragstart="planDragStart(event, ${row.p.id})" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSwapXI(event, ${row.p.id})">
             <div class="b-avatar" style="background:${clubColor(row.p.team_name)}">${jerseyIcon()}</div>
             <div class="b-name">${escapeHtml(row.p.web_name)}</div>
             <div class="b-pts">${row.p.position} &middot; ${PlannerSolver.hasProjections(projByElement) ? row.ep.toFixed(1) : "&mdash;"}</div>
@@ -3319,7 +3383,8 @@ function planListHtml(computed) {
     const row = planPlayerCardData(h, projByElement, horizon);
     if (!row) return "";
     const selected = state.planSelectedOutId === row.p.id;
-    return `<div class="plan-list-row ${selected ? "selected-out" : ""}" style="cursor:pointer;" onclick="planSelectOut(${row.p.id})">
+    return `<div class="plan-list-row ${selected ? "selected-out" : ""}" style="cursor:pointer;" onclick="planSelectOut(${row.p.id})"
+      draggable="true" ondragstart="planDragStart(event, ${row.p.id})" ondragover="planDragOverZone(event)" ondragleave="planDragLeaveZone(event)" ondrop="planDropSwapXI(event, ${row.p.id})">
       <div class="p-avatar-sm" style="background:${clubColor(row.p.team_name)}">${jerseyIcon()}</div>
       <div class="name-block">
         <div class="nm">${escapeHtml(row.p.web_name)} ${h.isCaptain ? "(C)" : h.isVice ? "(V)" : ""} ${!h.inXI ? "&middot; bench" : ""}</div>
@@ -3381,7 +3446,7 @@ function renderPlan() {
         <button class="local-btn" style="margin:0;" onclick="location.hash='plan-suggestions'">Suggest transfer</button>
       </span>
     </div>
-    <p style="font-size:10px;color:var(--on-dark-dim);margin:8px 0 12px;">Tap a player to transfer them out, then pick a replacement.</p>
+    <p style="font-size:10px;color:var(--on-dark-dim);margin:8px 0 12px;">Tap a player to transfer them out, then pick a replacement &mdash; or drag one player onto another to swap them between the starting XI and bench.</p>
     ${mode === "pitch" ? planPitchHtml(computed) : planListHtml(computed)}
     <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:14px;">
       Local workspace only &mdash; nothing here is ever submitted to FPL.
