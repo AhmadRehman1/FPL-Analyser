@@ -22,15 +22,21 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, transfer_planner as tp  # noqa: E402
+from fpl_quant import backtest, db, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 PLAN_FOR_GAMEWEEK = 2
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
 
 def main() -> None:
     con = db.connect()
     tp.seed_v1_params(con)
+    # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version/
+    # lambda_params_version/kappa_tc_params_version resolve from the git-committed confirmed-seed
+    # files below, not a hardcoded literal -- see backtest.active_recalibratable_versions()'s own
+    # docstring.
+    active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
 
     real_run_id = con.execute(
         "SELECT run_id FROM squad_optimizer_runs WHERE target_season = ? AND target_gameweek = 1 "
@@ -58,14 +64,14 @@ def main() -> None:
         scoring_params_version=1,
         bps_params_version=1,
         tau_params_version=1,
-        rho_residual_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"],
         corr_params_version=1,
         transfer_cost_params_version=1,
-        lambda_params_version=1,
+        lambda_params_version=active["lambda_params_version"],
         guardrail_params_version=1,
         wildcard_threshold_params_version=1,
         free_hit_threshold_params_version=1,
-        kappa_tc_params_version=1,
+        kappa_tc_params_version=active["kappa_tc_params_version"],
     )
     print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")
 

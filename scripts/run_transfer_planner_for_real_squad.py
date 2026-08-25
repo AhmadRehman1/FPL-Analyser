@@ -34,6 +34,7 @@ from fpl_quant import backtest as bt, db, fixture_swing as fs, ingest_fpl_entry_
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 DECISION_LOG_DIR = REPO_ROOT / "data" / "decision_log"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
 
 # More than one chip can legitimately clear its own recommendation threshold in the same
@@ -130,6 +131,14 @@ def main() -> None:
 
     con = db.connect()
     tp.seed_v1_params(con)
+    # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version/
+    # lambda_params_version/kappa_tc_params_version resolve from the git-committed confirmed-seed
+    # files below, not a hardcoded literal -- see backtest.active_recalibratable_versions()'s own
+    # docstring. This closes a real, previously-existing bug: this script (the one that produces
+    # the actual transfer recommendation for both real tracked managers) was still hardcoded at
+    # rho_residual_params_version=1 while most of the rest of the pipeline had already moved to
+    # the confirmed v2.
+    active = bt.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
 
     print(f"[fetch] pulling real picks for entry_id={entry_id}, GW{current_event}...")
     squad = _fetch_real_squad(entry_id, current_event)
@@ -154,14 +163,14 @@ def main() -> None:
         scoring_params_version=1,
         bps_params_version=1,
         tau_params_version=1,
-        rho_residual_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"],
         corr_params_version=1,
         transfer_cost_params_version=1,
-        lambda_params_version=1,
+        lambda_params_version=active["lambda_params_version"],
         guardrail_params_version=1,
         wildcard_threshold_params_version=1,
         free_hit_threshold_params_version=1,
-        kappa_tc_params_version=1,
+        kappa_tc_params_version=active["kappa_tc_params_version"],
         # Priority 3, opt-in: this script's whole point is a real hold-vs-transfer-now
         # recommendation, so it's worth the extra solve time here (unlike the default GW1->GW2
         # run_transfer_planner.py, which leaves this off).

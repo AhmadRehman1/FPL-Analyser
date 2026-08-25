@@ -16,7 +16,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, reporting  # noqa: E402
+from fpl_quant import backtest, db, reporting  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 # Priority 8c: small, committed per-gameweek report snapshots -- see reporting.py's own
@@ -24,16 +24,38 @@ TARGET_SEASON = "2026-2027"
 # never-persisted-across-runs) DuckDB file itself.
 REPORT_HISTORY_DIR = REPO_ROOT / "data" / "report_history"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-# Every param family currently seeded at v1 across M1-M8 (run_ingestion.py's own list).
-ACTIVE_PARAM_VERSIONS = {
-    "source_tier_weights": 1, "fact_type_multiplier_params": 1, "model_decay_params": 1,
-    "minutes_adjustment_params": 1, "minutes_model_decay_params": 1, "minutes_model_shrinkage_params": 1,
-    "base_scoring_matrix": 1, "bps_formula_params": 1, "bps_dispersion_params": 1,
-    "correlation_params": 1, "cross_player_correlation_params": 1, "risk_aversion_params": 1,
-    "squad_optimizer_guardrail_params": 1, "planning_horizon_params": 1, "transfer_cost_params": 1,
-    "tc_risk_aversion_params": 1, "wildcard_gain_threshold_params": 1,
-}
+# Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): this feeds
+# reporting.transparency_panel() (via build_report()'s active_param_versions=), whose whole
+# point is disclosing what version is ACTUALLY active per family -- so these must resolve from
+# the git-committed confirmed-seed files too, not stay hardcoded at 1 once a family has really
+# been promoted (that would make the transparency panel itself misleading).
+# Every param family currently seeded across M1-M8 (run_ingestion.py's own list). Recalibratable
+# families below read from active; every other family isn't one recalibrate() can produce a new
+# version for, so it stays a hardcoded 1.
+# model_decay_params has two independently-recalibratable keys (xi, rho) but this transparency
+# panel is family-keyed (transparency_panel() does an exact (family, version) row lookup, one
+# number per family) -- with xi/rho genuinely at different real versions today (2 and 1), any
+# single number here would either show a stale xi or SILENTLY DROP rho's row entirely (whichever
+# key wasn't written at that version has no row to find -- found in review before this shipped).
+# Left hardcoded at 1, matching this dict's pre-Track-B behavior exactly, until
+# transparency_panel() itself supports per-key resolution within one family.
+def _active_param_versions(active: dict) -> dict:
+    return {
+        "source_tier_weights": 1,
+        "fact_type_multiplier_params": active["fact_multiplier_params_version"],
+        "model_decay_params": 1,
+        "minutes_adjustment_params": active["adjustment_params_version"],
+        "minutes_model_decay_params": 1,
+        "minutes_model_shrinkage_params": active["shrinkage_params_version"],
+        "base_scoring_matrix": 1, "bps_formula_params": 1, "bps_dispersion_params": 1,
+        "correlation_params": active["rho_residual_params_version"],
+        "cross_player_correlation_params": 1,
+        "risk_aversion_params": active["lambda_params_version"],
+        "squad_optimizer_guardrail_params": 1, "planning_horizon_params": 1, "transfer_cost_params": 1,
+        "tc_risk_aversion_params": active["kappa_tc_params_version"], "wildcard_gain_threshold_params": 1,
+    }
 
 
 def _would_regress_track_record(new_track_record: dict, existing_track_record: dict | None) -> bool:
@@ -51,6 +73,8 @@ def _would_regress_track_record(new_track_record: dict, existing_track_record: d
 
 def main() -> None:
     con = db.connect()
+    _ACTIVE = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+    ACTIVE_PARAM_VERSIONS = _active_param_versions(_ACTIVE)
 
     # Latest real (non-manager-snapshot) run for the season, not hardcoded to GW1 -- Priority
     # 8c's week-over-week diff is only useful across an advancing season, and a scheduled
@@ -81,7 +105,7 @@ def main() -> None:
         sanity_check_params_version=1,
         consensus_check_params_version=1,
         evidence_decay_params_version=1,
-        evidence_fact_multiplier_params_version=1,
+        evidence_fact_multiplier_params_version=_ACTIVE["fact_multiplier_params_version"],
         bench_quality_params_version=1,
         confidence_score_params_version=1,
         report_asof=datetime.now(),
