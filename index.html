@@ -2949,18 +2949,30 @@ function planSelectOut(playerId) {
 
 function planSelectIn(inId) {
   if (state.planSelectedOutId == null) return;
-  state.planPendingTransfer = { outId: state.planSelectedOutId, inId };
+  state.planPendingTransfer = [{ outId: state.planSelectedOutId, inId }];
   history.back(); // closes the sidebar sheet via the normal route()/closeSheet() path
 }
 
-/** Applies the pending transfer to a SCRATCH copy of the draft (never mutates state.planDraft)
- * so the UI can preview its effect -- resulting squad, bank, and Rules.validateDraftSquad()
- * warnings -- before the manager confirms it. This is the "block confirming until resolved"
- * mechanism: the Confirm button below stays disabled while `validation.valid` is false. */
+/** Stages a whole combo of transfer pairs (e.g. a 2-for-2 from the multi-transfer solver) as
+ * the pending transfer in one go -- same preview/confirm/cancel flow as a single tap-selected
+ * transfer, just with more than one {outId, inId} pair. */
+function planSelectMultiSuggestion(pairsArr) {
+  state.planSelectedOutId = null;
+  state.planPendingTransfer = pairsArr;
+  history.back();
+}
+
+/** Applies every pending transfer pair, in order, to a SCRATCH copy of the draft (never
+ * mutates state.planDraft) so the UI can preview their COMBINED effect -- resulting squad,
+ * bank, and Rules.validateDraftSquad() warnings -- before the manager confirms. This is the
+ * "block confirming until resolved" mechanism: the Confirm button below stays disabled while
+ * `validation.valid` is false. Works identically for a single tap-selected transfer (an
+ * array of length 1) and a multi-transfer combo from the solver (length 2+). */
 function planPendingPreview() {
   const t = state.planPendingTransfer;
-  if (!t || !state.planDraft) return null;
-  const scratchDraft = PlannerModel.applyTransfer(state.planDraft, state.planViewGw, t.outId, t.inId);
+  if (!t || !t.length || !state.planDraft) return null;
+  let scratchDraft = state.planDraft;
+  t.forEach(pair => { scratchDraft = PlannerModel.applyTransfer(scratchDraft, state.planViewGw, pair.outId, pair.inId); });
   const computed = PlannerModel.computeStateAtGameweek(scratchDraft, state.planViewGw, state.playersById);
   const validation = PlannerRules.validateDraftSquad(computed.squad, state.playersById, computed.bank);
   return { scratchDraft, computed, validation };
@@ -3076,9 +3088,20 @@ function renderPlanSidebarSheet() {
 function openPlanSuggestionsSheet() { renderPlanSuggestionsSheet(); openSheet(); }
 
 function planSelectSuggestion(outId, inId) {
-  state.planSelectedOutId = outId;
-  state.planPendingTransfer = { outId, inId };
-  history.back();
+  planSelectMultiSuggestion([{ outId, inId }]);
+}
+
+/** window-global so the onclick markup below can pass a combo's pairs without re-deriving them
+ * from a stringified attribute -- suggestions are re-generated fresh on every sheet render, so
+ * indexing into the last-rendered array by position is safe and avoids escaping player-name
+ * strings into inline JS. */
+let _planLastMultiSuggestions = [];
+
+function planSelectMultiSuggestionAt(index) {
+  const s = _planLastMultiSuggestions[index];
+  if (!s) return;
+  const pairsArr = s.outIds.map((outId, i) => ({ outId, inId: s.inIds[i] }));
+  planSelectMultiSuggestion(pairsArr);
 }
 
 function renderPlanSuggestionsSheet() {
@@ -3093,21 +3116,32 @@ function renderPlanSuggestionsSheet() {
     return;
   }
   const horizon = planHorizonGws(state.planViewGw);
+  const freeTransfersAvailable = computed.unlimitedTransfersThisGw ? 999 : computed.freeTransfersAvailable;
   const suggestions = PlannerSolver.suggestTransfers(computed, state.playersById, state.players, projByElement, {
-    horizonGameweeks: horizon,
-    freeTransfersAvailable: computed.unlimitedTransfersThisGw ? 999 : computed.freeTransfersAvailable,
-    maxSuggestions: 8,
+    horizonGameweeks: horizon, freeTransfersAvailable, maxSuggestions: 8,
   });
+  const multiSuggestions = PlannerSolver.suggestMultiTransfers(computed, state.playersById, state.players, projByElement, {
+    horizonGameweeks: horizon, freeTransfersAvailable, maxSuggestions: 6,
+  });
+  _planLastMultiSuggestions = multiSuggestions;
   content.innerHTML = `
     <div class="player-hero" style="padding-bottom:8px;">
       <div class="name" style="font-size:16px;">Suggested transfers</div>
-      <div class="sub">Greedy single-transfer search &middot; ranked by projected GW${horizon[0]}&ndash;${horizon[horizon.length - 1]} points minus any hit cost.</div>
+      <div class="sub">Ranked by projected GW${horizon[0]}&ndash;${horizon[horizon.length - 1]} points minus any hit cost.</div>
     </div>
+    <div class="section-title" style="color:var(--ink);margin-bottom:6px;"><span>Single transfer</span></div>
     ${suggestions.length ? suggestions.map(s => `
       <div class="rec" onclick="planSelectSuggestion(${s.outId}, ${s.inId})" style="cursor:pointer;">
         <div class="move"><span class="out">${escapeHtml(s.outName)}</span>&rarr;<span class="in">${escapeHtml(s.inName)}</span></div>
         <div class="net">${s.net >= 0 ? "+" : ""}${s.net.toFixed(1)}</div>
       </div>`).join("") : `<p class="empty-state">No net-positive single transfer found for this squad right now.</p>`}
+    <div class="section-title" style="color:var(--ink);margin:14px 0 6px;"><span>Double transfer (2-for-2)</span></div>
+    <p style="font-size:10px;color:var(--ink-dim2);margin:0 0 4px;">Bounded combinatorial search &mdash; both legs of a combo evaluated together, not as two independent swaps.</p>
+    ${multiSuggestions.length ? multiSuggestions.map((s, i) => `
+      <div class="rec" onclick="planSelectMultiSuggestionAt(${i})" style="cursor:pointer;">
+        <div class="move"><span class="out">${s.outNames.map(escapeHtml).join(" + ")}</span>&rarr;<span class="in">${s.inNames.map(escapeHtml).join(" + ")}</span></div>
+        <div class="net">${s.net >= 0 ? "+" : ""}${s.net.toFixed(1)}</div>
+      </div>`).join("") : `<p class="empty-state">No net-positive 2-for-2 combo found for this squad right now.</p>`}
   `;
 }
 
@@ -3186,20 +3220,25 @@ function planChipRowBlock(computed) {
 function planPendingBlock() {
   const preview = planPendingPreview();
   if (!preview) return "";
-  const t = state.planPendingTransfer;
-  const outPlayer = state.playersById[t.outId], inPlayer = state.playersById[t.inId];
+  const pairsArr = state.planPendingTransfer;
   const horizon = planHorizonGws(state.planViewGw);
   const projByElement = planProjByElement();
-  const epGain = PlannerSolver.horizonEp(projByElement, t.inId, horizon) - PlannerSolver.horizonEp(projByElement, t.outId, horizon);
+  let priceDelta = 0, epGain = 0;
+  const moveLines = pairsArr.map(pair => {
+    const outPlayer = state.playersById[pair.outId], inPlayer = state.playersById[pair.inId];
+    priceDelta += (inPlayer ? inPlayer.price : 0) - (outPlayer ? outPlayer.price : 0);
+    epGain += PlannerSolver.horizonEp(projByElement, pair.inId, horizon) - PlannerSolver.horizonEp(projByElement, pair.outId, horizon);
+    return `${escapeHtml(outPlayer ? outPlayer.web_name : "?")} &rarr; ${escapeHtml(inPlayer ? inPlayer.web_name : "?")}`;
+  });
   return `
     <div class="plan-pending">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
-        <span style="font-weight:700;font-size:13px;color:oklch(0.32 0.1 250);">${escapeHtml(outPlayer ? outPlayer.web_name : "?")} &rarr; ${escapeHtml(inPlayer ? inPlayer.web_name : "?")}</span>
-        <span style="font-size:11px;font-weight:700;color:oklch(0.38 0.05 250);">${preview.computed.bank >= 0 ? "" : ""}${PlannerSolver.hasProjections(projByElement) ? `${epGain >= 0 ? "+" : ""}${epGain.toFixed(1)} pts` : ""}</span>
+        <span style="font-weight:700;font-size:13px;color:oklch(0.32 0.1 250);">${moveLines.join(" &middot; ")}</span>
+        <span style="font-size:11px;font-weight:700;color:oklch(0.38 0.05 250);">${PlannerSolver.hasProjections(projByElement) ? `${epGain >= 0 ? "+" : ""}${epGain.toFixed(1)} pts` : ""}</span>
       </div>
-      <div style="font-size:11px;color:oklch(0.38 0.05 250);margin-bottom:10px;">Price change ${((inPlayer ? inPlayer.price : 0) - (outPlayer ? outPlayer.price : 0)).toFixed(1)}m &middot; resulting bank ${fmtMoney(preview.computed.bank)}</div>
+      <div style="font-size:11px;color:oklch(0.38 0.05 250);margin-bottom:10px;">Price change ${priceDelta.toFixed(1)}m &middot; resulting bank ${fmtMoney(preview.computed.bank)}${preview.computed.transferCostThisGw ? ` &middot; hit -${preview.computed.transferCostThisGw}` : ""}</div>
       ${!preview.validation.valid ? preview.validation.warnings.map(w => `<div class="flag-banner severe" style="margin-bottom:8px;">${escapeHtml(w.message)}</div>`).join("") : ""}
-      <button class="local-btn ${preview.validation.valid ? "active" : ""}" ${preview.validation.valid ? "" : "disabled"} onclick="planConfirmPendingTransfer()">Confirm transfer</button>
+      <button class="local-btn ${preview.validation.valid ? "active" : ""}" ${preview.validation.valid ? "" : "disabled"} onclick="planConfirmPendingTransfer()">Confirm ${pairsArr.length > 1 ? "transfers" : "transfer"}</button>
       <button class="local-btn" onclick="planCancelPendingTransfer()">Cancel</button>
     </div>`;
 }

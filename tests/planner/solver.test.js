@@ -122,6 +122,170 @@ test("suggestTransfers applies the -4 hit cost when no free transfer is availabl
   assert.deepEqual(suggestions, []);
 });
 
+// ---- suggestMultiTransfers (bounded 2-for-2 combinatorial search) ---------------------------
+
+function multiFixtureSamePosition(extra) {
+  extra = extra || {};
+  const playersById = {
+    100: player(100, "MID", "ARS", 5.0, "Mid1"), 101: player(101, "MID", "LIV", 5.0, "Mid2"),
+    200: player(200, "MID", "MUN", 7.0, "Strong1"), 201: player(201, "MID", "CHE", 7.0, "Strong2"),
+  };
+  Object.assign(playersById, extra.morePlayers || {});
+  const state = {
+    squad: [
+      { playerId: 100, inXI: true, isCaptain: false, isVice: false },
+      { playerId: 101, inXI: true, isCaptain: false, isVice: false },
+    ],
+    bank: extra.bank != null ? extra.bank : 4,
+  };
+  const projByElement = Object.assign({ 100: { 2: 2 }, 101: { 2: 2 }, 200: { 2: 6 }, 201: { 2: 6 } }, extra.moreProjections || {});
+  return { playersById, state, projByElement, candidates: Object.values(playersById) };
+}
+
+test("suggestMultiTransfers finds a same-position 2-for-2 combo, net of price and EP", () => {
+  const { playersById, state, projByElement, candidates } = multiFixtureSamePosition();
+  const results = Solver.suggestMultiTransfers(state, playersById, candidates, projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 2,
+  });
+  assert.equal(results.length, 1);
+  assert.deepEqual(results[0].outIds.slice().sort((a, b) => a - b), [100, 101]);
+  assert.deepEqual(results[0].inIds.slice().sort((a, b) => a - b), [200, 201]);
+  assert.equal(results[0].gain, 8); // (6+6) - (2+2)
+  assert.equal(results[0].cost, 0);
+  assert.equal(results[0].net, 8);
+});
+
+test("suggestMultiTransfers finds a cross-position (DEF+FWD) combo matching the outgoing position multiset", () => {
+  const playersById = {
+    100: player(100, "DEF", "ARS", 5.0, "D1"), 101: player(101, "FWD", "LIV", 7.0, "F1"),
+    200: player(200, "DEF", "MUN", 6.0, "SD"), 201: player(201, "FWD", "CHE", 8.0, "SF"),
+    // A same-position decoy that must never appear -- nothing of this position is being sold.
+    300: player(300, "MID", "TOT", 9.0, "MidDecoy"),
+  };
+  const state = {
+    squad: [
+      { playerId: 100, inXI: true, isCaptain: false, isVice: false },
+      { playerId: 101, inXI: true, isCaptain: false, isVice: false },
+    ],
+    bank: 2,
+  };
+  const projByElement = { 100: { 2: 2 }, 101: { 2: 3 }, 200: { 2: 7 }, 201: { 2: 9 }, 300: { 2: 20 } };
+  const results = Solver.suggestMultiTransfers(state, playersById, Object.values(playersById), projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 2,
+  });
+  assert.equal(results.length, 1); // the MID decoy must never surface -- no MID was sold
+  assert.deepEqual(results[0].outIds.slice().sort((a, b) => a - b), [100, 101]);
+  assert.deepEqual(results[0].inIds.slice().sort((a, b) => a - b), [200, 201]);
+});
+
+test("suggestMultiTransfers respects the combined budget constraint", () => {
+  const { playersById, state, projByElement, candidates } = multiFixtureSamePosition({ bank: 0 }); // needs bank >= 4
+  const results = Solver.suggestMultiTransfers(state, playersById, candidates, projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 2,
+  });
+  assert.deepEqual(results, []);
+});
+
+test("suggestMultiTransfers rejects a combo that would push a club over the 3-player cap", () => {
+  const playersById = {
+    100: player(100, "MID", "LIV", 5.0, "M1"), 101: player(101, "MID", "MUN", 5.0, "M2"),
+    102: player(102, "GKP", "ARS", 5.0, "GK"), 103: player(103, "DEF", "ARS", 4.0, "D1"), 104: player(104, "DEF", "ARS", 4.0, "D2"),
+    200: player(200, "MID", "ARS", 7.0, "BreachesCap"), // a 4th ARS player if bought alongside a non-ARS partner
+    201: player(201, "MID", "TOT", 7.0, "Partner"),
+    202: player(202, "MID", "TOT", 6.5, "SafePartner"),
+  };
+  const state = {
+    squad: [100, 101, 102, 103, 104].map((id) => ({ playerId: id, inXI: true, isCaptain: false, isVice: false })),
+    bank: 10,
+  };
+  const projByElement = {
+    100: { 2: 2 }, 101: { 2: 2 }, 200: { 2: 9 }, 201: { 2: 8 }, 202: { 2: 7 },
+  };
+  const results = Solver.suggestMultiTransfers(state, playersById, Object.values(playersById), projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 2,
+  });
+  assert.ok(!results.some((r) => r.inIds.includes(200)), "a combo bringing ARS to 4 players must never appear");
+  assert.ok(results.some((r) => r.inIds.slice().sort((a, b) => a - b).join(",") === "201,202"), "the club-safe combo should still surface");
+});
+
+test("suggestMultiTransfers charges a -4 hit when fewer than 2 free transfers are available, and drops non-positive-net combos", () => {
+  const { playersById, state, projByElement, candidates } = multiFixtureSamePosition();
+  const oneFree = Solver.suggestMultiTransfers(state, playersById, candidates, projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 1,
+  });
+  assert.equal(oneFree.length, 1);
+  assert.equal(oneFree[0].cost, 4);
+  assert.equal(oneFree[0].net, 4); // gain 8 - hit 4
+
+  const zeroFree = Solver.suggestMultiTransfers(state, playersById, candidates, projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 0,
+  });
+  assert.deepEqual(zeroFree, []); // gain 8 - hit 8 (2 hits) = net 0, filtered out as non-positive
+});
+
+test("suggestMultiTransfers respects locked players -- too few sellable players yields no combos", () => {
+  const { playersById, state, projByElement, candidates } = multiFixtureSamePosition();
+  const results = Solver.suggestMultiTransfers(state, playersById, candidates, projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 2, lockedIds: new Set([100]),
+  });
+  assert.deepEqual(results, []);
+});
+
+test("suggestMultiTransfers respects ignored replacement targets", () => {
+  const { playersById, state, projByElement, candidates } = multiFixtureSamePosition({
+    bank: 4,
+    morePlayers: { 202: player(202, "MID", "BOU", 6.0, "Strong3") },
+    moreProjections: { 202: { 2: 5 } },
+  });
+  const results = Solver.suggestMultiTransfers(state, playersById, candidates, projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 2, ignoredIds: new Set([200]),
+  });
+  assert.ok(results.every((r) => !r.inIds.includes(200)));
+  assert.ok(results.some((r) => r.inIds.slice().sort((a, b) => a - b).join(",") === "201,202"));
+});
+
+test("suggestMultiTransfers ranks best-net-first and respects maxSuggestions", () => {
+  const playersById = {
+    100: player(100, "MID", "LIV", 5.0, "M1"), 101: player(101, "MID", "MUN", 5.0, "M2"),
+    200: player(200, "MID", "ARS", 7.0, "Best"), 201: player(201, "MID", "TOT", 7.0, "Mid"),
+    202: player(202, "MID", "BOU", 7.0, "Worst"), 203: player(203, "MID", "EVE", 7.0, "Extra"),
+  };
+  const state = {
+    squad: [
+      { playerId: 100, inXI: true, isCaptain: false, isVice: false },
+      { playerId: 101, inXI: true, isCaptain: false, isVice: false },
+    ],
+    bank: 10,
+  };
+  const projByElement = { 100: { 2: 1 }, 101: { 2: 1 }, 200: { 2: 9 }, 201: { 2: 7 }, 202: { 2: 5 }, 203: { 2: 3 } };
+  const results = Solver.suggestMultiTransfers(state, playersById, Object.values(playersById), projByElement, {
+    horizonGameweeks: [2], freeTransfersAvailable: 2, maxSuggestions: 2,
+  });
+  assert.equal(results.length, 2);
+  for (let i = 1; i < results.length; i++) assert.ok(results[i - 1].net >= results[i].net);
+  assert.deepEqual(results[0].inIds.slice().sort((a, b) => a - b), [200, 201]); // the two highest-EP incoming players
+});
+
+// ---- boundedIncomingPool ---------------------------------------------------------------------
+
+test("boundedIncomingPool keeps only the top-K candidates per position by horizon EP", () => {
+  const playersById = {};
+  for (let i = 1; i <= 5; i++) playersById[i] = player(i, "MID", "ARS", 5.0, "M" + i);
+  const projByElement = { 1: { 2: 1 }, 2: { 2: 2 }, 3: { 2: 3 }, 4: { 2: 4 }, 5: { 2: 5 } };
+  const pool = Solver.boundedIncomingPool(Object.values(playersById), projByElement, [2], { candidatePoolLimitPerPosition: 2 });
+  assert.equal(pool.length, 2);
+  assert.deepEqual(pool.map((r) => r.player.id).sort((a, b) => a - b), [4, 5]);
+});
+
+test("boundedIncomingPool excludes owned/ignored ids regardless of EP rank", () => {
+  const playersById = { 1: player(1, "MID", "ARS", 5.0, "Best"), 2: player(2, "MID", "LIV", 5.0, "Worst") };
+  const projByElement = { 1: { 2: 10 }, 2: { 2: 1 } };
+  const pool = Solver.boundedIncomingPool(Object.values(playersById), projByElement, [2], {
+    excludeIds: new Set([1]), candidatePoolLimitPerPosition: 5,
+  });
+  assert.deepEqual(pool.map((r) => r.player.id), [2]);
+});
+
 test("suggestTransfers caps results at maxSuggestions", () => {
   const playersById = { 100: player(100, "MID", "ARS", 6.0), 200: player(200, "MID", "LIV", 6.0) };
   const squad = [];

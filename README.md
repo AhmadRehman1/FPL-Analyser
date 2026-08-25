@@ -332,8 +332,32 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   correctly relaxing the transfer limit, a draft surviving a full page reload via localStorage,
   the solver/compare/list-view sheets, and branching a second draft from the first. Not yet
   built: drag-and-drop (the spec's own "either/or" is satisfied via tap-to-select instead, the
-  more mobile-appropriate of the two), a wider combinatorial multi-transfer solver, and CI
-  wiring for `npm test` alongside the existing pytest job.
+  more mobile-appropriate of the two), and CI wiring for `npm test` alongside the existing
+  pytest job.
+- **Multi-transfer planner solver, bounded 2-for-2 combinatorial search (follow-up, same
+  feature).** `planner/solver.js`'s `suggestMultiTransfers()` mirrors
+  `transfer_planner.py`'s own `evaluate_multi_transfers()` design rather than inventing a
+  separate approach for the frontend: sell any 2 unlocked held players, buy any 2 unignored
+  candidates whose combined position multiset exactly matches the two sold, ranked by
+  COMBINED net value (not two independent single transfers), with the same real bound the
+  backend uses and the same disclosed reasoning for it (bounding the incoming side to the
+  top-K candidates per position by horizon EP, since a genuinely low-EP candidate essentially
+  never appears in an EP-maximizing combo -- the one real gap this accepts is a specifically
+  cheap, low-EP player that's the only way to afford another leg of the combo within budget,
+  which a pure EP-ranked top-K can prune away). Stopped at 2-for-2 for the same tractability
+  and real-play reasons the backend already documented; not extended to 3-for-3. 10 new unit
+  tests (71 total in `tests/planner/`) cover same-position and cross-position combos, the
+  combined budget/club-cap constraints, the -4-per-hit-beyond-free-transfers generalization
+  at n=2, locked/ignored-player exclusion, and the top-K bounding itself. Wired into the
+  Plan tab's "Suggested transfers" sheet as a second "Double transfer (2-for-2)" section
+  alongside the existing single-transfer list; selecting a combo stages BOTH pairs into the
+  same pending-transfer preview/confirm flow a single transfer already used (generalized to
+  accept an array of {outId, inId} pairs instead of just one). Verified end-to-end in a real
+  headless Chromium session against a synthetic local projections file (the real
+  `projections_latest.json` still doesn't exist in production until the workflow fix above
+  actually runs): a real 2-for-2 combo selected from the solver correctly staged both pairs,
+  showed the combined price/EP/hit-cost preview, and on confirm updated the squad, recorded 2
+  transfers for the gameweek, and charged the correct -4 hit.
 
 ## Quick start
 
