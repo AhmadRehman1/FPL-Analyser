@@ -1,0 +1,8 @@
+{
+  "name": "fpl-quant-planner",
+  "private": true,
+  "description": "Node-based unit tests for planner/ (the multi-gameweek transfer planner's data/rules/solver modules). No dependencies -- uses Node's built-in test runner. The rest of this repo is a Python quant pipeline (see requirements.txt/pytest); this file exists only to give the planner/ JS modules the same kind of testable, dependency-free home.",
+  "scripts": {
+    "test": "node --test tests/planner/*.test.js"
+  }
+}

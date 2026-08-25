@@ -225,6 +225,20 @@ jobs:
       - name: Print first-half chip-timing roadmap
         run: PYTHONPATH=src python scripts/print_chip_timing_roadmap.py
 
+      # Roadmap Feature 1's real per-player, per-gameweek xPts table (scripts/export_projections.py)
+      # -- same "built but never invoked" gap as grade_squad.py/explain_my_move.py above: the
+      # frontend's Team-tab Planner and the multi-gameweek Plan tab both fetch
+      # data/dashboard/projections_latest.json via .catch(() => null), but nothing in this
+      # workflow ever ran the script that produces it, so it has never existed in production --
+      # both panels silently show "no projections published yet" for real users, indefinitely.
+      # Passes the same current-gameweek value (steps.gw) every other per-gameweek step here
+      # uses, rather than letting the script's own live bootstrap-static fallback drift from it
+      # independently.
+      - name: Export player-pool point projections
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: PYTHONPATH=src python scripts/export_projections.py "$EVENT"
+
       # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
       # a one-off re-check) without needing a code change -- the two real accounts above always
       # run regardless of this input. workflow_dispatch inputs are an insider-only threat
