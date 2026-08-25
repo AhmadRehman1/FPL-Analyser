@@ -2,7 +2,7 @@
   "armband_what_ifs": [
     {
       "baseline_action": "triple_captain",
-      "delta_ep": 14.346113158160417,
+      "delta_ep": 14.309512991720705,
       "flipped": true,
       "perturbed_action": "transfer_in:player_bruno_borges_fernandes->player_enzo_fernandez",
       "player_name": "Bruno Borges Fernandes",
@@ -11,9 +11,9 @@
     },
     {
       "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
-      "delta_ep": 0.92984286132425,
+      "delta_ep": -11.761755690312633,
       "flipped": true,
-      "perturbed_action": "transfer_in:player_erling_haaland->player_ollie_watkins",
+      "perturbed_action": "triple_captain",
       "player_name": "Erling Haaland",
       "player_uid": "player_erling_haaland",
       "role": "captain"
@@ -22,35 +22,35 @@
   "bench_what_ifs": [
     {
       "baseline_action": "triple_captain",
-      "delta_ep": 11.760043215222613,
+      "delta_ep": 11.798519022743434,
+      "flipped": true,
+      "perturbed_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
+      "player_name": "Joe Rodon",
+      "player_uid": "player_joe_rodon"
+    },
+    {
+      "baseline_action": "triple_captain",
+      "delta_ep": 11.763018712546742,
       "flipped": true,
       "perturbed_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
       "player_name": "Bart Verbruggen",
       "player_uid": "player_bart_verbruggen"
     },
     {
-      "baseline_action": "triple_captain",
-      "delta_ep": -0.04469983441555048,
+      "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
+      "delta_ep": 0.0,
       "flipped": false,
-      "perturbed_action": "triple_captain",
+      "perturbed_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
       "player_name": "Regan Slater",
       "player_uid": "player_regan_slater"
     },
     {
       "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
-      "delta_ep": -3.3517386408130942,
+      "delta_ep": -3.354155036427281,
       "flipped": true,
       "perturbed_action": "bench_boost",
       "player_name": "Bobby Thomas",
       "player_uid": "player_bobby_thomas"
-    },
-    {
-      "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
-      "delta_ep": -11.756004768885223,
-      "flipped": true,
-      "perturbed_action": "triple_captain",
-      "player_name": "Joe Rodon",
-      "player_uid": "player_joe_rodon"
     }
   ],
   "data_asof": "2026-08-25",

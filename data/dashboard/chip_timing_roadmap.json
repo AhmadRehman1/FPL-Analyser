@@ -6,7 +6,7 @@
   ],
   "n_matches_played_this_season": 18,
   "reliability_note": "Fixture/form signals are noisier the fewer real matches have been played this season -- a candidate window based on very few results is a real, computed signal but rests on a thinner sample than one identified later in the season.",
-  "generated_at": "2026-08-25T11:13:46.027744+00:00",
+  "generated_at": "2026-08-25T18:26:40.438857+00:00",
   "accounts": [
     {
       "entry_id": 7139944,
@@ -121,7 +121,16 @@
         "avg_squad_swing": 0.093,
         "n_teams_with_data": 11,
         "real_wildcard_check": {
-          "gain": 55.76,
+          "gain": 59.95,
+          "recommended": true
+        }
+      },
+      "free_hit_candidate_window": {
+        "gameweek": 5,
+        "avg_squad_swing": 0.162,
+        "n_teams_with_data": 11,
+        "real_free_hit_check": {
+          "gain": 12.91,
           "recommended": true
         }
       }
@@ -238,7 +247,16 @@
         "avg_squad_swing": 0.079,
         "n_teams_with_data": 10,
         "real_wildcard_check": {
-          "gain": 58.63,
+          "gain": 44.65,
+          "recommended": true
+        }
+      },
+      "free_hit_candidate_window": {
+        "gameweek": 14,
+        "avg_squad_swing": 0.144,
+        "n_teams_with_data": 10,
+        "real_free_hit_check": {
+          "gain": 11.03,
           "recommended": true
         }
       }

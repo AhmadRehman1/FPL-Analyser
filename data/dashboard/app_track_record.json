@@ -6,7 +6,7 @@
   "parameters_total": 71,
   "parameters_backtested": 0,
   "parameters_still_invented": 71,
-  "generated_at": "2026-08-25T11:34:49.704386",
+  "generated_at": "2026-08-25T19:08:49.188199",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": null,
@@ -19,8 +19,8 @@
       {
         "season": "2026-2027",
         "gameweek": 14,
-        "total_projected_ep": 45.02943243422636,
-        "captain_name": "Marcos Senesi Barón",
+        "total_projected_ep": 45.037278957410955,
+        "captain_name": "Marcos Senesi Bar\u00f3n",
         "squad_size": 15,
         "in_xi_count": 11
       },
@@ -36,20 +36,28 @@
         "season": "2026-2027",
         "gameweek": 1,
         "total_projected_ep": 45.49862876085555,
-        "captain_name": "Marcos Senesi Barón",
+        "captain_name": "Marcos Senesi Bar\u00f3n",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
-    "latest_diff": null,
+    "latest_diff": {
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 14,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
+    },
     "provenance": {
       "data_asof": "2026-08-25",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "ce4c76b936332f803c4b95d773e28dd998c8742f",
-      "fpl_core_insights_commit_sha": "012d6ca6a7b2ace3fc9dc292f9c15dd8d48ec469",
+      "fpl_analyser_commit_sha": "5f2496a5762287f3362ef3235b29e707c31c83e6",
+      "fpl_core_insights_commit_sha": "89c1639f4cbd77ec08d3d4c3f3133f19213aed3e",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -61,7 +69,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-08-25T06:42:34.935338+00:00",
+      "recorded_at": "2026-08-25T13:34:52.475529+00:00",
       "research_pull_workbook": {
         "sha256": "d8ece9e9182f643f0c96532991ed7d0dd5d9e65328683e80fc890c44e7a7426e",
         "size_bytes": 15529
