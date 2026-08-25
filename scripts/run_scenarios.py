@@ -131,11 +131,22 @@ def main() -> None:
         raise SystemExit("no team_strength/minutes model versions found -- run scripts/run_ingestion.py first")
 
     calibration_asof_date = date.today()
-    horizon_ep_versions = tp.compute_horizon_ep(
-        con, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, 1,
-        PARAM_VERSIONS["scoring_params_version"], PARAM_VERSIONS["bps_params_version"], PARAM_VERSIONS["tau_params_version"],
-        PARAM_VERSIONS["rho_residual_params_version"], PARAM_VERSIONS["corr_params_version"],
-    )
+    # Real perf fix (see scripts/compute_shared_horizon.py's own module docstring): reuse the
+    # pipeline's shared multi-gameweek horizon if one was precomputed for this exact GW, instead
+    # of this script's own single-gameweek throwaway call below. shared_horizon_for_run only
+    # ends up non-None when it's a genuine full-horizon match -- never the narrower fallback
+    # dict, which would silently truncate recommend_best_move()'s own planning horizon if
+    # forwarded into it.
+    shared_horizon = tp.load_shared_horizon_ep_versions_from_env()
+    if shared_horizon is not None and plan_for_gameweek in shared_horizon:
+        horizon_ep_versions, shared_horizon_for_run = shared_horizon, shared_horizon
+    else:
+        horizon_ep_versions = tp.compute_horizon_ep(
+            con, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, 1,
+            PARAM_VERSIONS["scoring_params_version"], PARAM_VERSIONS["bps_params_version"], PARAM_VERSIONS["tau_params_version"],
+            PARAM_VERSIONS["rho_residual_params_version"], PARAM_VERSIONS["corr_params_version"],
+        )
+        shared_horizon_for_run = None
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]
 
     state_version = tp.bootstrap_from_real_squad(con, calibration_asof_date, TARGET_SEASON, current_event, ep_mv, un_mv, squad)
@@ -154,7 +165,7 @@ def main() -> None:
     # cheap) again on every one of the up to 6 scenarios below. Real, measured cost cut, not a
     # hypothetical one: this was the dominant contributor to this script's own wall-clock time.
     print("[scenario] computing shared baseline decision...")
-    baseline = de.recommend_best_move(con, **base_state, include_sensitivity=False)
+    baseline = de.recommend_best_move(con, **base_state, include_sensitivity=False, horizon_ep_versions=shared_horizon_for_run)
 
     rows = []
     for player_uid in bench_player_uids(current_holdings):

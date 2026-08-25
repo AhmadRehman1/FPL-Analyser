@@ -176,6 +176,27 @@ jobs:
               f.write(f"event={event}\n")
           PYEOF
 
+      # Real perf fix, not a new feature (see scripts/compute_shared_horizon.py's own module
+      # docstring for the full account): grade_squad.py, explain_my_move.py, and
+      # run_scenarios.py each independently recomputed the SAME account-agnostic multi-
+      # gameweek EP+uncertainty horizon for both real managers -- a real, measured root cause
+      # (not a hypothesis) behind this pipeline's actual wall-clock time badly exceeding this
+      # workflow's own ~20-25-minute estimate above (a real run: "Grade squad + explain best
+      # move" took 44 minutes and "Run bench what-if scenarios" took 3h42m). Computed ONCE
+      # here and exported via $GITHUB_ENV so every later step in this same job picks it up
+      # automatically; those three scripts fall back to their own original per-call
+      # computation whenever this step (or the env var) is absent, so this is a pure opt-in,
+      # not a new hard dependency. run_transfer_planner_for_real_squad.py deliberately does
+      # NOT consume this -- it runs tp.run() with rho_residual_params_version=1, not the 2
+      # every other real-squad script (and this shared-horizon computation) uses, a real
+      # pre-existing discrepancy this fix does not paper over.
+      - name: Compute shared multi-gameweek horizon once (perf fix, not per-script)
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/compute_shared_horizon.py "$EVENT" /tmp/fpl_shared_horizon_ep_versions.json
+          echo "FPL_SHARED_HORIZON_FILE=/tmp/fpl_shared_horizon_ep_versions.json" >> "$GITHUB_ENV"
+
       # Runs for real on every scheduled run (not manual-dispatch-only anymore) for both real
       # FPL accounts this project tracks -- has to live in THIS job, right after ingestion,
       # since it needs the same ephemeral database run_ingestion.py just populated in this same

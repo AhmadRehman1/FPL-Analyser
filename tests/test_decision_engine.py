@@ -33,6 +33,57 @@ def test_recommend_best_move_returns_a_decision_with_provenance(con, monkeypatch
     assert isinstance(decision.sensitivity, list)
 
 
+def test_recommend_best_move_uses_a_supplied_horizon_ep_versions(con, monkeypatch):
+    """Real perf fix: a caller evaluating the same baseline repeatedly (e.g. scenario.py's
+    shared-baseline call, or several scripts in the same pipeline run) can hand recommend_
+    best_move() an already-computed horizon instead of paying for tp.run()'s own
+    compute_horizon_ep() call again."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+
+    def _must_not_be_called(*a, **k):
+        raise AssertionError("compute_horizon_ep() must not be called when horizon_ep_versions is supplied")
+
+    monkeypatch.setattr(tp, "compute_horizon_ep", _must_not_be_called)
+
+    decision = de.recommend_best_move(
+        con, entry_id=123, calibration_asof_date=date(2026, 8, 24), target_season="2026-2027",
+        target_gameweek=2, input_state_version=state_version, ts_model_version=ts_mv, mm_model_version=mm_mv,
+        **RUN_KWARGS_1, include_sensitivity=False, horizon_ep_versions=horizon_ep_versions,
+    )
+    assert decision.provenance.data_asof == "2026-08-24"
+
+
+def test_recommend_best_move_never_forwards_the_supplied_horizon_into_injury_sensitivity(con, monkeypatch):
+    """Correctness guard, not just a perf test: _injury_sensitivity()'s whole mechanism is
+    re-deriving ep_outputs against a shadowed minutes_model_outputs table. If a caller-supplied
+    horizon_ep_versions ever leaked into that nested call, the shadow would be silently
+    ignored -- the sensitivity toggle would stop reacting to the very perturbation it exists to
+    test. compute_horizon_ep is left callable (not raising) so the nested leg can actually
+    proceed; the assertion is that it DOES get called at least once despite a horizon being
+    supplied for the outer call."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+
+    call_count = 0
+
+    def counting_compute(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return horizon_ep_versions
+
+    monkeypatch.setattr(tp, "compute_horizon_ep", counting_compute)
+
+    de.recommend_best_move(
+        con, entry_id=123, calibration_asof_date=date(2026, 8, 24), target_season="2026-2027",
+        target_gameweek=2, input_state_version=state_version, ts_model_version=ts_mv, mm_model_version=mm_mv,
+        **RUN_KWARGS_1, include_sensitivity=True, horizon_ep_versions=horizon_ep_versions,
+    )
+
+    # The outer call supplied horizon_ep_versions (so its own tp.run() must not trigger a
+    # call), but _injury_sensitivity()'s nested recommend_best_move() call never receives it
+    # and must still compute its own horizon fresh -- at least one real call, not zero.
+    assert call_count >= 1
+
+
 def test_recommend_best_move_track_record_is_insufficient_history_by_default(con, monkeypatch):
     state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
     monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)

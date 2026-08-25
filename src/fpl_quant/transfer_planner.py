@@ -32,8 +32,10 @@ whatever variance M4 actually produces per horizon gameweek, undecorated.
 """
 
 import json
+import os
 from datetime import date
 from itertools import combinations
+from pathlib import Path
 
 import duckdb
 
@@ -305,6 +307,49 @@ def compute_horizon_ep(
         )
         out[gw] = (ep_mv, un_mv)
     return out
+
+
+def save_horizon_ep_versions(path: Path, horizon_ep_versions: dict[int, tuple[int, int]]) -> None:
+    """Persists a compute_horizon_ep() result to a plain JSON file so a SEPARATE process (a
+    later pipeline step, a different script invocation) can reuse it via
+    load_horizon_ep_versions() below instead of recomputing -- see run()'s own
+    horizon_ep_versions parameter for why that reuse is safe (ep_model_version/
+    uncertainty_model_version are real, already-persisted DB rows; passing an existing pair
+    around changes nothing about what they point to). JSON has no int-keyed-dict type, so
+    gameweeks are written as string keys and restored to int by the loader."""
+    path.write_text(json.dumps({str(gw): list(pair) for gw, pair in horizon_ep_versions.items()}))
+
+
+def load_horizon_ep_versions(path: Path) -> dict[int, tuple[int, int]]:
+    """Inverse of save_horizon_ep_versions() -- restores {gw: (ep_model_version,
+    uncertainty_model_version)} with real int keys/tuple values, not the JSON-native
+    str-keys/list-values shape."""
+    raw = json.loads(path.read_text())
+    return {int(gw): (pair[0], pair[1]) for gw, pair in raw.items()}
+
+
+# The single env var name every FPL_SHARED_HORIZON_FILE producer (scripts/compute_shared_
+# horizon.py) and consumer (grade_squad.py/explain_my_move.py/run_scenarios.py) agrees on --
+# centralized here so it can't drift or typo differently across scripts.
+SHARED_HORIZON_ENV_VAR = "FPL_SHARED_HORIZON_FILE"
+
+
+def load_shared_horizon_ep_versions_from_env() -> dict[int, tuple[int, int]] | None:
+    """None (not an empty dict) whenever the shared cross-script horizon genuinely isn't
+    available -- the env var unset, or the file it names missing -- so a caller can tell
+    "fall back to computing my own horizon" apart from "a real, empty horizon was computed."
+    Every consumer of this must ONLY forward a non-None result into a call that is (a) for the
+    exact same calibration_asof_date/target_season/target_gameweek-onward/model versions the
+    shared file was computed with, and (b) not running under an active minutes_model_outputs/
+    fact_player_season_stats shadow -- see transfer_planner.run()'s own horizon_ep_versions
+    docstring for why."""
+    raw_path = os.environ.get(SHARED_HORIZON_ENV_VAR)
+    if not raw_path:
+        return None
+    path = Path(raw_path)
+    if not path.exists():
+        return None
+    return load_horizon_ep_versions(path)
 
 
 def _horizon_ep_by_player(con: duckdb.DuckDBPyConnection, target_season: str, horizon_ep_versions: dict[int, tuple[int, int]]) -> dict:
@@ -1320,6 +1365,7 @@ def run(
     multi_transfer_pool_limit_per_position: int | None = None,
     price_change_timing_params_version: int | None = None,
     evaluate_chip_combos: bool = False,
+    horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1351,7 +1397,21 @@ def run(
     Boost's own crowded_chip_week_score() attachment is cheap (a single aggregation query,
     the same cost class as evaluate_transfers()'s existing momentum/swing attachments) and
     stays unconditionally on, matching that established convention rather than adding yet
-    another flag for a signal this inexpensive."""
+    another flag for a signal this inexpensive.
+
+    horizon_ep_versions (opt-in, real perf fix): None (the default) computes it here via
+    compute_horizon_ep(), unchanged from before this parameter existed. Passing an
+    already-computed {gw: (ep_model_version, uncertainty_model_version)} dict instead skips
+    that computation entirely -- safe ONLY when the caller's own inputs (calibration_asof_date,
+    target_season, target_gameweek onward, ts_model_version, mm_model_version, and the 5
+    scoring/bps/tau/rho_residual/corr param versions) genuinely match what produced it, and
+    the caller is not operating under an active minutes_model_outputs/fact_player_season_stats
+    TEMP TABLE shadow (scenario.py/decision_engine._injury_sensitivity()'s perturbation
+    mechanism depends on THIS call re-deriving ep_outputs against the shadowed table -- passing
+    a pre-shadow horizon here would silently ignore the shadow, a correctness bug, not an
+    optimization). Real, measured motivation: every caller of this function independently pays
+    for the same multi-gameweek EP+uncertainty computation even when several calls in the same
+    pipeline run share identical inputs (see scripts/compute_shared_horizon.py)."""
     state_row = con.execute(
         "SELECT season, free_transfers_available, chips_used_set1, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
@@ -1364,12 +1424,13 @@ def run(
     if not current_holdings:
         raise ValueError(f"manager_state_version={input_state_version} has no holdings -- cannot plan")
 
-    horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
-    horizon_ep_versions = compute_horizon_ep(
-        con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
-        int(horizon_gameweeks), scoring_params_version, bps_params_version, tau_params_version,
-        rho_residual_params_version, corr_params_version,
-    )
+    if horizon_ep_versions is None:
+        horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
+        horizon_ep_versions = compute_horizon_ep(
+            con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
+            int(horizon_gameweeks), scoring_params_version, bps_params_version, tau_params_version,
+            rho_residual_params_version, corr_params_version,
+        )
 
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
     price_change_kwargs = {}

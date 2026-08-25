@@ -193,6 +193,7 @@ def recommend_best_move(
     historical_actions: list[dict] | None = None,
     include_sensitivity: bool = True,
     _is_runner_up_call: bool = False,
+    horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
 ) -> Decision:
     """rank_posture is accepted for interface stability with the roadmap's own suggested
     contract but not yet wired into transfer_planner.run() (which has no rank-relative-
@@ -205,6 +206,14 @@ def recommend_best_move(
     track_record against. None (the default) always yields the InsufficientHistory sentinel
     -- this function never re-runs a 71-gameweek backtest itself just to answer one live
     recommendation.
+
+    horizon_ep_versions: forwarded as-is to tp.run() (see that function's own docstring for
+    the exact safety condition -- caller's inputs must genuinely match, and this call must not
+    be running under an active minutes_model_outputs/fact_player_season_stats shadow).
+    Deliberately NOT included in run_kwargs below: the nested _injury_sensitivity() call MUST
+    keep recomputing its own horizon fresh, since it runs precisely while such a shadow is
+    active -- reusing a pre-shadow horizon there would silently make the sensitivity toggle a
+    no-op instead of a real perturbation.
     """
     plan_run_id = tp.run(
         con, calibration_asof_date, target_season, target_gameweek, input_state_version,
@@ -212,6 +221,7 @@ def recommend_best_move(
         bps_params_version, tau_params_version, rho_residual_params_version, corr_params_version,
         transfer_cost_params_version, lambda_params_version, guardrail_params_version,
         wildcard_threshold_params_version, free_hit_threshold_params_version, kappa_tc_params_version,
+        horizon_ep_versions=horizon_ep_versions,
     )
 
     state_row = con.execute(
