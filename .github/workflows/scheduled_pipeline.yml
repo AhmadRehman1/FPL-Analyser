@@ -225,6 +225,19 @@ jobs:
       - name: Print first-half chip-timing roadmap
         run: PYTHONPATH=src python scripts/print_chip_timing_roadmap.py
 
+      # Another real instance of the exact same class of bug the "Grade squad + explain best
+      # move" step above already fixed once: fully built, tested, and wired into index.html's
+      # own fetch (projections_latest.json, via .catch(() => null)) -- but this script was never
+      # actually invoked by this workflow either, so the file never existed in production and
+      # the Planner sheet ("see your team in future gameweeks") rendered nothing but "No
+      # projections published yet" indefinitely, for every account, not just a new one. Not
+      # account-specific (one shared table, same as app_players.json/app_fixtures.json above) --
+      # cheap relative to the per-account transfer-planner steps (EP computation across a
+      # horizon, no MIQP solve, no Monte Carlo), so it belongs on this twice-daily schedule, not
+      # the weekly one export_leaderboard.py needs below.
+      - name: Export future-gameweek projections for the Planner
+        run: PYTHONPATH=src python scripts/export_projections.py
+
       # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
       # a one-off re-check) without needing a code change -- the two real accounts above always
       # run regardless of this input. workflow_dispatch inputs are an insider-only threat
