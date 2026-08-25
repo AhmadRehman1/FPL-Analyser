@@ -409,10 +409,12 @@ are required.
 
 ## Hosting (free, GitHub Pages)
 
-The PWA (`index.html` + `sw.js` + `manifest.json` + `icons/`) is a static site, so it can be
-hosted for free on GitHub Pages via `.github/workflows/deploy_pages.yml` -- which deploys only
-the shell (never the `data/dashboard/*.json` payloads, which stay on `raw.githubusercontent.com`
-for fast per-request refresh; see `docs/BUSINESS_PLAN.md` for why that split is deliberate).
+The PWA (`index.html` + `track-record.html` + `sw.js` + `manifest.json` + `icons/`) is a static
+site, so it can be hosted for free on GitHub Pages via `.github/workflows/deploy_pages.yml` --
+which deploys only the shell (never the `data/dashboard/*.json` payloads, which stay on
+`raw.githubusercontent.com` for fast per-request refresh; see `docs/BUSINESS_PLAN.md` for why
+that split is deliberate). `track-record.html` is the public Model Track Record page
+(recommendation timeline + data provenance), linked from the app's Profile sheet.
 
 One-time setup (repo owner): **Settings → Pages → Build and deployment → Source = "GitHub
 Actions"**. After that every push to `master` redeploys automatically to

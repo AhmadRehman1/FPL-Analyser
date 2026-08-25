@@ -96,6 +96,14 @@ def main() -> None:
     # count) rather than one invented "accuracy %".
     track_record = reporting.build_track_record_summary(con, report, backtest_run_id)
     track_record["generated_at"] = datetime.now().isoformat()
+    # Priority 8d: the full public Track Record page payload -- backtest status + the dated
+    # snapshot timeline + the latest week-over-week diff + data provenance, all assembled from
+    # artifacts this same run already produced. The standalone track-record.html PWA reads this
+    # single file (same raw.githubusercontent.com data path as every other dashboard JSON), so
+    # no new hosting or endpoint is needed.
+    track_record["transparency_log"] = reporting.build_transparency_log(
+        track_record, REPORT_HISTORY_DIR, diff,
+    )
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     (DASHBOARD_DIR / "app_track_record.json").write_text(json.dumps(track_record, indent=2))
     print(f"\n[dashboard] track record written to {DASHBOARD_DIR / 'app_track_record.json'}")

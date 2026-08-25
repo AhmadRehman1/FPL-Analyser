@@ -1,14 +1,15 @@
 name: Deploy PWA to GitHub Pages
 
-# Hosts the static PWA shell (index.html / sw.js / manifest.json / icons) on GitHub Pages -- the
-# free, official way to give the app a real public URL (https://<owner>.github.io/FPL-Analyser/).
-# The shell is the only thing deployed here: it is intentionally small, and it never bundles the
-# data/dashboard/*.json payloads -- those stay on raw.githubusercontent.com/master, which the PWA
-# fetches directly with cache: "no-store" (see index.html's REPO_RAW). That split is deliberate:
-# raw.githubusercontent.com reflects a freshly committed per-manager JSON within ~1 min (the
-# on_demand_report.yml "add your team" workflow's whole SLA depends on that), whereas GitHub Pages
-# has a CDN build/cache cadence too coarse for the live, per-request data path. So Pages hosts the
-# app; raw hosts the data. Both are free.
+# Hosts the static PWA shell (index.html / track-record.html / sw.js / manifest.json / icons)
+# on GitHub Pages -- the free, official way to give the app a real public URL
+# (https://<owner>.github.io/FPL-Analyser/). The shell is the only thing deployed here: it is
+# intentionally small, and it never bundles the data/dashboard/*.json payloads -- those stay on
+# raw.githubusercontent.com/master, which the PWA (and the standalone track-record.html page)
+# fetch directly with cache: "no-store". That split is deliberate: raw.githubusercontent.com
+# reflects a freshly committed per-manager JSON within ~1 min (the on_demand_report.yml "add your
+# team" workflow's whole SLA depends on that), whereas GitHub Pages has a CDN build/cache cadence
+# too coarse for the live, per-request data path. So Pages hosts the app + public track-record
+# page; raw hosts the data. Both are free.
 #
 # One-time setup (repo owner only): Settings -> Pages -> Build and deployment -> Source =
 # "GitHub Actions". After that, every push to master redeploys automatically. No secrets needed.
@@ -39,7 +40,7 @@ jobs:
       - name: Stage static site
         run: |
           mkdir -p site
-          cp index.html sw.js manifest.json .nojekyll site/
+          cp index.html track-record.html sw.js manifest.json .nojekyll site/
           cp -r icons site/
 
       - uses: actions/configure-pages@v5
