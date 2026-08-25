@@ -1,0 +1,17 @@
+# Placeholder for GitHub Pages custom domain (Track D-4, docs/plans/2026-08_roadmap_plan.md;
+# see docs/BUSINESS_PLAN.md 2.7 for the "why"). Registering a domain and pointing its DNS at
+# GitHub Pages (an A/AAAA or CNAME record per https://docs.github.com/pages/configuring-a-custom-domain-for-your-github-pages-site)
+# are the operator's own external actions -- not something this repo can do on its own.
+#
+# To go live once a real domain is registered and DNS is configured:
+#   1. Copy this file to `CNAME` (exact name, no extension) at the repo root.
+#   2. Replace the placeholder line below with your real, registered domain (just the bare
+#      hostname, nothing else -- e.g. `fplquant.app`, not a URL).
+#   3. Commit and push to master. deploy_pages.yml's "Stage static site" step copies a `CNAME`
+#      file into the deployed artifact automatically if (and only if) one exists at the repo root
+#      -- so nothing changes about the live github.io URL until this step is actually taken.
+#
+# Do NOT create a real `CNAME` file before DNS is configured: GitHub Pages reads whatever
+# hostname is in that file and tries to configure it as this site's custom domain, which can
+# affect the live, already-working github.io URL if the domain doesn't actually point here yet.
+your-domain.example.com

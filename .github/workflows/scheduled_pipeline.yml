@@ -176,6 +176,17 @@ jobs:
               f.write(f"event={event}\n")
           PYEOF
 
+      # Roadmap P1 item (Track B... Track C, Phase C-2, docs/plans/2026-08_roadmap_plan.md):
+      # realizes the PRIOR gameweek's data/decision_log/ entry (Phase C-1) now that this run's
+      # freshly-ingested DB confirms a new current gameweek has started -- i.e. the previous one
+      # is over. Needs steps.gw's real bootstrap-static read above (to know which gameweek "prior"
+      # actually is) and live entry/event fetches of its own; safely no-ops (prints and returns)
+      # if bootstrap-static hasn't marked that gameweek finished yet, or nothing was logged for it.
+      - name: Realize prior gameweek's planner decision log
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: PYTHONPATH=src python scripts/realize_decision_log_outcomes.py "$EVENT"
+
       # Runs for real on every scheduled run (not manual-dispatch-only anymore) for both real
       # FPL accounts this project tracks -- has to live in THIS job, right after ingestion,
       # since it needs the same ephemeral database run_ingestion.py just populated in this same

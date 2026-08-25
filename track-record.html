@@ -9,6 +9,23 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap">
+<!-- Analytics (Track D-3, docs/plans/2026-08_roadmap_plan.md; privacy gate: docs/BUSINESS_PLAN.md
+     2.6): self-hosted, cookie-less, privacy-first (Plausible-compatible). Inert by default --
+     both constants stay empty until the operator self-hosts an instance and makes the explicit
+     privacy decision BUSINESS_PLAN.md 2.6 requires, so nothing loads and nothing is sent about
+     any visitor until then. Same inert-until-configured constant in index.html/landing.html. -->
+<script>
+(function () {
+  var ANALYTICS_DOMAIN = "";     // e.g. "fplquant.app" -- set once self-hosted + privacy decision made
+  var ANALYTICS_SCRIPT_SRC = ""; // e.g. "https://analytics.example.com/js/script.js" (your self-hosted instance)
+  if (!ANALYTICS_DOMAIN || !ANALYTICS_SCRIPT_SRC) return;
+  var s = document.createElement("script");
+  s.defer = true;
+  s.dataset.domain = ANALYTICS_DOMAIN;
+  s.src = ANALYTICS_SCRIPT_SRC;
+  document.head.appendChild(s);
+})();
+</script>
 <style>
   :root{
     --bg-deep: oklch(0.29 0.065 152);
@@ -127,6 +144,9 @@
     (<code>raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master</code>). See
     <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">docs/BUSINESS_PLAN.md</a>
     for the full roadmap, including when the realized-accuracy backtest lands on this page.
+    Analytics: off by default. If ever enabled, it will be a self-hosted, cookie-less,
+    privacy-first service (no personal data, no cross-site tracking) — see
+    <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">docs/BUSINESS_PLAN.md &sect;2.6</a>.
   </footer>
 </div>
 
@@ -186,6 +206,7 @@ function render(data) {
   const snaps = log.snapshots || [];
   const diff = log.latest_diff;
   const prov = log.provenance || {};
+  const pda = tr.planner_decision_accuracy || { ready: false, n_realized: 0, min_gameweeks: 8 };
 
   const steps = bt.n_gameweek_steps;
   const notYet = steps === null || steps === undefined;
@@ -241,6 +262,19 @@ function render(data) {
           ${diff.captain_changed ? `<span class="tag cap">Captain: ${esc(diff.previous_captain)} &rarr; ${esc(diff.current_captain)}</span>` : `<span class="tag" style="background:var(--card-2);color:var(--ink-dim);">Captain unchanged</span>`}
           ${diff.total_projected_ep_delta != null ? `<span class="tag" style="background:var(--card-2);color:var(--ink-dim);">EP delta ${diff.total_projected_ep_delta >= 0 ? "+" : ""}${diff.total_projected_ep_delta.toFixed(1)}</span>` : ""}
         </div>` : `<p class="empty-note">No previous gameweek to diff against yet — the first real report of a season has nothing prior.</p>`}
+    </section>
+
+    <section class="card">
+      <h2>Planner decision accuracy</h2>
+      <p class="sub">Real, realized outcomes for the two live tracked accounts: what they actually scored each gameweek vs. what they would have scored had they followed the model's logged recommendation instead. Wildcard/free hit gameweeks are excluded (the replacement squad isn't logged, so it can't be honestly reconstructed) — never counted as a loss or a win.</p>
+      ${pda.ready ? `
+      <div class="kpis">
+        <div class="kpi"><div class="v">${pda.mean_point_delta_if_followed >= 0 ? "+" : ""}${pda.mean_point_delta_if_followed}</div><div class="l">Mean point delta if followed</div></div>
+        <div class="kpi"><div class="v">${pda.n_recommendation_would_have_scored_more}</div><div class="l">GWs recommendation scored more</div></div>
+        <div class="kpi"><div class="v">${pda.n_actual_scored_more}</div><div class="l">GWs actual scored more</div></div>
+      </div>
+      <p class="empty-note">${pda.n_realized} realized gameweeks (${pda.n_tied} tied) across the tracked accounts.</p>
+      ` : `<p class="empty-note">Not enough realized decisions yet (${pda.n_realized ?? 0}/${pda.min_gameweeks ?? 8} gameweeks) — this section will populate once the two tracked accounts have that many realized gameweeks logged between them (wildcard/free hit weeks excluded, since the replacement squad isn't logged). No accuracy figure is shown until then.</p>`}
     </section>
 
     <section class="card">

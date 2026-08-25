@@ -42,6 +42,14 @@ jobs:
           mkdir -p site
           cp index.html landing.html track-record.html sw.js manifest.json .nojekyll site/
           cp -r icons site/
+          # Track D-4 (docs/plans/2026-08_roadmap_plan.md; docs/BUSINESS_PLAN.md 2.7): stages a
+          # real `CNAME` file only if one exists at the repo root -- there isn't one today (see
+          # CNAME.example for the placeholder + the exact steps to go live), so this is a no-op
+          # until the operator registers a domain, configures its DNS, and creates a real `CNAME`
+          # file themselves. Deliberately NOT unconditional: staging a bogus/placeholder hostname
+          # would make GitHub Pages try to configure it as this site's live custom domain, which
+          # could affect the already-working github.io URL before DNS is ever set up for real.
+          if [ -f CNAME ]; then cp CNAME site/; fi
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
