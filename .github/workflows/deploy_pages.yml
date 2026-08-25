@@ -40,7 +40,7 @@ jobs:
       - name: Stage static site
         run: |
           mkdir -p site
-          cp index.html track-record.html sw.js manifest.json .nojekyll site/
+          cp index.html landing.html track-record.html sw.js manifest.json .nojekyll site/
           cp -r icons site/
 
       - uses: actions/configure-pages@v5
