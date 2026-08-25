@@ -858,3 +858,86 @@ def test_humanize_swap_list_adds_names_without_mutating_input():
     assert out[0]["out_name"] == "Bruno Fernandes"
     assert out[0]["in_name"] == "Erling Haaland"
     assert "out_name" not in swaps[0]
+
+
+# Priority 8d: the public Track Record page's transparency log -- list_report_snapshots(),
+# load_latest_provenance(), and build_transparency_log(). All pure file reads over already-
+# committed JSON, so these tests stage files in a tmp_path dir rather than touching the DB.
+
+def _write_snapshot(history_dir, season, gw, captain="Marcos Senesi Bar\u00f3n", ep=45.5, in_xi=11, bench=4):
+    import json as _json
+    history_dir.mkdir(parents=True, exist_ok=True)
+    squad = [{"player_uid": f"p{i}", "name": f"P{i}", "in_xi": i < in_xi, "is_captain": False} for i in range(in_xi + bench)]
+    squad[0]["is_captain"] = True
+    payload = {
+        "target_season": season, "target_gameweek": gw, "squad": squad,
+        "captain_uid": "p0", "captain_name": captain,
+        "total_projected_ep": ep, "doubtful_flags": {}, "weight_own_by_uid": {},
+    }
+    (history_dir / f"{season}_gw{gw}.json").write_text(_json.dumps(payload))
+
+
+def test_list_report_snapshots_returns_empty_when_dir_missing(tmp_path):
+    assert reporting.list_report_snapshots(tmp_path / "does_not_exist") == []
+
+
+def test_list_report_snapshots_sorts_newest_gameweek_first_and_skips_non_snapshots(tmp_path):
+    _write_snapshot(tmp_path, "2026-2027", 1, ep=45.5)
+    _write_snapshot(tmp_path, "2026-2027", 14, ep=45.0)
+    _write_snapshot(tmp_path, "2026-2027", 2, ep=46.0)
+    # An unrelated JSON file that matches the *_gw*.json glob but not the season_gwN.json convention
+    (tmp_path / "not_a_snapshot_gwX.json").write_text("{}")
+    rows = reporting.list_report_snapshots(tmp_path)
+    gameweeks = [r["gameweek"] for r in rows]
+    assert gameweeks == [14, 2, 1]  # numeric GW order, not string order
+    assert all(r["season"] == "2026-2027" for r in rows)
+    assert rows[0]["captain_name"] == "Marcos Senesi Bar\u00f3n"
+    assert rows[0]["squad_size"] == 15
+    assert rows[0]["in_xi_count"] == 11
+
+
+def test_list_report_snapshots_skips_corrupt_json(tmp_path):
+    _write_snapshot(tmp_path, "2026-2027", 1)
+    (tmp_path / "2026-2027_gw2.json").write_text("{not valid json")
+    rows = reporting.list_report_snapshots(tmp_path)
+    assert [r["gameweek"] for r in rows] == [1]
+
+
+def test_load_latest_provenance_none_when_missing(tmp_path):
+    assert reporting.load_latest_provenance(tmp_path) is None
+
+
+def test_load_latest_provenance_picks_newest_dated_file(tmp_path):
+    import json as _json
+    (tmp_path / "provenance_2026-08-23.json").write_text(_json.dumps({"data_asof": "2026-08-23"}))
+    (tmp_path / "provenance_2026-08-24.json").write_text(_json.dumps({"data_asof": "2026-08-24"}))
+    prov = reporting.load_latest_provenance(tmp_path)
+    assert prov["data_asof"] == "2026-08-24"
+
+
+def test_build_transparency_log_assembles_all_sections_honestly(tmp_path):
+    _write_snapshot(tmp_path, "2026-2027", 1)
+    _write_snapshot(tmp_path, "2026-2027", 14)
+    import json as _json
+    (tmp_path / "provenance_2026-08-24.json").write_text(_json.dumps({"data_asof": "2026-08-24"}))
+    track_record = {
+        "n_gameweek_steps": None, "seasons_covered": [], "metrics": [],
+        "parameters_total": 71, "parameters_backtested": 0,
+    }
+    diff = {"has_previous": False, "current_gameweek": 14, "squad_changes": None}
+    log = reporting.build_transparency_log(track_record, tmp_path, diff)
+    # Backtest status is passed through verbatim, not re-derived or invented.
+    assert log["backtest"]["n_gameweek_steps"] is None
+    assert log["backtest"]["parameters_backtested"] == 0
+    # Snapshots + provenance + diff are all the real committed artifacts.
+    assert [r["gameweek"] for r in log["snapshots"]] == [14, 1]
+    assert log["provenance"]["data_asof"] == "2026-08-24"
+    assert log["latest_diff"] is diff
+
+
+def test_build_transparency_log_stays_honest_when_nothing_exists_yet(tmp_path):
+    log = reporting.build_transparency_log({}, tmp_path, None)
+    assert log["backtest"]["n_gameweek_steps"] is None
+    assert log["snapshots"] == []
+    assert log["latest_diff"] is None
+    assert log["provenance"] is None

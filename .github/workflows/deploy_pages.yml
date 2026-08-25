@@ -1,0 +1,59 @@
+name: Deploy PWA to GitHub Pages
+
+# Hosts the static PWA shell (index.html / track-record.html / sw.js / manifest.json / icons)
+# on GitHub Pages -- the free, official way to give the app a real public URL
+# (https://<owner>.github.io/FPL-Analyser/). The shell is the only thing deployed here: it is
+# intentionally small, and it never bundles the data/dashboard/*.json payloads -- those stay on
+# raw.githubusercontent.com/master, which the PWA (and the standalone track-record.html page)
+# fetch directly with cache: "no-store". That split is deliberate: raw.githubusercontent.com
+# reflects a freshly committed per-manager JSON within ~1 min (the on_demand_report.yml "add your
+# team" workflow's whole SLA depends on that), whereas GitHub Pages has a CDN build/cache cadence
+# too coarse for the live, per-request data path. So Pages hosts the app + public track-record
+# page; raw hosts the data. Both are free.
+#
+# One-time setup (repo owner only): Settings -> Pages -> Build and deployment -> Source =
+# "GitHub Actions". After that, every push to master redeploys automatically. No secrets needed.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One Pages deployment at a time -- a newer push should not race an older one's deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stage only the static shell -- keeps the Pages artifact tiny and avoids shipping the
+      # Python venv, DuckDB pipeline, tests, or the data/ dir (which lives on raw for freshness).
+      - name: Stage static site
+        run: |
+          mkdir -p site
+          cp index.html landing.html track-record.html sw.js manifest.json .nojekyll site/
+          cp -r icons site/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

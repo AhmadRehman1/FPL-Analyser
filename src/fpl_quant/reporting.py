@@ -570,6 +570,86 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
     }
 
 
+# Priority 8d: a transparent, dated public "track record" view. This is deliberately NOT an
+# invented accuracy figure -- since the backtest hasn't been run yet, there is no realized-vs-
+# projected accuracy to claim. What genuinely exists and IS worth surfacing publicly is the
+# *audit trail*: every real, dated per-gameweek snapshot the model has produced (proving the
+# recommendations are real and time-stamped, not retrofitted), the week-over-week diff against
+# the prior gameweek, and the provenance of the data the model ran on (data-asof date, evidence
+# workbook content hashes, repo commit SHAs, installed package versions). That is the honest,
+# inspectable substitute for an accuracy number until M7's backtest is run and scored.
+
+# Filename convention shared with save_report_snapshot(): <season>_gw<gw>.json. Sorted by the
+# numeric gameweek in the filename, not by string, so GW2 doesn't sort ahead of GW14.
+_SNAPSHOT_GLOB_RE = re.compile(r"([0-9]{4}-[0-9]{4})_gw([0-9]+)\.json$")
+
+
+def list_report_snapshots(history_dir: Path | str) -> list[dict]:
+    """Every committed report snapshot in ``history_dir``, newest gameweek first, as a small
+    summary (season, gameweek, projected EP, captain, squad size) -- enough for a public
+    "this is what the model said, and when" timeline without re-reading each full snapshot at
+    render time. Reads only already-committed JSON files; never touches the DB or the network,
+    so it is cheap and safe to run on every report build and from the scheduled workflow."""
+    history_dir = Path(history_dir)
+    if not history_dir.exists():
+        return []
+    rows: list[dict] = []
+    for path in history_dir.glob("*_gw*.json"):
+        match = _SNAPSHOT_GLOB_RE.search(path.name)
+        if not match:
+            continue
+        season, gw = match.group(1), int(match.group(2))
+        try:
+            snap = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        rows.append({
+            "season": season, "gameweek": gw,
+            "total_projected_ep": snap.get("total_projected_ep"),
+            "captain_name": snap.get("captain_name"),
+            "squad_size": len(snap.get("squad") or []),
+            "in_xi_count": sum(1 for p in (snap.get("squad") or ()) if p.get("in_xi")),
+        })
+    rows.sort(key=lambda r: (r["season"], r["gameweek"]), reverse=True)
+    return rows
+
+
+def load_latest_provenance(history_dir: Path | str) -> dict | None:
+    """The newest ``provenance_*.json`` in ``history_dir`` (record_provenance.py writes one per
+    real ingestion run), or None when none exists yet. Pure file reads, same cheap-and-safe
+    posture as list_report_snapshots()."""
+    history_dir = Path(history_dir)
+    candidates = sorted(history_dir.glob("provenance_*.json"), reverse=True)
+    if not candidates:
+        return None
+    try:
+        return json.loads(candidates[0].read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def build_transparency_log(track_record: dict, history_dir: Path | str, diff: dict | None) -> dict:
+    """Assemble the public Track Record page's full payload from pieces that already exist:
+    the model's own backtest status (build_track_record_summary's two honest numbers), the dated
+    per-gameweek snapshot timeline (list_report_snapshots), the latest week-over-week diff
+    (diff_reports), and the data provenance (load_latest_provenance). Nothing here is a new
+    claim -- every field is a pass-through of something the pipeline already produced, kept
+    honest (None/empty rather than fabricated) when the underlying artifact doesn't exist yet."""
+    tr = track_record or {}
+    return {
+        "backtest": {
+            "n_gameweek_steps": tr.get("n_gameweek_steps"),
+            "seasons_covered": tr.get("seasons_covered", []),
+            "metrics": tr.get("metrics", []),
+            "parameters_total": tr.get("parameters_total"),
+            "parameters_backtested": tr.get("parameters_backtested"),
+        },
+        "snapshots": list_report_snapshots(history_dir),
+        "latest_diff": diff,
+        "provenance": load_latest_provenance(history_dir),
+    }
+
+
 def build_captain_recommendation(
     tc_detail: dict | None, actual_captain_uid: str | None, player_name_by_uid: dict[str, str],
 ) -> dict | None:

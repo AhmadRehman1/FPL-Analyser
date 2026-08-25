@@ -6,5 +6,66 @@
   "parameters_total": 71,
   "parameters_backtested": 0,
   "parameters_still_invented": 71,
-  "generated_at": "2026-08-24T22:40:29.854076"
+  "generated_at": "2026-08-25T11:34:49.704386",
+  "transparency_log": {
+    "backtest": {
+      "n_gameweek_steps": null,
+      "seasons_covered": [],
+      "metrics": [],
+      "parameters_total": 71,
+      "parameters_backtested": 0
+    },
+    "snapshots": [
+      {
+        "season": "2026-2027",
+        "gameweek": 14,
+        "total_projected_ep": 45.02943243422636,
+        "captain_name": "Marcos Senesi Barón",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 2,
+        "total_projected_ep": 42.71257365366756,
+        "captain_name": "Igor Jesus Maciel da Cruz",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 1,
+        "total_projected_ep": 45.49862876085555,
+        "captain_name": "Marcos Senesi Barón",
+        "squad_size": 15,
+        "in_xi_count": 11
+      }
+    ],
+    "latest_diff": null,
+    "provenance": {
+      "data_asof": "2026-08-25",
+      "evidence_workbook": {
+        "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
+        "size_bytes": 695705
+      },
+      "fpl_analyser_commit_sha": "ce4c76b936332f803c4b95d773e28dd998c8742f",
+      "fpl_core_insights_commit_sha": "012d6ca6a7b2ace3fc9dc292f9c15dd8d48ec469",
+      "installed_packages": {
+        "duckdb": "1.5.5",
+        "numpy": "2.4.6",
+        "openpyxl": "3.1.5",
+        "pandas": "3.0.5",
+        "pyscipopt": "6.2.1",
+        "pytest": "9.1.1",
+        "python-dateutil": "2.9.0.post0",
+        "requests": "2.34.2",
+        "scipy": "1.17.1"
+      },
+      "recorded_at": "2026-08-25T06:42:34.935338+00:00",
+      "research_pull_workbook": {
+        "sha256": "d8ece9e9182f643f0c96532991ed7d0dd5d9e65328683e80fc890c44e7a7426e",
+        "size_bytes": 15529
+      }
+    }
+  }
 }
