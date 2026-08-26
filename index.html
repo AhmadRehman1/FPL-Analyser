@@ -737,19 +737,32 @@
      breakpoints) but its content shifts right to clear the fixed sidebar, same technique the
      old landscape rule used for the old rail width. */
   @media (min-width: 1024px){
+    /* --desktop-content-max caps the content column so it never touches the raw browser edge:
+       once viewport width minus the 248px sidebar minus 64px of outer breathing room dips below
+       1040px (true for effectively every real 1024-1440px laptop, since 1040px alone already
+       exceeds 1280-248=1032px available), the column shrinks to guarantee that margin instead of
+       going edge-to-edge. Fixes a Phase 2 QA finding: cards/buttons on Transfers (and every other
+       screen) rendered with 0px right-side gutter at common desktop widths. */
+    :root{ --desktop-content-max: min(1040px, calc(100vw - 248px - 64px)); }
     .side-nav{width:248px;padding:calc(env(safe-area-inset-top) + 24px) var(--space-4) var(--space-5);}
     body{padding-left:248px;}
     header.topbar{padding-left:calc(248px + 16px);}
-    .brand-row,.live-pill{max-width:1040px;}
-    main{max-width:1040px;padding:0 var(--space-4);}
-    footer{max-width:1040px;}
+    .brand-row,.live-pill{max-width:var(--desktop-content-max);}
+    main{max-width:var(--desktop-content-max);padding:0 var(--space-4);}
+    footer{max-width:var(--desktop-content-max);}
     .screen{padding:var(--space-5) var(--space-4) var(--space-12);}
     /* Workspace grid shell -- later phases hang per-screen decision-rail / supporting-table
        columns off this; for now every .content is one column so nothing currently rendered
        breaks, but the max-width/gap groundwork for a 2-3 column workspace is in place. */
-    .content{display:grid;grid-template-columns:1fr;gap:var(--space-4);max-width:1040px;}
+    .content{display:grid;grid-template-columns:1fr;gap:var(--space-4);max-width:var(--desktop-content-max);}
+    /* Grid items default to min-width:auto (= their content's max-content size), so a card
+       containing any nowrap text (e.g. .rec .net, .verdict .nums) would silently force this
+       column wider than its 1fr track and get clipped by main's overflow-x:hidden -- QA finding
+       fix: reset every direct .content child back to min-width:0 so it actually respects the
+       track/max-width instead of blowing out past the visible viewport. */
+    .content > *{min-width:0;}
     .compare-bar{left:248px;bottom:calc(env(safe-area-inset-bottom) + 16px);}
-    .back-to-top{right:calc(16px + max(0px, (100vw - 248px - 1040px) / 2));}
+    .back-to-top{right:16px;}
     /* Phase 2: on desktop the bottom sheet becomes a centered modal dialog instead of an
        edge-to-edge phone-style sheet -- same overlay/close/grabber markup and open/close JS,
        just a different shape once there's room for one. Grabber (a phone drag affordance) is
@@ -800,6 +813,7 @@
      keep the card-list fallback the spec asks for. */
   @media (min-width: 700px){
     .transfers-rail{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);align-items:start;}
+    .transfers-rail > *{min-width:0;}
     .transfers-rail > .section{margin-bottom:0;}
   }
   @media (min-width: 1024px){
