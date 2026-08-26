@@ -1,0 +1,28 @@
+name: Refresh FPL historical data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas pyarrow
+      - run: |
+          export PYTHONPATH=src
+          python scripts/download_historical_fpl_data.py --seasons 2023-24 2024-25
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fpl-historical-data
+          path: data/historical
+          retention-days: 14
