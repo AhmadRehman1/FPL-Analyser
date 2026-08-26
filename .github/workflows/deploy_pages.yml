@@ -33,7 +33,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Stage only the static shell -- keeps the Pages artifact tiny and avoids shipping the
       # Python venv, DuckDB pipeline, tests, or the data/ dir (which lives on raw for freshness).
