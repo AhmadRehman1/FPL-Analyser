@@ -67,6 +67,45 @@
     --transition-interactive: 180ms cubic-bezier(0.16, 1, 0.3, 1);
     --shadow-card: 0 1px 0 oklch(1 0 0/0.6) inset, 0 14px 34px oklch(0.14 0.05 150/0.4);
     --shadow-card-strong: 0 1px 0 oklch(1 0 0/0.7) inset, 0 22px 48px oklch(0.12 0.06 150/0.5);
+
+    /* ---- Phase 1: responsive breakpoint tokens (mobile-first; use min-width) ----
+       Mirrors redesign_spec.md: phone <700, tablet 700-1023, desktop 1024+, wide 1440+. */
+    --bp-sm: 480px;
+    --bp-md: 700px;
+    --bp-lg: 1024px;
+    --bp-xl: 1440px;
+
+    /* ---- Phase 1: 4px spacing scale (semantic name = px value / 4) ---- */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
+
+    /* ---- Phase 1: semantic surface/border/text tokens for the new nav-rail/sidebar shell.
+       Named generically (not "dark"/"light") so they stay theme-able if a later phase adds a
+       real light/dark toggle -- today they simply describe the app's one existing dark-hero /
+       light-card scheme. --surface mirrors --card (the light content surface); --raised-surface
+       sits a step lighter/brighter for elements that should pop off a card (active nav pill,
+       popovers); --subtle-surface is a step down for recessed/inset areas (rail/sidebar
+       background against the dark hero). --border was already referenced by a few existing
+       rules (.compare-check, .review-select) without ever being defined -- defining it here is a
+       pure bugfix, not a behavior change (those rules silently had no visible border before). */
+    --surface: var(--card);
+    --raised-surface: oklch(1 0 0);
+    --subtle-surface: oklch(0.26 0.06 152);
+    --border: oklch(0.85 0.01 90);
+    --border-on-dark: oklch(0.98 0.005 90/0.16);
+    --text-primary: var(--ink);
+    --text-muted: var(--ink-dim);
+    --text-faint: var(--ink-dim2);
+    --text-inverse: var(--on-dark);
+    --text-inverse-muted: var(--on-dark-dim);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html, body{margin:0;background:var(--bg-deep);color:var(--ink);font-family:"Barlow",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
@@ -110,8 +149,42 @@
   @keyframes pulse{50%{opacity:0.4;}}
 
   /* ---- layout ---- */
+  /* ---- Phase 1: app row -- wraps the (phone-hidden) side-nav + main so a tablet/desktop nav
+     rail/sidebar can sit as a real flex sibling of main instead of an overlay. On phone this is
+     just a plain block wrapper (side-nav has display:none), so it changes nothing there. */
+  .app-row{position:relative;z-index:2;}
   main{max-width:460px;margin:0 auto;position:relative;z-index:2;overflow-x:hidden;}
   .screen{display:none;padding:14px 16px 110px;}
+
+  /* ---- Phase 1: side-nav (tablet rail / desktop sidebar) -- hidden on phone; the bottom
+     .tabbar remains the phone nav completely untouched. See the (min-width: var(--bp-md)) and
+     (min-width: var(--bp-lg)) blocks near the other breakpoints below for the rail vs. sidebar
+     shape change. Built from the same .tab buttons as .tabbar, so route()'s existing
+     `document.querySelectorAll(".tab")` active-state toggle drives both without new JS. */
+  .side-nav{display:none;}
+  .side-nav-brand{display:flex;align-items:center;gap:10px;color:var(--on-dark);}
+  .side-nav-brand-mark{
+    width:34px;height:34px;border-radius:10px;background:oklch(0.98 0.005 90/0.14);
+    display:flex;align-items:center;justify-content:center;font-family:"Anton",sans-serif;
+    font-size:13px;flex-shrink:0;
+  }
+  .side-nav-brand-text{font-family:"Anton",sans-serif;font-size:15px;line-height:1;}
+  .side-nav-items{display:flex;flex-direction:column;gap:2px;}
+  .side-nav-footer{margin-top:auto;padding-top:var(--space-3);border-top:1px solid var(--border-on-dark);}
+  /* Rail/sidebar .tab override -- base .tab (bottom bar) is a column icon-over-label flex-1
+     button; here it becomes a full-width horizontal row so it reads correctly turned 90deg
+     into a rail/sidebar context. min-height 44px keeps the 44x44 touch-target rule. */
+  .side-nav .tab{
+    flex:0 0 auto;width:100%;min-height:44px;flex-direction:row;justify-content:flex-start;
+    gap:10px;padding:9px 10px;border-radius:12px;color:var(--text-inverse-muted);position:relative;
+  }
+  .side-nav .tab span:not(.tab-icon-wrap){font-size:13px;font-weight:700;letter-spacing:normal;}
+  .side-nav .tab .tab-icon-wrap{width:30px;height:30px;flex-shrink:0;}
+  .side-nav .tab.active{color:var(--text-inverse);background:oklch(0.98 0.005 90/0.1);}
+  .side-nav .tab.active .tab-icon-wrap{background:var(--live);color:#0B0B12;transform:none;}
+  @media (hover:hover){
+    .side-nav .tab:hover{background:oklch(0.98 0.005 90/0.07);}
+  }
   .screen.active{display:block;}
   /* Swipe/tab-bar navigation between screens -- direction matches TABS order (same motion
      whether you dragged or tapped the bar), gated behind .motion-ready like every other
@@ -392,6 +465,15 @@
      Motion + accessibility layer
      ========================================================== */
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  /* ---- Phase 1: skip-to-content link -- visually hidden like .sr-only until keyboard focus,
+     then pinned top-left above everything else so a keyboard/screen-reader user can jump past
+     the header/nav straight into <main id="main-content"> on every screen size. */
+  .skip-link{
+    position:absolute;top:-48px;left:12px;z-index:100;background:var(--live);color:#0B0B12;
+    font-size:12.5px;font-weight:800;padding:10px 16px;border-radius:10px;text-decoration:none;
+    transition:top 0.16s ease;
+  }
+  .skip-link:focus-visible{top:12px;outline:2.5px solid var(--on-dark);outline-offset:2px;}
   a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible{
     outline:2.5px solid var(--live); outline-offset:2px; border-radius:8px;
   }
@@ -557,29 +639,66 @@
     }
   }
 
-  /* ---- tablet-landscape layout (e.g. an iPad with a keyboard case, kept flat) -- everything
-     above this point is the mobile-first, single-column, bottom-tab-bar design; this block
-     only ever ADDS overrides for a specifically wide+landscape viewport, never removes anything
-     phones/portrait-tablets still rely on. A bottom tab bar under a keyboard eats screen real
-     estate and reads as "a phone app stretched wide," not a tablet app -- moved to a left rail
-     instead (same pattern iPadOS's own apps use once a keyboard is attached), and the content
-     column gets real breathing room instead of floating in a sea of empty margin. Gated on
-     min-width (not just orientation) so a small landscape phone still gets the bottom bar its
-     thumb-reach was designed for -- this is specifically for the tablet+keyboard case asked
-     for, not every possible landscape width. */
-  @media (min-width: 700px) and (orientation: landscape){
-    body{padding-left:92px;}
-    .brand-row,.live-pill,main,footer{max-width:640px;}
-    .screen{padding-bottom:32px;}
-    .tabbar{
-      left:0;right:auto;top:0;bottom:0;height:100%;width:92px;
-      flex-direction:column;justify-content:flex-start;
-      padding-top:calc(env(safe-area-inset-top) + 28px);gap:6px;
-      border-top:none;border-right:1px solid oklch(0.98 0.005 90/0.15);
+  /* ==========================================================
+     Phase 1: tablet (>=700px) / desktop (>=1024px) responsive shell
+     ==========================================================
+     Everything above this point is the original mobile-first, single-column, bottom-tab-bar
+     design (<700px / var(--bp-md)) and is left completely untouched -- phones keep exactly the
+     .tabbar they always had, same markup, same motion. These blocks only ever ADD overrides
+     once the viewport is wide enough for a rail/sidebar to make sense, replacing the old
+     landscape-only .tabbar-as-rail trick with a real, width-based (not orientation-gated)
+     breakpoint, per redesign_spec.md's --bp-md/--bp-lg. Content column widths intentionally
+     stay generous (720px/1040px, not a skinny 460px column with huge dead gutters) so later
+     phases have real room for two-column / multi-column per-screen layouts; the grid scaffolding
+     itself (single content column for now) is all this phase adds -- per-screen 2/3-col content
+     is a later phase's job. */
+  @media (min-width: 700px){
+    body{background-attachment:scroll;}
+    .tabbar{display:none;}
+    .side-nav{
+      display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:5;
+      background:var(--subtle-surface);border-right:1px solid var(--border-on-dark);
+      padding:calc(env(safe-area-inset-top) + 20px) 12px 16px;gap:var(--space-4);
+      overflow-y:auto;
     }
-    .tabbar .tab{flex:0 0 auto;width:100%;padding:12px 4px;}
-    .compare-bar{left:92px;bottom:calc(env(safe-area-inset-bottom) + 16px);}
-    .back-to-top{bottom:calc(env(safe-area-inset-bottom) + 20px);}
+    .app-row{display:flex;}
+    .brand-row,.live-pill{max-width:720px;}
+    main{max-width:720px;padding:0 var(--space-2);}
+    footer{max-width:720px;}
+    .screen{padding:var(--space-4) var(--space-2) var(--space-10);}
+    .compare-bar{bottom:calc(env(safe-area-inset-bottom) + 16px);}
+  }
+  /* Tablet only (700-1023px): compact icon+label rail -- narrow, no brand wordmark (header
+     above already shows the brand), just enough width for icon + short label per nav item. */
+  @media (min-width: 700px) and (max-width: 1023px){
+    .side-nav{width:84px;align-items:center;}
+    .side-nav-brand-text{display:none;}
+    .side-nav-items{width:100%;}
+    .side-nav .tab{flex-direction:column;gap:3px;padding:8px 2px;}
+    .side-nav .tab span:not(.tab-icon-wrap){font-size:9.5px;}
+    body{padding-left:84px;}
+    header.topbar{padding-left:calc(84px + 16px);}
+    .compare-bar{left:84px;}
+    .back-to-top{right:16px;}
+  }
+  /* Desktop (>=1024px / var(--bp-lg)): full persistent sidebar with wordmark + labelled rows,
+     and a wider multi-column-ready workspace region. Header stays full-width (shared across all
+     breakpoints) but its content shifts right to clear the fixed sidebar, same technique the
+     old landscape rule used for the old rail width. */
+  @media (min-width: 1024px){
+    .side-nav{width:248px;padding:calc(env(safe-area-inset-top) + 24px) var(--space-4) var(--space-5);}
+    body{padding-left:248px;}
+    header.topbar{padding-left:calc(248px + 16px);}
+    .brand-row,.live-pill{max-width:1040px;}
+    main{max-width:1040px;padding:0 var(--space-4);}
+    footer{max-width:1040px;}
+    .screen{padding:var(--space-5) var(--space-4) var(--space-12);}
+    /* Workspace grid shell -- later phases hang per-screen decision-rail / supporting-table
+       columns off this; for now every .content is one column so nothing currently rendered
+       breaks, but the max-width/gap groundwork for a 2-3 column workspace is in place. */
+    .content{display:grid;grid-template-columns:1fr;gap:var(--space-4);max-width:1040px;}
+    .compare-bar{left:248px;bottom:calc(env(safe-area-inset-bottom) + 16px);}
+    .back-to-top{right:calc(16px + max(0px, (100vw - 248px - 1040px) / 2));}
   }
 </style>
 </head>
@@ -590,6 +709,7 @@
   <path d="M20 110 h60 v100 h-60 z"/><path d="M320 110 h-60 v100 h60 z"/>
 </svg>
 
+<a class="skip-link" href="#main-content">Skip to content</a>
 <div class="dev-banner" id="dev-banner" hidden></div>
 <div class="stale-banner" id="stale-banner" hidden></div>
 <div class="sr-only" aria-live="polite" id="score-announcer"></div>
@@ -611,7 +731,53 @@
   </div>
 </header>
 
-<main>
+<div class="app-row">
+<!-- ---- Phase 1: tablet nav rail / desktop sidebar ----
+     Same 6 destinations as the bottom .tabbar (Home/Team/Transfers/Fixtures/Leagues/Plan) plus
+     Profile (which the phone layout reaches via the header avatar button, not the tab bar) --
+     no new destinations invented. Reuses the existing .tab class + data-tab attribute so
+     route()'s existing `document.querySelectorAll(".tab")` active-state loop (see <script>)
+     drives this nav for free -- no duplicated state, no separate JS. Hidden entirely on phone
+     (<700px) via .side-nav{display:none} in the base (mobile-first) rules; the tablet/desktop
+     media queries turn display back on and switch shape (icon+label rail -> full sidebar). -->
+<nav class="side-nav" aria-label="Main">
+  <div class="side-nav-brand" aria-hidden="true">
+    <span class="side-nav-brand-mark">FQ</span><span class="side-nav-brand-text">FPL Quant</span>
+  </div>
+  <div class="side-nav-items" role="tablist">
+    <button class="tab" data-tab="home" role="tab" onclick="location.hash='home'">
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg></span>
+      <span>Home</span>
+    </button>
+    <button class="tab" data-tab="team" role="tab" onclick="location.hash='team'">
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4l4-1 4 1 4 3-3 4-1-1v11H8V10l-1 1-3-4 4-3z"/></svg></span>
+      <span>Team</span>
+    </button>
+    <button class="tab" data-tab="transfers" role="tab" onclick="location.hash='transfers'">
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M13 4l4 4-4 4"/><path d="M20 16H7M11 20l-4-4 4-4"/></svg></span>
+      <span>Transfers</span>
+    </button>
+    <button class="tab" data-tab="fixtures" role="tab" onclick="location.hash='fixtures'">
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="16" rx="3"/><path d="M3.5 9.5h17M8 3v3M16 3v3"/></svg></span>
+      <span>Fixtures</span>
+    </button>
+    <button class="tab" data-tab="leagues" role="tab" onclick="location.hash='leagues'">
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4z"/><path d="M8 5H5a3 3 0 0 0 3 5M16 5h3a3 3 0 0 1-3 5"/><path d="M12 13v4M9 20h6"/></svg></span>
+      <span>Leagues</span>
+    </button>
+    <button class="tab" data-tab="plan" role="tab" onclick="location.hash='plan'">
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4" width="17" height="17" rx="3"/><path d="M8 3v3M16 3v3M3.5 10h17"/><path d="M8.5 14.5l2.5 2.5 4.5-5"/></svg></span>
+      <span>Plan</span>
+    </button>
+  </div>
+  <div class="side-nav-footer">
+    <button class="tab side-nav-profile" data-tab="profile" onclick="location.hash='profile'" aria-label="Open profile">
+      <span class="tab-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.4-4 5-5.6 7.5-5.6s6.1 1.6 7.5 5.6"/></svg></span>
+      <span>Profile</span>
+    </button>
+  </div>
+</nav>
+<main id="main-content">
   <div class="pull-indicator" id="pull-indicator" aria-hidden="true">
     <svg class="spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>
   </div>
@@ -622,6 +788,7 @@
   <section class="screen" data-tab="leagues"><div class="content" id="leagues-content"></div></section>
   <section class="screen" data-tab="plan"><div class="content" id="plan-content"></div></section>
 </main>
+</div>
 
 <footer>
   Data is fetched live from <a href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">github.com/AhmadRehman1/FPL-Analyser</a>,
