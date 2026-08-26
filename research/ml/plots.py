@@ -65,9 +65,13 @@ def plot_mae_by_season(comparison: pd.DataFrame) -> str | None:
     if plt is None or comparison.empty:
         return None
     fig, ax = plt.subplots(figsize=(8, 4))
-    pivot = comparison.pivot(index="season", columns="model", values="mae")
+    # Exhaustive gameweek walk-forward mode yields multiple rows per (season, model) --
+    # one per tested gameweek -- so aggregate before pivoting or pandas raises on the
+    # duplicate index (spec §28: this must not silently drop data, so we average instead).
+    grouped = comparison.groupby(["season", "model"], as_index=False)["mae"].mean()
+    pivot = grouped.pivot(index="season", columns="model", values="mae")
     pivot.plot.bar(ax=ax)
-    ax.set_ylabel("MAE")
+    ax.set_ylabel("MAE (mean across folds)")
     ax.set_title("MAE by season and model")
     ax.legend(title="model")
     return _save(fig, "mae_by_season")
@@ -78,9 +82,10 @@ def plot_models_comparison(comparison: pd.DataFrame, metric: str = "rmse") -> st
     if plt is None or comparison.empty:
         return None
     fig, ax = plt.subplots(figsize=(8, 4))
-    pivot = comparison.pivot(index="season", columns="model", values=metric)
+    grouped = comparison.groupby(["season", "model"], as_index=False)[metric].mean()
+    pivot = grouped.pivot(index="season", columns="model", values=metric)
     pivot.plot(ax=ax, marker="o")
-    ax.set_ylabel(metric)
+    ax.set_ylabel(f"{metric} (mean across folds)")
     ax.set_title(f"{metric}: Quant vs ML vs Ensemble")
     return _save(fig, f"models_{metric}")
 
