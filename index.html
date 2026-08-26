@@ -561,6 +561,77 @@
   .compare-table{width:100%;border-collapse:collapse;font-size:11.5px;}
   .compare-table th, .compare-table td{padding:8px 6px;text-align:left;border-top:1px solid var(--divider);}
   .compare-table th{font-size:9.5px;text-transform:uppercase;color:var(--ink-dim2);}
+
+  /* ---- Phase 3: Planner multi-GW timeline ----
+     Mobile (<700px): horizontally scrollable strip, one cell per gameweek, scroll-snap +
+     edge fade as the scroll affordance (no separate scrollbar chrome needed). Tablet/desktop
+     (>=700px): .timeline-scroll switches to a real (non-scrolling) grid via the media query
+     near the other >=700px rules below, since there's usually enough width to show the whole
+     horizon at once -- falls back to scrolling automatically if the horizon is ever longer than
+     fits (grid-auto-flow:column keeps behaving like the mobile strip if that ever happens).
+     Cells are real <button>s (keyboard/AT-operable, 44px+ tall) styled to look like timeline
+     cells, not divs with onclick. */
+  .timeline-wrap{position:relative;margin-bottom:14px;}
+  .timeline-scroll{
+    display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;padding:2px 2px 8px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .timeline-scroll::-webkit-scrollbar{height:5px;}
+  .timeline-scroll::-webkit-scrollbar-thumb{background:oklch(0.98 0.005 90/0.25);border-radius:3px;}
+  /* Edge fade: a subtle scroll affordance hinting there's more off-screen, without a visible
+     scrollbar track competing with the cards. Purely decorative (aria-hidden via no content) --
+     never the only way a user learns the timeline scrolls; a sr-only hint text does that job too. */
+  .timeline-wrap::before, .timeline-wrap::after{
+    content:"";position:absolute;top:0;bottom:8px;width:18px;z-index:1;pointer-events:none;transition:opacity 0.2s ease;
+  }
+  .timeline-wrap::before{left:0;background:linear-gradient(90deg,var(--bg-deep),transparent);}
+  .timeline-wrap::after{right:0;background:linear-gradient(270deg,var(--bg-deep),transparent);}
+  .timeline-wrap.at-start::before,.timeline-wrap.at-end::after{opacity:0;}
+  .tl-cell{
+    scroll-snap-align:start;flex-shrink:0;width:112px;min-height:112px;text-align:left;
+    background:var(--card);border-radius:14px;padding:10px 11px;border:1.5px solid transparent;
+    display:flex;flex-direction:column;gap:4px;font:inherit;color:var(--ink);cursor:pointer;
+    transition:transform var(--transition-interactive),border-color var(--transition-interactive),box-shadow var(--transition-interactive);
+  }
+  .tl-cell:active{transform:scale(0.96);}
+  .tl-cell.is-current{border-color:oklch(0.55 0.16 150/0.55);box-shadow:0 0 0 1px oklch(0.55 0.16 150/0.25) inset;}
+  .tl-cell.is-focused{border-color:oklch(0.6 0.2 250/0.6);background:oklch(0.96 0.03 250/0.35);}
+  .tl-cell.has-transfer{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));}
+  .tl-cell.has-chip{background:linear-gradient(155deg,var(--gold-soft,oklch(0.95 0.08 85)),oklch(0.92 0.1 85/0.6));}
+  .tl-cell-gw{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-dim2);display:flex;align-items:center;gap:4px;}
+  .tl-cell-state-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+  .tl-cell-pts{font-family:"Anton",sans-serif;font-size:19px;line-height:1;color:var(--ink);}
+  .tl-cell-pts .unit{font-family:inherit;font-size:9.5px;font-weight:600;color:var(--ink-dim2);margin-left:2px;}
+  .tl-cell-tag{font-size:9.5px;font-weight:700;color:var(--ink-dim);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+  .tl-cell-cost{font-size:9.5px;font-weight:700;color:var(--red);}
+  .tl-cell:focus-visible{outline:2.5px solid var(--gold);outline-offset:2px;}
+  .tl-legend{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:10px;color:var(--on-dark-dim);margin:0 0 10px;}
+  .tl-legend-item{display:flex;align-items:center;gap:5px;}
+  .tl-legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  /* ---- Planner summary card + comparison + why-this-plan (tablet/desktop surfaces a real
+     baseline-vs-recommended comparison; mobile shows the same data stacked) ---- */
+  .plan-summary-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px;}
+  .plan-compare-row{display:flex;gap:10px;margin-bottom:12px;}
+  .plan-compare-col{flex:1;min-width:0;background:var(--card-2);border-radius:14px;padding:11px 12px;}
+  .plan-compare-col .pc-label{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-dim2);margin-bottom:4px;}
+  .plan-compare-col .pc-value{font-family:"Anton",sans-serif;font-size:20px;color:var(--ink);}
+  .plan-compare-col.is-recommended{background:var(--green-soft);}
+  .plan-compare-col.is-recommended .pc-label,.plan-compare-col.is-recommended .pc-value{color:oklch(0.3 0.1 150);}
+  .plan-why{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:12px;border-left:3px solid oklch(0.6 0.2 250/0.6);}
+  .plan-why .explain-line{font-size:11.5px;color:var(--ink-dim);line-height:1.6;margin:0;}
+  .plan-why .explain-line b{color:var(--ink);}
+  .plan-horizon-switch{display:flex;align-items:center;gap:8px;background:var(--card-2);border-radius:100px;padding:4px 4px;margin:0 0 12px;width:fit-content;}
+  .plan-horizon-switch button{padding:12px 15px;border-radius:100px;font-size:11px;font-weight:700;color:var(--ink-dim);min-height:44px;min-width:44px;}
+  .plan-horizon-switch button.active{background:var(--card);color:var(--ink);box-shadow:0 1px 4px oklch(0.2 0.05 150/0.15);}
+  @media (min-width:700px){
+    .timeline-scroll{overflow-x:visible;flex-wrap:wrap;}
+    .tl-cell{flex:1;min-width:120px;}
+    .plan-compare-row{gap:14px;}
+  }
+  @media (min-width:1024px){
+    .plan-summary-grid{grid-template-columns:repeat(4,1fr);}
+    .tl-cell{min-height:126px;}
+  }
   [draggable="true"]{cursor:grab;}
   [draggable="true"]:active{cursor:grabbing;}
   .dnd-zone{border:1.5px dashed oklch(0.98 0.005 90/0.35);border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--on-dark-dim);text-align:center;transition:background-color 0.15s ease,border-color 0.15s ease;}
@@ -1865,6 +1936,10 @@ function route() {
   }
   if (hash === "plan-compare") {
     openPlanCompareSheet();
+    return;
+  }
+  if (hash.startsWith("plan-gw-")) {
+    openPlanTimelineCell(Number(hash.slice(8)));
     return;
   }
   if (hash.startsWith("chip-")) {
@@ -3664,6 +3739,8 @@ function ensurePlanDraft() {
   if (!draft && state.team) draft = planDraftFromLiveSquad();
   state.planDraft = draft;
   state.planViewGw = draft ? draft.baseGameweek : null;
+  state.planTimelineFocusGw = state.planViewGw;
+  state.planTimelineAnimateNext = true;
   state.planPendingTransfer = null;
   state.planSelectedOutId = null;
   if (draft) persistPlanDraft();
@@ -3674,10 +3751,13 @@ function planSwitchDraft(id) {
   if (!d) return;
   state.planDraft = d;
   state.planViewGw = d.baseGameweek;
+  state.planTimelineFocusGw = d.baseGameweek;
+  state.planTimelineAnimateNext = true;
   state.planPendingTransfer = null;
   state.planSelectedOutId = null;
   localStorage.setItem(planActiveIdKey(), d.id);
   renderPlan();
+  announcePlanChange(`Switched to scenario ${d.name}.`);
 }
 
 /** Forks a new draft: `source==="live"` starts from the real live squad; `source==="current"`
@@ -3729,9 +3809,12 @@ function shiftPlanGw(delta) {
   const next = Math.max(state.planDraft.baseGameweek, Math.min(PlannerModel.LAST_GAMEWEEK, state.planViewGw + delta));
   if (next === state.planViewGw) return;
   state.planViewGw = next;
+  state.planTimelineFocusGw = next;
+  state.planTimelineAnimateNext = true;
   state.planPendingTransfer = null;
   state.planSelectedOutId = null;
   renderPlan();
+  announcePlanChange(`Viewing gameweek ${next}.`);
 }
 
 function setPlanViewMode(mode) {
@@ -4213,17 +4296,336 @@ function planDraftPickerBlock() {
   </div>`;
 }
 
+// ============================================================
+// PHASE 3: multi-GW timeline -- turns the draft's own real gwPlans/computeStateAtGameweek
+// output into one cell per gameweek (label, projected best-XI points, planned transfer/chip,
+// hit cost, risk/confidence). Every number below is read straight off PlannerModel/Solver --
+// nothing here invents a metric the planner engine doesn't already compute.
+// ============================================================
+
+// How many gameweeks the timeline shows at once -- a UI-only concern (view width), independent
+// of PLAN_HORIZON_GAMEWEEKS (which bounds the solver's own suggestion lookahead). Selectable so
+// a manager can zoom out to see a whole run-in, not fixed at whatever the solver happens to use.
+const PLAN_TIMELINE_HORIZONS = [3, 5, 8];
+
+function planTimelineHorizonLength() {
+  return state.planTimelineHorizon || 5;
+}
+function setPlanTimelineHorizon(n) {
+  state.planTimelineHorizon = n;
+  state.planTimelineFocusGw = state.planViewGw;
+  state.planTimelineAnimateNext = true;
+  renderPlan();
+  announcePlanChange(`Timeline horizon set to ${n} gameweeks.`);
+}
+
+/** One real, computed row per gameweek from the draft's own base up through baseGameweek +
+ * (length-1) -- reuses PlannerModel.computeStateAtGameweek (the exact same function the rest of
+ * the screen already calls) so the timeline can never drift from the draft/bank/chip state
+ * shown elsewhere on this screen. */
+function planTimelineRows(draft, fromGw, length, projByElement) {
+  const rows = [];
+  for (let i = 0; i < length; i++) {
+    const gw = fromGw + i;
+    if (gw > PlannerModel.LAST_GAMEWEEK) break;
+    const computed = PlannerModel.computeStateAtGameweek(draft, gw, state.playersById);
+    const plan = PlannerModel.planFor(draft, gw);
+    const xi = computed.squad.filter(h => h.inXI);
+    const projectedPoints = xi.reduce((sum, h) => {
+      const ep = PlannerSolver.horizonEp(projByElement, h.playerId, [gw]);
+      const captainMult = h.isCaptain ? 2 : 1;
+      return sum + (ep || 0) * captainMult;
+    }, 0);
+    const bboost = computed.activeChip === "bench_boost";
+    const benchPoints = bboost ? computed.squad.filter(h => !h.inXI).reduce((sum, h) => sum + (PlannerSolver.horizonEp(projByElement, h.playerId, [gw]) || 0), 0) : 0;
+    const transferPairs = plan.transfersOut.map((outId, i2) => ({ outId, inId: plan.transfersIn[i2] }));
+    const validation = PlannerRules.validateDraftSquad(computed.squad, state.playersById, computed.bank);
+    rows.push({
+      gw, computed, plan, transferPairs,
+      projectedPoints: projectedPoints + benchPoints,
+      hasProjections: PlannerSolver.hasProjections(projByElement),
+      transferCost: computed.transferCostThisGw,
+      chip: computed.activeChip,
+      isValid: validation.valid,
+      warnings: validation.warnings,
+    });
+  }
+  return rows;
+}
+
+/** Risk/confidence label for one timeline cell -- real, derived signals only: an invalid squad
+ * (illegal XI/budget) is "Needs attention"; a paid hit is "Costed" (visible but not alarming,
+ * since a hit can still be net-positive); everything else with published projections is
+ * "On track"; no projections yet is explicitly "Unscored" rather than a fabricated status. */
+function planCellStatus(row) {
+  if (!row.isValid) return { label: "Needs attention", dot: "var(--red)" };
+  if (!row.hasProjections) return { label: "Unscored", dot: "var(--ink-dim2)" };
+  if (row.transferCost > 0) return { label: "Costed hit", dot: "var(--amber)" };
+  return { label: "On track", dot: "var(--green)" };
+}
+
+function planTimelineCellTag(row) {
+  const bits = [];
+  if (row.transferPairs.length) {
+    bits.push(row.transferPairs.map(p => {
+      const out = state.playersById[p.outId], inP = state.playersById[p.inId];
+      return `${out ? out.web_name : "?"}&rarr;${inP ? inP.web_name : "?"}`;
+    }).join(", "));
+  }
+  if (row.chip) bits.push(CHIP_LABELS[row.chip]);
+  if (!bits.length) return "No changes planned";
+  return bits.join(" &middot; ");
+}
+
+function planTimelineCellHtml(row, opts) {
+  const status = planCellStatus(row);
+  const isCurrent = row.gw === opts.baseGw;
+  const isFocused = row.gw === opts.focusGw;
+  const classes = ["tl-cell"];
+  if (opts.animate) classes.push("anim-in");
+  if (isCurrent) classes.push("is-current");
+  if (isFocused) classes.push("is-focused");
+  if (row.transferPairs.length) classes.push("has-transfer");
+  if (row.chip) classes.push("has-chip");
+  return `
+    <button type="button" class="${classes.join(" ")}" id="tl-cell-${row.gw}" role="listitem"
+      aria-current="${isFocused ? "true" : "false"}"
+      aria-label="Gameweek ${row.gw}${isCurrent ? ", base gameweek" : ""}. ${row.hasProjections ? `Projected ${row.projectedPoints.toFixed(1)} points.` : "Not yet scored."} ${planTimelineCellTag(row).replace(/&rarr;/g, "to").replace(/&middot;/g, ",")}. Status: ${status.label}."
+      onclick="location.hash='plan-gw-${row.gw}'">
+      <span class="tl-cell-gw"><span class="tl-cell-state-dot" style="background:${status.dot};" aria-hidden="true"></span>GW ${row.gw}${isCurrent ? " &middot; now" : ""}</span>
+      <span class="tl-cell-pts">${row.hasProjections ? row.projectedPoints.toFixed(1) : "&mdash;"}<span class="unit">pts</span></span>
+      <span class="tl-cell-tag">${planTimelineCellTag(row)}</span>
+      ${row.transferCost ? `<span class="tl-cell-cost">&minus;${row.transferCost} hit</span>` : ""}
+    </button>`;
+}
+
+function planTimelineHtml(rows, baseGw, focusGw) {
+  // Motion: only fade/slide the cells in on a MEANINGFUL timeline change (horizon length or
+  // focused-gw change) -- state.planTimelineAnimateNext is set by setPlanTimelineHorizon()/
+  // shiftPlanGw()/jumpPlanViewToGw() (real navigation) and cleared right after being read here,
+  // so a re-render triggered by something else on this screen (confirming a transfer, toggling a
+  // chip, renaming a draft) leaves the timeline cells static rather than re-animating every one
+  // of them on every keystroke/click, per redesign_spec.md's Motion section. Always gated behind
+  // .motion-ready (prefers-reduced-motion already disables that class globally).
+  const shouldAnimate = !!state.planTimelineAnimateNext;
+  state.planTimelineAnimateNext = false;
+  return `
+    <div class="tl-legend">
+      <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--green);"></span>On track</span>
+      <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--amber);"></span>Costed hit</span>
+      <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--red);"></span>Needs attention</span>
+      <span class="tl-legend-item"><span class="tl-legend-dot" style="background:var(--ink-dim2);"></span>Unscored</span>
+    </div>
+    <div class="timeline-wrap" id="plan-timeline-wrap">
+      <p class="sr-only">Horizontally scrollable gameweek timeline. Use Tab or swipe to move between gameweeks; activate a gameweek to see its detail.</p>
+      <div class="timeline-scroll" id="plan-timeline-scroll" role="list" aria-label="Planned gameweeks">
+        ${rows.map(r => planTimelineCellHtml(r, { baseGw, focusGw, animate: shouldAnimate })).join("")}
+      </div>
+    </div>`;
+}
+
+function wireTimelineScrollFade() {
+  const wrap = document.getElementById("plan-timeline-wrap");
+  const scroller = document.getElementById("plan-timeline-scroll");
+  if (!wrap || !scroller) return;
+  const update = () => {
+    const atStart = scroller.scrollLeft <= 2;
+    const atEnd = scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 2;
+    wrap.classList.toggle("at-start", atStart);
+    wrap.classList.toggle("at-end", atEnd);
+  };
+  scroller.addEventListener("scroll", update, { passive: true });
+  update();
+  // Left/Right arrow keys move focus between timeline cells (real <button>s, so Tab already
+  // reaches every cell -- this just makes arrow keys work the way a native tab-like widget's
+  // users expect once focus is already inside the strip, same idea as the tabbar's own
+  // role="tablist" semantics elsewhere in this file).
+  scroller.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const cells = Array.from(scroller.querySelectorAll(".tl-cell"));
+    const idx = cells.indexOf(document.activeElement);
+    if (idx === -1) return;
+    const next = cells[idx + (e.key === "ArrowRight" ? 1 : -1)];
+    if (next) { e.preventDefault(); next.focus(); next.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+  });
+}
+
+/** Opens the existing shared sheet/dialog (#sheet-dialog) with one gameweek's own real detail --
+ * same accessible-dialog pattern Phase 2 already built (Escape/focus-trap/return), reused here
+ * for free because this sheet's first heading is a .player-hero .name, already in
+ * sheetLabelFromContent()'s selector list. */
+function openPlanTimelineCell(gw) {
+  state.planTimelineFocusGw = gw;
+  renderPlanTimelineCellSheet(gw);
+  openSheet();
+}
+
+function renderPlanTimelineCellSheet(gw) {
+  const content = document.getElementById("sheet-content");
+  if (!content || !state.planDraft) return;
+  const projByElement = planProjByElement();
+  const draft = state.planDraft;
+  const computed = PlannerModel.computeStateAtGameweek(draft, gw, state.playersById);
+  const plan = PlannerModel.planFor(draft, gw);
+  const rows = planTimelineRows(draft, gw, 1, projByElement);
+  const row = rows[0];
+  const status = row ? planCellStatus(row) : null;
+  const deadlineGw = state.fixtures && state.fixtures.find(f => f.gameweek === gw);
+  const countdown = deadlineGw ? PlannerFixtures.deadlineCountdown(deadlineGw.deadline_time, new Date()) : null;
+  const isBaseGw = gw === draft.baseGameweek;
+
+  const transferLines = plan.transfersOut.map((outId, i) => {
+    const outP = state.playersById[outId], inP = state.playersById[plan.transfersIn[i]];
+    return `<div class="sl-row"><div class="sl-label">${escapeHtml(outP ? outP.web_name : "?")} &rarr; ${escapeHtml(inP ? inP.web_name : "?")}</div></div>`;
+  }).join("");
+
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:6px;">
+      <div class="name" style="font-size:16px;">Gameweek ${gw}${isBaseGw ? " &middot; current" : ""}</div>
+      <div class="sub">${countdown ? (countdown.isPast ? "Deadline has passed" : `Deadline in ${countdown.days}d ${countdown.hours}h`) : "No deadline data for this gameweek."}</div>
+      ${status ? `<div class="badge" style="margin-top:8px;background:oklch(0.95 0.01 90);color:${status.dot};"><span style="width:7px;height:7px;border-radius:50%;background:${status.dot};display:inline-block;"></span>${status.label}</div>` : ""}
+    </div>
+    <div class="stat-row">
+      <div class="stat-tile"><div class="k">Projected XI pts</div><div class="v">${row && row.hasProjections ? row.projectedPoints.toFixed(1) : "&mdash;"}</div></div>
+      <div class="stat-tile"><div class="k">Bank</div><div class="v">${fmtMoney(computed.bank)}</div></div>
+      <div class="stat-tile"><div class="k">Hit cost</div><div class="v" style="${computed.transferCostThisGw ? "color:var(--red);" : ""}">${computed.transferCostThisGw ? "-" + computed.transferCostThisGw : "0"}</div></div>
+    </div>
+    ${!row || !row.isValid ? `<div class="flag-banner severe">${(row ? row.warnings : []).map(w => escapeHtml(w.message)).join("<br>") || "This gameweek's squad isn't legal yet."}</div>` : ""}
+    <div class="section-title" style="color:var(--ink);margin:12px 0 6px;"><span>Planned this GW</span></div>
+    ${transferLines || `<p class="empty-state">No transfer planned for GW ${gw}.</p>`}
+    ${computed.activeChip ? `<div class="badges" style="margin:8px 0 0;"><span class="badge badge-confidence-medium">${CHIP_ICONS[computed.activeChip]} ${CHIP_LABELS[computed.activeChip]} active</span></div>` : ""}
+    ${planTimelineCellWhyLine(gw, row)}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);margin-top:12px;line-height:1.6;">This is a draft in your local planner &mdash; nothing here is submitted to FPL. Use the official FPL site to action any real transfer or chip.</p>
+    <div style="margin-top:10px;">
+      <button class="local-btn" onclick="jumpPlanViewToGw(${gw})">Review this gameweek on the pitch</button>
+    </div>`;
+}
+
+/** Real "why" line for one gameweek cell, built the same way playerWhyLine() synthesizes its
+ * explanation elsewhere on this screen -- only from fields the planner/solver already computed
+ * for this exact draft+gameweek (transfer EP gain, hit cost, chip, validation state). Never
+ * fabricates a reason that isn't backed by one of those real values. */
+function planTimelineCellWhyLine(gw, row) {
+  if (!row) return "";
+  const bits = [];
+  const projByElement = planProjByElement();
+  if (row.transferPairs.length && row.hasProjections) {
+    const horizon = planHorizonGws(gw);
+    const gain = row.transferPairs.reduce((sum, p) => sum + (PlannerSolver.horizonEp(projByElement, p.inId, horizon) - PlannerSolver.horizonEp(projByElement, p.outId, horizon)), 0);
+    bits.push(`the planned transfer${row.transferPairs.length > 1 ? "s" : ""} project${row.transferPairs.length > 1 ? "" : "s"} ${gain >= 0 ? "+" : ""}${gain.toFixed(1)} pts over GW${horizon[0]}&ndash;${horizon[horizon.length - 1]}`);
+  }
+  if (row.transferCost) bits.push(`a -${row.transferCost} point hit is already included`);
+  if (row.chip) bits.push(`${CHIP_LABELS[row.chip]} is active this week`);
+  if (!row.isValid) bits.push("the resulting squad currently breaks a squad rule (see above)");
+  if (!bits.length) return "";
+  return `<p class="explain-line" style="font-size:11px;color:var(--ink-dim);line-height:1.6;margin:10px 0 0;">Why: ${bits.join("; ")}.</p>`;
+}
+
+function jumpPlanViewToGw(gw) {
+  if (!state.planDraft) return;
+  const clamped = Math.max(state.planDraft.baseGameweek, Math.min(PlannerModel.LAST_GAMEWEEK, gw));
+  state.planViewGw = clamped;
+  state.planTimelineFocusGw = clamped;
+  state.planTimelineAnimateNext = true;
+  state.planPendingTransfer = null;
+  state.planSelectedOutId = null;
+  history.back();
+}
+
+/** sr-only live-region announcement for scenario/horizon changes -- reuses the existing global
+ * #score-announcer aria-live region rather than adding a second one, since only one status
+ * announcement is ever relevant at a time. */
+function announcePlanChange(message) {
+  const el = document.getElementById("score-announcer");
+  if (el) el.textContent = message;
+}
+
+/** Real baseline-vs-recommended comparison: "baseline" = this draft with no further transfers
+ * from the currently-viewed gameweek onward (i.e. hold), "recommended" = the solver's own #1
+ * ranked single-transfer suggestion applied, both projected over the same horizon with the same
+ * PlannerSolver.horizonEp() math the rest of the screen already uses. Returns null (never a
+ * fabricated comparison) when there's nothing to compare -- no projections yet, or the solver
+ * has no net-positive suggestion for this squad right now. */
+function planBaselineVsRecommended(computed, projByElement, horizon) {
+  if (!PlannerSolver.hasProjections(projByElement)) return null;
+  const baselineXi = computed.squad.filter(h => h.inXI);
+  const baselinePts = baselineXi.reduce((sum, h) => sum + PlannerSolver.horizonEp(projByElement, h.playerId, horizon) * (h.isCaptain ? 2 : 1), 0);
+  const freeTransfersAvailable = computed.unlimitedTransfersThisGw ? 999 : computed.freeTransfersAvailable;
+  const suggestions = PlannerSolver.suggestTransfers(computed, state.playersById, state.players, projByElement, {
+    horizonGameweeks: horizon, freeTransfersAvailable, maxSuggestions: 1,
+  });
+  if (!suggestions.length) return null;
+  const best = suggestions[0];
+  return {
+    baselinePts, recommendedPts: baselinePts + best.net, best,
+    horizon,
+  };
+}
+
+function planSummaryCard(computed, projByElement, rows) {
+  const horizon = planHorizonGws(state.planViewGw);
+  const totalProjected = rows.reduce((sum, r) => sum + (r.hasProjections ? r.projectedPoints : 0), 0);
+  const totalTransfers = rows.reduce((sum, r) => sum + r.transferPairs.length, 0);
+  const totalCost = rows.reduce((sum, r) => sum + r.transferCost, 0);
+  const chipsUsed = rows.filter(r => r.chip).map(r => `${CHIP_LABELS[r.chip]} (GW${r.gw})`);
+  const cmp = planBaselineVsRecommended(computed, projByElement, horizon);
+  return `
+    <div class="card">
+      <div class="card-title">Plan summary &middot; GW${rows[0] ? rows[0].gw : state.planViewGw}&ndash;${rows.length ? rows[rows.length - 1].gw : state.planViewGw}</div>
+      <div class="plan-summary-grid">
+        <div class="stat-tile"><div class="k">Projected pts (timeline)</div><div class="v">${PlannerSolver.hasProjections(projByElement) ? totalProjected.toFixed(1) : "&mdash;"}</div></div>
+        <div class="stat-tile"><div class="k">Transfers planned</div><div class="v">${totalTransfers}</div></div>
+        <div class="stat-tile"><div class="k">Chips used</div><div class="v" style="font-size:11.5px;">${chipsUsed.length ? chipsUsed.join(", ") : "None"}</div></div>
+        <div class="stat-tile"><div class="k">Hit cost total</div><div class="v" style="${totalCost ? "color:var(--red);" : ""}">${totalCost ? "-" + totalCost : "0"}</div></div>
+      </div>
+      ${cmp ? `
+        <div class="section-title" style="color:var(--ink);margin:4px 0 6px;"><span>This GW: hold vs. model's top suggestion</span></div>
+        <div class="plan-compare-row">
+          <div class="plan-compare-col">
+            <div class="pc-label">If you hold</div>
+            <div class="pc-value">${cmp.baselinePts.toFixed(1)}<span style="font-size:11px;font-weight:600;"> pts</span></div>
+            <div style="font-size:10px;color:var(--ink-dim2);margin-top:2px;">GW${cmp.horizon[0]}&ndash;${cmp.horizon[cmp.horizon.length - 1]}, no further transfers</div>
+          </div>
+          <div class="plan-compare-col is-recommended">
+            <div class="pc-label">Model suggests</div>
+            <div class="pc-value">${cmp.recommendedPts.toFixed(1)}<span style="font-size:11px;font-weight:600;"> pts</span></div>
+            <div style="font-size:10px;margin-top:2px;">${escapeHtml(cmp.best.outName)} &rarr; ${escapeHtml(cmp.best.inName)} (${cmp.best.net >= 0 ? "+" : ""}${cmp.best.net.toFixed(1)})</div>
+          </div>
+        </div>
+        <button class="local-btn" onclick="planSelectSuggestion(${cmp.best.outId}, ${cmp.best.inId})">Review this suggestion</button>
+      ` : `<p style="font-size:11px;color:var(--ink-dim2);margin:4px 0 0;">${PlannerSolver.hasProjections(projByElement) ? "No net-positive single transfer found for this squad right now." : "Projections not published yet, so no comparison to show."}</p>`}
+      <p style="font-size:10.5px;color:var(--ink-dim2);margin:10px 0 0;line-height:1.5;">Key assumptions: projected points use published per-gameweek xPts for each starting XI slot (captain doubled), a hit costs 4pts per transfer beyond your free transfers, and bench points only count while Bench Boost is active.</p>
+    </div>`;
+}
+
 function renderPlan() {
   const el = document.getElementById("plan-content");
   if (state.isMock) { el.innerHTML = `<p class="empty-state">Transfer planner needs real account data &mdash; not available in development mode.</p>`; return; }
   ensurePlanDraft();
-  if (!state.planDraft) { el.innerHTML = `<div class="skel skel-block"></div><div class="skel skel-block"></div>`; return; }
+  if (!state.planDraft) {
+    // Specific, helpful empty state (redesign_spec.md's Quality states section) rather than a
+    // generic "No data" -- state.team existing but no draft yet means ensurePlanDraft() couldn't
+    // build one (e.g. team not loaded yet); anything else (no team at all) still shows a clear
+    // path forward instead of a dead end.
+    el.innerHTML = state.team
+      ? `<div class="skel skel-block"></div><div class="skel skel-block"></div>`
+      : `<div class="card" style="text-align:center;padding:28px 18px;">
+          <div class="card-title" style="margin-bottom:6px;">No planner scenario saved yet</div>
+          <p class="empty-state" style="padding:0 0 14px;">Start from your current squad to see a multi-gameweek plan &mdash; projected points, transfers, and chip timing, all as drafts you can review before doing anything on the real FPL site.</p>
+          <button class="local-btn active" onclick="ensurePlanDraft();renderPlan();">Start from my current squad</button>
+        </div>`;
+    return;
+  }
 
   const computed = planComputedState();
   const deadlineGw = state.fixtures && state.fixtures.find(g => g.gameweek === state.planViewGw);
   const countdown = deadlineGw ? PlannerFixtures.deadlineCountdown(deadlineGw.deadline_time, new Date()) : null;
   const validation = PlannerRules.validateDraftSquad(computed.squad, state.playersById, computed.bank);
   const mode = state.planViewMode || "pitch";
+  const projByElement = planProjByElement();
+  const horizonLen = planTimelineHorizonLength();
+  const timelineRows = planTimelineRows(state.planDraft, state.planDraft.baseGameweek, horizonLen, projByElement);
+  const focusGw = state.planTimelineFocusGw || state.planViewGw;
 
   el.innerHTML = `
     <div class="section-title" style="margin-bottom:10px;"><span>Transfer planner</span><span class="link-sm" onclick="location.hash='plan-compare'">Compare drafts &rsaquo;</span></div>
@@ -4234,6 +4636,15 @@ function renderPlan() {
       <button class="local-btn" style="margin:0;" onclick="planDeleteDraft('${state.planDraft.id}')">Delete</button>
     </div>
     ${state.planSaveError ? `<div class="flag-banner severe">${escapeHtml(state.planSaveError)}</div>` : ""}
+
+    <div class="section-title" style="color:var(--on-dark);margin-bottom:8px;"><span>Gameweek timeline</span></div>
+    <div class="plan-horizon-switch" role="group" aria-label="Timeline horizon">
+      ${PLAN_TIMELINE_HORIZONS.map(n => `<button class="${horizonLen === n ? "active" : ""}" aria-pressed="${horizonLen === n ? "true" : "false"}" onclick="setPlanTimelineHorizon(${n})">${n} GW</button>`).join("")}
+    </div>
+    ${timelineRows.length ? planTimelineHtml(timelineRows, state.planDraft.baseGameweek, focusGw) : `<p class="empty-state">No further gameweeks to plan.</p>`}
+    ${planSummaryCard(computed, projByElement, timelineRows)}
+    ${planWhyThisPlanBlock(computed, timelineRows)}
+
     <div class="gw-switch" style="margin:0 auto 6px;width:fit-content;">
       <button class="gw-btn" ${state.planViewGw <= state.planDraft.baseGameweek ? "disabled" : ""} onclick="shiftPlanGw(-1)" aria-label="Previous gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
       <span class="gw-label">GW ${state.planViewGw}</span>
@@ -4261,6 +4672,34 @@ function renderPlan() {
       Local workspace only &mdash; nothing here is ever submitted to FPL.
     </p>
   `;
+  wireTimelineScrollFade();
+}
+
+/** "Why this plan?" -- mirrors playerWhyLine()'s own approach of synthesizing an explanation
+ * purely from real, already-computed fields (never inventing a number). Summarizes across the
+ * whole visible timeline rather than one cell: how many transfers/hits/chips it contains and
+ * whether the model currently sees a better single move available right now. */
+function planWhyThisPlanBlock(computed, rows) {
+  const bits = [];
+  const totalTransfers = rows.reduce((sum, r) => sum + r.transferPairs.length, 0);
+  const totalCost = rows.reduce((sum, r) => sum + r.transferCost, 0);
+  const chipRows = rows.filter(r => r.chip);
+  const invalidRows = rows.filter(r => !r.isValid);
+  if (totalTransfers === 0 && !chipRows.length) {
+    bits.push("this plan currently holds your squad with no transfers or chips across the visible timeline");
+  } else {
+    if (totalTransfers) bits.push(`${totalTransfers} transfer${totalTransfers === 1 ? "" : "s"} planned across GW${rows[0].gw}&ndash;${rows[rows.length - 1].gw}`);
+    if (totalCost) bits.push(`totalling a ${totalCost}-point hit cost`);
+    if (chipRows.length) bits.push(`${chipRows.map(r => `${CHIP_LABELS[r.chip]} in GW${r.gw}`).join(", ")} planned`);
+  }
+  if (invalidRows.length) bits.push(`${invalidRows.length} gameweek${invalidRows.length === 1 ? "" : "s"} in this window currently break${invalidRows.length === 1 ? "s" : ""} a squad rule and need attention before they're playable`);
+  const gw19 = PlannerModel.checkGw19Deadline(state.planViewGw, computed.chipsUsedSet1);
+  if (gw19.urgent) bits.push(`chip set 1 closes at the GW19 deadline with ${gw19.unusedSet1Chips.length} chip${gw19.unusedSet1Chips.length === 1 ? "" : "s"} still unused`);
+  return `
+    <div class="plan-why">
+      <div class="card-title" style="margin-bottom:6px;">Why this plan?</div>
+      <p class="explain-line">${bits.join("; ")}.</p>
+    </div>`;
 }
 
 // ============================================================
