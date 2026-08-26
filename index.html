@@ -351,7 +351,20 @@
   .cap-badge{position:absolute;top:-4px;right:8px;width:17px;height:17px;border-radius:50%;background:var(--amber);color:#241a00;font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;font-family:"Anton",sans-serif;border:2px solid oklch(0.24 0.09 150);}
   .p-tag{background:oklch(0.10 0.02 150/0.75);color:white;border-radius:8px;padding:2px 7px;font-size:10px;font-weight:700;white-space:nowrap;}
   .p-pts-tag{background:var(--green);color:white;border-radius:8px;padding:1px 6px;font-size:10px;font-weight:800;}
+  /* ---- Phase 2: pitch-card fixture badge (next opponent + FDR number, icon-free but never
+     color-only -- opponent text + numeric difficulty both read out loud, background color is
+     a bonus not the only signal) and injury-risk badge (icon+text, same convention as the
+     flag strip elsewhere). Both optional/absent when there's no fixture or no flag. ---- */
+  .pcard-fdr{margin-top:2px;font-size:8.5px;font-weight:700;color:#0B0B12;border-radius:6px;padding:1px 5px;white-space:nowrap;display:flex;align-items:center;gap:3px;}
+  .pcard-fdr-num{font-family:"Anton",sans-serif;font-size:9px;}
+  .pcard-risk{position:absolute;top:-4px;left:-6px;display:flex;align-items:center;gap:2px;background:var(--red);color:#fff;font-size:7px;font-weight:800;text-transform:uppercase;letter-spacing:0.02em;border-radius:100px;padding:2px 5px 2px 4px;border:2px solid oklch(0.24 0.09 150);}
+  .pcard-risk.severe{background:oklch(0.4 0.19 25);}
 
+  /* ---- Phase 2: Team screen responsive layout -- see .team-layout media rules below (near
+     the other >=700px/1024px breakpoints) for how .team-rail/.team-main actually rearrange;
+     these mobile-first base rules just make the wrapper a plain block so phone is unchanged. */
+  .team-layout{display:block;}
+  .team-rail, .team-main{min-width:0;}
   .bench-section{margin-top:14px;}
   .bench-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--on-dark-dim);font-weight:700;margin-bottom:8px;}
   .bench-row{display:flex;gap:8px;background:var(--card);border-radius:16px;padding:12px 8px;}
@@ -379,8 +392,20 @@
 
   /* ---- transfers screen ---- */
   .filter-row{display:flex;gap:7px;margin:0 -16px 12px;padding:0 16px;overflow-x:auto;}
-  .filter-chip{flex-shrink:0;padding:7px 13px;border-radius:100px;font-size:11.5px;font-weight:700;background:var(--card-2);color:var(--ink-dim);border:none;}
+  /* Visible chip stays compact/dense; 44px tap target via the same transparent ::before
+     hit-area technique as .compare-check/.bench-reorder button above. */
+  .filter-chip{flex-shrink:0;padding:7px 13px;border-radius:100px;font-size:11.5px;font-weight:700;background:var(--card-2);color:var(--ink-dim);border:none;position:relative;}
+  .filter-chip::before{content:"";position:absolute;inset:50% auto auto 50%;min-width:44px;height:44px;transform:translate(-50%,-50%);}
   .filter-chip.active{background:var(--green);color:white;}
+  /* ---- Phase 2: "Filters" trigger + mobile bottom-sheet promotion for the filter block.
+     Base (mobile-first) rules here just style the trigger button + backdrop; the actual
+     "become a bottom sheet" behavior is a <700px-only media rule further down, so tablet/
+     desktop keep the filters permanently inline exactly like before this phase. */
+  .filter-trigger-btn{display:none;align-items:center;gap:6px;min-height:44px;padding:8px 14px;border-radius:100px;background:var(--card-2);color:var(--ink);border:none;font-size:12px;font-weight:700;}
+  .transfer-filters-backdrop{position:fixed;inset:0;background:oklch(0.1 0.02 150/0.5);z-index:19;}
+  .transfer-filters-backdrop[hidden]{display:none;}
+  .transfer-filters-head{display:none;}
+  .transfer-table-wrap{display:none;}
   .search-input{width:100%;padding:11px 14px;border-radius:13px;border:none;background:var(--card);font-size:13px;margin-bottom:12px;font-family:inherit;color:var(--ink);}
   .search-input::placeholder{color:var(--ink-dim2);}
   .p-row{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:14px;padding:11px 13px;margin-bottom:8px;}
@@ -580,12 +605,19 @@
   .local-tag{position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);background:var(--live);color:#0B0B12;font-size:7.5px;font-weight:800;padding:1px 5px;border-radius:100px;white-space:nowrap;}
   .bcard{position:relative;}
   .bench-reorder{display:flex;gap:3px;margin-top:2px;}
-  .bench-reorder button{width:19px;height:17px;background:oklch(0.98 0.005 90/0.7);border:none;border-radius:4px;font-size:9px;line-height:1;color:var(--ink-dim);}
+  /* Visual size stays compact (19x17) so the bench row doesn't blow out, but the tappable
+     area is grown to the 44px minimum via a transparent ::before hit-area -- same technique
+     used below for .compare-check -- rather than resizing the visible chip. */
+  .bench-reorder button{width:19px;height:17px;background:oklch(0.98 0.005 90/0.7);border:none;border-radius:4px;font-size:9px;line-height:1;color:var(--ink-dim);position:relative;}
+  .bench-reorder button::before{content:"";position:absolute;inset:50% auto auto 50%;width:44px;height:44px;transform:translate(-50%,-50%);}
   .bench-reorder button:disabled{opacity:0.3;}
   .local-note{font-size:10.5px;color:var(--ink-dim2);line-height:1.6;background:var(--card-2);border-radius:12px;padding:11px 13px;margin-top:12px;}
 
   /* ---- comparison ---- */
-  .compare-check{flex-shrink:0;width:22px;height:22px;border-radius:7px;border:1.5px solid var(--border);background:var(--card);display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:800;transition:background 0.15s ease,transform 0.12s ease;}
+  .compare-check{flex-shrink:0;width:22px;height:22px;border-radius:7px;border:1.5px solid var(--border);background:var(--card);display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:800;transition:background 0.15s ease,transform 0.12s ease;position:relative;}
+  /* Same 44px transparent hit-area technique as .bench-reorder button above -- visible
+     checkbox chip stays small and dense in the player row, tap target doesn't. */
+  .compare-check::before{content:"";position:absolute;inset:50% auto auto 50%;width:44px;height:44px;transform:translate(-50%,-50%);}
   .compare-check.checked{background:var(--green);border-color:var(--green);}
   .compare-check:active{transform:scale(0.9);}
   .compare-bar{position:fixed;left:0;right:0;bottom:calc(78px + env(safe-area-inset-bottom) + 10px);z-index:6;display:flex;justify-content:center;padding:0 16px;pointer-events:none;}
@@ -637,6 +669,25 @@
       animation-duration:0.01ms !important; animation-iteration-count:1 !important;
       transition-duration:0.01ms !important; scroll-behavior:auto !important;
     }
+  }
+
+  /* ---- Phase 2: Transfers screen -- mobile-only filter bottom sheet. Phone (<700px) is the
+     ONLY width where .transfer-filters is promoted out of normal flow into a fixed bottom
+     sheet ("filters into a bottom sheet", per redesign_spec.md's mobile Transfers behavior);
+     tablet/desktop never get this rule so their filters stay permanently inline, unchanged
+     from before this phase. Trigger button only shows at this width too. */
+  @media (max-width: 699px){
+    .filter-trigger-btn{display:inline-flex;}
+    .transfer-filters{
+      position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--bg-deep);
+      border-radius:20px 20px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));
+      max-height:80vh;overflow-y:auto;transform:translateY(100%);transition:transform 0.32s cubic-bezier(0.22,1,0.36,1);
+      box-shadow:0 -10px 40px oklch(0.1 0.02 150/0.4);
+    }
+    .transfer-filters:not(.filters-open){visibility:hidden;}
+    .transfer-filters.filters-open{transform:translateY(0);visibility:visible;}
+    .transfer-filters .filter-row{margin:0 0 12px;padding:0;}
+    .transfer-filters-head{display:flex;align-items:center;justify-content:space-between;color:var(--on-dark);font-weight:700;font-size:13px;margin-bottom:12px;}
   }
 
   /* ==========================================================
@@ -699,6 +750,72 @@
     .content{display:grid;grid-template-columns:1fr;gap:var(--space-4);max-width:1040px;}
     .compare-bar{left:248px;bottom:calc(env(safe-area-inset-bottom) + 16px);}
     .back-to-top{right:calc(16px + max(0px, (100vw - 248px - 1040px) / 2));}
+    /* Phase 2: on desktop the bottom sheet becomes a centered modal dialog instead of an
+       edge-to-edge phone-style sheet -- same overlay/close/grabber markup and open/close JS,
+       just a different shape once there's room for one. Grabber (a phone drag affordance) is
+       hidden since there's no edge to drag from in this shape. */
+    .sheet-overlay{align-items:center;justify-content:center;padding:var(--space-6);}
+    .sheet{width:100%;max-width:640px;max-height:85vh;border-radius:20px;box-shadow:0 30px 70px oklch(0.08 0.03 150/0.55);}
+    .sheet-grabber{display:none;}
+    html.motion-ready .sheet{transform:translateY(14px) scale(0.98);transition:transform 0.3s cubic-bezier(0.22,1,0.36,1),opacity 0.3s ease;opacity:0;}
+    html.motion-ready .sheet-overlay.open .sheet{transform:translateY(0) scale(1);opacity:1;}
+  }
+
+  /* ==========================================================
+     Phase 2: Team screen -- decision-first responsive layout
+     ==========================================================
+     Tablet (700-1023px): pitch + decision content (Rate my team / What if) side by side in two
+     columns. Desktop (>=1024px): same two zones, just wider, with .team-rail acting as the
+     persistent decision rail next to the pitch/bench main area, per redesign_spec.md's
+     3-zone description. Source order is unchanged from phone (.team-rail before .team-main in
+     the DOM) so this is purely a visual reflow via grid-template-areas, not a DOM reorder --
+     screen readers/keyboard tab order still hit "Rate my team" before the pitch either way,
+     which matches the decision-first hierarchy the spec asks for anyway. */
+  @media (min-width: 700px){
+    .team-layout{
+      display:grid;grid-template-columns:1.5fr 1fr;gap:var(--space-4);align-items:start;
+    }
+    .team-rail{order:2;}
+    .team-main{order:1;}
+    /* Rate my team / What if cards sit in a rail that scrolls with the page (not pinned) but
+       stays visually anchored beside the pitch instead of stacking full-width above it. */
+    .team-rail .card{margin-bottom:var(--space-4);}
+  }
+  @media (min-width: 1024px){
+    .team-layout{grid-template-columns:1fr minmax(300px, 340px);gap:var(--space-5);}
+    /* Bench gets the extra desktop width: cards no longer need to be squeezed into 64px
+       columns -- widen the row's own gap slightly for a denser, less cramped feel. */
+    .bench-row{gap:12px;padding:14px 12px;}
+    .pitch-rows{padding:26px 18px 18px;}
+  }
+
+  /* ==========================================================
+     Phase 2: Transfers screen -- decision-first responsive layout
+     ==========================================================
+     Tablet (700-1023px): recommendation card + captain-picks/momentum rail side by side, same
+     named-grid-area technique as Team's .team-layout (source order unchanged: recommendation
+     card first, rail second, exactly like phone). Desktop (>=1024px) additionally swaps the
+     Browse-players section from the card list to a real sortable <table> (denser, and a real
+     accessible table only makes sense once there's width for real columns) -- mobile/tablet
+     keep the card-list fallback the spec asks for. */
+  @media (min-width: 700px){
+    .transfers-rail{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);align-items:start;}
+    .transfers-rail > .section{margin-bottom:0;}
+  }
+  @media (min-width: 1024px){
+    .transfer-card-list{display:none;}
+    .transfer-table-wrap{display:block;}
+    .transfer-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:16px;overflow:hidden;}
+    .transfer-table th, .transfer-table td{padding:10px 14px;text-align:left;font-size:12.5px;}
+    .transfer-table thead th{background:var(--card-2);font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-dim2);font-weight:700;border-bottom:1px solid var(--divider);}
+    .transfer-table tbody tr{border-bottom:1px solid var(--divider);cursor:pointer;}
+    .transfer-table tbody tr:last-child{border-bottom:none;}
+    .transfer-table tbody tr:hover{background:var(--card-2);}
+    .transfer-table tbody tr:focus-visible{outline:2.5px solid var(--green);outline-offset:-2px;}
+    .table-sort-btn{display:inline-flex;align-items:center;gap:4px;background:none;border:none;padding:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;min-height:24px;}
+    .table-sort-btn svg{opacity:0.4;}
+    .table-sort-btn.active{color:var(--ink);}
+    .table-sort-btn.active svg{opacity:1;color:var(--green);}
   }
 </style>
 </head>
@@ -838,9 +955,10 @@
 <script src="planner/storage.js"></script>
 
 <div class="sheet-overlay" id="sheet-overlay" hidden>
-  <div class="sheet">
+  <div class="sheet" id="sheet-dialog" role="dialog" aria-modal="true" aria-labelledby="sheet-heading-anchor" tabindex="-1">
     <div class="sheet-grabber"></div>
     <button class="sheet-close" onclick="history.back()" aria-label="Close">&times;</button>
+    <h2 id="sheet-heading-anchor" class="sr-only">Details</h2>
     <div id="sheet-content"></div>
   </div>
 </div>
@@ -891,6 +1009,9 @@ const CLUB_COLORS = {
 };
 const clubColor = (name) => CLUB_COLORS[name] || "oklch(0.6 0.01 90)";
 const FDR_COLOR = (d) => d == null ? "oklch(0.85 0.005 90)" : d <= 2 ? "var(--fdr-easy)" : d === 3 ? "var(--fdr-mid)" : "var(--fdr-hard)";
+// Text label mirroring FDR_COLOR's own easy/mid/hard split -- same three buckets, just spoken
+// out loud so fixture difficulty is never color-only (used in playerWhyLine()).
+const DIFFICULTY_WORD = (d) => d == null ? "unknown-difficulty" : d <= 2 ? "favourable" : d === 3 ? "middling" : "tough";
 
 const jerseyIcon = (fill) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B0B12" stroke-width="2"><path d="M12 3l3 2h4l-1 5-2 1v10H8V11L6 10 5 5h4l3-2z"/></svg>`;
 
@@ -954,17 +1075,61 @@ function animateNumber(el, to, opts) {
 // bottom sheet open/close (slide + backdrop fade, reduced-motion aware)
 // ============================================================
 
+// ---- Phase 2: dialog semantics for the shared bottom-sheet pattern -- role="dialog" +
+// aria-modal already on the static #sheet-dialog markup; this adds the three behaviors that
+// can't be static: (1) label the dialog from whatever heading the just-rendered sheet content
+// actually has (every open*Sheet() function already renders its own heading-ish element first
+// -- .player-hero .name, .section-title, or a plain h2/h3 -- so this reads that instead of
+// requiring every call site to be touched), (2) trap Tab/Shift+Tab focus inside while open,
+// (3) return focus to whatever triggered the sheet when it closes. Escape-to-close is wired
+// once, globally, in initSheetA11y() below rather than per open*Sheet() call.
+let _sheetTriggerEl = null;
+function sheetLabelFromContent() {
+  const content = document.getElementById("sheet-content");
+  const heading = content && content.querySelector(".player-hero .name, .section-title span, .section-title, h2, h3");
+  return heading ? heading.textContent.trim() : "Details";
+}
+function sheetFocusableEls() {
+  const dialog = document.getElementById("sheet-dialog");
+  return Array.from(dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+    .filter(el => !el.disabled && el.offsetParent !== null);
+}
+function onSheetKeydown(e) {
+  const overlay = document.getElementById("sheet-overlay");
+  if (overlay.hidden) return;
+  if (e.key === "Escape") { e.preventDefault(); history.back(); return; }
+  if (e.key !== "Tab") return;
+  const focusable = sheetFocusableEls();
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+function initSheetA11y() {
+  document.addEventListener("keydown", onSheetKeydown);
+}
 function openSheet() {
   const overlay = document.getElementById("sheet-overlay");
+  const dialog = document.getElementById("sheet-dialog");
+  const wasHidden = overlay.hidden;
+  if (wasHidden) _sheetTriggerEl = document.activeElement;
   overlay.hidden = false;
-  requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add("open")));
+  document.getElementById("sheet-heading-anchor").textContent = sheetLabelFromContent();
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    overlay.classList.add("open");
+    dialog.focus();
+  }));
 }
 
 function closeSheet() {
   const overlay = document.getElementById("sheet-overlay");
   if (overlay.hidden) return;
   overlay.classList.remove("open");
-  const finish = () => { overlay.hidden = true; };
+  const finish = () => {
+    overlay.hidden = true;
+    if (_sheetTriggerEl && document.body.contains(_sheetTriggerEl)) _sheetTriggerEl.focus();
+    _sheetTriggerEl = null;
+  };
   if (prefersReducedMotion()) finish(); else setTimeout(finish, 340);
 }
 
@@ -2711,6 +2876,24 @@ function liveBonusFor(playerId) {
 // deliberate "what if" workspace, see loadLocalState()'s own docstring) -- but they never touch
 // state.team.squad itself, so is_captain/is_vice_captain still reflect the manager's real,
 // official picks underneath.
+// ---- Phase 2: fixture-badge + injury-risk enhancement for pitch cards -- both pull from
+// data already loaded for other parts of the app (fixturesForClub() already powers the
+// player detail sheet's own "Upcoming fixtures" list; isFlagged()/isSevereFlag() already
+// power flagStripBlock()), so this never fabricates a number, just surfaces it on the card
+// itself instead of requiring a tap-through. Icon+text, never color-only, per spec a11y rule.
+function pitchCardFixtureBadge(p) {
+  const currentGw = (state.team && state.team.gameweek) || (state.fixtures.find(g => g.is_current) || {}).gameweek || 1;
+  const next = fixturesForClub(p.team, currentGw, 1)[0];
+  if (!next) return "";
+  const label = next.difficulty == null ? "?" : next.difficulty;
+  return `<div class="pcard-fdr" style="background:${FDR_COLOR(next.difficulty)}" title="Next fixture: ${escapeHtml(next.opp)} (${next.home ? "H" : "A"}), difficulty ${label}">${escapeHtml(next.opp)} <span class="pcard-fdr-num">${label}</span></div>`;
+}
+function pitchCardRiskBadge(p) {
+  const full = state.playersById && state.playersById[p.player_id];
+  if (!full || !isFlagged(full)) return "";
+  const severe = isSevereFlag(full);
+  return `<div class="pcard-risk ${severe ? "severe" : ""}" title="${escapeHtml(full.news || INJURY_STATUS_LABEL[full.status] || "Flagged by the club")}"><svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm0 6 v7 M12 17.2a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8z"/></svg><span>${severe ? "Risk" : "Doubt"}</span></div>`;
+}
 function pitchRow(players, groupDelay, ls) {
   return `<div class="prow">${players.map((p, i) => {
     const bonus = liveBonusFor(p.player_id);
@@ -2731,10 +2914,12 @@ function pitchRow(players, groupDelay, ls) {
     <div class="pcard anim-in" style="animation-delay:${(groupDelay || 0) + i * 40}ms" onclick="location.hash='player-${p.player_id}'">
       <div class="p-avatar-lg" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
       ${locked ? `<div class="lock-badge" aria-label="Locked for optimiser" title="Locked for optimiser">&#128274;</div>` : ""}
-      ${showCap ? `<div class="cap-badge">C</div>` : showVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;">V</div>` : ""}
+      ${showCap ? `<div class="cap-badge" title="Captain">C</div>` : showVice ? `<div class="cap-badge" style="background:oklch(0.85 0.01 90);color:#333;" title="Vice-captain">V</div>` : ""}
       ${(isLocalCap || isLocalVice) ? `<div class="local-tag">Local</div>` : ""}
+      ${pitchCardRiskBadge(p)}
       <div class="p-tag">${p.web_name}</div>
       <div class="p-pts-tag">${p.event_points * multiplier + bonusContribution}${bonus ? ` <span style="opacity:0.85;">(+${bonusContribution})</span>` : ""}</div>
+      ${pitchCardFixtureBadge(p)}
     </div>`;
   }).join("")}</div>`;
 }
@@ -3028,45 +3213,58 @@ function renderTeam() {
       <div class="stat-tile"><div class="k">Free Transfers</div><div class="v">${state.team.free_transfers ?? "&mdash;"}</div></div>
     </div>
     ${flagStripBlock(flagged)}
-    ${squadGradeCard()}
-    <div class="pitch-wrap">
-      <div class="pitch-stripe"></div>
-      <div class="pitch-lines">
-        <div class="ln" style="left:8px;right:8px;top:8px;bottom:8px;"></div>
-        <div class="ln" style="left:8px;right:8px;top:50%;height:0;"></div>
-        <div class="circle" style="width:70px;height:70px;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
-        <div class="ln" style="left:26%;right:26%;top:8px;height:40px;border-top:0;"></div>
-        <div class="ln" style="left:26%;right:26%;bottom:8px;height:40px;border-bottom:0;"></div>
+    <!-- Phase 2: .team-layout is a plain block on phone (source order unchanged: rate-my-team
+         card, then pitch, then bench/what-if, exactly as before) and only becomes a real 2/3-col
+         grid at >=700px/1024px (see the .team-layout media rules) -- .team-main (pitch/bench)
+         and .team-rail (decision content: Rate my team + What if) are named grid areas so wider
+         layouts can place them side by side without reordering the DOM. -->
+    <div class="team-layout">
+      <div class="team-rail">
+        ${squadGradeCard()}
+        ${whatIfCard()}
       </div>
-      <div class="pitch-rows">
-        ${pitchRow(byPos("GKP"), 0, ls)}
-        ${pitchRow(byPos("DEF"), 110, ls)}
-        ${pitchRow(byPos("MID"), 260, ls)}
-        ${pitchRow(byPos("FWD"), 420, ls)}
+      <div class="team-main">
+        <div class="pitch-wrap">
+          <div class="pitch-stripe"></div>
+          <div class="pitch-lines">
+            <div class="ln" style="left:8px;right:8px;top:8px;bottom:8px;"></div>
+            <div class="ln" style="left:8px;right:8px;top:50%;height:0;"></div>
+            <div class="circle" style="width:70px;height:70px;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
+            <div class="ln" style="left:26%;right:26%;top:8px;height:40px;border-top:0;"></div>
+            <div class="ln" style="left:26%;right:26%;bottom:8px;height:40px;border-bottom:0;"></div>
+          </div>
+          <div class="pitch-rows">
+            ${pitchRow(byPos("GKP"), 0, ls)}
+            ${pitchRow(byPos("DEF"), 110, ls)}
+            ${pitchRow(byPos("MID"), 260, ls)}
+            ${pitchRow(byPos("FWD"), 420, ls)}
+          </div>
+        </div>
+        <div class="bench-section">
+          <div class="bench-label">Bench ${orderedBench.length > 1 ? "&middot; use the arrows to reorder locally" : ""}</div>
+          <div class="bench-row">
+            ${orderedBench.map((p, i) => {
+              const locked = (ls.lockedIds || []).includes(p.player_id);
+              return `
+              <div class="bcard">
+                ${locked ? `<div class="lock-badge" style="top:-2px;left:2px;">&#128274;</div>` : ""}
+                ${pitchCardRiskBadge(p)}
+                <div onclick="location.hash='player-${p.player_id}'" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;">
+                  <div class="b-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+                  <div class="b-name">${p.web_name}</div>
+                  <div class="b-pts">${p.position} &middot; ${p.event_points}</div>
+                  ${pitchCardFixtureBadge(p)}
+                </div>
+                <div class="bench-reorder">
+                  <button aria-label="Move ${escapeHtml(p.web_name)} earlier on the bench" ${i === 0 ? "disabled" : ""} onclick="moveBenchLocal(${JSON.stringify(benchIds)}, ${p.player_id}, -1)">&larr;</button>
+                  <button aria-label="Move ${escapeHtml(p.web_name)} later on the bench" ${i === orderedBench.length - 1 ? "disabled" : ""} onclick="moveBenchLocal(${JSON.stringify(benchIds)}, ${p.player_id}, 1)">&rarr;</button>
+                </div>
+              </div>`;
+            }).join("")}
+          </div>
+        </div>
       </div>
     </div>
-    <div class="bench-section">
-      <div class="bench-label">Bench ${orderedBench.length > 1 ? "&middot; use the arrows to reorder locally" : ""}</div>
-      <div class="bench-row">
-        ${orderedBench.map((p, i) => {
-          const locked = (ls.lockedIds || []).includes(p.player_id);
-          return `
-          <div class="bcard">
-            ${locked ? `<div class="lock-badge" style="top:-2px;left:2px;">&#128274;</div>` : ""}
-            <div onclick="location.hash='player-${p.player_id}'" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;">
-              <div class="b-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
-              <div class="b-name">${p.web_name}</div>
-              <div class="b-pts">${p.position} &middot; ${p.event_points}</div>
-            </div>
-            <div class="bench-reorder">
-              <button aria-label="Move ${escapeHtml(p.web_name)} earlier on the bench" ${i === 0 ? "disabled" : ""} onclick="moveBenchLocal(${JSON.stringify(benchIds)}, ${p.player_id}, -1)">&larr;</button>
-              <button aria-label="Move ${escapeHtml(p.web_name)} later on the bench" ${i === orderedBench.length - 1 ? "disabled" : ""} onclick="moveBenchLocal(${JSON.stringify(benchIds)}, ${p.player_id}, 1)">&rarr;</button>
-            </div>
-          </div>`;
-        }).join("")}
-      </div>
-    </div>
-    ${whatIfCard()}
     <div class="local-note">
       <b style="color:var(--ink);">Local captain/vice/lock/bench changes</b> only live on this device and are never
       submitted to FPL &mdash; they're a "what if" workspace for planning. Tap a player, then use the actions in
@@ -3143,6 +3341,11 @@ function renderTransferList() {
   if (!listEl) return;
   const rows = filteredPlayers().slice(0, 40);
   listEl.innerHTML = rows.map(playerRow).join("") || `<p class="empty-state">No players match.</p>`;
+  // Phase 2: the desktop <table> (>=1024px) and the aria-live filter-applied status both
+  // derive from the exact same filteredPlayers() call as the card list above -- one
+  // render path, three presentations, never three separate filter states to fall out of sync.
+  renderTransferTable();
+  announceTransferFilterChange();
 }
 
 function setTransferFilter(position) {
@@ -3224,6 +3427,84 @@ function captainRankingBlock() {
     </div>`;
 }
 
+// ---- Phase 2: sortable desktop table -- same filteredPlayers() data + SORTS map the card
+// list already uses, just rendered as a real <table> with aria-sort so a mouse/keyboard user
+// gets proper sortable-column semantics at the width where a dense table actually fits
+// (>=1024px, see .transfer-table-wrap's own media rule). Clicking a header re-uses
+// setSortFilter() -- the exact same state + re-render path the existing filter chips call --
+// so both views can never drift out of sync with each other.
+const TRANSFER_TABLE_COLUMNS = [
+  { key: "name", label: "Player", sortKey: null },
+  { key: "team", label: "Club / Pos", sortKey: null },
+  { key: "price", label: "Price", sortKey: "price" },
+  { key: "form", label: "Form", sortKey: "form" },
+  { key: "ownership", label: "Owned", sortKey: "ownership" },
+  { key: "ict", label: "ICT Index", sortKey: "ict" },
+];
+function transferTableHeaderCell(col) {
+  if (!col.sortKey) return `<th scope="col">${escapeHtml(col.label)}</th>`;
+  const active = state.transferFilter.sort === col.sortKey;
+  const ariaSort = active ? "descending" : "none"; // every SORTS cmp() is already a descending sort
+  return `<th scope="col" aria-sort="${ariaSort}">
+    <button class="table-sort-btn ${active ? "active" : ""}" onclick="setSortFilter('${col.sortKey}')">
+      ${escapeHtml(col.label)}
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10l5-5 5 5M7 14l5 5 5-5"/></svg>
+    </button>
+  </th>`;
+}
+function transferTableRow(p) {
+  const inCompare = state.compareSelection.includes(p.id);
+  return `
+    <tr class="transfer-table-row" tabindex="0" onclick="location.hash='player-${p.id}'" onkeydown="if(event.key==='Enter'){location.hash='player-${p.id}'}">
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button class="compare-check ${inCompare ? "checked" : ""}" aria-label="${inCompare ? "Remove" : "Add"} ${escapeHtml(p.web_name)} ${inCompare ? "from" : "to"} comparison" onclick="event.stopPropagation();toggleCompare(${p.id})">${inCompare ? "&check;" : ""}</button>
+          <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+          <span style="font-weight:700;font-size:12.5px;">${escapeHtml(p.web_name)}</span>
+          ${p.penalties_order === 1 ? `<span class="badge badge-setpiece">Pens</span>` : ""}
+        </div>
+      </td>
+      <td>${escapeHtml(p.team || "&mdash;")} <span style="color:var(--ink-dim2);">&middot; ${escapeHtml(p.position || "&mdash;")}</span></td>
+      <td>${fmtMoney(p.price)}</td>
+      <td>${p.form ?? "&mdash;"}</td>
+      <td>${p.selected_by_percent != null ? p.selected_by_percent + "%" : "&mdash;"}</td>
+      <td>${p.ict_index ?? "&mdash;"}</td>
+    </tr>`;
+}
+function renderTransferTable() {
+  const wrap = document.getElementById("transfer-table-wrap");
+  if (!wrap) return;
+  const rows = filteredPlayers().slice(0, 40);
+  wrap.innerHTML = rows.length ? `
+    <table class="transfer-table">
+      <caption class="sr-only">Browse players, sortable by column</caption>
+      <thead><tr>${TRANSFER_TABLE_COLUMNS.map(transferTableHeaderCell).join("")}</tr></thead>
+      <tbody>${rows.map(transferTableRow).join("")}</tbody>
+    </table>` : `<p class="empty-state">No players match.</p>`;
+}
+// ---- Phase 2: mobile filter sheet toggle -- filters stay in the normal document flow (so
+// tablet/desktop just show them inline, unchanged), but on phone .transfer-filters is visually
+// promoted into a real bottom sheet via .filters-open (see the <700px media rule) instead of
+// occupying permanent vertical space above the list. aria-live announces the applied filter so
+// a screen-reader user gets the same "filter applied" feedback a sighted user gets from the
+// list changing underneath the (now-closed) sheet.
+function toggleTransferFilterSheet(forceOpen) {
+  const panel = document.getElementById("transfer-filters");
+  const backdrop = document.getElementById("transfer-filters-backdrop");
+  if (!panel) return;
+  const open = forceOpen != null ? forceOpen : !panel.classList.contains("filters-open");
+  panel.classList.toggle("filters-open", open);
+  if (backdrop) backdrop.hidden = !open;
+  const trigger = document.getElementById("transfer-filters-trigger");
+  if (trigger) trigger.setAttribute("aria-expanded", String(open));
+  if (open) { const firstChip = panel.querySelector("input, button"); if (firstChip) firstChip.focus(); }
+}
+function announceTransferFilterChange() {
+  const el = document.getElementById("transfer-filter-status");
+  if (!el) return;
+  const n = filteredPlayers().length;
+  el.textContent = `Filters applied &mdash; ${n} player${n === 1 ? "" : "s"} match.`.replace("&mdash;", "\u2014");
+}
 function renderTransfers() {
   const el = document.getElementById("transfers-content");
   const recs = state.realSquad;
@@ -3237,28 +3518,51 @@ function renderTransfers() {
         <button class="local-btn active" style="margin-top:10px;" onclick="goToTransferReview(null)">Start a manual transfer review</button>
       </div>
     </div>
-    ${captainRankingBlock()}
-    ${priceWatchBlock()}
+    <!-- Phase 2: .transfers-rail (captain picks + momentum -- supporting context) sits beside
+         the recommendation card on tablet/desktop and below it on phone, same named-grid-area
+         technique as the Team screen's .team-layout. DOM order unchanged from before this
+         phase (captainRankingBlock then priceWatchBlock then Browse players), so phone is
+         pixel-identical to what it was. -->
+    <div class="transfers-rail">
+      ${captainRankingBlock()}
+      ${priceWatchBlock()}
+    </div>
     <div class="section">
-      <div class="section-title"><span>Browse players</span></div>
-      <input class="search-input" id="player-search" type="search" placeholder="Search players&hellip;" value="${state.transferFilter.query}">
-      <div class="filter-row">
-        ${["All", "GKP", "DEF", "MID", "FWD"].map(pos => `<button class="filter-chip ${pos === state.transferFilter.position ? "active" : ""}" data-pos="${pos}" onclick="setTransferFilter('${pos}')">${pos}</button>`).join("")}
+      <div class="section-title" style="align-items:center;">
+        <span>Browse players</span>
+        <button class="filter-trigger-btn" id="transfer-filters-trigger" aria-expanded="false" aria-controls="transfer-filters" onclick="toggleTransferFilterSheet()">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+          Filters
+        </button>
       </div>
-      <div class="filter-row">
-        <button class="filter-chip ${state.transferFilter.strategy === "all" ? "active" : ""}" data-strategy="all" onclick="setStrategyFilter('all')">All ownership</button>
-        <button class="filter-chip ${state.transferFilter.strategy === "differentials" ? "active" : ""}" data-strategy="differentials" onclick="setStrategyFilter('differentials')">Differentials &lt;${DIFFERENTIAL_MAX_OWNED}%</button>
-        <button class="filter-chip ${state.transferFilter.strategy === "template" ? "active" : ""}" data-strategy="template" onclick="setStrategyFilter('template')">Template ${TEMPLATE_MIN_OWNED}%+</button>
+      <div class="sr-only" aria-live="polite" id="transfer-filter-status"></div>
+      <div class="transfer-filters-backdrop" id="transfer-filters-backdrop" hidden onclick="toggleTransferFilterSheet(false)"></div>
+      <div class="transfer-filters" id="transfer-filters">
+        <div class="transfer-filters-head">
+          <span>Filter &amp; sort players</span>
+          <button class="sheet-close" style="position:static;width:36px;height:36px;" aria-label="Close filters" onclick="toggleTransferFilterSheet(false)">&times;</button>
+        </div>
+        <input class="search-input" id="player-search" type="search" placeholder="Search players&hellip;" value="${state.transferFilter.query}">
+        <div class="filter-row">
+          ${["All", "GKP", "DEF", "MID", "FWD"].map(pos => `<button class="filter-chip ${pos === state.transferFilter.position ? "active" : ""}" data-pos="${pos}" onclick="setTransferFilter('${pos}')">${pos}</button>`).join("")}
+        </div>
+        <div class="filter-row">
+          <button class="filter-chip ${state.transferFilter.strategy === "all" ? "active" : ""}" data-strategy="all" onclick="setStrategyFilter('all')">All ownership</button>
+          <button class="filter-chip ${state.transferFilter.strategy === "differentials" ? "active" : ""}" data-strategy="differentials" onclick="setStrategyFilter('differentials')">Differentials &lt;${DIFFERENTIAL_MAX_OWNED}%</button>
+          <button class="filter-chip ${state.transferFilter.strategy === "template" ? "active" : ""}" data-strategy="template" onclick="setStrategyFilter('template')">Template ${TEMPLATE_MIN_OWNED}%+</button>
+        </div>
+        <div class="filter-row">
+          ${Object.entries(PRICE_BANDS).map(([key, band]) => `<button class="filter-chip ${state.transferFilter.priceBand === key ? "active" : ""}" data-price="${key}" onclick="setPriceFilter('${key}')">${band.label}</button>`).join("")}
+        </div>
+        <div class="filter-row">
+          <span style="align-self:center;font-size:10.5px;color:var(--ink-dim2);font-weight:700;flex-shrink:0;">Sort:</span>
+          ${Object.entries(SORTS).map(([key, s]) => `<button class="filter-chip ${state.transferFilter.sort === key ? "active" : ""}" data-sort="${key}" onclick="setSortFilter('${key}')">${s.label}</button>`).join("")}
+        </div>
+        <button class="local-btn active" style="width:100%;text-align:center;margin-top:4px;" onclick="toggleTransferFilterSheet(false)">Show results</button>
       </div>
-      <div class="filter-row">
-        ${Object.entries(PRICE_BANDS).map(([key, band]) => `<button class="filter-chip ${state.transferFilter.priceBand === key ? "active" : ""}" data-price="${key}" onclick="setPriceFilter('${key}')">${band.label}</button>`).join("")}
-      </div>
-      <div class="filter-row">
-        <span style="align-self:center;font-size:10.5px;color:var(--ink-dim2);font-weight:700;flex-shrink:0;">Sort:</span>
-        ${Object.entries(SORTS).map(([key, s]) => `<button class="filter-chip ${state.transferFilter.sort === key ? "active" : ""}" data-sort="${key}" onclick="setSortFilter('${key}')">${s.label}</button>`).join("")}
-      </div>
-      <p style="font-size:10.5px;color:var(--ink-dim2);margin:-4px 0 12px;">Tap the checkbox to compare up to 2 players &middot; tap a card for full details.</p>
-      <div id="transfer-list"></div>
+      <p style="font-size:10.5px;color:var(--ink-dim2);margin:10px 0 12px;">Tap the checkbox to compare up to 2 players &middot; tap a row for full details.</p>
+      <div id="transfer-list" class="transfer-card-list"></div>
+      <div id="transfer-table-wrap" class="transfer-table-wrap"></div>
     </div>
   `;
   document.getElementById("player-search").oninput = (e) => { state.transferFilter.query = e.target.value; renderTransferList(); };
@@ -4329,6 +4633,42 @@ function setPieceBadgeRow(p) {
   </div>`;
 }
 
+// ---- Phase 2: real, non-fabricated "xPts horizon" block for the player sheet -- pulls the
+// SAME projections_latest.json rows captainRankingBlock()/planner already use
+// (projectionsByElementId()/epForElementAtGw()), so a player only ever shows this section when
+// the model pipeline has actually published a projection for them; otherwise it's silently
+// absent, same graceful-degradation convention as every other optional panel in this file. The
+// ci_low/ci_high band is real (Cornish-Fisher quantiles per projections.py, already surfaced
+// elsewhere as a captain-ranking confidence range) -- labeled here as a "range", never
+// oversold as a literal "minutes confidence" percentage the pipeline doesn't actually export.
+function playerXptsHorizonBlock(p) {
+  const projByElement = projectionsByElementId();
+  const row = projByElement.get(p.id);
+  if (!row || !row.ep_per_gw || !row.ep_per_gw.length) return "";
+  const bands = row.ep_per_gw.slice(0, 5);
+  const total = bands.reduce((sum, b) => sum + (b.ep || 0), 0);
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Expected points horizon</span></div>
+    <div class="stat-grid4" style="grid-template-columns:repeat(${Math.min(bands.length, 5)},1fr);margin-bottom:8px;">
+      ${bands.map(b => `<div class="g-tile"><div class="g-label">GW${b.gw}</div><div class="g-value">${b.ep.toFixed(1)}</div></div>`).join("")}
+    </div>
+    <p style="font-size:10.5px;color:var(--on-dark-dim);margin:0 0 12px;line-height:1.5;">
+      ${bands.length} GW total ${total.toFixed(1)} xPts &middot; GW${bands[0].gw} range ${bands[0].ci_low.toFixed(1)}&ndash;${bands[0].ci_high.toFixed(1)}
+      (model uncertainty band, not a minutes guarantee).
+    </p>`;
+}
+// A short, plain-English "why" line built only from fields the sheet already displays
+// elsewhere (form/fixture difficulty/flag/ownership) -- never a new invented signal, just a
+// synthesis of the real ones so a manager doesn't have to piece it together themselves.
+function playerWhyLine(p, nextFixture) {
+  const bits = [];
+  if (p.form != null) bits.push(`recent form ${p.form}`);
+  if (nextFixture) bits.push(`a ${DIFFICULTY_WORD(nextFixture.difficulty)} next fixture (${nextFixture.opp}, ${nextFixture.home ? "home" : "away"})`);
+  if (isFlagged(p)) bits.push(isSevereFlag(p) ? "a live injury/availability flag" : "a fitness doubt");
+  if (p.selected_by_percent != null) bits.push(`${p.selected_by_percent}% ownership`);
+  if (!bits.length) return "";
+  return `<p class="explain-line" style="margin:0 0 12px;">Why this view: ${bits.join(", ")}.</p>`;
+}
 function openPlayerSheet(id) {
   const p = state.playersById && state.playersById[id];
   const content = document.getElementById("sheet-content");
@@ -4336,21 +4676,31 @@ function openPlayerSheet(id) {
   else {
     const currentGw = (state.team && state.team.gameweek) || (state.fixtures.find(g => g.is_current) || {}).gameweek || 1;
     const upcoming = fixturesForClub(p.team, currentGw, 4);
+    const inSquad = state.team && state.team.squad.some(s => s.player_id === p.id);
+    const recTopIn = state.realSquad && state.realSquad.transfer_recommendations && state.realSquad.transfer_recommendations.find(r => r.player_in === p.web_name);
+    const recTopOut = state.realSquad && state.realSquad.transfer_recommendations && state.realSquad.transfer_recommendations.find(r => r.player_out === p.web_name);
+    let recStatus = "";
+    if (inSquad) recStatus = "In your squad";
+    else if (recTopIn) recStatus = `Model's suggested transfer target (+${recTopIn.net.toFixed(1)} vs current)`;
+    else if (recTopOut) recStatus = "Model suggests moving this player on";
     content.innerHTML = `
       <div class="player-hero">
         <div class="p-avatar-xl" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
         <div class="name">${p.web_name}</div>
         <div class="sub">${p.team_name || ""} &middot; ${p.position || ""}</div>
         <div class="price">${fmtMoney(p.price)}</div>
+        ${recStatus ? `<div class="badge badge-confidence-medium" style="margin-top:8px;">${escapeHtml(recStatus)}</div>` : ""}
       </div>
       ${isFlagged(p) ? `<div class="flag-banner ${isSevereFlag(p) ? "severe" : ""}"><b>${p.news || "Flagged by the club"}</b>${p.chance_of_playing_next_round != null ? ` &mdash; ${p.chance_of_playing_next_round}% chance of playing` : ""}</div>` : ""}
       ${setPieceBadgeRow(p)}
+      ${playerWhyLine(p, upcoming[0])}
       <div class="stat-grid4">
         <div class="g-tile"><div class="g-label">Total Pts</div><div class="g-value">${p.total_points}</div></div>
         <div class="g-tile"><div class="g-label">Form</div><div class="g-value" style="color:var(--green);">${p.form ?? "&mdash;"}</div></div>
         <div class="g-tile"><div class="g-label">Owned</div><div class="g-value">${p.selected_by_percent ?? "&mdash;"}%</div></div>
         <div class="g-tile"><div class="g-label">PPG</div><div class="g-value">${p.points_per_game ?? "&mdash;"}</div></div>
       </div>
+      ${playerXptsHorizonBlock(p)}
       <div class="section-title" style="color:var(--on-dark);"><span>Season breakdown</span></div>
       <div class="stat-list">
         <div class="sl-row"><div class="sl-label">Minutes played</div><div class="sl-value">${p.minutes}</div></div>
@@ -4835,6 +5185,7 @@ async function init() {
     state.staleSince = null;
     initScrollReveal();
     initSwipeNav();
+    initSheetA11y();
     initPullToRefresh();
     window.addEventListener("scroll", updateBackToTop, { passive: true });
     await loadShared();
