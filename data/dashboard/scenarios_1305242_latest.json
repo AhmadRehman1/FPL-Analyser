@@ -1,8 +1,8 @@
 {
   "armband_what_ifs": [
     {
-      "baseline_action": "triple_captain",
-      "delta_ep": 14.367883194839537,
+      "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
+      "delta_ep": 2.5828800725225776,
       "flipped": true,
       "perturbed_action": "transfer_in:player_bruno_borges_fernandes->player_enzo_fernandez",
       "player_name": "Bruno Borges Fernandes",
@@ -10,8 +10,8 @@
       "role": "vice_captain"
     },
     {
-      "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
-      "delta_ep": 0.8868640595363555,
+      "baseline_action": "triple_captain",
+      "delta_ep": 12.66835005010305,
       "flipped": true,
       "perturbed_action": "transfer_in:player_erling_haaland->player_ollie_watkins",
       "player_name": "Erling Haaland",
@@ -20,14 +20,6 @@
     }
   ],
   "bench_what_ifs": [
-    {
-      "baseline_action": "triple_captain",
-      "delta_ep": 8.411211353920175,
-      "flipped": true,
-      "perturbed_action": "bench_boost",
-      "player_name": "Bobby Thomas",
-      "player_uid": "player_bobby_thomas"
-    },
     {
       "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
       "delta_ep": 0.0,
@@ -45,12 +37,20 @@
       "player_uid": "player_regan_slater"
     },
     {
-      "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
-      "delta_ep": -11.777117523744998,
-      "flipped": true,
+      "baseline_action": "triple_captain",
+      "delta_ep": -0.06565993902594602,
+      "flipped": false,
       "perturbed_action": "triple_captain",
       "player_name": "Bart Verbruggen",
       "player_uid": "player_bart_verbruggen"
+    },
+    {
+      "baseline_action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
+      "delta_ep": -3.342429933887882,
+      "flipped": true,
+      "perturbed_action": "bench_boost",
+      "player_name": "Bobby Thomas",
+      "player_uid": "player_bobby_thomas"
     }
   ],
   "data_asof": "2026-08-26",
