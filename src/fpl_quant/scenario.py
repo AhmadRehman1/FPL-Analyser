@@ -106,7 +106,9 @@ def _price_shadow(con: duckdb.DuckDBPyConnection, player_uid: str, delta: float)
     )
 
 
-def apply_scenario(con: duckdb.DuckDBPyConnection, base_state: dict, scenario: Scenario) -> ScenarioResult:
+def apply_scenario(
+    con: duckdb.DuckDBPyConnection, base_state: dict, scenario: Scenario, *, baseline: "de.Decision | None" = None,
+) -> ScenarioResult:
     """base_state: the exact kwargs dict decision_engine.recommend_best_move() itself takes
     (entry_id, calibration_asof_date, target_season, target_gameweek, input_state_version,
     ts_model_version, mm_model_version, and every *_params_version) -- one real, already-
@@ -114,10 +116,19 @@ def apply_scenario(con: duckdb.DuckDBPyConnection, base_state: dict, scenario: S
     recommend_best_move() with include_sensitivity=False for both legs (a scenario re-solve
     computing its OWN sensitivity toggle would be a second, nested what-if -- out of scope
     for one apply_scenario() call).
+
+    baseline: an already-computed recommend_best_move(**base_state, include_sensitivity=False)
+    result, reused as-is instead of recomputing. A caller evaluating multiple scenarios against
+    the SAME base_state (e.g. run_scenarios.py's bench/armband sweep) would otherwise pay for
+    an identical, deterministic baseline transfer-search + all-4-chip-evaluation pass on every
+    single scenario -- real, measured cost (recommend_best_move() is not cheap: a full
+    transfer_planner.run() invocation), not a hypothetical one. None (the default) computes it
+    here, unchanged from before this parameter existed.
     """
     validate_scenario(scenario, con)
 
-    baseline = de.recommend_best_move(con, **base_state, include_sensitivity=False)
+    if baseline is None:
+        baseline = de.recommend_best_move(con, **base_state, include_sensitivity=False)
 
     if scenario.kind == "dgw_swing":
         raise NotImplementedError(

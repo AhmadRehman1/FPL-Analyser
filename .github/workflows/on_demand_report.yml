@@ -221,6 +221,23 @@ jobs:
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py \
             "$ENTRY_ID" "$EVENT" "$LABEL"
 
+      # Same perf fix as scheduled_pipeline.yml's own step of the same purpose (see
+      # scripts/compute_shared_horizon.py's own module docstring): the three scripts in the
+      # step below each independently recompute the SAME account-agnostic multi-gameweek
+      # horizon (their own throwaway bootstrap call plus another inside tp.run()) -- 6
+      # redundant computations for one manager, cut to 1 by computing it here once. Gated the
+      # same way as the step it feeds (continue-on-error, only on a successful plan): this
+      # cache is purely an optimization for that one step, never a hard dependency for the
+      # rest of the workflow.
+      - name: Compute shared multi-gameweek horizon once (perf fix, not per-script)
+        if: steps.plan.outcome == 'success'
+        continue-on-error: true
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/compute_shared_horizon.py "$EVENT" /tmp/fpl_shared_horizon_ep_versions.json
+          echo "FPL_SHARED_HORIZON_FILE=/tmp/fpl_shared_horizon_ep_versions.json" >> "$GITHUB_ENV"
+
       # Same fix as scheduled_pipeline.yml's own "Grade squad + explain best move"/"Run bench
       # what-if scenarios" steps: an on-demand-added manager was missing Features 2/3/4 ("Rate
       # My Team"/"Explain My Move"/"what-if" scenarios) entirely, not just getting them late --

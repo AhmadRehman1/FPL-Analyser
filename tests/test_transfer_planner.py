@@ -1378,6 +1378,58 @@ def _seed_run_ready_state(con):
     return state_version, ts_mv, mm_mv, horizon_ep_versions
 
 
+def test_run_uses_a_supplied_horizon_ep_versions_without_calling_compute_horizon_ep(con, monkeypatch):
+    """Real perf fix: a caller that already computed the horizon (e.g. a shared pre-step run
+    once per pipeline, not once per script per account) must be able to hand it to run()
+    directly, and run() must not recompute it -- compute_horizon_ep() is monkeypatched to
+    raise here specifically to prove it is never called, not just to supply a stub result."""
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+
+    def _must_not_be_called(*a, **k):
+        raise AssertionError("compute_horizon_ep() must not be called when horizon_ep_versions is supplied")
+
+    monkeypatch.setattr(tp, "compute_horizon_ep", _must_not_be_called)
+
+    run_id = tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        horizon_ep_versions=horizon_ep_versions,
+    )
+    assert con.execute("SELECT 1 FROM transfer_plan_runs WHERE run_id = ?", [run_id]).fetchone() is not None
+
+
+def test_horizon_ep_versions_round_trips_through_a_json_file(tmp_path):
+    original = {2: (10, 20), 3: (11, 21), 4: (12, 22)}
+    path = tmp_path / "horizon.json"
+
+    tp.save_horizon_ep_versions(path, original)
+    restored = tp.load_horizon_ep_versions(path)
+
+    assert restored == original
+    assert all(isinstance(gw, int) for gw in restored)
+    assert all(isinstance(pair, tuple) for pair in restored.values())
+
+
+def test_load_shared_horizon_ep_versions_from_env_is_none_when_env_var_unset(monkeypatch):
+    monkeypatch.delenv(tp.SHARED_HORIZON_ENV_VAR, raising=False)
+    assert tp.load_shared_horizon_ep_versions_from_env() is None
+
+
+def test_load_shared_horizon_ep_versions_from_env_is_none_when_file_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv(tp.SHARED_HORIZON_ENV_VAR, str(tmp_path / "does_not_exist.json"))
+    assert tp.load_shared_horizon_ep_versions_from_env() is None
+
+
+def test_load_shared_horizon_ep_versions_from_env_reads_a_real_file(monkeypatch, tmp_path):
+    path = tmp_path / "horizon.json"
+    tp.save_horizon_ep_versions(path, {2: (5, 6), 3: (7, 8)})
+    monkeypatch.setenv(tp.SHARED_HORIZON_ENV_VAR, str(path))
+
+    result = tp.load_shared_horizon_ep_versions_from_env()
+
+    assert result == {2: (5, 6), 3: (7, 8)}
+
+
 def test_run_wires_multi_transfer_and_hold_when_opted_in(con, monkeypatch):
     """multi_transfer_pool_limit_per_position defaults to None (skip both -- see run()'s own
     docstring on why: a real, bounded combinatorial search is genuinely expensive relative to

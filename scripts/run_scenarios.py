@@ -48,7 +48,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest, db, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
+from fpl_quant import backtest, db, decision_engine as de, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
 from fpl_quant import scenario as scen  # noqa: E402
 from fpl_quant import transfer_planner as tp  # noqa: E402
 
@@ -141,11 +141,22 @@ def main() -> None:
         raise SystemExit("no team_strength/minutes model versions found -- run scripts/run_ingestion.py first")
 
     calibration_asof_date = date.today()
-    horizon_ep_versions = tp.compute_horizon_ep(
-        con, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, 1,
-        PARAM_VERSIONS["scoring_params_version"], PARAM_VERSIONS["bps_params_version"], PARAM_VERSIONS["tau_params_version"],
-        PARAM_VERSIONS["rho_residual_params_version"], PARAM_VERSIONS["corr_params_version"],
-    )
+    # Real perf fix (see scripts/compute_shared_horizon.py's own module docstring): reuse the
+    # pipeline's shared multi-gameweek horizon if one was precomputed for this exact GW, instead
+    # of this script's own single-gameweek throwaway call below. shared_horizon_for_run only
+    # ends up non-None when it's a genuine full-horizon match -- never the narrower fallback
+    # dict, which would silently truncate recommend_best_move()'s own planning horizon if
+    # forwarded into it.
+    shared_horizon = tp.load_shared_horizon_ep_versions_from_env()
+    if shared_horizon is not None and plan_for_gameweek in shared_horizon:
+        horizon_ep_versions, shared_horizon_for_run = shared_horizon, shared_horizon
+    else:
+        horizon_ep_versions = tp.compute_horizon_ep(
+            con, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, 1,
+            PARAM_VERSIONS["scoring_params_version"], PARAM_VERSIONS["bps_params_version"], PARAM_VERSIONS["tau_params_version"],
+            PARAM_VERSIONS["rho_residual_params_version"], PARAM_VERSIONS["corr_params_version"],
+        )
+        shared_horizon_for_run = None
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]
 
     state_version = tp.bootstrap_from_real_squad(con, calibration_asof_date, TARGET_SEASON, current_event, ep_mv, un_mv, squad)
@@ -157,10 +168,21 @@ def main() -> None:
         ts_model_version=ts_mv, mm_model_version=mm_mv, **PARAM_VERSIONS,
     )
 
+    # Every scenario below shares the exact same base_state, so its baseline leg (the
+    # unperturbed recommend_best_move() call) is byte-for-byte the same deterministic result
+    # every time -- computed once here and reused, instead of apply_scenario() silently paying
+    # for a full transfer_planner.run() pass (multi-gameweek EP + all-4-chip-evaluation, not
+    # cheap) again on every one of the up to 6 scenarios below. Real, measured cost cut, not a
+    # hypothetical one: this was the dominant contributor to this script's own wall-clock time.
+    print("[scenario] computing shared baseline decision...")
+    baseline = de.recommend_best_move(con, **base_state, include_sensitivity=False, horizon_ep_versions=shared_horizon_for_run)
+
     rows = []
     for player_uid in bench_player_uids(current_holdings):
         print(f"[scenario] lineup_change (starting) for {player_uid}...")
-        result = scen.apply_scenario(con, base_state, scen.Scenario(kind="lineup_change", player_uid=player_uid, starting=True))
+        result = scen.apply_scenario(
+            con, base_state, scen.Scenario(kind="lineup_change", player_uid=player_uid, starting=True), baseline=baseline,
+        )
         rows.append(scenario_result_row(player_uid, result))
     # Most-actionable first: the bench player whose hypothetical start would improve the plan
     # the most.
@@ -169,7 +191,7 @@ def main() -> None:
     armband_rows = []
     for role, player_uid in armband_uids(current_holdings).items():
         print(f"[scenario] injury for {role} ({player_uid})...")
-        result = scen.apply_scenario(con, base_state, scen.Scenario(kind="injury", player_uid=player_uid))
+        result = scen.apply_scenario(con, base_state, scen.Scenario(kind="injury", player_uid=player_uid), baseline=baseline)
         row = scenario_result_row(player_uid, result)
         row["role"] = role
         armband_rows.append(row)
