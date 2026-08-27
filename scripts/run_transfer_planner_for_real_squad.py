@@ -33,6 +33,8 @@ from fpl_quant import backtest as bt, db, fixture_swing as fs, ingest_fpl_entry_
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+DECISION_LOG_DIR = REPO_ROOT / "data" / "decision_log"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
 
 # More than one chip can legitimately clear its own recommendation threshold in the same
@@ -69,6 +71,35 @@ def _build_chip_preview_squad(
     ]
 
 
+def _resolve_decision_log_row(
+    hold_rec: tuple | None, recs_out: list[dict], chips_out: list[dict], captain_recommendation: dict | None,
+) -> dict:
+    """Pure transform from this run's already-computed hold/transfer/chip/captain outputs to a
+    single planner_decision_log row -- split out so the 'hold' case (recommended_action='hold',
+    still a real logged row, not an absent one -- see Plan Track C's own edge case) and the other
+    branches are unit-testable without a DB/network, same split-out-the-pure-part convention as
+    _order_chip_evaluations()/_build_chip_preview_squad() above.
+
+    hold_rec: the raw (recommended_action, transfer_now_value, hold_value) row from
+    hold_recommendations, or None. hold_recommendations.run_id is a PRIMARY KEY REFERENCES
+    transfer_plan_runs, so this is always populated for a real run_id in practice; the
+    'no_action_available' fallback here only guards the type, matching the same enum value
+    evaluate_hold_recommendation() itself already uses for that case.
+    """
+    recommended_action = hold_rec[0] if hold_rec else "no_action_available"
+    return {
+        "recommended_action": recommended_action,
+        "recommended_transfer_out": recs_out[0]["player_out"] if recommended_action == "transfer_now" and recs_out else None,
+        "recommended_transfer_in": recs_out[0]["player_in"] if recommended_action == "transfer_now" and recs_out else None,
+        "recommended_chip": next((c["chip_type"] for c in chips_out if c["recommended"]), None),
+        "recommended_captain": (
+            captain_recommendation["recommended_name"]
+            if captain_recommendation and not captain_recommendation["matches_current"]
+            else None
+        ),
+    }
+
+
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
     element_names = ifp.fetch_bootstrap_elements()
     picks = ifp.fetch_entry_picks(entry_id, event)
@@ -89,11 +120,25 @@ def main() -> None:
     if len(sys.argv) not in (3, 4):
         raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label]")
     entry_id, current_event = int(sys.argv[1]), int(sys.argv[2])
-    label = sys.argv[3] if len(sys.argv) == 4 else str(entry_id)
+    # Same signal this project already uses to distinguish the two accounts scheduled_pipeline.yml
+    # runs twice daily (always passed a label) from the ad-hoc, workflow_dispatch-only, one-off
+    # third-account path (never passed one) -- reused below to scope planner_decision_log to the
+    # two recurring, tracked accounts a hold-vs-use backtest can actually mean something for, not
+    # every one-off manual check anyone with push access ever runs.
+    is_tracked_account = len(sys.argv) == 4
+    label = sys.argv[3] if is_tracked_account else str(entry_id)
     plan_for_gameweek = current_event + 1
 
     con = db.connect()
     tp.seed_v1_params(con)
+    # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version/
+    # lambda_params_version/kappa_tc_params_version resolve from the git-committed confirmed-seed
+    # files below, not a hardcoded literal -- see backtest.active_recalibratable_versions()'s own
+    # docstring. This closes a real, previously-existing bug: this script (the one that produces
+    # the actual transfer recommendation for both real tracked managers) was still hardcoded at
+    # rho_residual_params_version=1 while most of the rest of the pipeline had already moved to
+    # the confirmed v2.
+    active = bt.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
 
     print(f"[fetch] pulling real picks for entry_id={entry_id}, GW{current_event}...")
     squad = _fetch_real_squad(entry_id, current_event)
@@ -118,14 +163,14 @@ def main() -> None:
         scoring_params_version=1,
         bps_params_version=1,
         tau_params_version=1,
-        rho_residual_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"],
         corr_params_version=1,
         transfer_cost_params_version=1,
-        lambda_params_version=1,
+        lambda_params_version=active["lambda_params_version"],
         guardrail_params_version=1,
         wildcard_threshold_params_version=1,
         free_hit_threshold_params_version=1,
-        kappa_tc_params_version=1,
+        kappa_tc_params_version=active["kappa_tc_params_version"],
         # Priority 3, opt-in: this script's whole point is a real hold-vs-transfer-now
         # recommendation, so it's worth the extra solve time here (unlike the default GW1->GW2
         # run_transfer_planner.py, which leaves this off).
@@ -218,6 +263,32 @@ def main() -> None:
     captain_recommendation = reporting.build_captain_recommendation(tc_detail, actual_captain_uid, player_name_by_uid)
     if captain_recommendation:
         print(f"\n--- captain recommendation ---\n  {captain_recommendation}")
+
+    # Roadmap P1 item (Track C, docs/plans/2026-08_roadmap_plan.md): log this run's own
+    # recommendation as a committed JSON file (reporting.save_decision_log_entry() -- see its
+    # own docstring for why this is a file, not a DuckDB table: db/fpl_quant_v2.duckdb doesn't
+    # survive to the next scheduled run, so a DB-only row would be gone before Phase C-2 could
+    # ever read it back). Only for the two recurring, tracked accounts (is_tracked_account) --
+    # an ad-hoc one-off dispatch isn't part of the twice-daily cadence a hold-vs-use comparison
+    # needs, and was never in scope (see Track C's own Non-Goal). Ordered the same way the
+    # dashboard snapshot below is (_order_chip_evaluations, not the raw DB-insertion order) so
+    # the two outputs of this same run can never disagree about which chip was recommended.
+    if is_tracked_account:
+        decision_row = _resolve_decision_log_row(
+            hold_rec, recs_out, _order_chip_evaluations(chips_out), captain_recommendation,
+        )
+        decision_row.update({
+            "entry_id": entry_id,
+            "target_season": TARGET_SEASON,
+            "target_gameweek": plan_for_gameweek,
+            "run_id": run_id,
+            "actual_action_taken": None,
+            "realized_points_actual": None,
+            "realized_points_if_recommendation_followed": None,
+            "logged_at": datetime.now(timezone.utc).isoformat(),
+        })
+        reporting.save_decision_log_entry(entry_id, TARGET_SEASON, plan_for_gameweek, decision_row, DECISION_LOG_DIR)
+        print(f"\n[decision_log] logged '{decision_row['recommended_action']}' for entry_id={entry_id}, GW{plan_for_gameweek}")
 
     # M9's own explainability adapter (transfer_planner.explain_plan()) -- pure assembly over
     # this same run_id, no new computation. Exported as-is so the dashboard can show the real

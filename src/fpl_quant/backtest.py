@@ -1449,6 +1449,205 @@ def write_recalibration_seed_file(con: duckdb.DuckDBPyConnection, backtest_run_i
     return out_path
 
 
+def resolve_active_version(
+    param_family: str, default_version: int, seed_dir: Path | str, param_key: str | tuple[str, ...],
+) -> int:
+    """Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md [A3]/[A10]): the single
+    source of truth for "what params_version is currently active" for a recalibratable
+    (param_family, param_key) -- the highest new_params_version among CONFIRMED recalibration
+    seeds for it (see load_confirmed_recalibration_seeds()'s own docstring: only 'confirmed'
+    rows are ever returned), or default_version if none has ever been confirmed.
+
+    This deliberately never touches the DB -- it reads only the git-committed seed files, so it
+    gives the identical answer on a fresh checkout as it does mid-run (per [A10]: a DB table
+    alone doesn't survive between separate scheduled_pipeline.yml/weekly_backtest.yml jobs, so
+    the committed seed files, not the DB, have to be the real source of truth).
+
+    param_key as a tuple is for the one real case (minutes_adjustment_params, whose 'magnitude'
+    and 'cap' keys share one version-argument, adjustment_params_version) where a single
+    version-argument governs more than one param_key. Pass the family's COMPLETE, fixed set of
+    shared keys (e.g. ("magnitude", "cap")) -- not "whatever's been proposed so far" -- see the
+    correctness note below for why that distinction is load-bearing.
+
+    CRITICAL correctness note for the tuple case (found in review before this shipped):
+    propose_recalibration() assigns each (family, key) proposal its own next-available
+    new_params_version via _next_param_version(), which is scoped to the FAMILY, not the
+    (family, key) pair -- so when magnitude and cap are proposed together (recalibrate()'s own
+    MINUTES_PARAM_GRIDS loop does exactly this), they get two DIFFERENT version numbers (e.g. N
+    and N+1), even though minutes_model.run() resolves both keys at the SAME
+    adjustment_params_version. Matching "any confirmed key present" -- or even "every key
+    confirmed so far agrees," if one of the two has simply never been proposed yet -- would
+    therefore often pick a version where the OTHER key has no row at all, and resolve_param()
+    hard-errors (no fallback) on it, crashing the whole real-data pipeline the first time this
+    family is ever confirmed. So this only returns a version that is confirmed for EVERY key in
+    the caller's supplied param_key tuple (never a version safe for only some of them). In
+    practice this means adjustment_params_version stays at default_version until both magnitude
+    and cap have been confirmed at the same version number -- which propose_recalibration()'s
+    current per-family (not per-family-per-shared-arg) versioning never produces on its own; a
+    real, disclosed limitation (docs/plans/2026-08_roadmap_plan.md's Open Items), not silently
+    papered over.
+
+    Fixes a real, already-existing inconsistency this project had before Track B: several
+    scripts already hand-updated to xi_params_version=2/rho_residual_params_version=2 after
+    those were confirmed (see run_ingestion.py's own comment on commit 7bf7604), while others
+    (run_backtest.py, run_season_simulation.py, run_transfer_planner_for_real_squad.py, among
+    others) were never updated and still passed the stale default=1 literal. Every call site
+    resolving through this same function is what actually closes that gap, not just automates
+    future promotions.
+    """
+    confirmed = [s for s in load_confirmed_recalibration_seeds(seed_dir) if s["param_family"] == param_family]
+    if isinstance(param_key, str):
+        versions = [s["new_params_version"] for s in confirmed if s["param_key"] == param_key]
+        return max(versions, default=default_version)
+
+    versions_by_key = [
+        {s["new_params_version"] for s in confirmed if s["param_key"] == key} for key in param_key
+    ]
+    common_versions = set.intersection(*versions_by_key) if versions_by_key else set()
+    return max(common_versions, default=default_version)
+
+
+RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
+    # version-argument name -> (param_family, param_key). A tuple param_key means "this
+    # version-argument governs every one of these keys together" -- only true for
+    # minutes_adjustment_params (magnitude/cap share one version_field), and only safe because
+    # resolve_active_version() requires ALL of them confirmed at the same version -- see its
+    # own docstring for why "any key" would be unsafe here.
+    "xi_params_version": ("model_decay_params", "xi"),
+    "rho_params_version": ("model_decay_params", "rho"),
+    "rho_residual_params_version": ("correlation_params", "rho_residual"),
+    "fact_multiplier_params_version": ("fact_type_multiplier_params", "multiplier"),
+    "shrinkage_params_version": ("minutes_model_shrinkage_params", "competitive_matches_threshold"),
+    "adjustment_params_version": ("minutes_adjustment_params", ("magnitude", "cap")),
+    "lambda_params_version": ("risk_aversion_params", "lambda_value"),
+    "kappa_tc_params_version": ("tc_risk_aversion_params", "kappa_tc"),
+}
+
+
+def active_recalibratable_versions(seed_dir: Path | str, default_version: int = 1) -> dict[str, int]:
+    """Roadmap P1 item (Track B): every real-data script that needs one or more of the 8
+    recalibratable version-arguments (RECALIBRATABLE_VERSION_ARGS above) calls this once and
+    reads the result, rather than each hardcoding its own literal (or each calling
+    resolve_active_version() 8 times with hand-copied family/key strings -- exactly the
+    duplication that let xi_params_version/rho_residual_params_version drift out of sync across
+    a dozen scripts before this function existed, see resolve_active_version()'s own docstring).
+    One place owns the family/key mapping; every caller reads the same answer."""
+    return {
+        arg_name: resolve_active_version(family, default_version, seed_dir, param_key=key)
+        for arg_name, (family, key) in RECALIBRATABLE_VERSION_ARGS.items()
+    }
+
+
+# metric_name -> "higher_is_better" for every value recalibrate() actually writes into
+# recalibration_proposals.metric_name. Two are NOT a comparable before/after score at all:
+# rho_hat's metric_before/metric_after are the actual old/new rho_residual VALUE (moment-
+# matched directly against realized covariance, not a grid search over a scored objective --
+# see refit_rho_residual()'s own call site, which -- unlike xi/rho/lambda/kappa_tc -- has no
+# `if new != current:` guard, so a proposal can even represent no real change at all). Those
+# are handled as a special case in evaluate_and_promote_proposal() below, not via this table.
+_METRIC_DIRECTION = {
+    "neg_log_likelihood": "lower_is_better",
+    "log_score_minutes_mean": "higher_is_better",
+    "log_score_minutes_mean_holdout": "higher_is_better",
+    "realized_sharpe": "higher_is_better",
+}
+_NOT_A_SCORE_METRICS = {"rho_hat"}
+
+
+def evaluate_and_promote_proposal(
+    con: duckdb.DuckDBPyConnection, proposal_id: int, seed_dir: Path | str,
+    min_relative_improvement: float = 0.0, reviewed_by: str = "auto-regression-gate",
+) -> dict:
+    """Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md [A2]): the automated
+    counterpart to review_recalibration.py's human --confirm/--reject -- evaluates one pending
+    proposal and either promotes it (same set_status() mechanism review_recalibration.py already
+    uses: UPDATE recalibration_proposals + re-write the committed seed file, so the DB and the
+    git-committed record never drift apart) or leaves it pending with a logged reason.
+
+    Honest scope, disclosed rather than hidden behind a reassuring-looking threshold: this
+    compares each proposal's OWN before/after value in the metric its own refit already
+    optimized (metric_before/metric_after, already computed by recalibrate() -- see
+    _METRIC_DIRECTION above for the direction convention per metric_name). It does NOT re-run a
+    full walk-forward backtest to check whether the change regresses some OTHER standard metric
+    (log_score_clean_sheet_mean, etc.) -- each scripts/run_backtest.py run is a real ~1-2 hour
+    job (see its own module docstring), so re-running one per pending proposal is not something
+    an automated per-week gate can afford. That residual risk -- a proposal that improves its
+    own target metric but regresses an unrelated one -- is named in
+    docs/plans/2026-08_roadmap_plan.md's Open Items, not silently assumed away.
+
+    Every family except rho_residual (see _METRIC_DIRECTION/_NOT_A_SCORE_METRICS above) only
+    ever gets a proposal when the refit already found a strict improvement (refit_xi_rho() etc.
+    only call propose_recalibration() `if result[...] != current[...]`), so
+    min_relative_improvement's real job is filtering out numerically-noisy near-ties (a
+    grid-search "improvement" of 1e-6 is not a real signal), not catching genuine regressions --
+    there are none to catch in this metric space by construction. rho_residual's proposals are
+    promoted whenever the value actually changed (no score to compare), since moment-matching
+    against realized covariance IS the validation there, not a searched-and-scored candidate.
+
+    Returns a dict: {"proposal_id", "action": "promoted" | "held", "reason"}.
+    """
+    row = con.execute(
+        "SELECT status, backtest_run_id, param_family, param_key, metric_name, metric_before, metric_after "
+        "FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id],
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"no recalibration_proposals row for proposal_id={proposal_id}")
+    status, backtest_run_id, param_family, param_key, metric_name, metric_before, metric_after = row
+    if status != "pending":
+        return {"proposal_id": proposal_id, "action": "held", "reason": f"already {status}, not pending"}
+
+    if metric_name in _NOT_A_SCORE_METRICS:
+        # metric_before/metric_after ARE the old/new value directly for this metric (see
+        # refit_rho_residual()'s own call site) -- not old_value/new_value, which resolve
+        # through a separate old_params_version lookup and needn't even be set.
+        if metric_before == metric_after:
+            return {"proposal_id": proposal_id, "action": "held", "reason": f"{metric_name}: value unchanged ({metric_before}), nothing to promote"}
+        reason = f"{metric_name}: {metric_before} -> {metric_after} (moment-matched refit, no score to gate)"
+    else:
+        direction = _METRIC_DIRECTION.get(metric_name)
+        if direction is None:
+            return {"proposal_id": proposal_id, "action": "held", "reason": f"unrecognized metric_name {metric_name!r} -- refusing to guess a direction"}
+        improved = metric_after < metric_before if direction == "lower_is_better" else metric_after > metric_before
+        if not improved:
+            return {
+                "proposal_id": proposal_id, "action": "held",
+                "reason": f"{metric_name}: {metric_before} -> {metric_after} is not an improvement ({direction})",
+            }
+        denom = abs(metric_before) if metric_before != 0 else abs(metric_after) if metric_after != 0 else None
+        relative_improvement = abs(metric_after - metric_before) / denom if denom else float("inf")
+        if relative_improvement < min_relative_improvement:
+            return {
+                "proposal_id": proposal_id, "action": "held",
+                "reason": f"{metric_name}: improvement {relative_improvement:.4%} below the {min_relative_improvement:.0%} noise floor",
+            }
+        reason = f"{metric_name}: {metric_before} -> {metric_after} ({relative_improvement:.2%} improvement)"
+
+    con.execute(
+        "UPDATE recalibration_proposals SET status = 'confirmed', reviewed_by = ?, reviewed_at = ? WHERE proposal_id = ?",
+        [reviewed_by, datetime.now(timezone.utc), proposal_id],
+    )
+    write_recalibration_seed_file(con, backtest_run_id, seed_dir)
+    return {"proposal_id": proposal_id, "action": "promoted", "reason": reason}
+
+
+def auto_promote_pending_proposals(
+    con: duckdb.DuckDBPyConnection, backtest_run_id: int, seed_dir: Path | str,
+    min_relative_improvement: float = 0.0, reviewed_by: str = "auto-regression-gate",
+) -> list[dict]:
+    """Runs evaluate_and_promote_proposal() over every pending proposal for one backtest run --
+    the whole-run entry point scripts/run_backtest.py calls right after recalibrate()."""
+    proposal_ids = [
+        r[0] for r in con.execute(
+            "SELECT proposal_id FROM recalibration_proposals WHERE backtest_run_id = ? AND status = 'pending' ORDER BY proposal_id",
+            [backtest_run_id],
+        ).fetchall()
+    ]
+    return [
+        evaluate_and_promote_proposal(con, pid, seed_dir, min_relative_improvement, reviewed_by)
+        for pid in proposal_ids
+    ]
+
+
 def load_confirmed_recalibration_seeds(seed_dir: Path | str) -> list[dict]:
     """Reads every seeds_*.json file in seed_dir and returns only 'confirmed' proposals -- the
     set safe to auto-write into a fresh/empty DB (see run_ingestion.py's own use of this). A

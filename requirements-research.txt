@@ -1,0 +1,17 @@
+# research/ml/ only -- kept separate from requirements.txt for the same reason
+# requirements-dev.txt is separate (see that file's own comment): a production/pipeline
+# install (scheduled_pipeline.yml, live_tracking.yml) never touches research/ml/'s code path
+# (see research/ml/README.md: "does not modify live production recommendations") and should
+# never pull in these heavier ML dependencies just to serve real users a prediction.
+#
+# Added for Track F (docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md):
+# scikit-learn is also a lazy-imported optional dependency of research/ml/residual_model.py's
+# pre-existing quant_gbm arm (see that module's own docstring) -- installing it here activates
+# that arm too, which Track F's plan explicitly accounts for (reported as informational only,
+# not part of the ship/no-ship criterion).
+#
+# Exact pins (not >=), matching requirements.lock's rationale: research/ml/'s own leakage
+# tests and walk-forward folds should be reproducible run to run, same as the production
+# pipeline's determinism concern.
+scikit-learn==1.9.0
+lightgbm==4.7.0

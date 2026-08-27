@@ -34,18 +34,27 @@ TARGET_SEASON = "2026-2027"
 START_GAMEWEEK = 2
 END_GAMEWEEK = 6
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-# Every param family below is currently seeded at version=1 by scripts/run_ingestion.py --
-# the same set scripts/run_season_simulation.py itself uses.
-PARAM_VERSIONS = dict(
-    xi_params_version=1, rho_params_version=1,
-    decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1, fact_multiplier_params_version=1,
-    scoring_params_version=1, bps_params_version=1, tau_params_version=1,
-    rho_residual_params_version=1, corr_params_version=1,
-    lambda_params_version=1, guardrail_params_version=1,
-    horizon_params_version=1, transfer_cost_params_version=1,
-    wildcard_threshold_params_version=1, free_hit_threshold_params_version=1, kappa_tc_params_version=1,
-)
+
+# Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): recalibratable families
+# (xi/rho/rho_residual/adjustment/shrinkage/fact_multiplier/lambda/kappa_tc) resolve from the
+# git-committed confirmed-seed files via backtest.active_recalibratable_versions() -- see that
+# function's own docstring. Every other family below isn't one recalibrate() can produce a new
+# version for, so those stay hardcoded literals, same set scripts/run_season_simulation.py uses.
+def _param_versions(active: dict) -> dict:
+    return dict(
+        xi_params_version=active["xi_params_version"], rho_params_version=active["rho_params_version"],
+        decay_params_version=1, adjustment_params_version=active["adjustment_params_version"],
+        shrinkage_params_version=active["shrinkage_params_version"],
+        fact_multiplier_params_version=active["fact_multiplier_params_version"],
+        scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
+        lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
+        horizon_params_version=1, transfer_cost_params_version=1,
+        wildcard_threshold_params_version=1, free_hit_threshold_params_version=1,
+        kappa_tc_params_version=active["kappa_tc_params_version"],
+    )
 
 # beats_baseline() only takes the M1-M3 subset of PARAM_VERSIONS (the baselines never touch
 # M5/M6) -- see run_season_simulation.py's own identical filter.
@@ -67,15 +76,17 @@ def main() -> None:
     end_gw = int(sys.argv[2]) if len(sys.argv) > 2 else END_GAMEWEEK
 
     con = db.connect()
+    active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+    param_versions = _param_versions(active)
 
-    result = backtest.run_season_simulation(con, TARGET_SEASON, start_gw, end_gw, **PARAM_VERSIONS)
+    result = backtest.run_season_simulation(con, TARGET_SEASON, start_gw, end_gw, **param_versions)
     print(f"[run_season_simulation] {len(result['weekly_points'])} gameweeks scored")
 
     beats = backtest.beats_baseline(
         con, TARGET_SEASON, start_gw, end_gw,
         model_gameweeks=result["gameweeks"], model_weekly_points=result["weekly_points"],
         ownership_params_version=1,
-        **{k: v for k, v in PARAM_VERSIONS.items() if k in _BASELINE_VERSION_KEYS},
+        **{k: v for k, v in param_versions.items() if k in _BASELINE_VERSION_KEYS},
     )
 
     model_n = beats["model"]["n_gameweeks"]

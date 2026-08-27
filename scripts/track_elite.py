@@ -21,18 +21,28 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import app_export as ax  # noqa: E402
-from fpl_quant import db, elite_tracking as et, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
+from fpl_quant import backtest, db, elite_tracking as et, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 ELITE_MANAGERS_PATH = REPO_ROOT / "data" / "elite_managers.json"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-PARAM_VERSIONS = dict(
-    horizon_params_version=1, scoring_params_version=1, bps_params_version=1, tau_params_version=1,
-    rho_residual_params_version=2, corr_params_version=1, transfer_cost_params_version=1,
-    lambda_params_version=1, guardrail_params_version=1, wildcard_threshold_params_version=1,
-    free_hit_threshold_params_version=1, kappa_tc_params_version=1,
-)
+# Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version/
+# lambda_params_version/kappa_tc_params_version resolve from the git-committed confirmed-seed
+# files, not a hardcoded literal -- see backtest.active_recalibratable_versions()'s own
+# docstring. Resolved inside main() (below), not at import time, for consistency with the rest
+# of the sweep, and after the empty-elite_managers early-return so the no-op common case (this
+# project's own default) doesn't pay for a file read it never uses.
+def _param_versions(active: dict) -> dict:
+    return dict(
+        horizon_params_version=1, scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
+        transfer_cost_params_version=1,
+        lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
+        wildcard_threshold_params_version=1,
+        free_hit_threshold_params_version=1, kappa_tc_params_version=active["kappa_tc_params_version"],
+    )
 
 
 def main() -> None:
@@ -44,6 +54,7 @@ def main() -> None:
         print(f"[track_elite] no elite managers configured in {ELITE_MANAGERS_PATH} -- nothing to track")
         con.close()
         return
+    PARAM_VERSIONS = _param_versions(backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR))
 
     if len(sys.argv) > 1:
         current_event = int(sys.argv[1])

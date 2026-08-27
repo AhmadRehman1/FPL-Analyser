@@ -1,6 +1,7 @@
 import json
 import math
 from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -888,6 +889,324 @@ def test_load_confirmed_recalibration_seeds_reads_across_multiple_seed_files(con
 
 def test_load_confirmed_recalibration_seeds_empty_when_dir_missing(tmp_path):
     assert bt.load_confirmed_recalibration_seeds(tmp_path / "does_not_exist") == []
+
+
+def test_resolve_active_version_returns_default_when_never_confirmed(tmp_path):
+    assert bt.resolve_active_version("risk_aversion_params", 1, tmp_path, param_key="lambda_value") == 1
+
+
+def test_resolve_active_version_returns_default_on_missing_seed_dir():
+    assert bt.resolve_active_version("model_decay_params", 1, "/no/such/dir", param_key="xi") == 1
+
+
+def test_resolve_active_version_uses_confirmed_seed_over_default(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [proposal_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    assert bt.resolve_active_version("model_decay_params", 1, tmp_path, param_key="xi") == 2
+
+
+def test_resolve_active_version_ignores_a_different_key_in_the_same_family(con, tmp_path):
+    # model_decay_params has two independently-recalibratable keys (xi, rho) -- confirming one
+    # must not affect the other's resolved version.
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [proposal_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    assert bt.resolve_active_version("model_decay_params", 1, tmp_path, param_key="rho") == 1
+
+
+def test_resolve_active_version_ignores_pending_and_rejected(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.5)
+    backtest_run_id = _seed_backtest_run(con)
+    bt.propose_recalibration(
+        con, backtest_run_id, "risk_aversion_params", "lambda_value", 0.7,
+        metric_name="realized_sharpe", metric_before=0.0, metric_after=1.0, old_params_version=1,
+    )
+    rejected_id = bt.propose_recalibration(
+        con, backtest_run_id, "tc_risk_aversion_params", "kappa_tc", 0.9,
+        metric_name="realized_sharpe", metric_before=0.0, metric_after=-1.0, old_params_version=None,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [rejected_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+    # pending_id stays 'pending' (the default status) -- never explicitly confirmed.
+
+    assert bt.resolve_active_version("risk_aversion_params", 1, tmp_path, param_key="lambda_value") == 1
+    assert bt.resolve_active_version("tc_risk_aversion_params", 1, tmp_path, param_key="kappa_tc") == 1
+
+
+def test_active_recalibratable_versions_matches_known_confirmed_state():
+    # Mirrors this project's real, committed data/recalibration/ state: only xi and
+    # rho_residual have ever been confirmed (both v1 -> v2); everything else stays at default.
+    real_seed_dir = Path(__file__).resolve().parents[1] / "data" / "recalibration"
+
+    versions = bt.active_recalibratable_versions(real_seed_dir)
+    assert versions["xi_params_version"] == 2
+    assert versions["rho_residual_params_version"] == 2
+    assert versions["rho_params_version"] == 1
+    assert versions["fact_multiplier_params_version"] == 1
+    assert versions["shrinkage_params_version"] == 1
+    assert versions["adjustment_params_version"] == 1
+    assert versions["lambda_params_version"] == 1
+    assert versions["kappa_tc_params_version"] == 1
+
+
+def _pending_proposal(con, backtest_run_id, *, param_family, param_key, new_value, metric_name, metric_before, metric_after, old_params_version=1):
+    return bt.propose_recalibration(
+        con, backtest_run_id, param_family, param_key, new_value,
+        metric_name=metric_name, metric_before=metric_before, metric_after=metric_after,
+        old_params_version=old_params_version,
+    )
+
+
+def test_evaluate_and_promote_proposal_promotes_a_real_improvement(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="model_decay_params", param_key="xi", new_value=0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=90.0,
+    )
+
+    result = bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+
+    assert result == {"proposal_id": proposal_id, "action": "promoted", "reason": result["reason"]}
+    assert con.execute("SELECT status, reviewed_by FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]).fetchone() == (
+        "confirmed", "auto-regression-gate",
+    )
+    seeds = bt.load_confirmed_recalibration_seeds(tmp_path)
+    assert len(seeds) == 1 and seeds[0]["proposal_id"] == proposal_id
+
+
+def test_evaluate_and_promote_proposal_holds_when_metric_got_worse(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.5)
+    backtest_run_id = _seed_backtest_run(con)
+    # realized_sharpe is higher_is_better -- a lower after value is not an improvement, even
+    # though a real proposal would never actually be filed this way (defensive path).
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="realized_sharpe", metric_before=1.0, metric_after=0.5,
+    )
+
+    result = bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+
+    assert result["action"] == "held"
+    assert "not an improvement" in result["reason"]
+    assert con.execute("SELECT status FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]).fetchone() == ("pending",)
+
+
+def test_evaluate_and_promote_proposal_holds_below_noise_floor(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="model_decay_params", param_key="xi", new_value=0.0019,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=99.999,
+    )
+
+    result = bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path, min_relative_improvement=0.02)
+
+    assert result["action"] == "held"
+    assert "noise floor" in result["reason"]
+
+
+def test_evaluate_and_promote_proposal_rho_residual_promotes_on_any_real_change(con, tmp_path):
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = bt.propose_recalibration(
+        con, backtest_run_id, "correlation_params", "rho_residual", 0.05,
+        metric_name="rho_hat", metric_before=0.15, metric_after=0.05, old_params_version=1,
+    )
+
+    result = bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+
+    assert result["action"] == "promoted"
+    assert con.execute("SELECT status FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]).fetchone() == ("confirmed",)
+
+
+def test_evaluate_and_promote_proposal_rho_residual_holds_when_value_unchanged(con, tmp_path):
+    backtest_run_id = _seed_backtest_run(con)
+    # refit_rho_residual() has no `if new != current` guard (unlike xi/rho/lambda/kappa_tc), so
+    # a real proposal can genuinely represent no change at all.
+    proposal_id = bt.propose_recalibration(
+        con, backtest_run_id, "correlation_params", "rho_residual", 0.15,
+        metric_name="rho_hat", metric_before=0.15, metric_after=0.15, old_params_version=1,
+    )
+
+    result = bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+
+    assert result["action"] == "held"
+    assert "unchanged" in result["reason"]
+
+
+def test_evaluate_and_promote_proposal_skips_an_already_reviewed_proposal(con, tmp_path):
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="realized_sharpe", metric_before=0.5, metric_after=1.0,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [proposal_id])
+
+    result = bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+
+    assert result == {"proposal_id": proposal_id, "action": "held", "reason": "already rejected, not pending"}
+
+
+def test_evaluate_and_promote_proposal_raises_on_unknown_proposal_id(con, tmp_path):
+    with pytest.raises(ValueError):
+        bt.evaluate_and_promote_proposal(con, 999999, tmp_path)
+
+
+def test_evaluate_and_promote_proposal_holds_on_unrecognized_metric_name(con, tmp_path):
+    # Defensive: every metric_name recalibrate() can actually emit is in _METRIC_DIRECTION or
+    # _NOT_A_SCORE_METRICS today, but a future refit adding a new metric_name without updating
+    # either table must be held for manual review, never silently guessed at.
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="some_future_metric", metric_before=0.5, metric_after=1.0,
+    )
+
+    result = bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+
+    assert result["action"] == "held"
+    assert "unrecognized metric_name" in result["reason"]
+    assert con.execute("SELECT status FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]).fetchone() == ("pending",)
+
+
+def test_auto_promote_pending_proposals_processes_only_this_runs_pending_rows(con, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.5)
+    run_a = _seed_backtest_run(con, notes="run a")
+    run_b = _seed_backtest_run(con, notes="run b")
+    promotable = _pending_proposal(
+        con, run_a, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="realized_sharpe", metric_before=0.5, metric_after=1.0,
+    )
+    other_run_proposal = _pending_proposal(
+        con, run_b, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="realized_sharpe", metric_before=0.5, metric_after=1.0,
+    )
+
+    results = bt.auto_promote_pending_proposals(con, run_a, tmp_path)
+
+    assert len(results) == 1 and results[0]["proposal_id"] == promotable and results[0]["action"] == "promoted"
+    assert con.execute("SELECT status FROM recalibration_proposals WHERE proposal_id = ?", [other_run_proposal]).fetchone() == ("pending",)
+
+
+def test_auto_promotion_is_reversible_via_the_existing_reject_mechanism(con, tmp_path):
+    # Plan Track B, Phase B-3: rollback doesn't need new code -- review_recalibration.py's
+    # existing --reject path (UPDATE status='rejected' + re-write the seed file, exactly
+    # mirrored here) already excludes a proposal from load_confirmed_recalibration_seeds(), so
+    # active_recalibratable_versions() falls back to the next-highest still-confirmed version
+    # (or the default) the moment a promotion is rejected -- whether it was confirmed by a
+    # human or by evaluate_and_promote_proposal().
+    from fpl_quant import params
+
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.5)
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="realized_sharpe", metric_before=0.5, metric_after=1.0,
+    )
+
+    bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+    assert bt.active_recalibratable_versions(tmp_path)["lambda_params_version"] == 2
+
+    con.execute(
+        "UPDATE recalibration_proposals SET status = 'rejected', reviewed_by = ?, reviewed_at = ? WHERE proposal_id = ?",
+        ["rollback-test", datetime.now(), proposal_id],
+    )
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    assert bt.active_recalibratable_versions(tmp_path)["lambda_params_version"] == 1
+
+
+def _confirm(con, proposal_id, backtest_run_id, seed_dir):
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [proposal_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, seed_dir)
+
+
+def test_resolve_active_version_shared_keys_only_activates_when_all_confirmed_at_the_same_version(con, tmp_path):
+    # minutes_adjustment_params' 'magnitude' and 'cap' keys share one version-argument
+    # (adjustment_params_version). Both confirmed at the SAME new_params_version -> activate.
+    backtest_run_id = _seed_backtest_run(con)
+    mag_id = _pending_proposal(
+        con, backtest_run_id, param_family="minutes_adjustment_params", param_key="magnitude", new_value=-5.0,
+        metric_name="log_score_minutes_mean", metric_before=-1.0, metric_after=-0.9,
+    )
+    cap_id = _pending_proposal(
+        con, backtest_run_id, param_family="minutes_adjustment_params", param_key="cap", new_value=8.0,
+        metric_name="log_score_minutes_mean", metric_before=-1.0, metric_after=-0.9,
+    )
+    # Force both onto the same new_params_version -- the realistic case propose_recalibration()
+    # does NOT produce on its own (see the CRITICAL note in resolve_active_version()'s own
+    # docstring), included here to prove activation works once/if that ever happens.
+    shared_version = con.execute("SELECT new_params_version FROM recalibration_proposals WHERE proposal_id = ?", [mag_id]).fetchone()[0]
+    con.execute("UPDATE recalibration_proposals SET new_params_version = ? WHERE proposal_id = ?", [shared_version, cap_id])
+    _confirm(con, mag_id, backtest_run_id, tmp_path)
+    _confirm(con, cap_id, backtest_run_id, tmp_path)
+
+    assert bt.resolve_active_version("minutes_adjustment_params", 1, tmp_path, param_key=("magnitude", "cap")) == shared_version
+
+
+def test_resolve_active_version_shared_keys_holds_at_default_when_only_one_key_confirmed(con, tmp_path):
+    # The REAL scenario propose_recalibration()'s per-family versioning produces: magnitude and
+    # cap proposed together get two DIFFERENT new_params_version numbers (both scoped to the
+    # same family via _next_param_version()). If only magnitude gets confirmed, activating its
+    # version would make resolve_param() hard-error looking up 'cap' at a version that was never
+    # written for it -- the exact crash this guards against.
+    backtest_run_id = _seed_backtest_run(con)
+    mag_id = _pending_proposal(
+        con, backtest_run_id, param_family="minutes_adjustment_params", param_key="magnitude", new_value=-5.0,
+        metric_name="log_score_minutes_mean", metric_before=-1.0, metric_after=-0.9,
+    )
+    cap_id = _pending_proposal(
+        con, backtest_run_id, param_family="minutes_adjustment_params", param_key="cap", new_value=8.0,
+        metric_name="log_score_minutes_mean", metric_before=-1.0, metric_after=-0.9,
+    )
+    versions = dict(con.execute(
+        "SELECT param_key, new_params_version FROM recalibration_proposals WHERE proposal_id IN (?, ?)",
+        [mag_id, cap_id],
+    ).fetchall())
+    assert versions["magnitude"] != versions["cap"], "expected magnitude/cap to land on different versions, matching production"
+    _confirm(con, mag_id, backtest_run_id, tmp_path)
+
+    assert bt.resolve_active_version("minutes_adjustment_params", 1, tmp_path, param_key=("magnitude", "cap")) == 1
+
+
+def test_resolve_active_version_shared_keys_holds_at_default_when_cap_never_proposed(con, tmp_path):
+    # Only magnitude has ever been proposed/confirmed -- 'cap' has no row at all beyond the
+    # original default, so magnitude's version must never be activated on its own.
+    backtest_run_id = _seed_backtest_run(con)
+    mag_id = _pending_proposal(
+        con, backtest_run_id, param_family="minutes_adjustment_params", param_key="magnitude", new_value=-5.0,
+        metric_name="log_score_minutes_mean", metric_before=-1.0, metric_after=-0.9,
+    )
+    _confirm(con, mag_id, backtest_run_id, tmp_path)
+
+    assert bt.resolve_active_version("minutes_adjustment_params", 1, tmp_path, param_key=("magnitude", "cap")) == 1
 
 
 def test_recalibrate_seed_dir_none_is_a_no_op(con, monkeypatch):

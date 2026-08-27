@@ -8,6 +8,23 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap">
+<!-- Analytics (Track D-3, docs/plans/2026-08_roadmap_plan.md; privacy gate: docs/BUSINESS_PLAN.md
+     2.6): self-hosted, cookie-less, privacy-first (Plausible-compatible). Inert by default --
+     both constants stay empty until the operator self-hosts an instance and makes the explicit
+     privacy decision BUSINESS_PLAN.md 2.6 requires, so nothing loads and nothing is sent about
+     any visitor until then. Same inert-until-configured constant in index.html/track-record.html. -->
+<script>
+(function () {
+  var ANALYTICS_DOMAIN = "";     // e.g. "fplquant.app" -- set once self-hosted + privacy decision made
+  var ANALYTICS_SCRIPT_SRC = ""; // e.g. "https://analytics.example.com/js/script.js" (your self-hosted instance)
+  if (!ANALYTICS_DOMAIN || !ANALYTICS_SCRIPT_SRC) return;
+  var s = document.createElement("script");
+  s.defer = true;
+  s.dataset.domain = ANALYTICS_DOMAIN;
+  s.src = ANALYTICS_SCRIPT_SRC;
+  document.head.appendChild(s);
+})();
+</script>
 <style>
   :root{
     --bg-deep: oklch(0.29 0.065 152);
@@ -222,6 +239,9 @@
     FPL Quant is an open, free project &mdash; the model code, data pipeline, and this page are all on
     <a href="https://github.com/AhmadRehman1/FPL-Analyser">GitHub</a>. Data is fetched live from
     the same source as the app (<code>raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master</code>).
+    Analytics: off by default. If ever enabled, it will be a self-hosted, cookie-less,
+    privacy-first service (no personal data, no cross-site tracking) &mdash; see
+    <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">docs/BUSINESS_PLAN.md &sect;2.6</a>.
     <div class="frow">
       <a href="https://github.com/AhmadRehman1/FPL-Analyser">Source code</a>
       <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">Roadmap &amp; business plan</a>

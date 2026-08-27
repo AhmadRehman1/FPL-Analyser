@@ -48,19 +48,28 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, decision_engine as de, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
+from fpl_quant import backtest, db, decision_engine as de, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
 from fpl_quant import scenario as scen  # noqa: E402
 from fpl_quant import transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-PARAM_VERSIONS = dict(
-    horizon_params_version=1, scoring_params_version=1, bps_params_version=1, tau_params_version=1,
-    rho_residual_params_version=2, corr_params_version=1, transfer_cost_params_version=1,
-    lambda_params_version=1, guardrail_params_version=1, wildcard_threshold_params_version=1,
-    free_hit_threshold_params_version=1, kappa_tc_params_version=1,
-)
+# Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): rho_residual_params_version/
+# lambda_params_version/kappa_tc_params_version resolve from the git-committed confirmed-seed
+# files, not a hardcoded literal -- see backtest.active_recalibratable_versions()'s own
+# docstring. Resolved inside main() (below), not at import time, for consistency with the rest
+# of the sweep, since PARAM_VERSIONS here is only ever read inside main().
+def _param_versions(active: dict) -> dict:
+    return dict(
+        horizon_params_version=1, scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
+        transfer_cost_params_version=1,
+        lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
+        wildcard_threshold_params_version=1,
+        free_hit_threshold_params_version=1, kappa_tc_params_version=active["kappa_tc_params_version"],
+    )
 
 
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
@@ -120,6 +129,7 @@ def main() -> None:
 
     con = db.connect()
     tp.seed_v1_params(con)
+    PARAM_VERSIONS = _param_versions(backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR))
 
     print(f"[fetch] pulling real picks for entry_id={entry_id}, GW{current_event}...")
     squad = _fetch_real_squad(entry_id, current_event)

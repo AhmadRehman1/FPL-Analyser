@@ -1,0 +1,155 @@
+"""Shared constants and the data contract for the Phase-0 ML research layer.
+
+Single source of truth for column names, season ordering, feature lists, and on-disk
+result paths. Centralising these here means the dataset builder, feature engineer, leakage
+checker, and evaluator all agree on what each column means and where results land -- so a
+leakage check or a metric can be written against a name, not a convention.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import duckdb
+
+# ============================================================
+# Paths
+# ============================================================
+
+ML_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = ML_ROOT.parents[1]
+DATA_DIR = ML_ROOT / "data"
+RESULTS_DIR = ML_ROOT / "results"
+PLOTS_DIR = RESULTS_DIR / "plots"
+
+DATASET_PARQUET = DATA_DIR / "player_gw_dataset.parquet"
+DATASET_CSV = DATA_DIR / "player_gw_dataset.csv"
+BASELINE_METRICS_JSON = RESULTS_DIR / "baseline_metrics.json"
+BASELINE_PREDICTIONS_PARQUET = RESULTS_DIR / "baseline_predictions.parquet"
+MODEL_COMPARISON_CSV = RESULTS_DIR / "model_comparison.csv"
+RESIDUAL_ANALYSIS_CSV = RESULTS_DIR / "residual_analysis.csv"
+HIGH_DISAGREEMENT_CSV = RESULTS_DIR / "high_disagreement_cases.csv"
+CALIBRATION_CSV = RESULTS_DIR / "calibration.csv"
+FEATURE_IMPORTANCE_CSV = RESULTS_DIR / "feature_importance.csv"
+STABILITY_CSV = RESULTS_DIR / "feature_stability.csv"
+IMPROVEMENT_CSV = RESULTS_DIR / "improvement.csv"
+ENSEMBLE_CSV = RESULTS_DIR / "ensemble.csv"
+EXPERIMENT_MANIFEST_JSON = RESULTS_DIR / "experiment_manifest.json"
+SEASON_POINTS_CSV = RESULTS_DIR / "season_points.csv"
+RUN_LOG_CSV = RESULTS_DIR / "experiment_runs.csv"  # rolling log of every run (loop mode)
+RUNS_DIR = RESULTS_DIR / "runs"                      # one timestamped subdir per loop run
+REPORT_MD = ML_ROOT / "REPORT.md"
+
+for _d in (DATA_DIR, RESULTS_DIR, PLOTS_DIR, RUNS_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
+
+
+# ============================================================
+# Column contract
+# ============================================================
+
+# Identification
+COL_PLAYER_UID = "player_uid"
+COL_SEASON = "season"
+COL_GAMEWEEK = "gameweek"
+COL_TEAM_UID = "team_uid"
+COL_POSITION = "position"
+COL_OPPONENT_UID = "opponent_uid"
+COL_HOME_AWAY = "home_away"
+
+# Prediction / actual / residual
+COL_QUANT_PRED = "quant_prediction"           # Q(x): ep_total aggregated to player x gw
+COL_PRED_TIMESTAMP = "prediction_timestamp"   # the step's data_asof (gameweek deadline)
+COL_EP_MODEL_VERSION = "ep_model_version"      # provenance: which Quant run produced Q(x)
+COL_ACTUAL = "actual_points"                  # y: fact_player_season_stats.event_points
+COL_RESIDUAL = "residual"                     # y - Q(x)
+COL_PREDICTED_RESIDUAL = "predicted_residual"  # ML(x)
+COL_ML_PRED = "ml_prediction"                  # Q(x) + ML(x)
+
+# The label. Used exactly once, as the target, never as a feature.
+LABEL_COL = COL_ACTUAL
+
+IDENTIFIER_COLS = [
+    COL_PLAYER_UID, COL_SEASON, COL_GAMEWEEK, COL_TEAM_UID, COL_POSITION,
+    COL_OPPONENT_UID, COL_HOME_AWAY, COL_QUANT_PRED, COL_PRED_TIMESTAMP, COL_EP_MODEL_VERSION,
+]
+
+
+# ============================================================
+# Seasons and ordering
+# ============================================================
+
+# Canonical chronological order. `season_sort_key` converts "2024-2025" -> 2024 for comparison.
+SEASON_ORDER: tuple[str, ...] = (
+    "2024-2025", "2025-2026", "2026-2027",
+)
+
+
+def season_sort_key(season: str) -> int:
+    """'2024-2025' -> 2024. Used for chronological walk-forward split ordering."""
+    try:
+        return int(season.split("-")[0])
+    except (ValueError, IndexError) as exc:
+        raise ValueError(f"unrecognised season format {season!r}") from exc
+
+
+# Premier League competition tag used throughout fpl_quant.
+PL = "Premier League"
+
+POSITIONS = ("Goalkeeper", "Defender", "Midfielder", "Forward")
+
+# Default walk-forward experiment plan: train on everything before each test season.
+DEFAULT_WALK_FORWARD_PLAN: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("2024-2025",), "2025-2026"),
+    (("2024-2025", "2025-2026"), "2026-2027"),
+)
+
+
+# ============================================================
+# Feature groups (names documented in LEAKAGE_PROTOCOL.md §4)
+# ============================================================
+
+# Rolling windows in matches/gameweeks. 3/5/10 mirrors the spec's "rolling X in last 3/5"
+# convention and the repo's own minutes_model lookback of "competitive_matches_last_2_seasons".
+ROLLING_WINDOWS = (3, 5, 10)
+
+PLAYER_ROLLING_FEATURES: tuple[str, ...] = (
+    "rolling_points", "rolling_minutes", "rolling_starts", "rolling_goals",
+    "rolling_assists", "rolling_bps", "rolling_xg_per90", "rolling_xa_per90",
+    "rolling_defcon_per90", "rolling_saves_per90",
+)
+
+MINUTES_FEATURES: tuple[str, ...] = (
+    "p_start_final", "p_60plus_min", "starts_last_3", "starts_last_5",
+    "minutes_last_5",
+)
+
+# Team strength is derived from realised goals in prior finished matches (fact_match scores).
+# xG is not stored per-match in fact_player_match_stats, so team xG is NOT computed -- a
+# goals-based proxy would be mislabelled, so the feature is omitted rather than faked.
+TEAM_FEATURES: tuple[str, ...] = (
+    "team_goals_for_last_10", "team_goals_against_last_10",
+)
+
+# fixture_difficulty is derived from opponent defensive strength (opponent goals conceded
+# in prior matches), NOT from the M1 Dixon-Coles lambdas -- using M1 lambdas would make the
+# residual model a trivial identity of the Quant model (LEAKAGE_PROTOCOL.md §5).
+FIXTURE_FEATURES: tuple[str, ...] = (
+    "is_home", "fixture_difficulty", "opponent_goals_against_last_10",
+    "opponent_goals_for_last_10", "matches_last_7_days", "matches_last_14_days",
+)
+
+CONTEXT_FEATURES: tuple[str, ...] = (
+    "now_cost", "selected_by_percent", "chance_of_playing_next_round", "status",
+)
+
+
+def connect(db_path: Path | str | None = None, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    """Thin wrapper over fpl_quant.db.connect so this layer has one import surface and never
+    opens a connection that skips schema application. read_only=True is used by the dataset
+    builder: the ML layer never writes to the production schema, only to its own results/."""
+    from fpl_quant import db  # late import: path bootstrap in __init__ makes this resolve
+
+    if db_path is None:
+        return db.connect(read_only=read_only)
+    return db.connect(Path(db_path), read_only=read_only)

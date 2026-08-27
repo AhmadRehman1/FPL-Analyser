@@ -542,6 +542,198 @@ def test_load_report_snapshot_none_when_missing(tmp_path):
     assert reporting.load_report_snapshot("2026-2027", 1, tmp_path) is None
 
 
+def test_save_and_load_decision_log_entry_round_trips(tmp_path):
+    row = {"recommended_action": "hold", "recommended_transfer_out": None}
+    saved_path = reporting.save_decision_log_entry(7139944, "2026-2027", 15, row, tmp_path)
+    assert saved_path.name == "7139944_2026-2027_gw15.json"
+
+    loaded = reporting.load_decision_log_entry(7139944, "2026-2027", 15, tmp_path)
+    assert loaded == row
+
+
+def test_save_decision_log_entry_same_key_overwrites_not_duplicates(tmp_path):
+    # This script runs twice daily -- a same-day rerun must overwrite, not accumulate.
+    reporting.save_decision_log_entry(7139944, "2026-2027", 15, {"recommended_action": "hold"}, tmp_path)
+    reporting.save_decision_log_entry(7139944, "2026-2027", 15, {"recommended_action": "transfer_now"}, tmp_path)
+    assert list(tmp_path.glob("7139944_2026-2027_gw15*.json")) != []
+    assert len(list(tmp_path.glob("*.json"))) == 1
+    assert reporting.load_decision_log_entry(7139944, "2026-2027", 15, tmp_path)["recommended_action"] == "transfer_now"
+
+
+def test_load_decision_log_entry_none_when_missing(tmp_path):
+    assert reporting.load_decision_log_entry(7139944, "2026-2027", 15, tmp_path) is None
+
+
+# ============================================================
+# Phase C-2 -- compute_counterfactual_points()
+# ============================================================
+
+_BASELINE_PICKS = [
+    {"element": 1, "position": 1, "is_captain": False},   # GK, XI
+    {"element": 2, "position": 2, "is_captain": False},   # XI
+    {"element": 3, "position": 3, "is_captain": True},    # XI, captain
+    {"element": 4, "position": 11, "is_captain": False, "is_vice_captain": True},  # XI, vice (last starter)
+    {"element": 5, "position": 12, "is_captain": False},  # bench
+]
+_NAME_TO_ID = {"Out Player": 3, "In Player": 99, "Bench Player": 5, "New Captain": 4}
+
+
+def test_compute_counterfactual_points_hold_uses_baseline_xi_and_captain():
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3, 5: 100}  # element 5 is on the bench, must not count
+    decision_row = {"recommended_action": "hold", "recommended_chip": None, "recommended_captain": None}
+
+    total = reporting.compute_counterfactual_points(_BASELINE_PICKS, live_points, _NAME_TO_ID, decision_row)
+
+    assert total == 2 + 5 + 10 * 2 + 3  # captain (element 3) doubled, bench player excluded
+
+
+def test_compute_counterfactual_points_transfer_now_swaps_the_named_players():
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3, 99: 20}
+    decision_row = {
+        "recommended_action": "transfer_now", "recommended_transfer_out": "Out Player",
+        "recommended_transfer_in": "In Player", "recommended_chip": None, "recommended_captain": None,
+    }
+
+    total = reporting.compute_counterfactual_points(_BASELINE_PICKS, live_points, _NAME_TO_ID, decision_row)
+
+    # element 3 (captain, "Out Player") leaves the XI, element 99 ("In Player") replaces it --
+    # no recommended_captain override is logged for this gameweek, so the armband falls back to
+    # the baseline vice-captain (element 4) rather than nobody being captained.
+    assert total == 2 + 5 + 3 * 2 + 20
+
+
+def test_compute_counterfactual_points_captain_sold_with_no_vice_in_xi_applies_no_multiplier():
+    # The vice-captain (element 5) sits on the bench in this baseline squad -- when the captain
+    # is transferred out and no recommended_captain override is logged, the vice fallback isn't
+    # in the XI either, so the multiplier applies to nobody rather than guessing a third player.
+    picks = [
+        {"element": 1, "position": 1, "is_captain": False},
+        {"element": 2, "position": 2, "is_captain": False},
+        {"element": 3, "position": 3, "is_captain": True},
+        {"element": 4, "position": 11, "is_captain": False},
+        {"element": 5, "position": 12, "is_captain": False, "is_vice_captain": True},  # bench
+    ]
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3, 99: 20}
+    decision_row = {
+        "recommended_action": "transfer_now", "recommended_transfer_out": "Out Player",
+        "recommended_transfer_in": "In Player", "recommended_chip": None, "recommended_captain": None,
+    }
+    total = reporting.compute_counterfactual_points(picks, live_points, _NAME_TO_ID, decision_row)
+    assert total == 2 + 5 + 3 + 20  # no captain bonus anywhere -- the vice stayed on the bench
+
+
+def test_compute_counterfactual_points_transfer_out_not_in_xi_is_a_no_op():
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3}
+    decision_row = {
+        "recommended_action": "transfer_now", "recommended_transfer_out": "Bench Player",
+        "recommended_transfer_in": "In Player", "recommended_chip": None, "recommended_captain": None,
+    }
+
+    total = reporting.compute_counterfactual_points(_BASELINE_PICKS, live_points, _NAME_TO_ID, decision_row)
+
+    assert total == 2 + 5 + 10 * 2 + 3  # unchanged from hold -- "Bench Player" wasn't starting
+
+
+def test_compute_counterfactual_points_captain_change_moves_the_multiplier():
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3}
+    decision_row = {"recommended_action": "hold", "recommended_chip": None, "recommended_captain": "New Captain"}
+
+    total = reporting.compute_counterfactual_points(_BASELINE_PICKS, live_points, _NAME_TO_ID, decision_row)
+
+    assert total == 2 + 5 + 10 + 3 * 2  # element 4 ("New Captain") doubled instead of element 3
+
+
+def test_compute_counterfactual_points_bench_boost_includes_every_player():
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3, 5: 7}
+    decision_row = {"recommended_action": "hold", "recommended_chip": "bench_boost", "recommended_captain": None}
+
+    total = reporting.compute_counterfactual_points(_BASELINE_PICKS, live_points, _NAME_TO_ID, decision_row)
+
+    assert total == 2 + 5 + 10 * 2 + 3 + 7  # bench element 5 now counts too
+
+
+def test_compute_counterfactual_points_triple_captain_triples_not_doubles():
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3}
+    decision_row = {"recommended_action": "hold", "recommended_chip": "triple_captain", "recommended_captain": None}
+
+    total = reporting.compute_counterfactual_points(_BASELINE_PICKS, live_points, _NAME_TO_ID, decision_row)
+
+    assert total == 2 + 5 + 10 * 3 + 3
+
+
+def test_compute_counterfactual_points_wildcard_and_free_hit_return_none():
+    live_points = {1: 2, 2: 5, 3: 10, 4: 3}
+    for chip in ("wildcard", "free_hit"):
+        decision_row = {"recommended_action": "hold", "recommended_chip": chip, "recommended_captain": None}
+        assert reporting.compute_counterfactual_points(_BASELINE_PICKS, live_points, _NAME_TO_ID, decision_row) is None
+
+
+def test_compute_counterfactual_points_missing_live_points_default_to_zero():
+    # A player with no live_points_by_element entry (e.g. the live fetch is incomplete) scores
+    # 0 rather than raising -- an honest "we don't know yet," not a crash.
+    decision_row = {"recommended_action": "hold", "recommended_chip": None, "recommended_captain": None}
+    total = reporting.compute_counterfactual_points(_BASELINE_PICKS, {}, _NAME_TO_ID, decision_row)
+    assert total == 0
+
+
+# ============================================================
+# Phase C-3 -- build_planner_decision_summary()
+# ============================================================
+
+def _realized_row(gw, actual, if_followed):
+    return {
+        "target_gameweek": gw, "recommended_action": "hold",
+        "realized_points_actual": actual, "realized_points_if_recommendation_followed": if_followed,
+    }
+
+
+def test_build_planner_decision_summary_not_ready_below_the_minimum(tmp_path):
+    for gw in range(2, 5):  # only 3 realized gameweeks, default minimum is 8
+        reporting.save_decision_log_entry(7139944, "2026-2027", gw, _realized_row(gw, 50, 55), tmp_path)
+
+    summary = reporting.build_planner_decision_summary(tmp_path, [7139944, 1305242], "2026-2027")
+
+    assert summary == {"ready": False, "n_realized": 3, "min_gameweeks": 8}
+
+
+def test_build_planner_decision_summary_ready_once_the_minimum_is_reached(tmp_path):
+    for gw in range(2, 6):
+        reporting.save_decision_log_entry(7139944, "2026-2027", gw, _realized_row(gw, 50, 55), tmp_path)  # +5 each
+    for gw in range(2, 6):
+        reporting.save_decision_log_entry(1305242, "2026-2027", gw, _realized_row(gw, 60, 60), tmp_path)  # tied
+
+    summary = reporting.build_planner_decision_summary(tmp_path, [7139944, 1305242], "2026-2027", min_gameweeks=8)
+
+    assert summary["ready"] is True
+    assert summary["n_realized"] == 8
+    assert summary["mean_point_delta_if_followed"] == 2.5  # (4*5 + 4*0) / 8
+    assert summary["n_recommendation_would_have_scored_more"] == 4
+    assert summary["n_actual_scored_more"] == 0
+    assert summary["n_tied"] == 4
+
+
+def test_build_planner_decision_summary_excludes_unrealized_and_uncounterfactualable_entries(tmp_path):
+    reporting.save_decision_log_entry(7139944, "2026-2027", 2, _realized_row(2, 50, 55), tmp_path)
+    # Not yet realized (Phase C-2 hasn't run for this gameweek yet).
+    reporting.save_decision_log_entry(7139944, "2026-2027", 3, {
+        "target_gameweek": 3, "realized_points_actual": None, "realized_points_if_recommendation_followed": None,
+    }, tmp_path)
+    # A wildcard/free_hit recommendation Phase C-2 couldn't honestly counterfactual-price.
+    reporting.save_decision_log_entry(7139944, "2026-2027", 4, {
+        "target_gameweek": 4, "recommended_chip": "wildcard",
+        "realized_points_actual": 70, "realized_points_if_recommendation_followed": None,
+    }, tmp_path)
+
+    summary = reporting.build_planner_decision_summary(tmp_path, [7139944], "2026-2027", min_gameweeks=1)
+
+    assert summary["n_realized"] == 1
+
+
+def test_build_planner_decision_summary_not_ready_when_log_dir_missing(tmp_path):
+    summary = reporting.build_planner_decision_summary(tmp_path / "does_not_exist", [7139944], "2026-2027")
+    assert summary == {"ready": False, "n_realized": 0, "min_gameweeks": 8}
+
+
 # ============================================================
 # build_captain_recommendation
 # ============================================================

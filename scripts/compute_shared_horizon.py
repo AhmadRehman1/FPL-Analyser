@@ -17,10 +17,11 @@ scripts fall back to computing it themselves, unchanged from before this script 
 is a pure opt-in, not a required dependency).
 
 run_transfer_planner_for_real_squad.py is deliberately NOT wired to this cache: it calls
-tp.run() with rho_residual_params_version=1, while the three scripts above (and this one) all
-use version=2 -- a real, pre-existing discrepancy between this script's own param versions,
-not something to silently paper over by forcing it onto a cache computed with a different
-parameter version.
+tp.run() with a hardcoded rho_residual_params_version=1, while the three scripts above (and
+this one) resolve it from the active recalibration seed via
+backtest.active_recalibratable_versions() -- a real, pre-existing discrepancy between this
+script's own param versions, not something to silently paper over by forcing it onto a cache
+computed with a different parameter version.
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/compute_shared_horizon.py <event> [output_path]
@@ -38,19 +39,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db, params as params_mod, transfer_planner as tp  # noqa: E402
+from fpl_quant import backtest, db, params as params_mod, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DEFAULT_OUTPUT_PATH = Path("/tmp/fpl_shared_horizon_ep_versions.json")
+RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
-# Must match grade_squad.py / explain_my_move.py / run_scenarios.py's own PARAM_VERSIONS
-# exactly (all three already agree on these five) -- a mismatch here would silently hand
-# those scripts a horizon computed under the wrong parameter version.
+# Must match grade_squad.py / explain_my_move.py / run_scenarios.py's own _param_versions()
+# exactly -- a mismatch here would silently hand those scripts a horizon computed under the
+# wrong parameter version. rho_residual_params_version is NOT a hardcoded literal for the same
+# Track B reason those three resolve it via backtest.active_recalibratable_versions(): it
+# tracks the git-committed confirmed recalibration seed, so this script and its consumers can
+# never drift apart when a future recalibration promotes a new version.
 HORIZON_PARAMS_VERSION = 1
 SCORING_PARAMS_VERSION = 1
 BPS_PARAMS_VERSION = 1
 TAU_PARAMS_VERSION = 1
-RHO_RESIDUAL_PARAMS_VERSION = 2
 CORR_PARAMS_VERSION = 1
 
 
@@ -63,6 +67,7 @@ def main() -> None:
 
     con = db.connect()
     tp.seed_v1_params(con)
+    rho_residual_params_version = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)["rho_residual_params_version"]
 
     ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
     mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
@@ -74,7 +79,7 @@ def main() -> None:
     horizon_ep_versions = tp.compute_horizon_ep(
         con, date.today(), TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, int(horizon_gameweeks),
         SCORING_PARAMS_VERSION, BPS_PARAMS_VERSION, TAU_PARAMS_VERSION,
-        RHO_RESIDUAL_PARAMS_VERSION, CORR_PARAMS_VERSION,
+        rho_residual_params_version, CORR_PARAMS_VERSION,
     )
     if plan_for_gameweek not in horizon_ep_versions:
         raise SystemExit(f"no fixtures found for {TARGET_SEASON} GW{plan_for_gameweek} -- cannot compute a shared horizon")

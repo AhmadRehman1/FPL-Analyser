@@ -41,6 +41,14 @@ SOURCE_TIER_WEIGHTS_V1 = [
 
 def main() -> None:
     con = db.connect()
+    # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): the single source of truth
+    # for every recalibratable parameter's active version, resolved from the git-committed
+    # confirmed-seed files (not a hardcoded literal per call site -- see
+    # backtest.active_recalibratable_versions()'s own docstring for why a DB table alone
+    # wouldn't survive to this run anyway). Every one of this project's real-data scripts reads
+    # from this same dict now, closing a real, previously-existing drift where some scripts had
+    # been hand-updated to xi_params_version=2/rho_residual_params_version=2 and others hadn't.
+    ACTIVE = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
 
     t0 = time.time()
     csv_results = ingest_csv.ingest_all(con, DATA_ROOT)
@@ -155,7 +163,10 @@ def main() -> None:
         print(f"[understat] {time.time() - t0:.1f}s -> SKIPPED (fetch/parse failed: {e})")
 
     t0 = time.time()
-    ts_model_version = team_strength.calibrate(con, CALIBRATION_ASOF_DATE, xi_params_version=2, rho_params_version=1)
+    ts_model_version = team_strength.calibrate(
+        con, CALIBRATION_ASOF_DATE,
+        xi_params_version=ACTIVE["xi_params_version"], rho_params_version=ACTIVE["rho_params_version"],
+    )
     n_teams = con.execute(
         "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [ts_model_version]
     ).fetchone()[0]
@@ -163,19 +174,24 @@ def main() -> None:
 
     t0 = time.time()
     n_preseason_claims = minutes_model.log_preseason_involvement_claims(con, TARGET_SEASON)
-    # shrinkage_params_version/fact_multiplier_params_version pinned at v1 (the honest,
-    # freshly-reproducible baseline), NOT the real v10/v8 winners commit 1f0dc7b activated.
-    # Unlike xi/rho_residual above, those two versions' actual winning numeric values were
-    # never recorded anywhere durable (README documents xi/rho_residual's before->after
+    # ACTIVE['shrinkage_params_version']/ACTIVE['fact_multiplier_params_version'] resolve to v1
+    # (the honest, freshly-reproducible baseline), NOT the real v10/v8 winners commit 1f0dc7b
+    # activated. Unlike xi/rho_residual above, those two versions' actual winning numeric values
+    # were never recorded anywhere durable (README documents xi/rho_residual's before->after
     # numbers explicitly, but not these two) -- they only existed as intermediate
     # param_versions rows inside refit_minutes_and_evidence_params()'s multi-round block
     # coordinate descent, written directly to the same since-lost local db/fpl_quant_v2.duckdb.
     # Re-establishing the real v8/v10 values needs an actual re-run of that search (a real,
-    # flagged follow-up -- see README's Design notes), not a guess at plausible-looking numbers.
+    # flagged follow-up -- see README's Design notes), not a guess at plausible-looking numbers --
+    # ACTIVE will correctly pick them up automatically once a real confirmed seed exists.
+    # decay_params_version stays a hardcoded literal: minutes_model_decay_params isn't one of
+    # recalibrate()'s MINUTES_PARAM_GRIDS families (see run_backtest.py), so it's out of Track B's
+    # scope -- there's nothing for ACTIVE to ever resolve differently here.
     mm_model_version = minutes_model.run(
         con, CALIBRATION_ASOF_DATE, TARGET_SEASON,
-        decay_params_version=1, adjustment_params_version=1,
-        shrinkage_params_version=1, fact_multiplier_params_version=1,
+        decay_params_version=1, adjustment_params_version=ACTIVE["adjustment_params_version"],
+        shrinkage_params_version=ACTIVE["shrinkage_params_version"],
+        fact_multiplier_params_version=ACTIVE["fact_multiplier_params_version"],
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]
@@ -200,7 +216,7 @@ def main() -> None:
     un_model_version = uncertainty.run(
         con, CALIBRATION_ASOF_DATE, ep_model_version=ep_model_version, mm_model_version=mm_model_version,
         ts_model_version=ts_model_version, scoring_params_version=1, bps_params_version=1,
-        tau_params_version=1, rho_residual_params_version=2, corr_params_version=1,
+        tau_params_version=1, rho_residual_params_version=ACTIVE["rho_residual_params_version"], corr_params_version=1,
     )
     n_un_rows = con.execute(
         "SELECT count(*) FROM uncertainty_outputs WHERE model_version = ?", [un_model_version]
@@ -218,7 +234,7 @@ def main() -> None:
         so_run_id = squad_optimizer.run(
             con, CALIBRATION_ASOF_DATE, TARGET_SEASON, TARGET_GAMEWEEK,
             ep_model_version=ep_model_version, uncertainty_model_version=un_model_version,
-            lambda_params_version=1, guardrail_params_version=1,
+            lambda_params_version=ACTIVE["lambda_params_version"], guardrail_params_version=1,
         )
         n_squad = con.execute(
             "SELECT count(*) FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [so_run_id]
@@ -236,7 +252,8 @@ def main() -> None:
         con, CALIBRATION_ASOF_DATE, squad_optimizer_run_id=so_run_id,
         ep_model_version=ep_model_version, mm_model_version=mm_model_version,
         ts_model_version=ts_model_version, uncertainty_model_version=un_model_version,
-        scoring_params_version=1, tau_params_version=1, rho_residual_params_version=2,
+        scoring_params_version=1, tau_params_version=1,
+        rho_residual_params_version=ACTIVE["rho_residual_params_version"],
     )
     n_mc_players = con.execute(
         "SELECT count(DISTINCT player_uid) FROM monte_carlo_player_summary WHERE model_version = ?", [mc_model_version]
