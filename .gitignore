@@ -12,3 +12,8 @@ data/external/
 # ML research engine generated artifacts
 research/ml/results/
 research/ml/data/
+
+# Track E retrospective validation: cached real-manager sample (aggregate totals only, but
+# kept out of git anyway per the plan's "no entry_id, no persistence beyond the fetch step
+# guarantee" spirit -- regenerable via scripts/run_retrospective_sample.py)
+data/retrospective/
