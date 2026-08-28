@@ -36,6 +36,21 @@ FPL-manager points found. It never crashes on a single run failure (it backs off
 Requires the repo's DuckDB to be populated first (the FPL API must be reachable -- it is
 blocked from some sandboxed environments, so run this on a machine with open internet).
 
+## Automation (`.github/workflows/ml_experiment.yml`)
+
+The experiment runs for real, automatically, every Sunday (05:00 UTC) via GitHub Actions --
+the same open-internet runner `scheduled_pipeline.yml` and `weekly_backtest.yml` already use,
+which has neither restriction a sandboxed Claude Code Remote session has (no populated DB
+until ingested, `fantasy.premierleague.com` blocked by policy). It restores the most recent
+`scheduled_pipeline.yml` run's cached DB (falling back to a fresh ingestion only if none
+exists yet), runs `python -m research.ml.experiment` for real, posts
+`scripts/summarize_ml_experiment_results.py`'s structured summary to the run's job summary, and
+uploads the full `results/` directory as a 90-day build artifact. It does not commit anything
+back to the repo (`results/` is deliberately gitignored) or write `REPORT.md`'s decision
+prose -- that is a real analytical judgment call each run, made by a human reading the job
+summary/artifact, not something to template-generate unattended. A manual run (with an
+optional cheaper `--fold-mode season` override) is available via `workflow_dispatch`.
+
 ## Artifacts (`results/`)
 
 | File | Contents |
