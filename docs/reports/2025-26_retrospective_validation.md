@@ -94,10 +94,24 @@ XI alone would suggest. `backtest._realized_xi_points()` — the function this s
 weekly score comes from — sums only the picked starting XI's real `event_points` (captain
 doubled), with no substitution logic: a starter who blanks with 0 minutes counts as 0 here, the
 same as it would count in the picked XI's raw total, but a real manager holding an identical squad
-could have scored more via a bench player their engine never gets credit for. This means the
-engine's simulated total above is systematically a conservative (lower-bound) estimate relative
-to what an identical real squad's real FPL score would have been — not an apples-to-apples replay
-of real scoring rules in full.
+could have scored more via a bench player their engine never gets credit for. This makes the
+engine's simulated total above conservative *in expectation* relative to what an identical real
+squad's real FPL score would have been — not a hard per-gameweek guarantee, since a player who
+did play can still score negative points (red card, own goals, heavy defensive concession), a
+case where "count the blank as 0" would instead be a slight overestimate for that week. In
+aggregate over a full season the effect is conservative, but "systematically" would overstate
+the certainty this mechanism actually provides.
+
+**(f) The engine's captaincy has no vice-captain fallback.** Real FPL automatically promotes the
+vice-captain's points if the captain doesn't play; `_realized_xi_points()` takes a single fixed
+`captain_uid` and simply doubles whatever that player scored, including a blank — there is no
+vice-captain logic anywhere in `backtest.py` for this scoring path. (This is a distinct, verified
+gap from (e), not a restatement of it: this project already discloses the same class of issue for
+a *different* function, `reporting.py`'s counterfactual transfer-decision scoring, which does
+apply a baseline-vice-captain fallback in that one specific case — this simulation's own weekly
+scoring has no equivalent, in either direction.) The net effect skews the same direction as (e)
+(conservative, in expectation) but is a separate, independently real simplification, not covered
+by fixing (e) alone.
 
 ## What this number can and cannot honestly support
 
