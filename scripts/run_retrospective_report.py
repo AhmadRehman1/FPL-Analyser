@@ -128,6 +128,18 @@ ones — the sample's mean ({_fmt(comparison['real_mean'])}) and median
 score ranges before this report was generated, which is a backstop, not a guarantee this skew is
 fully absent.
 
+**(e) The engine's weekly score does not model FPL's automatic substitution rule.** Real FPL
+promotes a bench player into the starting XI when a picked starter scores 0 minutes (injury, late
+withdrawal, rotation), so a real manager's actual score is often higher than their pre-deadline
+XI alone would suggest. `backtest._realized_xi_points()` — the function this simulation's every
+weekly score comes from — sums only the picked starting XI's real `event_points` (captain
+doubled), with no substitution logic: a starter who blanks with 0 minutes counts as 0 here, the
+same as it would count in the picked XI's raw total, but a real manager holding an identical squad
+could have scored more via a bench player their engine never gets credit for. This means the
+engine's simulated total above is systematically a conservative (lower-bound) estimate relative
+to what an identical real squad's real FPL score would have been — not an apples-to-apples replay
+of real scoring rules in full.
+
 ## What this number can and cannot honestly support
 
 **Can support:** "the engine's own season-long strategy, played blind from GW2 with no
