@@ -17,6 +17,15 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# Both REPO_ROOT (so the top-level `research` package resolves -- `research/ml/__init__.py`'s
+# own path bootstrap only fires once `research.ml` is already importable, i.e. too late to help
+# here) and REPO_ROOT/"src" (so research.ml's own `from fpl_quant import ...` resolves) must be
+# on sys.path before the `research.ml` import below. A prior version only added src/, which
+# meant this script's own documented `python scripts/summarize_ml_experiment_results.py`
+# invocation raised `ModuleNotFoundError: No module named 'research'` immediately -- never
+# caught because its test loads this module in-process via importlib, bypassing the real
+# script-invocation path entirely.
+sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 import pandas as pd  # noqa: E402

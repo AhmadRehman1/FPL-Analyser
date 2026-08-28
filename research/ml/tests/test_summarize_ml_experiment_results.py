@@ -4,12 +4,15 @@ output and confirm it doesn't crash and reads every artifact it claims to summar
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 from research.ml import contract as C
 from research.ml.experiment import run_experiment
 
-_SCRIPT_PATH = Path(__file__).resolve().parents[3] / "scripts" / "summarize_ml_experiment_results.py"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_SCRIPT_PATH = _REPO_ROOT / "scripts" / "summarize_ml_experiment_results.py"
 
 
 def _load_summarize_module():
@@ -51,6 +54,29 @@ def test_summarize_script_runs_cleanly_against_real_experiment_output(seeded_db,
     assert "BOOTSTRAP CONFIDENCE INTERVALS" in out
     assert "SLICING CHECK" in out
     assert "DECISION INPUT SUMMARY" in out
+
+
+def test_summarize_script_runs_as_a_real_subprocess_from_repo_root():
+    # Regression test for a real bug: the script only added REPO_ROOT/"src" to sys.path, never
+    # REPO_ROOT itself, so its own documented invocation (`python scripts/summarize_ml_
+    # experiment_results.py` from repo root) raised `ModuleNotFoundError: No module named
+    # 'research'` immediately -- `research.ml.__init__.py`'s own path bootstrap never gets a
+    # chance to run, since it fires only once `research.ml` is already importable. The other
+    # tests in this file load the script in-process via importlib, which bypasses sys.path
+    # entirely and could not have caught this. This test runs the real subprocess invocation
+    # instead. This repo's real research/ml/results/ is gitignored and normally absent, so the
+    # expected outcome is the script's own "Missing real experiment output" SystemExit message
+    # -- but the one invariant this test actually exists to guard is "no ModuleNotFoundError",
+    # regardless of whether a real run happens to have populated results/ locally.
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPT_PATH)],
+        cwd=_REPO_ROOT, capture_output=True, text=True, timeout=30,
+    )
+    assert "ModuleNotFoundError" not in result.stderr, result.stderr
+    if result.returncode != 0:
+        assert "Missing real experiment output" in result.stderr
+    else:
+        assert "RUN METADATA" in result.stdout
 
 
 def test_summarize_script_exits_cleanly_with_a_clear_message_when_artifacts_are_missing(tmp_path, monkeypatch):

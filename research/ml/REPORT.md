@@ -21,6 +21,14 @@
 > machine with the populated production DB and open internet to produce the real numbers and fill
 > every `___`/blank cell below — do not fabricate them.
 >
+> **Automation added:** `.github/workflows/ml_experiment.yml` now runs this experiment for real,
+> automatically, every Sunday on GitHub Actions' own open-internet runner (see
+> `research/ml/README.md`'s "Automation" section) — the environment gap above no longer blocks
+> Phase F-4 going forward. It posts `scripts/summarize_ml_experiment_results.py`'s real numbers
+> to each run's job summary and uploads `results/` as a build artifact, but deliberately does not
+> write this file's decision prose itself; once a real run has happened, transcribe its numbers
+> here and record the actual §9 decision by hand.
+>
 > **Pre-run model improvements** (found while auditing the pipeline ahead of Phase F-4, since a
 > real run wasn't possible here either): (1) `position` — approved as a feature source in
 > `EXISTING_MODEL_AUDIT.md` §9 and `LEAKAGE_PROTOCOL.md` §4 from the start — was attached to
