@@ -1,19 +1,28 @@
 """Residual models for the Phase-0 ML experiment.
 
-Both models predict the RESIDUAL r = y - Q(x), never the raw points -- per spec §9/§10, ML
+All models predict the RESIDUAL r = y - Q(x), never the raw points -- per spec §9/§10, ML
 never replaces the Quant model, it corrects it:
 
     ML_corrected_prediction = QuantPrediction + predicted_residual
 
 Model 1 (spec §9): linear / ridge regression. Simple, interpretable, first out of the gate.
-Model 2 (spec §10): gradient boosting. sklearn's HistGradientBoostingRegressor is used because
-it ships inside scikit-learn with no extra native-dependency footprint (unlike XGBoost/LightGBM/
-CatBoost, which are NOT in this repo's requirements.txt/requirements.lock and are not added
-here per spec §10's "do not add a large dependency unnecessarily"). scikit-learn itself is also
-NOT currently a dependency of this repo -- both models therefore lazy-import sklearn and fail
-gracefully with a clear, actionable message if it is absent, so the rest of the pipeline
-(Quant baseline, historical baseline, dataset build, leakage checks) still runs and produces
-results without it.
+Model 2 (spec §10): gradient boosting via sklearn's HistGradientBoostingRegressor. Originally
+the only nonlinear challenger, chosen specifically because it ships inside scikit-learn with no
+extra native-dependency footprint, citing spec §10's "do not add a large dependency
+unnecessarily" as the reason LightGBM/XGBoost/CatBoost were deliberately left out.
+Model 3 (Track F, docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md, R8):
+LightGBM, added later as the PRIMARY nonlinear challenger and the sole arm that governs the
+ship/no-ship decision (R11) -- overriding spec §10's original dependency-minimalism stance was
+an explicit operator decision (that plan's Q7), not a default. Model 2 (`quant_gbm`) is kept
+exactly as it was and still runs, but is now reported as bonus/informational only (R16) -- it
+was already a real, working arm before LightGBM existed, and removing it would throw away a
+real (if secondary) result for no reason; it just no longer decides anything on its own.
+
+scikit-learn is NOT a hard dependency of this repo's main requirements.txt (it lives in
+requirements-research.txt instead, installed only for research/ml/ work) -- all three ML models
+therefore lazy-import their backend and fail gracefully with a clear, actionable message if it's
+absent, so the rest of the pipeline (Quant baseline, historical baseline, dataset build, leakage
+checks) still runs and produces results without any of them (R14).
 
 Preprocessing (spec §9: "handle missing values explicitly, do not silently drop large
 portions of the dataset"):
@@ -145,7 +154,9 @@ class LinearResidualModel:
 class GradientBoostingResidualModel:
     """HistGradientBoostingRegressor predicting the residual. Requires scikit-learn; raises
     ResidualModelUnavailableError (caught by the experiment orchestrator, not fatal to the
-    rest of the pipeline) if it is not installed."""
+    rest of the pipeline) if it is not installed OR if it fails to run -- same fix, and same
+    reasoning, as LightGBMResidualModel's own fit() (see its docstring); applied here too for
+    consistency even though R14's text names LightGBM specifically."""
 
     name = "quant_gbm"
 
@@ -165,11 +176,18 @@ class GradientBoostingResidualModel:
                 "Install with `pip install scikit-learn` to enable this model; the Quant "
                 "baseline, historical baseline, and linear residual model all still run without it."
             ) from exc
-        self._model = HistGradientBoostingRegressor(
-            max_depth=self.max_depth, max_iter=self.max_iter,
-            learning_rate=self.learning_rate, random_state=self.random_state,
-        )
-        self._model.fit(X, y)
+        try:
+            model = HistGradientBoostingRegressor(
+                max_depth=self.max_depth, max_iter=self.max_iter,
+                learning_rate=self.learning_rate, random_state=self.random_state,
+            )
+            model.fit(X, y)
+        except Exception as exc:
+            raise ResidualModelUnavailableError(
+                f"scikit-learn HistGradientBoostingRegressor failed to fit ({type(exc).__name__}: {exc}) "
+                "-- treating this arm as unavailable for this fold rather than aborting the rest of the experiment."
+            ) from exc
+        self._model = model
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -193,9 +211,102 @@ class GradientBoostingResidualModel:
         }).sort_values("importance", ascending=False).reset_index(drop=True)
 
 
+# ============================================================
+# Model 3: LightGBM residual model -- the primary nonlinear challenger (Track F, R8/R11)
+# ============================================================
+
+class LightGBMResidualModel:
+    """LGBMRegressor predicting the residual. Requires lightgbm; raises
+    ResidualModelUnavailableError (caught by the experiment orchestrator, same as
+    GradientBoostingResidualModel -- not fatal to the rest of the pipeline, R14) if it is not
+    installed OR if it fails to run. This is the arm R11's ship/no-ship decision is governed
+    by -- see module docstring for why it exists alongside, not instead of, the original
+    quant_gbm arm.
+
+    R14's own text is "fails to install OR RUN" -- a Critique Engine pass on this phase found
+    the first version only caught ImportError, so a real runtime failure (LightGBM's native
+    library has a known history of environment-specific issues, e.g. OpenMP/threading problems
+    on Windows) would propagate raw and abort the entire multi-fold experiment run, not just
+    this one arm. Fixed: the actual fit() call is wrapped too, not just the import."""
+
+    name = "quant_lightgbm"
+
+    def __init__(self, max_depth: int = 4, n_estimators: int = 100, learning_rate: float = 0.05, random_state: int = 42):
+        self.max_depth = max_depth
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.random_state = random_state
+        self._model = None
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "LightGBMResidualModel":
+        try:
+            from lightgbm import LGBMRegressor
+        except ImportError as exc:
+            raise ResidualModelUnavailableError(
+                "lightgbm is not installed -- LightGBMResidualModel requires it. Install with "
+                "`pip install lightgbm` (see requirements-research.txt) to enable this model; "
+                "the Quant baseline, historical baseline, linear residual model, and quant_gbm "
+                "(if scikit-learn is available) all still run without it."
+            ) from exc
+        try:
+            # verbose=-1 silences LightGBM's own stdout logging (e.g. "[LightGBM] [Info] ..."),
+            # which would otherwise interleave with this project's own per-fold progress output
+            # across potentially dozens of walk-forward folds.
+            model = LGBMRegressor(
+                max_depth=self.max_depth, n_estimators=self.n_estimators,
+                learning_rate=self.learning_rate, random_state=self.random_state, verbose=-1,
+            )
+            model.fit(X, y)
+        except Exception as exc:
+            # R14: a genuine runtime failure (not an import problem) must degrade the same way
+            # an unavailable install does -- one exception type for the experiment orchestrator
+            # to catch, regardless of which reason this arm couldn't produce a result.
+            raise ResidualModelUnavailableError(
+                f"lightgbm failed to fit ({type(exc).__name__}: {exc}) -- treating this arm as "
+                "unavailable for this fold rather than aborting the rest of the experiment."
+            ) from exc
+        self._model = model
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if self._model is None:
+            raise ResidualModelUnavailableError("model was never fit (lightgbm unavailable)")
+        return self._model.predict(X)
+
+    def feature_importance(self, X: np.ndarray, y: np.ndarray, feature_names: list[str], n_repeats: int = 5) -> pd.DataFrame:
+        """Permutation importance -- model-agnostic (same technique as
+        GradientBoostingResidualModel's own feature_importance, deliberately reused rather than
+        LightGBM's built-in split/gain importances, so all nonlinear arms report importance on
+        the same footing)."""
+        try:
+            from sklearn.inspection import permutation_importance
+        except ImportError as exc:
+            raise ResidualModelUnavailableError(
+                "scikit-learn is not installed -- LightGBMResidualModel's feature_importance "
+                "reuses sklearn.inspection.permutation_importance (it works on any estimator "
+                "with predict(), not just sklearn's own models)."
+            ) from exc
+        result = permutation_importance(
+            self._model, X, y, n_repeats=n_repeats, random_state=self.random_state, scoring="neg_mean_absolute_error",
+        )
+        return pd.DataFrame({
+            "feature": feature_names,
+            "importance": result.importances_mean,
+            "direction": np.sign(result.importances_mean),
+        }).sort_values("importance", ascending=False).reset_index(drop=True)
+
+
 def sklearn_available() -> bool:
     try:
         import sklearn  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def lightgbm_available() -> bool:
+    try:
+        import lightgbm  # noqa: F401
         return True
     except ImportError:
         return False

@@ -9,6 +9,8 @@ import pytest
 
 from research.ml.dataset_builder import build_dataset
 from research.ml.evaluate import (
+    bootstrap_ci,
+    bootstrap_ci_for_model_improvement,
     calibration,
     ensemble_predictions,
     evaluate_ensemble,
@@ -128,3 +130,106 @@ def test_stability_table(seeded_db):
     st = stability_table([fi1, fi2])
     assert len(st) > 0
     assert set(st.columns) == {"feature", "mean_importance", "std_importance", "cv"}
+
+
+# ============================================================
+# bootstrap_ci / bootstrap_ci_for_model_improvement (Track F, R10/R11:
+# docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md) -- the ship/no-ship
+# decision must be confidence-interval-based, not a point estimate, so these need real coverage
+# against synthetic cases with a KNOWN answer, not just "it runs without crashing."
+# ============================================================
+
+def test_bootstrap_ci_zero_variance_gives_a_point_interval():
+    """Every value identical -> every bootstrap resample is the same multiset -> the interval
+    collapses to a single point. A known, exact answer, not just a plausible-looking range."""
+    values = np.full(50, 7.0)
+    result = bootstrap_ci(values, n_resamples=200, random_state=0)
+    assert result["point_estimate"] == pytest.approx(7.0)
+    assert result["ci_low"] == pytest.approx(7.0)
+    assert result["ci_high"] == pytest.approx(7.0)
+    assert result["n"] == 50
+
+
+def test_bootstrap_ci_all_positive_values_excludes_zero():
+    """A clearly, consistently positive signal (small noise around a large positive mean) must
+    produce a CI entirely above zero -- the exact condition R11's ship criterion checks for."""
+    rng = np.random.RandomState(1)
+    values = 5.0 + rng.normal(0, 0.2, size=200)  # mean ~5, tiny noise -- unambiguous
+    result = bootstrap_ci(values, n_resamples=1000, random_state=2)
+    assert result["ci_low"] > 0
+    assert result["point_estimate"] == pytest.approx(5.0, abs=0.2)
+
+
+def test_bootstrap_ci_noisy_signal_straddling_zero_includes_zero():
+    """A signal with no real effect (mean ~0, real noise) must NOT produce a CI excluding
+    zero -- this is the case R11 exists to correctly say "no-ship" on, distinct from the
+    all-positive case above."""
+    rng = np.random.RandomState(3)
+    values = rng.normal(0, 5.0, size=30)  # mean ~0, large noise relative to n
+    result = bootstrap_ci(values, n_resamples=1000, random_state=4)
+    assert result["ci_low"] <= 0 <= result["ci_high"]
+
+
+def test_bootstrap_ci_reproducible_with_same_random_state():
+    values = np.random.RandomState(9).normal(2, 1, size=40)
+    r1 = bootstrap_ci(values, n_resamples=500, random_state=42)
+    r2 = bootstrap_ci(values, n_resamples=500, random_state=42)
+    assert r1 == r2
+
+
+def test_bootstrap_ci_empty_values_returns_nan_not_a_crash():
+    result = bootstrap_ci(np.array([]), n_resamples=100)
+    assert result["n"] == 0
+    assert np.isnan(result["point_estimate"])
+    assert np.isnan(result["ci_low"])
+    assert np.isnan(result["ci_high"])
+
+
+def test_bootstrap_ci_for_model_improvement_flags_a_consistent_winner_as_credible():
+    """A model that beats quant by a real, consistent margin on every fold -> statistically
+    credible improvement (entire CI above zero)."""
+    folds = [f"gw{i}" for i in range(20)]
+    rows = []
+    rng = np.random.RandomState(5)
+    for f in folds:
+        quant_mae = 2.0 + rng.normal(0, 0.05)
+        rows.append({"fold": f, "model": "quant", "mae": quant_mae})
+        rows.append({"fold": f, "model": "quant_lightgbm", "mae": quant_mae - 0.3})  # consistently 0.3 better
+    df = pd.DataFrame(rows)
+    result = bootstrap_ci_for_model_improvement(df, "quant_lightgbm", metric="mae", n_resamples=1000, random_state=6)
+    assert result["statistically_credible_improvement"] is True
+    assert result["point_estimate"] == pytest.approx(0.3, abs=0.05)
+    assert result["model"] == "quant_lightgbm"
+    assert result["metric"] == "mae"
+
+
+def test_bootstrap_ci_for_model_improvement_does_not_flag_a_noisy_near_tie():
+    """A model whose per-fold improvement is essentially noise around zero (sometimes better,
+    sometimes worse, no real edge) must NOT be flagged credible -- this is the exact "a positive
+    point estimate isn't enough" case R11 exists to guard against."""
+    folds = [f"gw{i}" for i in range(15)]
+    rows = []
+    rng = np.random.RandomState(7)
+    for f in folds:
+        quant_mae = 2.0
+        noisy_improvement = rng.normal(0, 0.5)  # no real signal, large fold-to-fold noise
+        rows.append({"fold": f, "model": "quant", "mae": quant_mae})
+        rows.append({"fold": f, "model": "quant_gbm", "mae": quant_mae - noisy_improvement})
+    df = pd.DataFrame(rows)
+    result = bootstrap_ci_for_model_improvement(df, "quant_gbm", metric="mae", n_resamples=1000, random_state=8)
+    assert result["statistically_credible_improvement"] is False
+
+
+def test_bootstrap_ci_for_model_improvement_only_uses_folds_present_in_both():
+    """A fold where the model ran but quant's row is missing (or vice versa) must be excluded
+    from the comparison, not silently treated as zero improvement."""
+    df = pd.DataFrame([
+        {"fold": "gw1", "model": "quant", "mae": 2.0},
+        {"fold": "gw1", "model": "quant_lightgbm", "mae": 1.5},
+        {"fold": "gw2", "model": "quant", "mae": 2.0},
+        # gw2 has no quant_lightgbm row -- must not be treated as a 0-improvement fold
+        {"fold": "gw3", "model": "quant", "mae": 2.0},
+        {"fold": "gw3", "model": "quant_lightgbm", "mae": 1.5},
+    ])
+    result = bootstrap_ci_for_model_improvement(df, "quant_lightgbm", metric="mae", n_resamples=100, random_state=1)
+    assert result["n"] == 2  # only gw1 and gw3, not gw2
