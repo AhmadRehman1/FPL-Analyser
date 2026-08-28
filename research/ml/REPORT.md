@@ -29,6 +29,17 @@
 > write this file's decision prose itself; once a real run has happened, transcribe its numbers
 > here and record the actual §9 decision by hand.
 >
+> **R13 resolved:** `quant_xgboost` (`research/ml/residual_model.py::XGBoostResidualModel`) has
+> been added as the independent-implementation confirmation arm the original text below asked
+> about ("Flag whether XGBoost should be added..."). It runs whenever `xgboost` is installed
+> (see `requirements-research.txt`), is reported throughout this document alongside `quant_gbm`,
+> and is **informational only** -- like `quant_gbm` (R16), it never governs §9's decision, which
+> remains `quant_lightgbm` alone (R11). Its value is orthogonal to R16: two independently
+> implemented gradient-boosting libraries agreeing (or disagreeing) on whether there is
+> out-of-sample residual signal is itself evidence about whether `quant_lightgbm`'s result is a
+> real finding or an artifact of one library's specific defaults/splitting heuristic -- read its
+> row in §3.1b next to `quant_lightgbm`'s once real numbers exist, not in isolation.
+>
 > **Pre-run model improvements** (found while auditing the pipeline ahead of Phase F-4, since a
 > real run wasn't possible here either): (1) `position` — approved as a feature source in
 > `EXISTING_MODEL_AUDIT.md` §9 and `LEAKAGE_PROTOCOL.md` §4 from the start — was attached to
@@ -130,6 +141,7 @@ does **not** modify live production recommendations.
 |        | quant_linear |  |  |  |  |  |  |
 |        | quant_gbm *(informational only — R16)* |  |  |  |  |  |  |
 |        | **quant_lightgbm *(governs §9's decision — R11)*** |  |  |  |  |  |  |
+|        | quant_xgboost *(informational only — R13 confirmation arm)* |  |  |  |  |  |  |
 |        | historical_baseline |  |  |  |  |  |  |
 |        | ensemble (best w=) |  |  |  |  |  |  |
 
@@ -142,6 +154,7 @@ does **not** modify live production recommendations.
 | quant_linear |  |  |  |  |  |
 | quant_gbm *(informational only)* |  |  |  |  |  |
 | **quant_lightgbm** |  |  |  |  |  |
+| quant_xgboost *(informational only — R13 confirmation arm)* |  |  |  |  |  |
 
 > Source: `results/bootstrap_ci.json` (also embedded in `results/experiment_manifest.json` →
 > `bootstrap_ci`). "Statistically credible" = `True` only when the entire 95% interval sits above
@@ -154,6 +167,7 @@ does **not** modify live production recommendations.
 | quant_linear |  |  |  |
 | quant_gbm |  |  |  |
 | quant_lightgbm |  |  |  |
+| quant_xgboost |  |  |  |
 
 > Source: `results/compute_runtime.csv`, grouped by model.
 
@@ -211,8 +225,11 @@ mean realised. Summarise whether predictions of N actually average N realised po
 (mean / coefficient of variation across folds). `results/feature_importance_lightgbm.csv` /
 `results/feature_stability_lightgbm.csv` are the same for `quant_lightgbm` — the arm §9's
 decision is actually governed by, so its own feature importance matters more than the linear
-model's. A feature important in one season but irrelevant in every other is suspicious — note
-any such features here.
+model's. `results/feature_importance_xgboost.csv` / `results/feature_stability_xgboost.csv` are
+the same for `quant_xgboost` (R13's confirmation arm) — if the top features there materially
+disagree with `quant_lightgbm`'s, that is itself worth noting even though `quant_xgboost` does
+not decide anything on its own. A feature important in one season but irrelevant in every other
+is suspicious — note any such features here.
 
 ## 8. Slicing check (spec §12)
 
@@ -240,9 +257,11 @@ happen to point the same direction.
 
 - [ ] **`quant_lightgbm` improves out-of-sample on the primary metric (MAE), the entire 95%
       bootstrap CI sits above zero (§3.1b), and the improvement holds across slices (§8)** →
-      recommend a controlled integration (separate code path, shadow-only at first). Flag
-      whether XGBoost should be added as a further, independent-implementation confirmation
-      (R13 — only if this result is positive or borderline).
+      recommend a controlled integration (separate code path, shadow-only at first). R13 is
+      already resolved — `quant_xgboost` (§3.1b) runs on every real run and its point estimate
+      should be read alongside `quant_lightgbm`'s as a check that the result isn't an artifact
+      of one library's implementation; a positive `quant_lightgbm` result whose direction
+      `quant_xgboost` contradicts is worth a note here even though it doesn't change the verdict.
 - [ ] **`quant_lightgbm` does not improve, the CI does not exclude zero, or it only improves a
       slice while degrading others** → do not integrate. The existing Quant model stands.
       Document why ML failed to find signal below.
