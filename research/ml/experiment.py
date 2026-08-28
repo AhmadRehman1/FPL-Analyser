@@ -48,8 +48,10 @@ from .residual_model import (
     LinearResidualModel,
     Preprocessor,
     ResidualModelUnavailableError,
+    XGBoostResidualModel,
     lightgbm_available,
     sklearn_available,
+    xgboost_available,
 )
 from .feature_engineering import feature_columns
 
@@ -98,6 +100,17 @@ def _fit_and_predict_lightgbm(train_df: pd.DataFrame, test_df: pd.DataFrame, fea
     return resid_train, resid_test, model, pp, Xte, names
 
 
+def _fit_and_predict_xgboost(train_df: pd.DataFrame, test_df: pd.DataFrame, feat_cols: list[str], seed: int):
+    pp = Preprocessor().fit(train_df, feat_cols)
+    Xtr, names = pp.transform(train_df)
+    Xte, _ = pp.transform(test_df)
+    ytr = train_df[C.COL_RESIDUAL].to_numpy(dtype=float)
+    model = XGBoostResidualModel(random_state=seed).fit(Xtr, ytr)
+    resid_train = model.predict(Xtr)
+    resid_test = model.predict(Xte)
+    return resid_train, resid_test, model, pp, Xte, names
+
+
 def run_experiment(
     seasons: tuple[str, ...] | None = None,
     con=None,
@@ -130,10 +143,12 @@ def run_experiment(
     gbm_importances: list[pd.DataFrame] = []
     ensemble_rows: list[dict] = []
     lightgbm_importances: list[pd.DataFrame] = []
+    xgboost_importances: list[pd.DataFrame] = []  # R13: independent-implementation confirmation arm
     runtime_rows: list[dict] = []  # R10: per-model fit+predict wall-clock time, per fold
     sliced_rows: list[dict] = []  # R11: per-model, per-slice metrics, every fold
     sklearn_ok = sklearn_available()
     lightgbm_ok = lightgbm_available()
+    xgboost_ok = xgboost_available()
 
     # per-gameweek prediction frames, collected so we can simulate a full season manager
     per_gw_frames: list[pd.DataFrame] = []
@@ -191,13 +206,35 @@ def run_experiment(
                 # quant/historical/linear/quant_gbm results for this fold still complete.
                 print(f"[experiment] skipping LightGBM for fold {fold.name}: {exc}", file=sys.stderr)
 
+        # ---- XGBoost residual model (optional; R13 -- an independent-implementation
+        # confirmation of the LightGBM result, informational only, does NOT govern R11) ----
+        ml_pred_xgboost = None
+        if xgboost_ok:
+            try:
+                _t0 = time.perf_counter()
+                resid_train_xgb, resid_test_xgb, xgb_model, pp_xgb, Xte_xgb, xgb_names = _fit_and_predict_xgboost(train_df, test_df, feat_cols, random_seed)
+                runtime_rows.append({"fold": fold.name, "model": "quant_xgboost", "fit_predict_seconds": time.perf_counter() - _t0})
+                ml_pred_xgboost = quant_test + resid_test_xgb
+                predictions["quant_xgboost"] = ml_pred_xgboost
+                xgboost_importances.append(
+                    xgb_model.feature_importance(Xte_xgb, test_df[C.COL_ACTUAL].to_numpy(dtype=float) - quant_test, xgb_names)
+                )
+            except ResidualModelUnavailableError as exc:
+                # R14: same treatment as the other optional arms -- a real XGBoost failure must
+                # not block the rest of the pipeline.
+                print(f"[experiment] skipping XGBoost for fold {fold.name}: {exc}", file=sys.stderr)
+
         # ---- ensemble (quant + best available ML model), weight learned on train only.
-        # Priority: LightGBM (now the primary nonlinear challenger) > quant_gbm > linear -- this
-        # is the "best available ML signal" convenience column for season_points.csv, separate
+        # Priority: LightGBM (primary nonlinear challenger) > XGBoost (R13 confirmation arm,
+        # also a strong nonlinear challenger in its own right) > quant_gbm > linear -- this is
+        # the "best available ML signal" convenience column for season_points.csv, separate
         # from R11's ship/no-ship criterion, which reads the quant_lightgbm row directly. ----
         if ml_pred_lightgbm is not None:
             ml_for_ensemble = ml_pred_lightgbm
             resid_train_for_ensemble = resid_train_lightgbm
+        elif ml_pred_xgboost is not None:
+            ml_for_ensemble = ml_pred_xgboost
+            resid_train_for_ensemble = resid_train_xgb
         elif ml_pred_gbm is not None:
             ml_for_ensemble = ml_pred_gbm
             resid_train_for_ensemble = resid_train_gbm
@@ -238,7 +275,7 @@ def run_experiment(
     # reported for completeness, not decision-relevant on their own (R16 for quant_gbm). ----
     bootstrap_ci_by_model: dict[str, dict] = {}
     if not comparison_df.empty:
-        for candidate_model in ("quant_linear", "quant_gbm", "quant_lightgbm"):
+        for candidate_model in ("quant_linear", "quant_gbm", "quant_lightgbm", "quant_xgboost"):
             if candidate_model in comparison_df["model"].unique():
                 bootstrap_ci_by_model[candidate_model] = ev.bootstrap_ci_for_model_improvement(
                     comparison_df, candidate_model, metric="mae", n_resamples=1000,
@@ -270,6 +307,15 @@ def run_experiment(
 
     stability_lightgbm_df = ev.stability_table(lightgbm_importances)
     stability_lightgbm_df.to_csv(C.STABILITY_LIGHTGBM_CSV, index=False)
+
+    # R13: quant_xgboost's own feature importance/stability -- same treatment as quant_lightgbm's,
+    # persisted separately so the independent-implementation confirmation arm's numbers are
+    # inspectable on their own footing.
+    fi_xgboost_df = pd.concat(xgboost_importances, ignore_index=True) if xgboost_importances else pd.DataFrame()
+    fi_xgboost_df.to_csv(C.FEATURE_IMPORTANCE_XGBOOST_CSV, index=False)
+
+    stability_xgboost_df = ev.stability_table(xgboost_importances)
+    stability_xgboost_df.to_csv(C.STABILITY_XGBOOST_CSV, index=False)
 
     pd.DataFrame(ensemble_rows).to_csv(C.ENSEMBLE_CSV, index=False)
 
@@ -318,14 +364,17 @@ def run_experiment(
         "feature_columns": feat_cols,
         "sklearn_available": sklearn_ok,
         "lightgbm_available": lightgbm_ok,
+        "xgboost_available": xgboost_ok,
         # quant_lightgbm is the primary nonlinear challenger and the sole arm R11's ship/no-ship
         # decision is governed by (docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md);
-        # quant_gbm is kept, but bonus/informational only (R16) -- both listed here, neither
-        # implies the other decides anything on its own.
+        # quant_gbm and quant_xgboost (R13's independent-implementation confirmation arm) are
+        # kept, but bonus/informational only -- all listed here, none implies another decides
+        # anything on its own.
         "models": (
             ["quant", "historical_baseline", "quant_linear"]
             + (["quant_gbm"] if sklearn_ok else [])
             + (["quant_lightgbm"] if lightgbm_ok else [])
+            + (["quant_xgboost"] if xgboost_ok else [])
             + ["ensemble"]
         ),
         "random_seed": random_seed,

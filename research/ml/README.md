@@ -21,9 +21,11 @@ python -m research.ml.run_continuous               # 24/7: loop forever, never s
 The experiment builds the player×gameweek dataset from the existing DuckDB (populated by
 `scripts/run_ingestion.py` + `scripts/run_backtest.py`), runs chronological walk-forward
 folds, fits a linear residual model, a LightGBM residual model (the primary nonlinear
-challenger, if `lightgbm` is installed -- see `requirements-research.txt`), and an sklearn
-gradient-boosting model (informational only, if `scikit-learn` is installed), simulates an
-FPL manager's season points, and writes every artifact to `research/ml/results/`.
+challenger, if `lightgbm` is installed -- see `requirements-research.txt`), an XGBoost residual
+model (an independent gradient-boosting implementation kept as a cross-check on the LightGBM
+result -- informational only, if `xgboost` is installed), and an sklearn gradient-boosting
+model (also informational only, if `scikit-learn` is installed), simulates an FPL manager's
+season points, and writes every artifact to `research/ml/results/`.
 
 The default walk-forward mode is **exhaustive gameweek**: every historical gameweek with prior
 training data becomes an out-of-sample test point (one gameweek at a time, re-training on all
@@ -68,6 +70,7 @@ optional cheaper `--fold-mode season` override) is available via `workflow_dispa
 | `bootstrap_ci.csv` | Bootstrap confidence interval (default 1,000 resamples, 95%) per metric per model, pooled across all walk-forward folds |
 | `runtime.csv` | Fit+predict wall-clock seconds per model per fold |
 | `feature_importance_lightgbm.csv`, `feature_stability_lightgbm.csv` | LightGBM gain-based feature importance, per-fold and stability across folds |
+| `feature_importance_xgboost.csv`, `feature_stability_xgboost.csv` | XGBoost permutation feature importance, per-fold and stability across folds (R13 confirmation arm) |
 | `season_points.csv` | FPL-manager season points: Quant signal vs ML signal |
 | `experiment_manifest.json` | Git commit, timestamp, dataset shape, fold mode, skip log |
 | `experiment_runs.csv` | Rolling log of every loop run (seed, points, best-so-far) |
@@ -100,3 +103,35 @@ python -m pytest research/ml/tests/ -q
 
 The test suite uses a synthetic 2-season DuckDB seeder (`tests/conftest.py`) — no real data
 or network access required.
+
+## Optional: narrating results locally with Ollama
+
+Every model here (linear, `quant_gbm`, `quant_lightgbm`, `quant_xgboost`) is a classical
+tabular regressor — plain Python/CPU code (`pandas`/`numpy`/`scikit-learn`/`lightgbm`/`xgboost`).
+None of it runs "in" an LLM, and Ollama is not required to run `python -m research.ml.experiment`
+or anything else in this directory.
+
+What Ollama *is* useful for here: turning the real numeric results in `results/` into a
+plain-English draft paragraph, entirely locally (no data leaves your laptop). This is a
+separate, optional convenience script — it is never called by `experiment.py` and never affects
+`REPORT.md`'s actual decision, which stays a human judgement call (see that file's §9).
+
+```bash
+# 1. Install Ollama (https://ollama.com/download) and pull a model once:
+ollama pull llama3.1
+
+# 2. Start the server (if it isn't already running as a background service):
+ollama serve
+
+# 3. After a real `python -m research.ml.experiment` run has produced results/, narrate them:
+python scripts/narrate_ml_results.py
+# or with a different model / a remote Ollama host:
+python scripts/narrate_ml_results.py --model qwen2.5:14b --host http://localhost:11434
+```
+
+The draft is printed to stdout and written to `results/narrative_draft.md`, headed with an
+"AI-generated, for human review only" disclaimer. It narrates only the numbers it is given
+(headline MAE/RMSE, `quant_lightgbm`'s bootstrap CI and R13's `quant_xgboost` confirmation-arm
+CI, the slicing-regression count, season-manager points) — it is instructed never to invent a
+number or issue its own ship/no-ship call. See `research/ml/ollama_client.py` for the (thin,
+`requests`-based, no new dependency) HTTP client.
