@@ -35,6 +35,7 @@ _ARTIFACTS = [
     ("EXPERIMENT_MANIFEST_JSON", "experiment_manifest.json"),
     ("COMPUTE_RUNTIME_CSV", "compute_runtime.csv"),
     ("BOOTSTRAP_CI_JSON", "bootstrap_ci.json"),
+    ("SLICED_MODEL_COMPARISON_CSV", "sliced_model_comparison.csv"),
 ]
 
 
@@ -96,6 +97,16 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
     if lightgbm_available():
         assert "quant_lightgbm" in bootstrap
         assert "quant_lightgbm" in set(runtime["model"])
+
+    # Track F, R11: the per-slice comparison must exist for every model, across more than one
+    # slicing dimension, so a real "does the improvement hold across slices" check is possible.
+    sliced = pd.read_csv(C.SLICED_MODEL_COMPARISON_CSV)
+    assert "quant" in set(sliced["model"])
+    assert "quant_linear" in set(sliced["model"])
+    assert sliced["dimension"].nunique() > 1
+    if lightgbm_available():
+        assert "quant_lightgbm" in set(sliced["model"])
+
     # R11: manifest carries the bootstrap CI results directly, so Phase F-4 doesn't have to
     # re-derive them from bootstrap_ci.json separately.
     assert manifest["bootstrap_ci"] == bootstrap

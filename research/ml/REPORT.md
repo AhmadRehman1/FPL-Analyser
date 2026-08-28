@@ -4,6 +4,15 @@
 > numbers produced by `python -m research.ml.experiment` against a real DuckDB populated by the
 > ingestion + backtest pipeline. A negative result is a successful research result (spec §30):
 > do not frame a non-improvement as a failure.
+>
+> **Track F update** (`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md`):
+> this template now includes a fourth model arm, `quant_lightgbm` — the **primary** nonlinear
+> challenger and the **only** arm the ship/no-ship decision in §9 is governed by (R11). The
+> original `quant_gbm` arm (sklearn's `HistGradientBoostingRegressor`) is kept and still reported
+> throughout, but demoted to informational/bonus only (R16) — its numbers are real and worth
+> reading, but they do not decide anything on their own. Every results table below also expects
+> a 95%-confidence bootstrap interval alongside each point estimate (R10) — "positive on
+> average" is not sufficient for §9's decision; the interval must exclude zero (R11).
 
 ## 1. Question
 
@@ -29,8 +38,21 @@ does **not** modify live production recommendations.
   mode is also available. No `train_test_split`, no shuffling, no row from a later gameweek
   ever appearing in training (spec §4, enforced by `leakage_checks.check_chronological_split`).
 - **Models:** (1) Linear / Ridge residual model (closed-form numpy fallback when sklearn is
-  absent); (2) optional Gradient Boosting residual model (only if sklearn is available). No neural
-  networks, no large hyperparameter search (spec §3).
+  absent); (2) optional Gradient Boosting residual model, `quant_gbm` (only if sklearn is
+  available — reported, but informational only, R16); (3) **LightGBM residual model,
+  `quant_lightgbm`** (only if lightgbm is available — the primary nonlinear challenger; R11's
+  ship/no-ship decision is governed by this arm alone). No neural networks, no large
+  hyperparameter search (spec §3).
+- **Bootstrap confidence intervals (R10/R11):** each ML arm's per-fold improvement over the Quant
+  baseline (on MAE) is bootstrap-resampled at fold granularity — not per-observation, since
+  players within one gameweek share match outcomes and aren't independent — 1,000 resamples, 95%
+  interval (`evaluate.bootstrap_ci_for_model_improvement`, `results/bootstrap_ci.json`). A model
+  only counts as a statistically credible improvement if the **entire interval** sits above
+  zero — a positive point estimate alone is exactly the failure mode this check exists to rule
+  out.
+- **Compute/runtime (R10):** each model's real fit+predict wall-clock time is captured per fold
+  (`results/compute_runtime.csv`), so §9's decision can weigh a real accuracy gain against its
+  real compute cost, not just assume ML is free.
 - **Baselines:** the Quant model unchanged, and a simple historical rolling-mean baseline. If the
   Quant model does not beat the dumb historical baseline, the ML question is moot (spec §8).
 - **Ensemble:** `final = w·Quant + (1−w)·ML`, weight fit on **training** residuals only over the
@@ -53,11 +75,34 @@ does **not** modify live production recommendations.
 |--------|-------|-----|------|------|-----------|--------|---|
 |        | quant (baseline) |  |  |  |  |  |  |
 |        | quant_linear |  |  |  |  |  |  |
-|        | quant_gbm |  |  |  |  |  |  |
+|        | quant_gbm *(informational only — R16)* |  |  |  |  |  |  |
+|        | **quant_lightgbm *(governs §9's decision — R11)*** |  |  |  |  |  |  |
 |        | historical_baseline |  |  |  |  |  |  |
 |        | ensemble (best w=) |  |  |  |  |  |  |
 
 > Source: `results/model_comparison.csv`
+
+### 3.1b Bootstrap confidence intervals on MAE improvement (R10/R11)
+
+| Model | Point estimate (MAE improvement) | 95% CI low | 95% CI high | n folds | Statistically credible? |
+|-------|-----------------------------------|-----------|-----------|---------|--------------------------|
+| quant_linear |  |  |  |  |  |
+| quant_gbm *(informational only)* |  |  |  |  |  |
+| **quant_lightgbm** |  |  |  |  |  |
+
+> Source: `results/bootstrap_ci.json` (also embedded in `results/experiment_manifest.json` →
+> `bootstrap_ci`). "Statistically credible" = `True` only when the entire 95% interval sits above
+> zero. **This table's `quant_lightgbm` row is what §9's decision is actually based on.**
+
+### 3.1c Compute/runtime (R10)
+
+| Model | Total fit+predict seconds (all folds) | Mean seconds/fold | n folds |
+|-------|----------------------------------------|--------------------|---------|
+| quant_linear |  |  |  |
+| quant_gbm |  |  |  |
+| quant_lightgbm |  |  |  |
+
+> Source: `results/compute_runtime.csv`, grouped by model.
 
 ### 3.2 Improvement vs the Quant baseline
 
@@ -66,6 +111,8 @@ does **not** modify live production recommendations.
 |        |       |        |             |           |             |               |
 
 > Source: `results/improvement.csv`. Improvement = quant_error − ml_error; positive = ML helps.
+> This table is the per-season point-estimate view; §3.1b's bootstrap CI is the one §9's decision
+> actually reads.
 
 ### 3.3 Ensemble weight selected
 
@@ -84,7 +131,9 @@ does **not** modify live production recommendations.
 
 > Source: `results/season_points.csv`. A manager using the ML-augmented signal must score more
 > real points than the Quant-only manager across multiple runs/seeds -- a lower MAE that doesn't
-> translate into more points is not a reason to integrate.
+> translate into more points is not a reason to integrate. Note (Track F): `ml_prediction` here
+> reflects the experiment's ensemble-priority convention (LightGBM > `quant_gbm` > linear, whichever
+> is available) — it is a "best available ML signal" view, not itself the §9 decision input.
 
 ## 4. Where the Quant model is wrong
 
@@ -113,19 +162,40 @@ suspicious — note any such features here.
 
 A model that improves one slice but loses badly in others is **not** declared successful. Confirm
 the improvement holds (or document where it does not) across: position, price band, minutes band,
-fixture difficulty, ownership, gameweek, and season.
+fixture difficulty, ownership, gameweek, and season. **R11 requires this check specifically for
+`quant_lightgbm`** before any "ship" verdict in §9 — a slicing regression there blocks shipping
+even if the aggregate/bootstrap-CI numbers in §3.1b look credible.
+
+> Source: `results/sliced_model_comparison.csv` — one row per (fold, model, dimension, slice),
+> for every model, using the same slice definitions `baselines.sliced_metrics()`/
+> `save_baseline_metrics()`'s own Quant-only report already uses (added for Track F; previously
+> this breakdown only ever existed for the Quant baseline). Aggregate across folds per
+> (model, dimension, slice) and compare `quant_lightgbm`'s MAE against `quant`'s in every slice
+> before summarising here — a slice where `quant_lightgbm` is worse than Quant, even if the
+> aggregate number in §3.1b looks good, is exactly what this check exists to catch.
 
 ## 9. Decision
 
-- [ ] **ML improves out-of-sample on the primary metric (MAE) and the improvement holds across
-      slices** → recommend a controlled integration (separate code path, shadow-only at first).
-- [ ] **ML does not improve, or only improves a slice while degrading others** → do not integrate.
-      The existing Quant model stands. Document why ML failed to find signal.
+**Governed by `quant_lightgbm` alone (R11)** — §3.1b's bootstrap CI for that arm, plus this
+section's slicing check for that arm, decide the verdict below. `quant_gbm`'s numbers (real,
+reported throughout this document) are informational only and do not factor into this checkbox
+(R16) — do not let a `quant_gbm` result substitute for `quant_lightgbm`'s here even if the two
+happen to point the same direction.
+
+- [ ] **`quant_lightgbm` improves out-of-sample on the primary metric (MAE), the entire 95%
+      bootstrap CI sits above zero (§3.1b), and the improvement holds across slices (§8)** →
+      recommend a controlled integration (separate code path, shadow-only at first). Flag
+      whether XGBoost should be added as a further, independent-implementation confirmation
+      (R13 — only if this result is positive or borderline).
+- [ ] **`quant_lightgbm` does not improve, the CI does not exclude zero, or it only improves a
+      slice while degrading others** → do not integrate. The existing Quant model stands.
+      Document why ML failed to find signal below.
 
 ### 9.1 If not integrating — why?
 
 (e.g. residual is dominated by genuinely unpredictable variance; features leak no usable signal;
-the linear model is capacity-limited and GBM overfits the small sample; etc.)
+LightGBM overfits the small sample; the bootstrap CI crosses zero despite a positive point
+estimate — name the actual reason once real numbers exist, don't leave this templated.)
 
 ## 10. Reproducibility
 

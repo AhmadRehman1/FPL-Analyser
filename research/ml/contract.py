@@ -40,6 +40,10 @@ SEASON_POINTS_CSV = RESULTS_DIR / "season_points.csv"
 # compute/runtime and bootstrap confidence intervals, not just point-estimate metrics.
 COMPUTE_RUNTIME_CSV = RESULTS_DIR / "compute_runtime.csv"
 BOOTSTRAP_CI_JSON = RESULTS_DIR / "bootstrap_ci.json"
+# R11: per-model, per-slice metrics -- the existing sliced_metrics() machinery only ever
+# persisted the Quant baseline's own slicing (baseline_metrics.json); R11's ship/no-ship
+# decision needs quant_lightgbm's slicing too, across the whole walk-forward run.
+SLICED_MODEL_COMPARISON_CSV = RESULTS_DIR / "sliced_model_comparison.csv"
 RUN_LOG_CSV = RESULTS_DIR / "experiment_runs.csv"  # rolling log of every run (loop mode)
 RUNS_DIR = RESULTS_DIR / "runs"                      # one timestamped subdir per loop run
 REPORT_MD = ML_ROOT / "REPORT.md"

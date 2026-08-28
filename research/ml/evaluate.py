@@ -41,6 +41,33 @@ def model_comparison_rows(
     return rows
 
 
+def sliced_comparison_rows(
+    fold_name: str, test_season: str, df_test: pd.DataFrame,
+    predictions: dict[str, np.ndarray],
+) -> list[dict]:
+    """Track F (R11/R16, docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md):
+    one row per (fold, model, dimension, slice) with MAE/RMSE/bias -- the per-model,
+    per-slice breakdown `baselines.sliced_metrics()` already computes generically, but that
+    persists nowhere for any model except the Quant baseline (`save_baseline_metrics`'s own
+    `baseline_metrics.json`). R11 requires confirming quant_lightgbm's improvement holds across
+    every slice (position/price/minutes/fixture difficulty/ownership/gameweek/season) before any
+    "ship" verdict -- this needs quant_lightgbm's own sliced numbers persisted across the whole
+    walk-forward run, not just Quant's. Reuses `baselines.sliced_metrics()` per model, so the
+    slice *definitions* (price bands, minutes bands, etc.) stay identical to what the Quant
+    baseline's own report already uses -- no second, silently-different slicing scheme."""
+    rows = []
+    for model_name, pred in predictions.items():
+        sliced = B.sliced_metrics(df_test, pred)
+        for dimension, by_slice in sliced.items():
+            for slice_value, m in by_slice.items():
+                rows.append({
+                    "fold": fold_name, "season": test_season, "model": model_name,
+                    "dimension": dimension, "slice": slice_value,
+                    "mae": m.mae, "rmse": m.rmse, "bias": m.bias, "n": m.n,
+                })
+    return rows
+
+
 # ============================================================
 # Improvement (spec §12)
 # ============================================================

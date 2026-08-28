@@ -18,6 +18,7 @@ from research.ml.evaluate import (
     improvement_rows,
     model_comparison_rows,
     residual_analysis,
+    sliced_comparison_rows,
     stability_table,
 )
 from research.ml.feature_engineering import feature_columns
@@ -48,6 +49,45 @@ def test_model_comparison_rows(seeded_db):
     assert len(rows) == 2
     assert {r["model"] for r in rows} == {"quant", "quant_linear"}
     assert all(r["n"] == len(f.test_df) for r in rows)
+
+
+def test_sliced_comparison_rows_covers_every_model_and_every_dimension(seeded_db):
+    """Track F, R11: the per-slice check that gates the ship/no-ship decision needs
+    quant_lightgbm's own numbers per slice, not just Quant's -- confirm this function actually
+    produces rows for every model passed in, across every slicing dimension
+    baselines.slice_columns() defines (position/price/minutes/fixture-difficulty/ownership)."""
+    df = build_dataset(seeded_db, with_features=True)
+    folds = default_folds(df)
+    f = folds[0]
+    ml_pred = _fit_and_predict(f.train_df, f.test_df)
+    rows = sliced_comparison_rows(f.name, f.test_season, f.test_df, {
+        "quant": f.test_df["quant_prediction"].to_numpy(),
+        "quant_linear": ml_pred,
+    })
+    assert rows  # non-empty -- a real dataset always has at least one row per slice
+    models_present = {r["model"] for r in rows}
+    assert models_present == {"quant", "quant_linear"}
+    dimensions_present = {r["dimension"] for r in rows}
+    assert len(dimensions_present) > 1  # more than one slicing dimension actually got covered
+    # every row carries real, finite metrics -- not a placeholder/empty slice
+    assert all(r["n"] > 0 for r in rows)
+
+
+def test_sliced_comparison_rows_uses_the_same_slice_definitions_as_the_quant_baseline(seeded_db):
+    """The slice boundaries (price bands, minutes bands, ...) must be identical to whatever
+    save_baseline_metrics()'s own Quant-only sliced_metrics() call already uses -- otherwise a
+    'quant_lightgbm improved in the 5.0-7.0 price band' claim and the existing baseline report's
+    own price-band numbers would silently be sliced two different ways."""
+    df = build_dataset(seeded_db, with_features=True)
+    folds = default_folds(df)
+    f = folds[0]
+    from research.ml.baselines import sliced_metrics
+    quant_pred = f.test_df["quant_prediction"].to_numpy()
+    direct = sliced_metrics(f.test_df, quant_pred)
+    direct_slice_keys = {(dim, str(k)) for dim, by_slice in direct.items() for k in by_slice}
+    rows = sliced_comparison_rows(f.name, f.test_season, f.test_df, {"quant": quant_pred})
+    row_slice_keys = {(r["dimension"], str(r["slice"])) for r in rows}
+    assert row_slice_keys == direct_slice_keys
 
 
 def test_improvement_rows(seeded_db):
