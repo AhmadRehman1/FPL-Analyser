@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-CATEGORICAL_FEATURES = ("status",)
+CATEGORICAL_FEATURES = ("status", "position")
 
 
 class ResidualModelUnavailableError(RuntimeError):
@@ -220,10 +220,22 @@ class LightGBMResidualModel:
     def __init__(
         self,
         num_leaves: int = 31,
-        max_depth: int = -1,
+        # LightGBM's own stock defaults (max_depth=-1, i.e. unbounded, no L1/L2, no row/column
+        # subsampling) are tuned for large datasets. Exhaustive gameweek walk-forward means the
+        # earliest folds train on a few hundred rows -- unbounded depth + 200 rounds with no
+        # regularisation on a fold that small would let the model memorise noise, undermining
+        # the credibility of the R11 ship/no-ship call this arm exists to produce. These are
+        # one-time, principled, more-conservative defaults (a single choice, not a hyperparameter
+        # search -- spec §3 forbids the latter, not the former): cap depth, add mild L1/L2, and
+        # subsample rows/columns per tree so no single fold-specific artefact dominates a tree.
+        max_depth: int = 6,
         n_estimators: int = 200,
         learning_rate: float = 0.05,
         min_child_samples: int = 20,
+        reg_alpha: float = 0.1,
+        reg_lambda: float = 0.1,
+        subsample: float = 0.8,
+        colsample_bytree: float = 0.8,
         random_state: int = 42,
     ):
         self.num_leaves = num_leaves
@@ -231,6 +243,10 @@ class LightGBMResidualModel:
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
         self.min_child_samples = min_child_samples
+        self.reg_alpha = reg_alpha
+        self.reg_lambda = reg_lambda
+        self.subsample = subsample
+        self.colsample_bytree = colsample_bytree
         self.random_state = random_state
         self._model = None
 
@@ -249,6 +265,11 @@ class LightGBMResidualModel:
             n_estimators=self.n_estimators,
             learning_rate=self.learning_rate,
             min_child_samples=self.min_child_samples,
+            reg_alpha=self.reg_alpha,
+            reg_lambda=self.reg_lambda,
+            subsample=self.subsample,
+            subsample_freq=1,
+            colsample_bytree=self.colsample_bytree,
             random_state=self.random_state,
             verbosity=-1,
         )

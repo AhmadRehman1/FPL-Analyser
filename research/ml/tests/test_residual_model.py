@@ -32,6 +32,16 @@ def test_preprocessor_fit_transform_shapes(seeded_db):
     assert not np.isnan(X).any()
 
 
+def test_preprocessor_one_hot_encodes_position(seeded_db):
+    df = build_dataset(seeded_db, with_features=True)
+    feats = feature_columns()
+    pp = Preprocessor().fit(df, feats)
+    _, names = pp.transform(df)
+    assert any(n.startswith("position=") for n in names)
+    assert "status" in pp.categorical_cols
+    assert "position" in pp.categorical_cols
+
+
 def test_preprocessor_fit_on_train_transform_test_consistent(seeded_db):
     df = build_dataset(seeded_db, with_features=True)
     train = df[df["season"] == "2024-2025"]
@@ -128,6 +138,18 @@ def test_lightgbm_predict_before_fit_raises():
     m = LightGBMResidualModel()
     with pytest.raises(ResidualModelUnavailableError):
         m.predict(np.zeros((3, 2)))
+
+
+def test_lightgbm_default_hyperparameters_are_regularised():
+    # exhaustive gameweek walk-forward means some folds train on very little data -- the
+    # defaults must cap depth and regularise rather than use LightGBM's unbounded-depth,
+    # no-regularisation stock defaults, or an early small fold could memorise noise.
+    m = LightGBMResidualModel()
+    assert m.max_depth > 0  # not -1 (unbounded)
+    assert m.reg_alpha > 0
+    assert m.reg_lambda > 0
+    assert 0 < m.subsample < 1
+    assert 0 < m.colsample_bytree < 1
 
 
 def test_lightgbm_raises_when_unavailable(monkeypatch):

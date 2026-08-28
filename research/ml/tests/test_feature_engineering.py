@@ -19,6 +19,19 @@ def test_feature_columns_are_deterministic_and_no_label():
     assert C.COL_RESIDUAL not in cols
 
 
+def test_position_is_a_feature_column():
+    # position is an approved static-identity feature (EXISTING_MODEL_AUDIT.md §9,
+    # LEAKAGE_PROTOCOL.md §4) that was previously carried through the dataset for slicing only
+    # and never fed to the residual model -- must be present so the model can condition on it.
+    assert "position" in feature_columns()
+
+
+def test_position_populated_for_every_row(seeded_db):
+    df = build_dataset(seeded_db, with_features=True)
+    assert df["position"].notna().all()
+    assert set(df["position"].unique()) <= {"Goalkeeper", "Defender", "Midfielder", "Forward"}
+
+
 def test_add_features_preserves_row_count(seeded_db):
     df = build_dataset(seeded_db, with_features=True)
     minimal = build_dataset(seeded_db, with_features=False)

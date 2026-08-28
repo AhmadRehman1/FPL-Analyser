@@ -18,6 +18,21 @@
 > be verified populated or the experiment run for real here. Run `python -m research.ml.experiment`
 > on a machine with the populated production DB to produce the real numbers and fill every
 > `___`/blank cell below — do not fabricate them.
+>
+> **Pre-run model improvements** (found while auditing the pipeline ahead of Phase F-4, since a
+> real run wasn't possible here): (1) `position` — approved as a feature source in
+> `EXISTING_MODEL_AUDIT.md` §9 and `LEAKAGE_PROTOCOL.md` §4 from the start — was attached to
+> every dataset row but never actually listed in `feature_columns()`, so no model ever saw it;
+> now one-hot encoded alongside `status`. A goalkeeper's and a forward's point distributions
+> differ enormously, so this was likely costing every model (not just LightGBM) real signal.
+> (2) `LightGBMResidualModel`'s defaults were LightGBM's own stock settings (unbounded depth, no
+> L1/L2, no row/column subsampling) — fine for large datasets, but exhaustive gameweek
+> walk-forward means the earliest folds train on a few hundred rows, where those defaults risk
+> memorising noise rather than finding real signal. Tightened to `max_depth=6`,
+> `reg_alpha=reg_lambda=0.1`, `subsample=colsample_bytree=0.8` — a one-time, principled choice of
+> more conservative defaults, not a hyperparameter search (spec §3 forbids the latter only).
+> Both changes are covered by `research/ml/tests/` and should make Phase F-4's eventual real
+> numbers more trustworthy, not just different.
 
 ## 1. Question
 
