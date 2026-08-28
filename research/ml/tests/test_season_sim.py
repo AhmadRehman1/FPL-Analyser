@@ -15,10 +15,16 @@ from research.ml.season_sim import (
 
 
 def _gw_df(preds: dict[str, float], actuals: dict[str, float]) -> pd.DataFrame:
-    """One gameweek of players: preds/actuals keyed by player_uid. Mixed positions and teams."""
+    """One gameweek of players: preds/actuals keyed by player_uid. Mixed positions and teams.
+
+    Position strings match the real data contract (contract.POSITIONS / dim_player.position /
+    dataset_builder's attached `position` column) -- an earlier version of this fixture used
+    FPL's short codes ("GK"/"DEF"/...), which never actually appear in this data and, because
+    season_sim._POS_MIN/_POS_MAX were keyed the same wrong way, made every test here pass while
+    hiding a real bug (see season_sim.py's own comment on the fix)."""
     rows = []
     teams = ["t1", "t2", "t3", "t4", "t5", "t6"]
-    pos_cycle = ["GK", "DEF", "MID", "FWD"]
+    pos_cycle = ["Goalkeeper", "Defender", "Midfielder", "Forward"]
     for i, uid in enumerate(preds):
         rows.append({
             C.COL_PLAYER_UID: uid,
@@ -31,6 +37,26 @@ def _gw_df(preds: dict[str, float], actuals: dict[str, float]) -> pd.DataFrame:
             C.COL_ACTUAL: actuals[uid],
         })
     return pd.DataFrame(rows)
+
+
+def test_select_starting_xi_respects_real_fpl_position_rules():
+    # Regression test for a real bug: _POS_MIN/_POS_MAX were keyed by FPL's short position
+    # codes ("GK"/"DEF"/"MID"/"FWD"), which never appear in this repo's actual data (positions
+    # are always the full words -- contract.POSITIONS, dim_player.position). Every real gameweek
+    # therefore had `pos not in _POS_MIN` true for every row, so the greedy loop never selected
+    # anyone and every XI silently fell through to the position-blind "backfill" path -- a top-11
+    # pick with no regard for a legal FPL formation. This test asserts the actual invariant the
+    # module's own docstring promises: exactly 1 GK, DEF/MID/FWD within their min/max bounds.
+    preds = {f"p{i}": float(i) for i in range(30)}
+    actuals = {f"p{i}": 0.0 for i in range(30)}
+    df = _gw_df(preds, actuals)
+    xi, _captain = select_starting_xi(df, "predicted")
+    assert len(xi) == 11
+    positions = df[df[C.COL_PLAYER_UID].isin(xi)][C.COL_POSITION].value_counts().to_dict()
+    assert positions.get("Goalkeeper", 0) == 1
+    assert 3 <= positions.get("Defender", 0) <= 5
+    assert 2 <= positions.get("Midfielder", 0) <= 5
+    assert 1 <= positions.get("Forward", 0) <= 3
 
 
 def test_select_starting_xi_picks_eleven_balanced():

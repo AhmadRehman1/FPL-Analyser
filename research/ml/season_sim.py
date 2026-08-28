@@ -17,9 +17,16 @@ import pandas as pd
 
 from . import contract as C
 
-# FPL starting-XI formation constraints (exactly 1 GK; DEF+MID+FWD = 10).
-_POS_MAX = {"DEF": 5, "MID": 5, "FWD": 3}
-_POS_MIN = {"GK": 1, "DEF": 3, "MID": 2, "FWD": 1}
+# FPL starting-XI formation constraints (exactly 1 GK; DEF+MID+FWD = 10). Keyed by the real
+# position strings this repo uses everywhere else (contract.POSITIONS, dim_player.position,
+# dataset_builder's attached `position` column) -- NOT FPL's short codes ("GK"/"DEF"/...), which
+# never appear in this data and would silently make every position check below a no-op (see the
+# bug this comment replaces: the greedy loop's `if pos not in _POS_MIN: continue` matched every
+# real row, so selected stayed empty and every gameweek fell through to the position-blind
+# "backfill" path -- picking whichever 11 players had the highest predicted value with no
+# regard for a legal FPL formation, for the entire history of this module).
+_POS_MAX = {"Defender": 5, "Midfielder": 5, "Forward": 3}
+_POS_MIN = {"Goalkeeper": 1, "Defender": 3, "Midfielder": 2, "Forward": 1}
 _CLUB_CAP = 3
 _XI_SIZE = 11
 
@@ -50,8 +57,8 @@ def select_starting_xi(gw_df: pd.DataFrame, pred_col: str) -> tuple[list[str], s
         pos = str(p[C.COL_POSITION])
         if pos not in _POS_MIN:
             continue
-        if pos == "GK":
-            if pos_count.get("GK", 0) >= 1:
+        if pos == "Goalkeeper":
+            if pos_count.get("Goalkeeper", 0) >= 1:
                 continue
         else:
             if pos_count.get(pos, 0) >= _POS_MAX[pos]:

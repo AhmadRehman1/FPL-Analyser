@@ -37,6 +37,27 @@
 > `feature_importance.csv`/`feature_stability.csv`) — added `feature_importance_lightgbm.csv` /
 > `feature_stability_lightgbm.csv` so the primary decision-governing arm's feature importance is
 > actually inspectable, not silently discarded. All three are covered by `research/ml/tests/`.
+>
+> **Bug fix (season_sim.py):** `select_starting_xi()`'s position-balance constraints
+> (`_POS_MIN`/`_POS_MAX`) were keyed by FPL's short position codes (`"GK"`/`"DEF"`/`"MID"`/
+> `"FWD"`), which never actually appear in this repo's data — every position value everywhere
+> else (`contract.POSITIONS`, `dim_player.position`, the `position` column `dataset_builder`
+> attaches) is the full word (`"Goalkeeper"`, etc.). `if pos not in _POS_MIN: continue` was
+> therefore true for every real row, so the greedy position/club-aware selection loop never
+> selected anyone, and every single simulated gameweek — for the entire history of this module —
+> silently fell through to the "backfill" path: a position-blind top-11-by-predicted-value pick
+> respecting only the 3-per-club cap, not a legal FPL formation (it could and did pick e.g. 3
+> goalkeepers and 2 midfielders in one lineup). This directly invalidated `results/
+> season_points.csv` and the manifest's `season_points` block — the headline "which signal scores
+> more real points" metric §3.4 below reports, and the number R11's decision-impact criterion
+> weighs. `season_sim.py`'s own dedicated test file (`test_season_sim.py`) didn't catch this
+> because its mock fixture used the same wrong short codes, consistently with the bug, so it
+> tested the mock's self-consistency rather than the real integration. Fixed: `_POS_MIN`/
+> `_POS_MAX` and the goalkeeper special-case now use the real position strings; the test fixture
+> was corrected to match `contract.POSITIONS`; a new regression test
+> (`test_select_starting_xi_respects_real_fpl_position_rules`) asserts the actual FPL formation
+> invariant (exactly 1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD) rather than just XI size — verified to fail
+> against the pre-fix code (3 GK / 2 MID) before confirming it passes against the fix.
 
 ## 1. Question
 
