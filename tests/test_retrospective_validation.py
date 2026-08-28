@@ -329,3 +329,61 @@ def test_sample_real_season_totals_deterministic_given_a_seeded_rng():
     r1 = rv.sample_real_season_totals("2025/26", target_n=30, id_space_max=500, rng=random.Random(123), fetch_fn=fetch_fn)
     r2 = rv.sample_real_season_totals("2025/26", target_n=30, id_space_max=500, rng=random.Random(123), fetch_fn=fetch_fn)
     assert r1["totals"] == r2["totals"]
+
+
+# ============================================================
+# compute_retrospective_comparison (Phase E-3) -- pure computation, tested against a synthetic
+# distribution with a KNOWN answer, per the plan's own done-check wording.
+# ============================================================
+
+_KNOWN_DISTRIBUTION = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]  # n=10, mean=5.5, median=5.5
+
+
+def test_compute_retrospective_comparison_above_all_real_values_is_100th_percentile():
+    result = rv.compute_retrospective_comparison(11.0, _KNOWN_DISTRIBUTION)
+    assert result["percentile_rank"] == pytest.approx(100.0)
+    assert result["point_differential_vs_mean"] == pytest.approx(5.5)
+    assert result["point_differential_vs_median"] == pytest.approx(5.5)
+
+
+def test_compute_retrospective_comparison_below_all_real_values_is_0th_percentile():
+    result = rv.compute_retrospective_comparison(0.0, _KNOWN_DISTRIBUTION)
+    assert result["percentile_rank"] == pytest.approx(0.0)
+    assert result["point_differential_vs_mean"] == pytest.approx(-5.5)
+
+
+def test_compute_retrospective_comparison_exact_tie_counts_as_half():
+    """Equal to the maximum sample value (10.0): 9 strictly below + 1 tied, tied counts as
+    half -- (9 + 0.5) / 10 * 100 = 95.0, a known, exactly-verifiable answer, not an approximation."""
+    result = rv.compute_retrospective_comparison(10.0, _KNOWN_DISTRIBUTION)
+    assert result["percentile_rank"] == pytest.approx(95.0)
+
+
+def test_compute_retrospective_comparison_midpoint_is_50th_percentile():
+    result = rv.compute_retrospective_comparison(5.5, _KNOWN_DISTRIBUTION)
+    assert result["percentile_rank"] == pytest.approx(50.0)
+    assert result["point_differential_vs_mean"] == pytest.approx(0.0)
+    assert result["point_differential_vs_median"] == pytest.approx(0.0)
+
+
+def test_compute_retrospective_comparison_reports_real_summary_stats():
+    result = rv.compute_retrospective_comparison(7.0, _KNOWN_DISTRIBUTION)
+    assert result["n_real_sample"] == 10
+    assert result["real_mean"] == pytest.approx(5.5)
+    assert result["real_median"] == pytest.approx(5.5)
+    assert result["real_min"] == pytest.approx(1.0)
+    assert result["real_max"] == pytest.approx(10.0)
+    assert result["engine_total"] == pytest.approx(7.0)
+
+
+def test_compute_retrospective_comparison_odd_n_median():
+    result = rv.compute_retrospective_comparison(3.0, [1.0, 2.0, 3.0, 4.0, 100.0])  # median=3, mean=22
+    assert result["real_median"] == pytest.approx(3.0)
+    assert result["real_mean"] == pytest.approx(22.0)
+    assert result["point_differential_vs_median"] == pytest.approx(0.0)
+    assert result["point_differential_vs_mean"] == pytest.approx(-19.0)
+
+
+def test_compute_retrospective_comparison_raises_on_empty_real_totals():
+    with pytest.raises(ValueError):
+        rv.compute_retrospective_comparison(5.0, [])

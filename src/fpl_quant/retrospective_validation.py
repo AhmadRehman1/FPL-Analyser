@@ -222,3 +222,48 @@ def sample_real_season_totals(
         "n_attempted": n_attempted,
         "wall_clock_seconds": time.monotonic() - t0,
     }
+
+
+# ============================================================
+# Phase E-3: the comparison -- pure computation, no I/O, no DB, no network. Reads Phase E-1's
+# and Phase E-2's already-cached output; scripts/run_retrospective_report.py is the caller that
+# does the file I/O and writes the actual report.
+# ============================================================
+
+def compute_retrospective_comparison(engine_total: float, real_totals: list[float]) -> dict:
+    """Where does the engine's simulated season total fall against the real sample distribution?
+
+    percentile_rank: the standard mean-rank convention for ties -- a value strictly greater than
+    the whole sample scores 100.0, strictly less scores 0.0, and a value equal to k of n sample
+    points counts each tied point as "half above" (matches e.g. scipy.stats.percentileofscore's
+    'mean' kind, chosen so a real duplicate value in the sample doesn't arbitrarily favor one
+    side). point_differential_vs_mean/median are simple engine_total - real statistic (positive
+    = the engine's strategy scored more than that reference point).
+
+    Returns {"engine_total", "n_real_sample", "percentile_rank", "point_differential_vs_mean",
+    "point_differential_vs_median", "real_mean", "real_median", "real_min", "real_max"}.
+    Raises ValueError on an empty real_totals -- a percentile against zero real data points is
+    not a computable claim, not a "0.0" one.
+    """
+    if not real_totals:
+        raise ValueError("real_totals is empty -- cannot compute a percentile against zero real data points")
+    n = len(real_totals)
+    n_below = sum(1 for t in real_totals if t < engine_total)
+    n_equal = sum(1 for t in real_totals if t == engine_total)
+    percentile_rank = 100.0 * (n_below + 0.5 * n_equal) / n
+    real_mean = sum(real_totals) / n
+    sorted_totals = sorted(real_totals)
+    mid = n // 2
+    real_median = sorted_totals[mid] if n % 2 == 1 else (sorted_totals[mid - 1] + sorted_totals[mid]) / 2.0
+
+    return {
+        "engine_total": engine_total,
+        "n_real_sample": n,
+        "percentile_rank": percentile_rank,
+        "point_differential_vs_mean": engine_total - real_mean,
+        "point_differential_vs_median": engine_total - real_median,
+        "real_mean": real_mean,
+        "real_median": real_median,
+        "real_min": min(real_totals),
+        "real_max": max(real_totals),
+    }

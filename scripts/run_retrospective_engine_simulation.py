@@ -104,7 +104,7 @@ def main() -> None:
         "wall_clock_seconds": elapsed,
         "run_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    OUTPUT_FILE.write_text(json.dumps(payload, indent=2, default=str))
+    OUTPUT_FILE.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     print(f"[run_retrospective_engine_simulation] cached to {OUTPUT_FILE}")
 
 
