@@ -21,6 +21,17 @@ REPO_ROOT = ML_ROOT.parents[1]
 DATA_DIR = ML_ROOT / "data"
 RESULTS_DIR = ML_ROOT / "results"
 PLOTS_DIR = RESULTS_DIR / "plots"
+# Deliberately NOT under results/ and NOT gitignored (see .gitignore's own "ML research engine
+# generated artifacts" section, which stops at results/ and data/): a single real run's numbers
+# are exactly the kind of "results/ is gitignored on purpose" artifact ml_experiment.yml's own
+# header describes, but a *persisted, week-over-week trend* of those numbers is the only way to
+# actually see whether the model is improving over time as more real gameweeks accrue -- a
+# 90-day build artifact per isolated Sunday run doesn't give you that at a glance. This is a
+# narrow, deliberate exception: scripts/append_ml_run_to_history.py appends only real numbers
+# here (bootstrap CI point estimates/bounds/credible flags, season points) -- never REPORT.md's
+# prose or its §9 decision, which stays exactly as much a human judgement call as before.
+RESULTS_HISTORY_DIR = ML_ROOT / "results_history"
+RESULTS_HISTORY_CSV = RESULTS_HISTORY_DIR / "weekly_quality_history.csv"
 
 DATASET_PARQUET = DATA_DIR / "player_gw_dataset.parquet"
 DATASET_CSV = DATA_DIR / "player_gw_dataset.csv"
@@ -75,7 +86,7 @@ PER_RUN_RESULT_ATTRS: tuple[str, ...] = (
     "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON", "SLICED_MODEL_COMPARISON_CSV",
 )
 
-for _d in (DATA_DIR, RESULTS_DIR, PLOTS_DIR, RUNS_DIR):
+for _d in (DATA_DIR, RESULTS_DIR, PLOTS_DIR, RUNS_DIR, RESULTS_HISTORY_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 

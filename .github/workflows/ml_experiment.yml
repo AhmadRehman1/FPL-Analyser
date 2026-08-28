@@ -19,13 +19,22 @@ name: Weekly ML residual-challenger experiment (Track F, Phase F-4)
 # timeout below is deliberately generous rather than guessed tight; narrow it once a real run's
 # actual wall-clock time is known.
 #
-# Deliberately does NOT commit anything back to the repo: research/ml/results/ is gitignored on
-# purpose (this workflow doesn't change that), and REPORT.md's actual decision prose is a real
-# analytical judgment call each run (scripts/summarize_ml_experiment_results.py's own docstring)
-# -- not something to template-generate unattended. Instead: the real numbers land in this run's
-# job summary (via $GITHUB_STEP_SUMMARY) for a human to read without downloading anything, and
-# the full results/ directory uploads as a build artifact for deeper inspection or to hand-copy
-# into REPORT.md's real §1-§11 write-up.
+# Does NOT commit research/ml/results/ back to the repo: it stays gitignored on purpose, and
+# REPORT.md's actual decision prose is a real analytical judgment call each run
+# (scripts/summarize_ml_experiment_results.py's own docstring) -- not something to
+# template-generate unattended. The real numbers land in this run's job summary (via
+# $GITHUB_STEP_SUMMARY) for a human to read without downloading anything, and the full results/
+# directory uploads as a build artifact for deeper inspection or to hand-copy into REPORT.md's
+# real §1-§11 write-up.
+#
+# One narrow, deliberate exception: scripts/append_ml_run_to_history.py appends this run's real
+# bootstrap-CI numbers (quant_lightgbm/quant_xgboost point estimates, CI bounds, whether each
+# excludes zero) and season-manager points -- nothing else, never prose or a decision -- to
+# research/ml/results_history/weekly_quality_history.csv, which IS tracked in git, and this
+# workflow commits just that one file back. A single run's results/ tells you nothing about
+# whether the model is improving over time; a 90-day, per-run build artifact doesn't either.
+# This tracked ledger is the only place that question can actually be answered by looking at
+# real numbers across real weeks as the season's data grows. See that script's own docstring.
 
 on:
   schedule:
@@ -50,7 +59,10 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  # write, not read: this workflow commits exactly one file back (see the header above) --
+  # research/ml/results_history/weekly_quality_history.csv. Nothing else in the job writes to
+  # the repo; research/ml/results/ itself stays gitignored and untouched by git entirely.
+  contents: write
 
 # A real exhaustive walk-forward run is long and of genuinely unknown duration (see the header
 # above); queue rather than overlap a manual dispatch with the scheduled run.
@@ -143,6 +155,47 @@ jobs:
           else
             python -m research.ml.experiment
           fi
+
+      # Appends this run's real bootstrap-CI numbers + season points to the tracked history
+      # ledger (see the header above). Runs only if the experiment step above actually
+      # succeeded and produced a manifest -- the script itself fails clearly if it didn't, which
+      # is the right outcome here too (no silent partial row).
+      - name: Append this run to the tracked quality-trend history
+        run: python scripts/append_ml_run_to_history.py
+
+      # [skip ci] matches this repo's own existing convention for automated commits (see
+      # weekly_backtest.yml's Track Record commit) -- stops this push from re-triggering
+      # tests.yml/deploy_pages.yml (both push-triggered on master) for a data-only commit.
+      - name: Commit the updated quality-trend history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/ml/results_history/weekly_quality_history.csv
+          if git diff --cached --quiet; then
+            echo "No change to the quality-trend history this run."
+          else
+            git commit -m "chore(ml): append weekly quality-trend history [skip ci]"
+            git push
+          fi
+
+      # Best-effort, free-cloud local-LLM narration (research/ml/README.md's "Running locally
+      # with Ollama" section): ubuntu-latest runners have no GPU, so this runs phi4-mini
+      # (small, ~2.5GB, CPU-only here) rather than a larger model -- fine for a once-a-week,
+      # non-interactive narration job. continue-on-error: true because this is a convenience,
+      # not something that should ever turn a real experiment run red; if Ollama's own install
+      # or the model pull is slow/unavailable this week, the run's real numbers (job summary +
+      # artifact + the history ledger above) are entirely unaffected.
+      - name: Install Ollama and pull phi4-mini [best-effort]
+        continue-on-error: true
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          for i in $(seq 1 30); do curl -sf http://localhost:11434/api/tags >/dev/null && break; sleep 2; done
+          ollama pull phi4-mini
+
+      - name: Narrate this run's results with the local model [best-effort]
+        continue-on-error: true
+        run: python scripts/narrate_ml_results.py
 
       # scripts/summarize_ml_experiment_results.py assembles the real numbers from every
       # results/ artifact into one structured, human-readable report -- posted to this run's
