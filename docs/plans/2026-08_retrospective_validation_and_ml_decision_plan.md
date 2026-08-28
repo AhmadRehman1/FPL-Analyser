@@ -409,8 +409,21 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
 
 ## Open Items (none blocking)
 
+- Whether to formally define a "conditional ship, with named per-slice carve-outs" decision
+  category, for a future case where the aggregate/CI case is strong and only a small number of
+  narrow, correlated slices regress — flagged by Phase F-4's real result (59/60 slices pass, 1
+  regresses) but deliberately **not decided here**; the plan's existing literal Edge Case rule
+  (no-ship on any real per-slice regression) governed this pass's actual recorded decision.
+- Test coverage gap: `scripts/run_retrospective_report.py` (Phase E-3) has no dedicated tests of
+  its own — the percentile/differential computation it calls is thoroughly tested, but the
+  report-generation script's own assertions and prose template are not. Consistent with this
+  codebase's existing convention of not unit-testing thin `scripts/` CLI wrappers directly; not
+  required by this plan's own Verification section, but named here as a real, non-blocking gap.
 - Stripe/paid-API layer — deferred until Track E and F produce real numbers to decide from (Q1).
 - XGBoost as a fourth arm — add only if LightGBM's Track F result is positive or borderline (Q7).
+  Track F's real result was positive (not borderline) on the aggregate/CI metric, but the actual
+  recorded decision was no-ship (see Phase F-4) — flagged for a follow-up decision regardless,
+  not committed to in this pass.
 - `fpl-quant-v2-REAL-LOCAL-SAFE`'s deleted working tree — flagged, not investigated (Q5); worth a
   human glance to confirm the deletion was intentional.
 - Whether to extend `fit_seasons_for()` using the new 2023-24 data to unlock 2024-25 GW1 — a
@@ -469,40 +482,71 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   existing `_fetch_json` backoff pattern; keep only entries with a `"2025/26"` row in `past`;
   strip identifying fields before caching and before logging; log aggregate counts only.
   Covers: R2, R4, R6, R15; checks: [A1]
-- [ ] **Phase E-2: Run the engine's own 2025-26 season from GW2, blind** *(risky — the
+- [x] **Phase E-2: Run the engine's own 2025-26 season from GW2, blind** *(risky — the
   parameter-version choice was already found to risk hindsight bias once by the Critique Engine;
   a build-time run also found GW1 itself is not bootstrappable for any season — see Current
-  State — and a missing param seed row; both fixed. GW2-3 validated end-to-end (real weekly
-  points, a real chip decision); the full GW2-38 run is in progress — check `data/retrospective/
-  2025-2026_engine_simulation.json` for the finished output before running the Critique Engine
-  pass and marking this phase done)*
-  Done when: `run_season_simulation(con, "2025-2026", 2, 38, ...)` (not GW1 — see the corrected
-  Current State entry) completes with a real final total and a full per-gameweek action log,
-  **explicitly invoked with all 18 required version kwargs hardcoded to `1`** (not
-  `active_recalibratable_versions()` for any of them); the done-check record lists all 18 kwarg
-  names and their values used; the total is sanity-checked against Phase E-1's real distribution
-  range before proceeding.
+  State — and a missing param seed row; both fixed)* — **done.** The real, full
+  `run_season_simulation(con, "2025-2026", 2, 38, ...)` run completed: 37 gameweeks scored
+  (GW26/33/36 skipped as real double-gameweeks — see `skipped_dgw_gameweeks`, no DGW aggregation
+  semantics are defined), all 18 required version kwargs confirmed `1` in the persisted
+  `param_versions_used` (not `active_recalibratable_versions()` for any of them), total simulated
+  points **1575.0**, wall-clock 23,882s (~6.6h). Sanity-checked against Phase E-1's real
+  distribution: **6.9th percentile**, comfortably inside E-1's real min/max range (82–2457), so a
+  plausible (if weak, blind, from-GW2) outcome rather than an out-of-range result signalling a
+  bug. Cached at `data/retrospective/2025-2026_engine_simulation.json` (gitignored).
+  Critique Engine ran against the real completed output: **CONDITIONAL FAIL**, two blocking
+  findings, both fixed — (1) the script wasn't actually reproducible from a fresh/restored DB,
+  since `free_hit_gain_threshold_params`' v1 seed row had only been applied as a one-off manual
+  step during the real run, not by the script itself — fixed by calling
+  `transfer_planner.seed_v1_params()` inside `main()` (idempotent); (2) `bootstrap_run_id` was
+  dropped from the output payload despite `run_season_simulation()` already returning it, breaking
+  the audit trail back to the real `squad_optimizer_runs` row the season was bootstrapped from —
+  fixed by adding it to the payload, and backfilled into the already-completed real output
+  (`bootstrap_run_id: 96`, confirmed by tracing `final_state_version`'s
+  `derived_from_state_version` chain back to its root `manager_state_versions` row and matching
+  its `created_at`/holdings against `squad_optimizer_runs`, not assumed from timing alone).
   Steps: wrote `_blind_param_versions()` in `scripts/run_retrospective_engine_simulation.py`,
   adapting `scripts/run_season_simulation.py`'s own `_param_versions()`, replacing every
   `active[...]` lookup with a literal `1` (covering both the 8 normally-recalibratable families
   and the 10 that are hardcoded there already); seeded the missing
   `free_hit_gain_threshold_params` v1 row via `transfer_planner.seed_v1_params()` (found
-  necessary running this phase for real, not assumed — see Current State); invoke
-  `run_season_simulation()` with it starting at GW2; persist the run's `run_id`, action log, and
-  the full 18-kwarg dict used for audit.
+  necessary running this phase for real, not assumed — see Current State); invoked
+  `run_season_simulation()` starting at GW2; persisted the run's `bootstrap_run_id`, action log,
+  and the full 18-kwarg dict used for audit.
   Covers: R1; checks: [A5], [A10]
-- [ ] **Phase E-3: Compute the comparison and write the report** *(risky — this report's wording
-  is the mitigation for two separate misreading risks; run the Critique Engine at build time)*
+- [x] **Phase E-3: Compute the comparison and write the report** *(risky — this report's wording
+  is the mitigation for two separate misreading risks; run the Critique Engine at build time)* —
+  **done.** `docs/reports/2025-26_retrospective_validation.md` generated for real from Phase E-1's
+  real sample (2,000 real season totals) and Phase E-2's real simulation output. Real result: the
+  engine's blind, from-GW2 2025-26 strategy scored **1,575.0 points**, the **6.9th percentile**
+  against the real random sample (mean 1,946.4, median 1,995.0, range 82–2,457).
+  Critique Engine ran against the real report: **CONDITIONAL FAIL**, all findings fixed —
+  (1) the real, finished commits had never been pushed to `origin` (a local-only-work risk this
+  plan's own Current State had already flagged once for a different directory), fixed by pushing
+  this branch; (2) the plan document was not updated to mark this phase done, and a stale "not yet
+  run" Open Items line contradicted the report's own existence — fixed here; (3) caveat (e)'s
+  bias-direction claim ("systematically... conservative") overstated the mechanism's actual
+  guarantee — a player who played but scored negatively (red card, own goals) would make the
+  simplification slightly overestimate for that gameweek, not underestimate — softened to "in
+  expectation, on average"; (4) a second, real, verified gap was found and disclosed as a new
+  caveat (f): `_realized_xi_points()`'s fixed-captain scoring has no vice-captain fallback (real
+  FPL promotes the vice if the captain blanks), a distinct issue from (e)'s no-auto-substitution
+  gap, and one this codebase already discloses for a *different* function (`reporting.py`'s
+  counterfactual transfer scoring) but hadn't carried into this simulation's own disclosure.
   Done when: `docs/reports/2025-26_retrospective_validation.md` exists, stating the engine's
   simulated total, its percentile rank and point differential against Phase E-1's real sample,
   and an explicit methodology section covering all three of (a) this is the engine's own
   from-GW2 strategy versus real managers' actual outcomes, not a replay of any real manager's
   decisions, (b) the simulation used default, pre-recalibration parameters, not current
-  hindsight-tuned ones, and (c) the simulation starts at GW2, not a true GW1 (see Current State);
-  the report is not linked from or wired into any public page.
+  hindsight-tuned ones, and (c) the simulation starts at GW2, not a true GW1 (see Current State) —
+  **plus, added during the real build, (d) the real-sample methodology's own disclosed
+  limitation, (e) no FPL auto-substitution modeling, and (f) no vice-captain fallback**; the
+  report is not linked from or wired into any public page (confirmed: no `.html` file touched
+  anywhere in this branch's history).
   Steps: compute percentile/differential (unit-tested against a synthetic distribution with a
-  known answer); write the report with both disclaimers; do not touch `track-record.html` or
-  `index.html`.
+  known answer, 30 tests all passing); write the report with all six disclaimers; do not touch
+  `track-record.html` or `index.html`; run the Critique Engine against the real, finished report
+  and apply every finding.
   Covers: R3, R5; checks: [A1], [A10]
 - [x] **Phase F-1: Install and pin scikit-learn + LightGBM** — **done.** scikit-learn 1.9.0 +
   LightGBM 4.7.0 installed, smoke-tested (a real LightGBM fit/predict cycle), pinned in a new
@@ -554,12 +598,63 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   unit tests cover the CI helper against a synthetic case with a known interval.
   Steps: add `bootstrap_ci()`; wire timing capture around each model's fit/predict calls; tests.
   Covers: R10; checks: [A6]
-- [ ] **Phase F-4: Run the real experiment and record the definitive decision** *(risky — this is
-  the actual ship/no-ship call the whole workstream exists to produce; run the Critique Engine at
-  build time. Prep done ahead of the real run: `evaluate.sliced_comparison_rows()` +
-  `results/sliced_model_comparison.csv` now give every model — not just the Quant baseline — a
-  real, persisted per-slice breakdown, and `scripts/summarize_ml_experiment_results.py` assembles
-  all six real artifacts into one structured view for filling in REPORT.md accurately.)*
+- [x] **Phase F-4: Run the real experiment and record the definitive decision** *(risky — this is
+  the actual ship/no-ship call the whole workstream exists to produce; Critique Engine ran against
+  the real, finished report)* — **done, decision recorded.**
+
+  **A real, independent bug was found and fixed mid-phase, requiring a full re-run:**
+  `research/ml/season_sim.py`'s starting-XI position constraints used FPL's short position codes
+  (`"GK"`/`"DEF"`/etc.), which never appear anywhere in this repo's real data (always the full
+  word, `"Goalkeeper"` etc.) — every simulated gameweek, for the entire history of that module,
+  silently fell through to an illegal-formation fallback. This was found and fixed by a separate,
+  parallel session working this same codebase (not this plan's own executor) while this phase was
+  mid-flight, and merged to `master` before this phase's real run completed — the season-points
+  numbers from the *first* real run were computed on the pre-fix code and are invalid; the
+  experiment was re-run in full on the corrected code so every number in `REPORT.md` comes from
+  one internally-consistent run, not a patchwork of an old and a new one.
+
+  `python -m research.ml.experiment` ran for real: 70 walk-forward folds, 52,950 dataset rows,
+  both seasons (2024-25, 2025-26), zero skipped steps, `sklearn_available`/`lightgbm_available`
+  both `true` (R14's degraded-fallback path was not needed). `research/ml/results/` holds real
+  output for all four arms plus the historical/ensemble baselines, including
+  `sliced_model_comparison.csv`, `bootstrap_ci.json`, `compute_runtime.csv`,
+  `feature_importance_lightgbm.csv`/`feature_stability_lightgbm.csv`. `REPORT.md` §3–§10 filled
+  with the real numbers.
+
+  **Real result:** `quant_lightgbm` improves MAE 32.5% (2024-25) / 34.3% (2025-26) over Quant
+  alone; bootstrap 95% CI on the improvement is [0.489, 0.523] — comfortably excludes zero (R11's
+  CI requirement met); 87.3% win rate on the 14,000 highest-disagreement cases; real season-points
+  gains both seasons (+312/+146) under the corrected manager-points proxy. The per-slice check
+  (R11's other requirement) found 59 of 60 slices improving and **1 real, named exception**:
+  `ownership_band=20%+` (1,149 real observations, not noise), small in magnitude (1.5% relative)
+  but concentrated exactly in FPL's highest-stakes captaincy decision surface.
+
+  **Decision (REPORT.md §9): NO-SHIP**, per this plan's own pre-committed Edge Cases rule (below:
+  *"ML result is a near-tie or fails the per-slice check → recorded as an explicit 'no-ship'"*) —
+  §8's real result is a per-slice check failure, and R11's text is unconditional
+  ("...without regressing... per-slice performance"). **A first draft of this section recorded a
+  self-invented "CONDITIONAL SHIP" verdict instead** (ship with the failing slice carved out) —
+  the Critique Engine caught this as a real process violation: it silently substituted the
+  executor's own in-the-moment judgment for a rule the plan pre-committed to *before* any real
+  result existed, specifically to prevent exactly this kind of post-hoc rationalization. Corrected
+  to the plan's literal rule; the full strong-aggregate-case reasoning and a flagged (not decided)
+  follow-up question — whether a future plan revision should formally define a conditional-ship
+  category for cases like this — are preserved in REPORT.md §9.1 rather than silently dropped.
+  `quant_gbm` stays informational-only (R16) throughout — did not factor into the decision either
+  way. XGBoost (R13) flagged as a follow-up decision for whoever owns this workstream next, not
+  committed to in this pass.
+
+  **Other Critique Engine findings, all fixed:** §7 originally cited the linear model's
+  `feature_stability.csv` for a table describing `quant_lightgbm`'s own feature importance —
+  despite `feature_importance_lightgbm.csv`/`feature_stability_lightgbm.csv` existing specifically
+  for this purpose — fixed to use the real LightGBM-specific files. §2's "do no harm" fallback
+  described the wrong ensemble weight (`w=0`, should be `w=1` given `final = w·Quant + (1−w)·ML`)
+  — a pre-existing template bug this phase filled real data around without reconciling; fixed at
+  the source. A real, separate reproducibility bug was also found: `scripts/
+  summarize_ml_experiment_results.py` was missing `REPO_ROOT` on `sys.path` (only `src/` was
+  added), so it raised `ModuleNotFoundError` on a plain invocation — independently found and fixed
+  here and, separately, by the same parallel session that fixed `season_sim.py`.
+
   Done when: `research/ml/results/` holds real, non-template output for all four arms
   (Quant-alone, Quant+ridge, Quant+LightGBM, Quant+`quant_gbm`) on identical leakage-safe folds,
   including `sliced_model_comparison.csv`; `REPORT.md` is filled with real numbers including
@@ -570,11 +665,13 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   confirmed before any "ship" verdict; if LightGBM's result is positive or borderline, a flagged
   follow-up recommends whether to add XGBoost (R13); a measured total runtime is logged, with an
   explicit note if any fold had to be abandoned for time and why.
-  Steps: confirm `ep_outputs` still has real rows (cheap re-check of the 66,974-row fact already
-  verified this session); run `python -m research.ml.experiment` for real; run
-  `scripts/summarize_ml_experiment_results.py` to assemble the real numbers; fill `REPORT.md`;
-  apply R11's ship bar to the LightGBM arm specifically, checking the per-slice comparison before
-  any "ship" verdict; record the decision.
+  Steps: confirmed `ep_outputs` still had real rows; found and worked around a real upstream bug
+  (`season_sim.py`) requiring a full re-run; ran `python -m research.ml.experiment` for real; ran
+  `scripts/summarize_ml_experiment_results.py` (after fixing its `sys.path` bug) to assemble the
+  real numbers; filled `REPORT.md`; applied R11's ship bar to the LightGBM arm specifically,
+  naming the per-slice exception rather than omitting it; ran the Critique Engine against the real
+  finished report and applied every finding, including correcting an invented decision category
+  back to the plan's own pre-committed rule; recorded the no-ship decision.
   Covers: R9, R11, R12, R13; checks: [A7]
 
 ## The Critique Engine (for Build Phases marked *risky* above)
