@@ -13,9 +13,11 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from research.ml import contract as C
 from research.ml.experiment import run_experiment
+from research.ml.residual_model import lightgbm_available, sklearn_available
 
 # (contract attribute name, filename) for every artifact the experiment must produce.
 _ARTIFACTS = [
@@ -31,6 +33,9 @@ _ARTIFACTS = [
     ("ENSEMBLE_CSV", "ensemble.csv"),
     ("SEASON_POINTS_CSV", "season_points.csv"),
     ("EXPERIMENT_MANIFEST_JSON", "experiment_manifest.json"),
+    ("COMPUTE_RUNTIME_CSV", "compute_runtime.csv"),
+    ("BOOTSTRAP_CI_JSON", "bootstrap_ci.json"),
+    ("SLICED_MODEL_COMPARISON_CSV", "sliced_model_comparison.csv"),
 ]
 
 
@@ -64,6 +69,12 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
     comp = pd.read_csv(C.MODEL_COMPARISON_CSV)
     assert "quant" in set(comp["model"])
     assert "quant_linear" in set(comp["model"])
+    # Track F, R8: quant_lightgbm must appear whenever lightgbm is actually installed --
+    # this environment has it, so its absence here would be a real regression, not a skip.
+    if lightgbm_available():
+        assert "quant_lightgbm" in set(comp["model"])
+    if sklearn_available():
+        assert "quant_gbm" in set(comp["model"])
 
     # season points table compares the quant manager vs the ML manager
     sp = pd.read_csv(C.SEASON_POINTS_CSV)
@@ -75,5 +86,67 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
     ens = pd.read_csv(C.ENSEMBLE_CSV)
     assert ens["best_w"].iloc[0] in {0.0, 0.25, 0.5, 0.75, 1.0}
 
+    # Track F, R10: per-model compute/runtime and bootstrap CIs are real, non-empty artifacts
+    # whenever the corresponding model actually ran, not just empty placeholder files.
+    runtime = pd.read_csv(C.COMPUTE_RUNTIME_CSV)
+    assert "quant_linear" in set(runtime["model"])
+    assert (runtime["fit_predict_seconds"] >= 0).all()
+    bootstrap = json.loads(Path(C.BOOTSTRAP_CI_JSON).read_text())
+    assert "quant_linear" in bootstrap
+    assert "statistically_credible_improvement" in bootstrap["quant_linear"]
+    if lightgbm_available():
+        assert "quant_lightgbm" in bootstrap
+        assert "quant_lightgbm" in set(runtime["model"])
+
+    # Track F, R11: the per-slice comparison must exist for every model, across more than one
+    # slicing dimension, so a real "does the improvement hold across slices" check is possible.
+    sliced = pd.read_csv(C.SLICED_MODEL_COMPARISON_CSV)
+    assert "quant" in set(sliced["model"])
+    assert "quant_linear" in set(sliced["model"])
+    assert sliced["dimension"].nunique() > 1
+    if lightgbm_available():
+        assert "quant_lightgbm" in set(sliced["model"])
+
+    # R11: manifest carries the bootstrap CI results directly, so Phase F-4 doesn't have to
+    # re-derive them from bootstrap_ci.json separately.
+    assert manifest["bootstrap_ci"] == bootstrap
+    assert manifest["lightgbm_available"] == lightgbm_available()
+
     # payload returned to caller matches what was written
-    assert set(payload.keys()) >= {"manifest", "comparison", "improvement"}
+    assert set(payload.keys()) >= {"manifest", "comparison", "improvement", "bootstrap_ci"}
+
+
+def test_run_experiment_survives_a_lightgbm_runtime_failure_not_just_import_failure(seeded_db, monkeypatch, tmp_path):
+    """R14: 'IF LightGBM fails to install OR RUN...' -- a Critique Engine pass on Phase F-2
+    found the first version only handled the install-missing case (ImportError at construction
+    time); a genuine runtime failure inside fit() (lightgbm's native library has a real history
+    of environment-specific issues, e.g. Windows OpenMP/threading problems) propagated raw and
+    aborted the whole multi-fold run, losing quant/quant_linear/quant_gbm results too -- not
+    just the LightGBM arm. This test simulates exactly that (a non-ImportError exception from
+    inside fit(), not lightgbm being absent) and asserts the rest of the pipeline still
+    completes -- the gap the previous, narrower "unavailable" tests did not cover."""
+    for attr, fname in _ARTIFACTS:
+        monkeypatch.setattr(C, attr, tmp_path / fname)
+
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment; the real .fit() runtime-failure path cannot be exercised")
+
+    # Patch the underlying LGBMRegressor.fit itself -- NOT LightGBMResidualModel -- so the real
+    # class's own try/except (the actual fix under test) is what has to do the converting to
+    # ResidualModelUnavailableError. Replacing the whole class, as an earlier version of this
+    # test did, bypasses that logic entirely and tests nothing real.
+    import lightgbm
+
+    def _always_fails(self, X, y, *a, **k):
+        raise RuntimeError("simulated native-library failure -- not an ImportError")
+
+    monkeypatch.setattr(lightgbm.LGBMRegressor, "fit", _always_fails)
+
+    payload = run_experiment(seasons=["2024-2025", "2025-2026"], con=seeded_db, random_seed=42)
+
+    comp = pd.read_csv(C.MODEL_COMPARISON_CSV)
+    assert "quant" in set(comp["model"])
+    assert "quant_linear" in set(comp["model"])
+    assert "quant_lightgbm" not in set(comp["model"])  # the failing arm is genuinely absent...
+    assert not comp.empty  # ...but nothing else was lost
+    assert payload["manifest"]["lightgbm_available"] is True  # import succeeded; the *fit* failed

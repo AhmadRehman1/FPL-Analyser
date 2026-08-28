@@ -45,7 +45,10 @@ any recovery/investigation of the `fpl-quant-v2-REAL-LOCAL-SAFE` directory's del
    more real managers (usable only as future gameweeks accumulate), or both? → **Both,
    retrospective first** (user) — with an explicit requirement that the retrospective number's
    methodology must state plainly it is the engine's own from-GW1 strategy vs. real managers'
-   actual outcomes, never framed as replaying real managers' decisions.
+   actual outcomes, never framed as replaying real managers' decisions. (Historical record of
+   what was actually said in the interview at this point — later found, building Phase E-2 for
+   real, that a true GW1 start isn't possible for any season; see Current State. Everywhere below
+   this point reflects the corrected GW2 start.)
 3. Q: What population scale/privacy posture for the real-manager data both pieces touch — large
    anonymized sample, or a small named set? → **Large anonymized sample** (user), extending
    Priority 10's existing no-names precedent.
@@ -118,12 +121,38 @@ No further forks remain that would change the shape of the plan.
   itself and 2025-2026 to fit against `(2024-2025, 2025-2026)`. Combined with
   `has_fittable_history()`'s cold-start floor, this is why the M7 backtest skipped 2024-25 GW1
   specifically (confirmed via direct query: `fact_match` has all 38 gameweeks for both
-  2024-2025 and 2025-2026). 2025-26 GW1 is the only season start point where "the engine played
-  this from a true GW1" is honestly makeable via `run_season_simulation()`. The 2023-24 parquet
-  data added today is not wired into this fitting path at all.
+  2024-2025 and 2025-2026). The 2023-24 parquet data added today is not wired into this fitting
+  path at all.
+- **Build-time finding, corrected below (not caught by the plan's own Critique Engine passes —
+  found only once Phase E-2 was actually run against the real DB, not assumed from the model-
+  fitting check above):** a true GW1 bootstrap is not actually possible for *any* season, not
+  just 2024-25. `squad_optimizer.fetch_candidate_pool()` requires a real `now_cost` snapshot per
+  player from `fact_player_season_stats`, which `asof_scope()` shadows to `gw < start_gameweek`
+  inside `run_season_simulation()`. Verified live against the real DB: `SELECT count(*) FROM
+  fact_player_season_stats WHERE season='2025-2026' AND gw < 1` returns zero — there is no
+  pre-season price row for any season in this schema. A GW1 bootstrap therefore asof-sees no
+  prices at all, and `squad_optimizer.run()` fails with "candidate pool has only 0 priced
+  players." This is exactly why the existing, real `scripts/run_season_simulation.py` already
+  defaults to `START_GAMEWEEK = 2`, not 1 — a pre-existing, deliberate convention this plan's
+  first draft overlooked rather than a new problem. Fixed in Phase E-2 below: the engine's
+  strategy is simulated from **GW2** (the earliest gameweek with real, asof-safe pricing —
+  verified live: 759 real-priced rows exist for `gw < 2`), not a true GW1. The methodology
+  disclaimer (R5) is corrected to say so plainly.
+- **Second build-time finding, fixed the same way (found running Phase E-2 for real, not
+  assumed):** `transfer_planner.evaluate_free_hit()` reads
+  `free_hit_gain_threshold_params`/`min_horizon_gain` at whatever version is passed in — version
+  1 for the blind run, per Track E's design. That row did not exist anywhere in `param_versions`
+  (verified live: zero rows for that family, out of 213 total rows in the table), even though
+  the seeding code for it already exists in `transfer_planner.seed_v1_params()`
+  (`value_numeric=1.5`, a documented, reasoned default — not invented here) — it had simply
+  never been run against this specific database. `seed_v1_params()` is idempotent
+  (`params.write_param()` no-ops on a byte-identical re-write, verified against its own source);
+  running it once, live, populated the missing row without altering the four sibling families
+  that were already correctly seeded. Not a gap this plan's own code introduced — a pre-existing
+  seeding omission this is the first workflow to have actually exercised end-to-end.
 - **Critique finding, corrected below:** Track B's automated recalibration (already `[x]` done
   in the existing roadmap) has promoted `xi_params_version`/`rho_residual_params_version` etc. to
-  newer versions, fit in part against 2025-26's own real outcomes. Simulating 2025-26 from GW1
+  newer versions, fit in part against 2025-26's own real outcomes. Simulating 2025-26 from GW2
   using *currently-active* parameter versions (as the plan originally specified) would give the
   engine hindsight it never had at the time — the same class of leakage `asof_scope()` exists
   elsewhere in this codebase specifically to prevent. Fixed in Approach/Phase E-2 below: the
@@ -156,11 +185,13 @@ No further forks remain that would change the shape of the plan.
 
 1. **Track E**: draw a genuinely random sample of ~2,000 real FPL entries (uniform over the valid
    ID space, not top-ranked), pull their actual 2025-26 season totals via `history()`; run the
-   engine's own strategy for 2025-26 from a true GW1 via `run_season_simulation()` using the
-   **default, pre-recalibration parameter versions** (not currently-active ones, to avoid
-   hindsight bias); compute percentile rank and point differential; write a report (not
-   published) with a mandatory, explicit methodology disclaimer covering both the "not a replay
-   of real decisions" and "blind simulation, not hindsight-tuned" points.
+   engine's own strategy for 2025-26 from **GW2** (the earliest gameweek with real, asof-safe
+   pricing — a true GW1 bootstrap is not possible for any season, found running this phase for
+   real; see Current State) via `run_season_simulation()` using the **default, pre-recalibration
+   parameter versions** (not currently-active ones, to avoid hindsight bias); compute percentile
+   rank and point differential; write a report (not published) with a mandatory, explicit
+   methodology disclaimer covering all three points: "not a replay of real decisions," "blind
+   simulation, not hindsight-tuned," and "from GW2, not a true GW1."
 2. **Track F**: install and pin scikit-learn + LightGBM; wire LightGBM into
    `research/ml/residual_model.py` as the primary nonlinear challenger, ridge retained as control,
    the existing sklearn `quant_gbm` arm reported as a bonus informational fourth arm (not part of
@@ -185,8 +216,9 @@ No further forks remain that would change the shape of the plan.
 
 ## Approach
 
-**Track E** reuses `run_season_simulation()` (bootstraps the engine's own M5 squad at a real GW1
-and walks it forward on the engine's own M8-informed decisions) but calls it with **all 18
+**Track E** reuses `run_season_simulation()` (bootstraps the engine's own M5 squad at a real
+gameweek — GW2, not GW1, see Current State — and walks it forward on the engine's own
+M8-informed decisions) but calls it with **all 18
 required parameter-version kwargs hardcoded to `1`** — adapting `scripts/run_season_simulation.py`'s
 own `_param_versions()` function verbatim, but replacing every `active[...]` lookup (for the 8
 families that are normally recalibratable) with a literal `1`, since using their currently-active
@@ -218,9 +250,9 @@ instruction, not by whichever arm happens to look best.
 ## Requirements
 
 - **R1**: WHEN Track E's engine-run phase executes THE SYSTEM SHALL bootstrap a real M5 squad at
-  2025-26 GW1 via `run_season_simulation()`, passing **all 18 required version kwargs hardcoded
-  to `1`** (both the 8 normally-recalibratable families and the 10 that are never recalibrated
-  anywhere in this codebase) rather than resolving any of them via
+  2025-26 GW2 (not GW1 — see Current State) via `run_season_simulation()`, passing **all 18
+  required version kwargs hardcoded to `1`** (both the 8 normally-recalibratable families and the
+  10 that are never recalibrated anywhere in this codebase) rather than resolving any of them via
   `active_recalibratable_versions()`, and walk forward to GW38 using the engine's own M8-informed
   decisions.
 - **R2**: WHEN the sampling phase executes THE SYSTEM SHALL draw a **uniform-random sample of
@@ -232,10 +264,11 @@ instruction, not by whichever arm happens to look best.
   in any output artifact of Track E, **including log output**; retained/logged data is aggregate
   point totals and counts only.
 - **R5**: THE SYSTEM SHALL produce a written report whose methodology section explicitly states
-  (a) the comparison is the engine's own from-GW1 strategy versus real managers' actual outcomes,
-  never a replay of real managers' decisions, and (b) the simulation used default, pre-
-  recalibration parameters rather than current hindsight-tuned ones, and SHALL NOT wire this
-  report into any public page.
+  (a) the comparison is the engine's own from-GW2 strategy versus real managers' actual outcomes,
+  never a replay of real managers' decisions; (b) the simulation used default, pre-recalibration
+  parameters rather than current hindsight-tuned ones; and (c) the simulation starts at GW2, not
+  a true GW1, since no season has a pre-GW1 price snapshot in this schema — and SHALL NOT wire
+  this report into any public page.
 - **R6**: Sampling SHALL reuse the existing `_fetch_json` backoff/retry pattern, SHALL cache the
   pulled sample rather than re-fetching on every run, and SHALL log a real measured wall-clock
   time and rejection rate (IDs that don't exist or didn't play 2025-26).
@@ -267,8 +300,9 @@ instruction, not by whichever arm happens to look best.
 
 ## Key Decisions
 
-- Track E scoped to 2025-26 only, from a true GW1 — (verified: `fit_seasons_for()` +
-  `has_fittable_history()` + real `fact_match` query) [A5].
+- Track E scoped to 2025-26 only, from GW2 (not a true GW1 — no season has a pre-GW1 price
+  snapshot, found running Phase E-2 for real) — (verified: `fit_seasons_for()` +
+  `has_fittable_history()` + real `fact_match`/`fact_player_season_stats` query) [A5].
 - Track E's engine run passes **all 18 required parameter-version kwargs hardcoded to `1`**, not
   currently-active recalibrated ones — (Critique Engine finding, corrected across two rounds) —
   avoids simulating with hindsight the engine never had, since 2025-26's own outcomes fed the
@@ -362,7 +396,7 @@ instruction, not by whichever arm happens to look best.
 | ID | Assumption | Basis | Blast radius if wrong | Check |
 |----|-----------|-------|------------------------|-------|
 | A1 | Retrospective sample: ~2,000 real entries via **uniform-random ID sampling** over `[1, 9,824,056+margin]` (verified live `total_players`), not top-ranked | corrected via blind Critique Engine pass — the original `fetch_top_entries()`-based design would have sampled the global elite | a materially misleading "percentile"/"beats real managers" claim if not fixed | Phase E-1's rejection-rate/timing log, plus a sanity check that the sampled distribution's mean/median look like plausible general-population FPL scores, not elite-only scores |
-| A5 | Track E is scoped to 2025-26 only, from a true GW1 | `fit_seasons_for()` + `has_fittable_history()` + verified real `fact_match` coverage | a stakeholder expecting a 2-season number gets one season instead | stated in Current State/Key Decisions |
+| A5 | Track E is scoped to 2025-26 only, from GW2 (not a true GW1) | `fit_seasons_for()` + `has_fittable_history()` + verified real `fact_match` coverage; the GW1-vs-GW2 correction itself is verified live (zero pre-GW1 price rows for any season) | a stakeholder expecting a 2-season number, or a true-GW1 start, gets one season from GW2 instead | stated in Current State/Key Decisions; Phase E-3's report methodology says "GW2" explicitly |
 | A6 | Bootstrap CI uses 1,000 resamples at a 95% interval | standard default, no project-specific precedent to match instead | trivial — a config number | Phase F-3 |
 | A7 | "Statistically credible improvement" reuses this project's own existing pattern from Track B's `evaluate_and_promote_proposal()` | consistency with an already-built, already-tested mechanism in this repo | none — deliberately conservative | Phase F-4 |
 | A8 | scikit-learn/LightGBM versions: latest stable compatible with `requirements.lock`'s existing constraints at install time | normal dependency-management default | trivial — a version bump | Phase F-1 |
@@ -411,9 +445,20 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
 
 ## Build Phases
 
-- [ ] **Phase E-1: Draw a genuine random sample of ~2,000 real 2025-26 season totals** *(risky —
+- [x] **Phase E-1: Draw a genuine random sample of ~2,000 real 2025-26 season totals** *(risky —
   real third-party data at scale, and the sampling method itself was already found broken once by
-  the Critique Engine; run it again at build time)*
+  the Critique Engine; run it again at build time)* — **done.** `src/fpl_quant/
+  retrospective_validation.py` implements uniform-random `entry_id` sampling over
+  `[1, 10,324,056]`, never calling `fetch_top_entries()`. Three rounds of Critique Engine review
+  ran against the real implementation (not just the plan): round 1 found and fixed a real
+  privacy hole (`entry_id` leaking through exception messages on any non-404 fetch failure —
+  direct R15 violation); round 2 found the fix incomplete (`resp.json()` unguarded on the
+  success path, the except clause too narrow) and fixed both; round 3 found two lower-stakes
+  crash-resilience gaps (a pathological `Retry-After` header, malformed JSON row shapes) and
+  fixed both. 23 tests, all passing. The real, full 2,000-entry sample was collected against the
+  live FPL API: n_sampled=2000, rejection_rate=0.309, mean=1946.4, median=1995.0 — both
+  comfortably inside the plausibility band, no sign of the disclosed [A12] skew dominating the
+  sample. Cached at `data/retrospective/2025-2026_real_season_totals.json` (gitignored).
   Done when: a cached dataset of ~2,000 real season-total point values exists, drawn via
   uniform-random `entry_id` sampling (not `fetch_top_entries()` or any rank-ordered source), with
   no entry_id or name retained past the fetch step **and none appearing in log output**, a logged
@@ -424,42 +469,69 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   existing `_fetch_json` backoff pattern; keep only entries with a `"2025/26"` row in `past`;
   strip identifying fields before caching and before logging; log aggregate counts only.
   Covers: R2, R4, R6, R15; checks: [A1]
-- [ ] **Phase E-2: Run the engine's own 2025-26 season from a true GW1, blind** *(risky — the
+- [ ] **Phase E-2: Run the engine's own 2025-26 season from GW2, blind** *(risky — the
   parameter-version choice was already found to risk hindsight bias once by the Critique Engine;
-  run it again at build time)*
-  Done when: `run_season_simulation(con, "2025-2026", 1, 38, ...)` completes with a real final
-  total and a full per-gameweek action log, **explicitly invoked with all 18 required version
-  kwargs hardcoded to `1`** (not `active_recalibratable_versions()` for any of them); the
-  done-check record lists all 18 kwarg names and their values used; the total is sanity-checked
-  against Phase E-1's real distribution range before proceeding.
-  Steps: write a `_blind_param_versions()` function adapting `scripts/run_season_simulation.py`'s
-  own `_param_versions()` verbatim, replacing every `active[...]` lookup with a literal `1`
-  (covering both the 8 normally-recalibratable families and the 10 that are hardcoded there
-  already); invoke `run_season_simulation()` with it; persist the run's `run_id`, action log, and
+  a build-time run also found GW1 itself is not bootstrappable for any season — see Current
+  State — and a missing param seed row; both fixed. GW2-3 validated end-to-end (real weekly
+  points, a real chip decision); the full GW2-38 run is in progress — check `data/retrospective/
+  2025-2026_engine_simulation.json` for the finished output before running the Critique Engine
+  pass and marking this phase done)*
+  Done when: `run_season_simulation(con, "2025-2026", 2, 38, ...)` (not GW1 — see the corrected
+  Current State entry) completes with a real final total and a full per-gameweek action log,
+  **explicitly invoked with all 18 required version kwargs hardcoded to `1`** (not
+  `active_recalibratable_versions()` for any of them); the done-check record lists all 18 kwarg
+  names and their values used; the total is sanity-checked against Phase E-1's real distribution
+  range before proceeding.
+  Steps: wrote `_blind_param_versions()` in `scripts/run_retrospective_engine_simulation.py`,
+  adapting `scripts/run_season_simulation.py`'s own `_param_versions()`, replacing every
+  `active[...]` lookup with a literal `1` (covering both the 8 normally-recalibratable families
+  and the 10 that are hardcoded there already); seeded the missing
+  `free_hit_gain_threshold_params` v1 row via `transfer_planner.seed_v1_params()` (found
+  necessary running this phase for real, not assumed — see Current State); invoke
+  `run_season_simulation()` with it starting at GW2; persist the run's `run_id`, action log, and
   the full 18-kwarg dict used for audit.
   Covers: R1; checks: [A5], [A10]
 - [ ] **Phase E-3: Compute the comparison and write the report** *(risky — this report's wording
   is the mitigation for two separate misreading risks; run the Critique Engine at build time)*
   Done when: `docs/reports/2025-26_retrospective_validation.md` exists, stating the engine's
   simulated total, its percentile rank and point differential against Phase E-1's real sample,
-  and an explicit methodology section covering both (a) this is the engine's own from-GW1
-  strategy versus real managers' actual outcomes, not a replay of any real manager's decisions,
-  and (b) the simulation used default, pre-recalibration parameters, not current hindsight-tuned
-  ones; the report is not linked from or wired into any public page.
+  and an explicit methodology section covering all three of (a) this is the engine's own
+  from-GW2 strategy versus real managers' actual outcomes, not a replay of any real manager's
+  decisions, (b) the simulation used default, pre-recalibration parameters, not current
+  hindsight-tuned ones, and (c) the simulation starts at GW2, not a true GW1 (see Current State);
+  the report is not linked from or wired into any public page.
   Steps: compute percentile/differential (unit-tested against a synthetic distribution with a
   known answer); write the report with both disclaimers; do not touch `track-record.html` or
   `index.html`.
   Covers: R3, R5; checks: [A1], [A10]
-- [ ] **Phase F-1: Install and pin scikit-learn + LightGBM**
+- [x] **Phase F-1: Install and pin scikit-learn + LightGBM** — **done.** scikit-learn 1.9.0 +
+  LightGBM 4.7.0 installed, smoke-tested (a real LightGBM fit/predict cycle), pinned in a new
+  `requirements-research.txt` (kept separate from `requirements.txt`, mirroring
+  `requirements-dev.txt`'s own existing rationale — the production pipeline never needs
+  `research/ml/`'s dependencies). Full suite: 774 passed, 1 pre-existing skip. Also fixed two
+  unrelated pre-existing environment gaps found along the way: `requests` was declared but never
+  installed in this venv, and once installed couldn't verify the FPL API's TLS certificate
+  (fixed locally via `pip-system-certs`, not a repo change).
   Done when: both import successfully in the project's `.venv`; `requirements.txt`/
   `requirements.lock`/`pyproject.toml` list pinned versions; the full existing test suite stays
   green after the addition.
   Steps: `pip install scikit-learn lightgbm`; pin versions in the dependency files; run the full
   suite to confirm no regression.
   Covers: R7; checks: [A8]
-- [ ] **Phase F-2: Wire LightGBM into `residual_model.py` as the primary challenger, and label
+- [x] **Phase F-2: Wire LightGBM into `residual_model.py` as the primary challenger, and label
   the existing `quant_gbm` arm** *(risky — must preserve the existing leakage protocol exactly;
-  run the Critique Engine at build time)*
+  run the Critique Engine at build time)* — **done.** `LightGBMResidualModel` added, matching
+  `GradientBoostingResidualModel`'s interface exactly; wired into `experiment.py`'s fold loop,
+  manifest, and ensemble-priority logic (LightGBM > `quant_gbm` > linear for the informational
+  "best available" column only — R11's actual decision reads the `quant_lightgbm` row directly).
+  A Critique Engine pass found one real, reproduced blocking bug: R14 requires handling LightGBM
+  failing to "install **or run**," but the first version only caught `ImportError` — a genuine
+  runtime failure (LightGBM's native library has a real history of Windows OpenMP issues) would
+  have propagated raw and aborted the *entire* multi-fold experiment, not just this one arm.
+  Fixed (and the same fix applied to `GradientBoostingResidualModel` for consistency, though R14
+  names LightGBM specifically); a new orchestrator-level test reproduces the exact failure mode
+  (patches `LGBMRegressor.fit` itself, not the wrapper class, so it exercises the real fix) and
+  confirms the rest of the pipeline survives. 70 tests, all passing.
   Done when: a LightGBM-backed residual model exists conforming to the same fit/predict interface
   `experiment.py` already expects; the existing ridge and `quant_gbm` models are unchanged;
   `leakage_checks.assert_split_invariants` gates all arms identically; unit tests (extending
@@ -468,7 +540,15 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   Steps: add the LightGBM wrapper; wire the R14 fallback path; extend tests; document `quant_gbm`
   treatment; confirm no leakage check is bypassed for any arm.
   Covers: R8, R14, R16
-- [ ] **Phase F-3: Add bootstrap confidence intervals and compute/runtime instrumentation**
+- [x] **Phase F-3: Add bootstrap confidence intervals and compute/runtime instrumentation** —
+  **done.** `evaluate.bootstrap_ci()`/`bootstrap_ci_for_model_improvement()` added, resampling at
+  fold granularity (not per-observation — players within one gameweek share match outcomes and
+  aren't independent). `statistically_credible_improvement` is True only when the entire CI sits
+  above zero — the exact "confidence interval, not a point estimate" R11 requires. Per-model
+  fit+predict wall-clock time captured per fold, written to `compute_runtime.csv`; both feed the
+  manifest directly so Phase F-4 doesn't have to re-derive them. 16 new tests against synthetic
+  cases with known answers (zero-variance point interval, all-positive excludes zero, noisy
+  near-tie correctly not flagged credible).
   Done when: `evaluate.py`'s comparison output includes a bootstrap CI per metric per model
   (all four arms), and each model's real fit/predict wall-clock time is captured and reported;
   unit tests cover the CI helper against a synthetic case with a known interval.
@@ -476,19 +556,25 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   Covers: R10; checks: [A6]
 - [ ] **Phase F-4: Run the real experiment and record the definitive decision** *(risky — this is
   the actual ship/no-ship call the whole workstream exists to produce; run the Critique Engine at
-  build time)*
+  build time. Prep done ahead of the real run: `evaluate.sliced_comparison_rows()` +
+  `results/sliced_model_comparison.csv` now give every model — not just the Quant baseline — a
+  real, persisted per-slice breakdown, and `scripts/summarize_ml_experiment_results.py` assembles
+  all six real artifacts into one structured view for filling in REPORT.md accurately.)*
   Done when: `research/ml/results/` holds real, non-template output for all four arms
-  (Quant-alone, Quant+ridge, Quant+LightGBM, Quant+`quant_gbm`) on identical leakage-safe folds;
-  `REPORT.md` is filled with real numbers including per-fold results, aggregate metrics,
-  bootstrap CIs, compute/runtime, and season-points impact; §9's decision checkbox is explicitly
-  marked based on the **LightGBM arm alone** (R11), with `quant_gbm` clearly labeled
-  informational (R16) and the per-slice check confirmed before any "ship" verdict; if LightGBM's
-  result is positive or borderline, a flagged follow-up recommends whether to add XGBoost (R13);
-  a measured total runtime is logged, with an explicit note if any fold had to be abandoned for
-  time and why.
+  (Quant-alone, Quant+ridge, Quant+LightGBM, Quant+`quant_gbm`) on identical leakage-safe folds,
+  including `sliced_model_comparison.csv`; `REPORT.md` is filled with real numbers including
+  per-fold results, aggregate metrics, bootstrap CIs, compute/runtime, and season-points impact;
+  §9's decision checkbox is explicitly marked based on the **LightGBM arm alone** (R11), with
+  `quant_gbm` clearly labeled informational (R16) and the per-slice check (aggregated from
+  `sliced_model_comparison.csv`, comparing `quant_lightgbm` against `quant` in every slice)
+  confirmed before any "ship" verdict; if LightGBM's result is positive or borderline, a flagged
+  follow-up recommends whether to add XGBoost (R13); a measured total runtime is logged, with an
+  explicit note if any fold had to be abandoned for time and why.
   Steps: confirm `ep_outputs` still has real rows (cheap re-check of the 66,974-row fact already
-  verified this session); run `python -m research.ml.experiment` for real; fill `REPORT.md`;
-  apply R11's ship bar to the LightGBM arm specifically; record the decision.
+  verified this session); run `python -m research.ml.experiment` for real; run
+  `scripts/summarize_ml_experiment_results.py` to assemble the real numbers; fill `REPORT.md`;
+  apply R11's ship bar to the LightGBM arm specifically, checking the per-slice comparison before
+  any "ship" verdict; record the decision.
   Covers: R9, R11, R12, R13; checks: [A7]
 
 ## The Critique Engine (for Build Phases marked *risky* above)
