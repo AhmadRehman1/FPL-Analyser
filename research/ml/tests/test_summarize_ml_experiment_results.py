@@ -4,7 +4,6 @@ output and confirm it doesn't crash and reads every artifact it claims to summar
 from __future__ import annotations
 
 import importlib.util
-import sys
 from pathlib import Path
 
 from research.ml import contract as C
