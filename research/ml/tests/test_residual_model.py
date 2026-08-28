@@ -12,9 +12,11 @@ from research.ml.dataset_builder import build_dataset
 from research.ml.feature_engineering import feature_columns
 from research.ml.residual_model import (
     GradientBoostingResidualModel,
+    LightGBMResidualModel,
     LinearResidualModel,
     Preprocessor,
     ResidualModelUnavailableError,
+    lightgbm_available,
     sklearn_available,
 )
 
@@ -89,3 +91,47 @@ def test_gbm_raises_when_sklearn_unavailable(monkeypatch):
         pytest.skip("sklearn is installed in this environment; cannot test the unavailable path")
     with pytest.raises(ResidualModelUnavailableError):
         GradientBoostingResidualModel().fit(np.zeros((3, 2)), np.zeros(3))
+
+
+def test_lightgbm_fit_predict(seeded_db):
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment")
+    df = build_dataset(seeded_db, with_features=True)
+    train = df[df["season"] == "2024-2025"]
+    test = df[df["season"] == "2025-2026"]
+    feats = feature_columns()
+    pp = Preprocessor().fit(train, feats)
+    Xtr, names = pp.transform(train)
+    Xte, _ = pp.transform(test)
+    m = LightGBMResidualModel().fit(Xtr, train["residual"].to_numpy())
+    pred = m.predict(Xte)
+    assert len(pred) == len(test)
+    assert np.isfinite(pred).all()
+
+
+def test_lightgbm_feature_importance(seeded_db):
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment")
+    df = build_dataset(seeded_db, with_features=True)
+    train = df[df["season"] == "2024-2025"]
+    feats = feature_columns()
+    pp = Preprocessor().fit(train, feats)
+    Xtr, names = pp.transform(train)
+    m = LightGBMResidualModel().fit(Xtr, train["residual"].to_numpy())
+    fi = m.feature_importance(names)
+    assert set(fi.columns) == {"feature", "importance", "direction"}
+    assert len(fi) == len(names)
+    assert (fi["importance"] >= 0).all()  # gain-based importance is non-negative
+
+
+def test_lightgbm_predict_before_fit_raises():
+    m = LightGBMResidualModel()
+    with pytest.raises(ResidualModelUnavailableError):
+        m.predict(np.zeros((3, 2)))
+
+
+def test_lightgbm_raises_when_unavailable(monkeypatch):
+    if lightgbm_available():
+        pytest.skip("lightgbm is installed in this environment; cannot test the unavailable path")
+    with pytest.raises(ResidualModelUnavailableError):
+        LightGBMResidualModel().fit(np.zeros((3, 2)), np.zeros(3))

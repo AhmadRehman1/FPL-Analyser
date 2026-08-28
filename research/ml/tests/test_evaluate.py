@@ -3,12 +3,16 @@ calibration, ensemble weight selection, and stability table."""
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from research.ml.dataset_builder import build_dataset
 from research.ml.evaluate import (
+    bootstrap_ci,
+    bootstrap_ci_rows,
     calibration,
     ensemble_predictions,
     evaluate_ensemble,
@@ -113,6 +117,50 @@ def test_evaluate_ensemble_selects_best_train_weight(seeded_db):
     assert len(result["grid"]) == 5
     assert "test_pred" in result
     assert len(result["test_pred"]) == len(f.test_df)
+
+
+def test_bootstrap_ci_known_answer_constant_error():
+    # every row has the exact same |error| = 2.0 -> MAE is 2.0 with zero variance across any
+    # resample (a resample can only ever mix rows that all have the same error), so the CI
+    # collapses to a single point -- a synthetic case with a known answer (A6/Verification).
+    actual = np.zeros(200)
+    pred = np.full(200, 2.0)
+    rows = bootstrap_ci(pred, actual, metrics=("mae",), n_resamples=200, random_state=0)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["metric"] == "mae"
+    assert row["point"] == pytest.approx(2.0)
+    assert row["ci_low"] == pytest.approx(2.0)
+    assert row["ci_high"] == pytest.approx(2.0)
+    assert row["n"] == 200
+    assert row["n_resamples"] == 200
+
+
+def test_bootstrap_ci_interval_contains_point_estimate():
+    rng = np.random.RandomState(1)
+    actual = rng.normal(4.0, 2.0, 500)
+    pred = actual + rng.normal(0.0, 1.0, 500)
+    rows = bootstrap_ci(pred, actual, metrics=("mae", "rmse"), n_resamples=300, random_state=1)
+    assert {r["metric"] for r in rows} == {"mae", "rmse"}
+    for row in rows:
+        assert row["ci_low"] <= row["point"] <= row["ci_high"]
+        assert row["confidence"] == pytest.approx(0.95)
+
+
+def test_bootstrap_ci_empty_input_returns_nan():
+    rows = bootstrap_ci(np.array([]), np.array([]), metrics=("mae",), n_resamples=50)
+    assert rows[0]["n"] == 0
+    assert math.isnan(rows[0]["point"])
+    assert math.isnan(rows[0]["ci_low"])
+
+
+def test_bootstrap_ci_rows_one_row_per_model_per_metric():
+    actual = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    preds = {"quant": actual + 1.0, "quant_lightgbm": actual + 0.5}
+    rows = bootstrap_ci_rows(preds, actual, metrics=("mae", "rmse"), n_resamples=50, random_state=0)
+    assert len(rows) == 4  # 2 models x 2 metrics
+    assert {r["model"] for r in rows} == {"quant", "quant_lightgbm"}
+    assert {r["metric"] for r in rows} == {"mae", "rmse"}
 
 
 def test_stability_table(seeded_db):

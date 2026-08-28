@@ -169,6 +169,80 @@ def evaluate_ensemble(train_df: pd.DataFrame, test_df: pd.DataFrame, ml_train: n
 
 
 # ============================================================
+# Bootstrap confidence intervals (Track F R10/R11 -- a point-estimate MAE/RMSE improvement is
+# not a statistically credible ship decision on its own)
+# ============================================================
+
+def bootstrap_ci(
+    pred: np.ndarray,
+    actual: np.ndarray,
+    metrics: tuple[str, ...] = ("mae", "rmse"),
+    n_resamples: int = 1000,
+    confidence: float = 0.95,
+    random_state: int = 42,
+) -> list[dict]:
+    """Bootstrap confidence interval for each metric, resampling (pred, actual) pairs with
+    replacement (A6: 1,000 resamples / 95% interval by default). Never resamples across models
+    with different random draws for the same fold -- callers pass the same random_state across
+    models being compared so paired resampling stays comparable."""
+    pred = np.asarray(pred, dtype=float)
+    actual = np.asarray(actual, dtype=float)
+    mask = np.isfinite(pred) & np.isfinite(actual)
+    pred, actual = pred[mask], actual[mask]
+    n = len(actual)
+    point = B.compute_metrics(pred, actual)
+    if n == 0:
+        return [
+            {"metric": m, "point": float("nan"), "ci_low": float("nan"), "ci_high": float("nan"),
+             "n": 0, "n_resamples": n_resamples, "confidence": confidence}
+            for m in metrics
+        ]
+    rng = np.random.RandomState(random_state)
+    samples = {m: np.empty(n_resamples) for m in metrics}
+    for i in range(n_resamples):
+        idx = rng.randint(0, n, size=n)
+        resampled = B.compute_metrics(pred[idx], actual[idx])
+        for metric in metrics:
+            samples[metric][i] = getattr(resampled, metric)
+    lo_pct = (1 - confidence) / 2 * 100
+    hi_pct = (1 + confidence) / 2 * 100
+    out = []
+    for metric in metrics:
+        vals = samples[metric]
+        vals = vals[np.isfinite(vals)]
+        out.append({
+            "metric": metric,
+            "point": getattr(point, metric),
+            "ci_low": float(np.percentile(vals, lo_pct)) if len(vals) else float("nan"),
+            "ci_high": float(np.percentile(vals, hi_pct)) if len(vals) else float("nan"),
+            "n": n,
+            "n_resamples": n_resamples,
+            "confidence": confidence,
+        })
+    return out
+
+
+def bootstrap_ci_rows(
+    model_predictions: dict[str, np.ndarray],
+    actual: np.ndarray,
+    metrics: tuple[str, ...] = ("mae", "rmse"),
+    n_resamples: int = 1000,
+    confidence: float = 0.95,
+    random_state: int = 42,
+) -> list[dict]:
+    """One bootstrap CI per metric per model, computed over pooled out-of-sample predictions
+    (all walk-forward folds concatenated) rather than per-fold -- per-fold CIs at n_resamples=
+    1,000 would multiply runtime by the fold count for no decision-relevant benefit; the ship/
+    no-ship call (R11) needs one credible interval per model, not one per fold."""
+    rows: list[dict] = []
+    for model_name, pred in model_predictions.items():
+        for r in bootstrap_ci(pred, actual, metrics=metrics, n_resamples=n_resamples,
+                               confidence=confidence, random_state=random_state):
+            rows.append({"model": model_name, **r})
+    return rows
+
+
+# ============================================================
 # Feature stability (spec §20)
 # ============================================================
 

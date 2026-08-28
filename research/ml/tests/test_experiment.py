@@ -31,6 +31,10 @@ _ARTIFACTS = [
     ("ENSEMBLE_CSV", "ensemble.csv"),
     ("SEASON_POINTS_CSV", "season_points.csv"),
     ("EXPERIMENT_MANIFEST_JSON", "experiment_manifest.json"),
+    ("FEATURE_IMPORTANCE_LIGHTGBM_CSV", "feature_importance_lightgbm.csv"),
+    ("STABILITY_LIGHTGBM_CSV", "feature_stability_lightgbm.csv"),
+    ("BOOTSTRAP_CI_CSV", "bootstrap_ci.csv"),
+    ("RUNTIME_CSV", "runtime.csv"),
 ]
 
 
@@ -64,6 +68,27 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
     comp = pd.read_csv(C.MODEL_COMPARISON_CSV)
     assert "quant" in set(comp["model"])
     assert "quant_linear" in set(comp["model"])
+
+    # LightGBM is the Track F primary nonlinear challenger (R8/R11) -- it must appear whenever
+    # the package is importable, and the manifest must record it as such, not quant_gbm.
+    from research.ml.residual_model import lightgbm_available
+    if lightgbm_available():
+        assert "quant_lightgbm" in set(comp["model"])
+        assert manifest["lightgbm_available"] is True
+        assert manifest["primary_ml_model"] == "quant_lightgbm"
+        assert "quant_lightgbm" in manifest["models"]
+
+    # bootstrap CIs (R10): one row per model per metric, interval brackets the point estimate
+    ci = pd.read_csv(C.BOOTSTRAP_CI_CSV)
+    assert {"model", "metric", "point", "ci_low", "ci_high"} <= set(ci.columns)
+    assert "quant" in set(ci["model"])
+    assert (ci["ci_low"] <= ci["point"]).all()
+    assert (ci["point"] <= ci["ci_high"]).all()
+
+    # runtime instrumentation (R10): every fitted model's wall-clock time is recorded
+    runtime = pd.read_csv(C.RUNTIME_CSV)
+    assert "quant_linear" in set(runtime["model"])
+    assert (runtime["fit_predict_seconds"] >= 0).all()
 
     # season points table compares the quant manager vs the ML manager
     sp = pd.read_csv(C.SEASON_POINTS_CSV)
