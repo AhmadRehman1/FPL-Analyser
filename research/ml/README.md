@@ -47,11 +47,45 @@ until ingested, `fantasy.premierleague.com` blocked by policy). It restores the 
 `scheduled_pipeline.yml` run's cached DB (falling back to a fresh ingestion only if none
 exists yet), runs `python -m research.ml.experiment` for real, posts
 `scripts/summarize_ml_experiment_results.py`'s structured summary to the run's job summary, and
-uploads the full `results/` directory as a 90-day build artifact. It does not commit anything
-back to the repo (`results/` is deliberately gitignored) or write `REPORT.md`'s decision
-prose -- that is a real analytical judgment call each run, made by a human reading the job
-summary/artifact, not something to template-generate unattended. A manual run (with an
-optional cheaper `--fold-mode season` override) is available via `workflow_dispatch`.
+uploads the full `results/` directory as a 90-day build artifact. It does not write
+`REPORT.md`'s decision prose -- that is a real analytical judgment call each run, made by a
+human reading the job summary/artifact, not something to template-generate unattended. A
+manual run (with an optional cheaper `--fold-mode season` override) is available via
+`workflow_dispatch`.
+
+It also — the one deliberate exception to "doesn't commit anything back" — appends this run's
+real bootstrap-CI numbers and season points (nothing else) to the tracked
+`results_history/weekly_quality_history.csv` ledger below, and commits that one file. This is
+also GitHub Actions' free-cloud compute doing double duty: the same weekly run that produces
+the numbers is what persists them, at no cost beyond what already runs every Sunday. Finally,
+it best-effort narrates the run with a local model via Ollama (installed fresh on the runner
+each time, `continue-on-error: true` so this never turns a real run red) — see "Optional:
+narrating results locally with Ollama" below; the output lands in the uploaded `results/`
+artifact as `narrative_draft.md`, same disclaimer as a local run.
+
+## Is the model actually improving over time?
+
+`results_history/weekly_quality_history.csv` is a tracked (not gitignored), append-only ledger
+— one row per real `python -m research.ml.experiment` run, written by
+`scripts/append_ml_run_to_history.py` and populated automatically by the Sunday workflow above.
+Unlike `results/experiment_runs.csv` (a rolling log of `--runs N`/`run_continuous.py`'s own
+seed sweeps, reset by every fresh loop, gitignored) this is the one place that accumulates real
+numbers across real calendar weeks as the season's data grows, so a genuine trend — not just one
+run's point estimate — is actually visible:
+
+| Column | Meaning |
+|---|---|
+| `run_timestamp_utc`, `git_commit`, `dataset_rows`, `fold_mode` | provenance for that row |
+| `quant_lightgbm_point_estimate`/`_ci_low`/`_ci_high`/`_credible` | R11's governing bootstrap CI that week |
+| `quant_xgboost_point_estimate`/`_ci_low`/`_ci_high`/`_credible` | R13's confirmation-arm bootstrap CI that week |
+| `quant_manager_points`, `ml_manager_points`, `ml_beats_quant` | that week's season-simulation result |
+
+Run it by hand after any real experiment run: `python scripts/append_ml_run_to_history.py` — it
+prints a short delta against the previous logged row (point estimate up/down, credible flag
+changed, season points moved) so you don't have to open the CSV just to get the headline
+signal. This still doesn't decide anything on its own (R11's actual ship/no-ship threshold is
+unchanged — the entire 95% CI must exclude zero) — it just makes "has this been trending toward
+that, or away from it, over the last N weeks" an answerable question instead of a guess.
 
 ## Artifacts (`results/`)
 
@@ -116,9 +150,18 @@ plain-English draft paragraph, entirely locally (no data leaves your laptop). Th
 separate, optional convenience script — it is never called by `experiment.py` and never affects
 `REPORT.md`'s actual decision, which stays a human judgement call (see that file's §9).
 
+**Model choice for a 4GB-VRAM laptop GPU** (e.g. an RTX 3050 Ti, paired with a 12th-gen mobile
+i7): the default, `phi4-mini` (3.8B, ~2.5GB at Ollama's default quantization), fully fits in
+VRAM with headroom for context, so inference stays fast. This script only narrates numbers it
+is already handed — it never does open-ended reasoning — so a small model is enough for the
+job; a larger one buys little here. If you want to try a heavier model anyway (somewhat richer
+prose, noticeably slower — a Q4 7-8B model like `qwen2.5:7b-instruct` or `llama3.1:8b` is
+~4.5-5GB, so it won't fully fit a 4GB card and Ollama will offload part of it to CPU), pass
+`--model`:
+
 ```bash
 # 1. Install Ollama (https://ollama.com/download) and pull a model once:
-ollama pull llama3.1
+ollama pull phi4-mini
 
 # 2. Start the server (if it isn't already running as a background service):
 ollama serve
@@ -126,7 +169,7 @@ ollama serve
 # 3. After a real `python -m research.ml.experiment` run has produced results/, narrate them:
 python scripts/narrate_ml_results.py
 # or with a different model / a remote Ollama host:
-python scripts/narrate_ml_results.py --model qwen2.5:14b --host http://localhost:11434
+python scripts/narrate_ml_results.py --model qwen2.5:7b-instruct --host http://localhost:11434
 ```
 
 The draft is printed to stdout and written to `results/narrative_draft.md`, headed with an

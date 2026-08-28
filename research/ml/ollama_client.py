@@ -19,7 +19,13 @@ from dataclasses import dataclass
 import requests
 
 DEFAULT_HOST = "http://localhost:11434"
-DEFAULT_MODEL = "llama3.1"
+# phi4-mini (Microsoft, 3.8B, ~2.5GB at Ollama's default Q4_K_M quantization) rather than a
+# 7-8B model: this script's job is narrating numbers it is already given, not open-ended
+# reasoning, so a small model is enough -- and it fully fits a 4GB-VRAM laptop GPU (e.g. an
+# RTX 3050 Ti) with headroom for context, instead of spilling into slower CPU offload the way
+# a Q4 7-8B model (~4.5-5GB) would on the same card. See research/ml/README.md's "Running
+# locally with Ollama" section for the hardware reasoning and a larger-model alternative.
+DEFAULT_MODEL = "phi4-mini"
 DEFAULT_TIMEOUT_SECONDS = 120
 
 
