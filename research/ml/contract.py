@@ -36,6 +36,10 @@ IMPROVEMENT_CSV = RESULTS_DIR / "improvement.csv"
 ENSEMBLE_CSV = RESULTS_DIR / "ensemble.csv"
 EXPERIMENT_MANIFEST_JSON = RESULTS_DIR / "experiment_manifest.json"
 SEASON_POINTS_CSV = RESULTS_DIR / "season_points.csv"
+# Track F (docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md), R10: per-model
+# compute/runtime and bootstrap confidence intervals, not just point-estimate metrics.
+COMPUTE_RUNTIME_CSV = RESULTS_DIR / "compute_runtime.csv"
+BOOTSTRAP_CI_JSON = RESULTS_DIR / "bootstrap_ci.json"
 RUN_LOG_CSV = RESULTS_DIR / "experiment_runs.csv"  # rolling log of every run (loop mode)
 RUNS_DIR = RESULTS_DIR / "runs"                      # one timestamped subdir per loop run
 REPORT_MD = ML_ROOT / "REPORT.md"

@@ -1,6 +1,8 @@
 """Residual-model tests: Preprocessor fit/transform, LinearResidualModel (numpy ridge fallback
-when sklearn absent), GradientBoostingResidualModel graceful failure without sklearn, and
-feature importance."""
+when sklearn absent), GradientBoostingResidualModel graceful failure without sklearn,
+LightGBMResidualModel (the primary nonlinear challenger -- Track F,
+docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md, R8/R11), and feature
+importance."""
 
 from __future__ import annotations
 
@@ -12,9 +14,11 @@ from research.ml.dataset_builder import build_dataset
 from research.ml.feature_engineering import feature_columns
 from research.ml.residual_model import (
     GradientBoostingResidualModel,
+    LightGBMResidualModel,
     LinearResidualModel,
     Preprocessor,
     ResidualModelUnavailableError,
+    lightgbm_available,
     sklearn_available,
 )
 
@@ -89,3 +93,77 @@ def test_gbm_raises_when_sklearn_unavailable(monkeypatch):
         pytest.skip("sklearn is installed in this environment; cannot test the unavailable path")
     with pytest.raises(ResidualModelUnavailableError):
         GradientBoostingResidualModel().fit(np.zeros((3, 2)), np.zeros(3))
+
+
+# ============================================================
+# LightGBMResidualModel -- the primary nonlinear challenger (Track F, R8/R11): the arm the
+# ship/no-ship decision is governed by. Kept alongside, not instead of, quant_gbm above.
+# ============================================================
+
+def test_lightgbm_model_fit_predict(seeded_db):
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment")
+    df = build_dataset(seeded_db, with_features=True)
+    train = df[df["season"] == "2024-2025"]
+    test = df[df["season"] == "2025-2026"]
+    feats = feature_columns()
+    pp = Preprocessor().fit(train, feats)
+    Xtr, names = pp.transform(train)
+    m = LightGBMResidualModel().fit(Xtr, train["residual"].to_numpy())
+    Xte, _ = pp.transform(test)
+    pred = m.predict(Xte)
+    assert len(pred) == len(test)
+    assert np.isfinite(pred).all()
+
+
+def test_lightgbm_model_feature_importance(seeded_db):
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment")
+    df = build_dataset(seeded_db, with_features=True)
+    train = df[df["season"] == "2024-2025"]
+    feats = feature_columns()
+    pp = Preprocessor().fit(train, feats)
+    Xtr, names = pp.transform(train)
+    y = train["residual"].to_numpy()
+    m = LightGBMResidualModel().fit(Xtr, y)
+    fi = m.feature_importance(Xtr, y, names)
+    assert set(fi.columns) == {"feature", "importance", "direction"}
+    assert len(fi) == len(names)
+
+
+def test_lightgbm_predict_before_fit_raises():
+    m = LightGBMResidualModel()
+    with pytest.raises(ResidualModelUnavailableError):
+        m.predict(np.zeros((3, 2)))
+
+
+def test_lightgbm_raises_when_unavailable(monkeypatch):
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment; the real ImportError path already covers this")
+    # Force the lazy `from lightgbm import LGBMRegressor` inside fit() to fail, the same
+    # technique test_linear_model_uses_numpy_fallback_when_no_sklearn already uses for sklearn
+    # -- proves R14's fallback path (a real LightGBM failure must not crash the whole
+    # experiment) actually raises the documented, catchable exception type.
+    import sys
+    monkeypatch.setitem(sys.modules, "lightgbm", None)
+    with pytest.raises(ResidualModelUnavailableError):
+        LightGBMResidualModel().fit(np.random.RandomState(0).randn(20, 3), np.random.RandomState(1).randn(20))
+
+
+def test_lightgbm_feature_importance_raises_when_sklearn_unavailable(seeded_db, monkeypatch):
+    """feature_importance() reuses sklearn's permutation_importance (see module docstring for
+    why) -- a separate, real dependency from lightgbm itself, so its own unavailable-path needs
+    its own test rather than assuming lightgbm's own ResidualModelUnavailableError test covers it."""
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment")
+    df = build_dataset(seeded_db, with_features=True)
+    train = df[df["season"] == "2024-2025"]
+    feats = feature_columns()
+    pp = Preprocessor().fit(train, feats)
+    Xtr, names = pp.transform(train)
+    y = train["residual"].to_numpy()
+    m = LightGBMResidualModel().fit(Xtr, y)
+    import sys
+    monkeypatch.setitem(sys.modules, "sklearn.inspection", None)
+    with pytest.raises(ResidualModelUnavailableError):
+        m.feature_importance(Xtr, y, names)
