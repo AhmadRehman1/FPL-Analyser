@@ -14,6 +14,19 @@
 > a 95%-confidence bootstrap interval alongside each point estimate (R10) — "positive on
 > average" is not sufficient for §9's decision; the interval must exclude zero (R11).
 >
+> **R13 resolved, but not yet part of this report's real numbers:** `quant_xgboost`
+> (`research/ml/residual_model.py::XGBoostResidualModel`) has since been added as the
+> independent-implementation confirmation arm this report's §9 originally flagged as a follow-up
+> ("Flag whether XGBoost should be added..."). It lands after the real run §3–§9 below report, so
+> none of those numbers include it — it will run automatically whenever `xgboost` is installed
+> (see `requirements-research.txt`) on the *next* real run, reported alongside `quant_gbm` as
+> **informational only** (like `quant_gbm`, R16 — it will never govern §9's decision, which
+> remains `quant_lightgbm` alone per R11). Its value once real numbers exist: two independently
+> implemented gradient-boosting libraries agreeing (or disagreeing) on whether there is
+> out-of-sample residual signal is itself evidence about whether `quant_lightgbm`'s result is a
+> real finding or an artifact of one library's specific defaults/splitting heuristic — a follow-up
+> run including it is recommended, not required (Open Items).
+>
 > **Pre-run model improvements** (found while auditing the pipeline ahead of Phase F-4, since a
 > real run wasn't possible here either): (1) `position` — approved as a feature source in
 > `EXISTING_MODEL_AUDIT.md` §9 and `LEAKAGE_PROTOCOL.md` §4 from the start — was attached to
@@ -133,6 +146,8 @@ Per-season breakdown:
 | 2025-2026 | quant | 1.525 | 2.156 | 0.486 | 0.460 | 0.555 | 27,085 |
 | 2025-2026 | quant_lightgbm | 1.002 | 1.935 | -0.065 | 0.573 | 0.715 | 27,085 |
 
+*(`quant_xgboost` not included — this run predates it landing; see banner above.)*
+
 > Source: `results/model_comparison.csv`. `quant_gbm` and `quant_lightgbm` track each other
 > extremely closely throughout this report (typically within 0.002 MAE) — both are gradient
 > boosted trees over the same feature set, so this is expected, not a bug; R11 still governs
@@ -145,6 +160,7 @@ Per-season breakdown:
 | quant_linear | 0.408 | 0.385 | 0.426 | 70 | True |
 | quant_gbm *(informational only)* | 0.507 | 0.490 | 0.522 | 70 | True |
 | **quant_lightgbm** | **0.507** | **0.489** | **0.523** | **70** | **True** |
+| quant_xgboost *(informational only — R13 confirmation arm, not yet run — see banner)* | — | — | — | — | — |
 
 > Source: `results/bootstrap_ci.json` (also embedded in `results/experiment_manifest.json` →
 > `bootstrap_ci`). "Statistically credible" = `True` only when the entire 95% interval sits above
@@ -160,6 +176,7 @@ Per-season breakdown:
 | quant_linear | 3.6s | 0.051s | 70 |
 | quant_gbm | 24.0s | 0.343s | 70 |
 | quant_lightgbm | 17.2s | 0.246s | 70 |
+| quant_xgboost | — *(not yet run — see banner)* | — | — |
 
 > Source: `results/compute_runtime.csv`, grouped by model. `quant_lightgbm` is both slightly more
 > accurate than `quant_gbm` on raw MAE (1.011 vs 1.012) and ~28% cheaper to fit/predict (17.2s vs
@@ -265,7 +282,9 @@ bucket is most of both the aggregate MAE gap in §3.1 and the aggregate bias-sig
 `results/feature_stability_lightgbm.csv` (mean importance / coefficient of variation across all
 70 folds, for `quant_lightgbm` — the arm §9's decision is actually governed by; an earlier draft
 of this section incorrectly cited the linear model's `feature_stability.csv` instead, caught in
-blind review before this report was finalized), top real drivers:
+blind review before this report was finalized; `feature_importance_xgboost.csv`/
+`feature_stability_xgboost.csv` exist for `quant_xgboost` too, but that arm wasn't part of this
+real run — see banner), top real drivers:
 
 | Feature | Mean importance | CV (std/mean) |
 |---------|------------------|----------------|
@@ -334,9 +353,12 @@ happen to point the same direction.
 
 - [ ] **`quant_lightgbm` improves out-of-sample on the primary metric (MAE), the entire 95%
       bootstrap CI sits above zero (§3.1b), and the improvement holds across slices (§8)** →
-      recommend a controlled integration (separate code path, shadow-only at first). Flag
-      whether XGBoost should be added as a further, independent-implementation confirmation
-      (R13 — only if this result is positive or borderline).
+      recommend a controlled integration (separate code path, shadow-only at first). R13 is now
+      resolved for a future run — `quant_xgboost` (§3.1b) exists and will run on the next real
+      run, whenever `xgboost` is installed; its point estimate should be read alongside
+      `quant_lightgbm`'s then as a check that the result isn't an artifact of one library's
+      implementation. It was not yet available for this run (see banner) and did not factor into
+      the verdict below either way.
 - [x] **`quant_lightgbm` does not improve, the CI does not exclude zero, or it only improves a
       slice while degrading others** → do not integrate. The existing Quant model stands.
       Document why ML failed to find signal below.

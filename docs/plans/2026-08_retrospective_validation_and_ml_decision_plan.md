@@ -420,10 +420,12 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   codebase's existing convention of not unit-testing thin `scripts/` CLI wrappers directly; not
   required by this plan's own Verification section, but named here as a real, non-blocking gap.
 - Stripe/paid-API layer — deferred until Track E and F produce real numbers to decide from (Q1).
-- XGBoost as a fourth arm — add only if LightGBM's Track F result is positive or borderline (Q7).
-  Track F's real result was positive (not borderline) on the aggregate/CI metric, but the actual
-  recorded decision was no-ship (see Phase F-4) — flagged for a follow-up decision regardless,
-  not committed to in this pass.
+- XGBoost as a fourth arm (R13) — since resolved as *code* by a separate, parallel session
+  (`quant_xgboost` in `research/ml/residual_model.py`, informational only per R16, merged to
+  `master` after this plan's own Phase F-4 real run completed) — but that arm was not part of
+  this plan's own real F-4 numbers (see `REPORT.md`'s banner). A follow-up real run including it
+  is recommended, not required — Track F's real result was positive (not borderline) on the
+  aggregate/CI metric, but the actual recorded decision was no-ship (see Phase F-4) either way.
 - `fpl-quant-v2-REAL-LOCAL-SAFE`'s deleted working tree — flagged, not investigated (Q5); worth a
   human glance to confirm the deletion was intentional.
 - Whether to extend `fit_seasons_for()` using the new 2023-24 data to unlock 2024-25 GW1 — a

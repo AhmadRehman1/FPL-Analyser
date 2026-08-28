@@ -15,3 +15,7 @@
 # pipeline's determinism concern.
 scikit-learn==1.9.0
 lightgbm==4.7.0
+# R13: XGBoost, an independent implementation of gradient-boosted trees added specifically as a
+# cross-check on the quant_lightgbm result (residual_model.py's XGBoostResidualModel docstring)
+# -- informational only, does not itself govern the R11 ship/no-ship decision.
+xgboost==2.1.4

@@ -323,6 +323,105 @@ class LightGBMResidualModel:
         }).sort_values("importance", ascending=False).reset_index(drop=True)
 
 
+# ============================================================
+# Model 4: XGBoost residual model -- independent-implementation confirmation of the LightGBM
+# result (Track F R13: "Flag whether XGBoost should be added as a further, independent-
+# implementation confirmation"). It does NOT govern the R11 ship/no-ship decision (only
+# quant_lightgbm does) -- it exists to answer a different question: if two independently
+# implemented gradient-boosting libraries agree that there is (or isn't) out-of-sample signal
+# in the residual, that agreement is itself evidence the result isn't an artifact of one
+# library's specific defaults/splitting heuristic. Reported alongside quant_gbm as
+# informational (R16-style), never substituting for quant_lightgbm's own numbers.
+# ============================================================
+
+class XGBoostResidualModel:
+    """XGBRegressor predicting the residual. Requires xgboost; raises
+    ResidualModelUnavailableError (caught by the experiment orchestrator, same treatment as
+    GradientBoostingResidualModel/LightGBMResidualModel, R14) if it is not installed OR if it
+    fails to run, so a real runtime failure degrades the same way an absent install does and
+    never aborts the rest of the multi-fold experiment run."""
+
+    name = "quant_xgboost"
+
+    def __init__(
+        self,
+        max_depth: int = 4,
+        n_estimators: int = 100,
+        learning_rate: float = 0.05,
+        # Same reasoning as LightGBMResidualModel's own defaults: exhaustive gameweek
+        # walk-forward means the earliest folds train on a few hundred rows, where
+        # unregularised boosting risks memorising noise rather than finding real signal.
+        reg_alpha: float = 0.1,
+        reg_lambda: float = 0.1,
+        subsample: float = 0.8,
+        colsample_bytree: float = 0.8,
+        random_state: int = 42,
+    ):
+        self.max_depth = max_depth
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.reg_alpha = reg_alpha
+        self.reg_lambda = reg_lambda
+        self.subsample = subsample
+        self.colsample_bytree = colsample_bytree
+        self.random_state = random_state
+        self._model = None
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "XGBoostResidualModel":
+        try:
+            from xgboost import XGBRegressor
+        except ImportError as exc:
+            raise ResidualModelUnavailableError(
+                "xgboost is not installed -- XGBoostResidualModel requires it. Install with "
+                "`pip install xgboost` (see requirements-research.txt) to enable this model; "
+                "the Quant baseline, historical baseline, linear residual model, quant_gbm, and "
+                "quant_lightgbm (whichever dependencies are available) all still run without it."
+            ) from exc
+        try:
+            model = XGBRegressor(
+                max_depth=self.max_depth, n_estimators=self.n_estimators,
+                learning_rate=self.learning_rate, reg_alpha=self.reg_alpha,
+                reg_lambda=self.reg_lambda, subsample=self.subsample,
+                colsample_bytree=self.colsample_bytree,
+                random_state=self.random_state, verbosity=0,
+            )
+            model.fit(X, y)
+        except Exception as exc:
+            raise ResidualModelUnavailableError(
+                f"xgboost failed to fit ({type(exc).__name__}: {exc}) -- treating this arm as "
+                "unavailable for this fold rather than aborting the rest of the experiment."
+            ) from exc
+        self._model = model
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if self._model is None:
+            raise ResidualModelUnavailableError("model was never fit (xgboost unavailable)")
+        return self._model.predict(X)
+
+    def feature_importance(self, X: np.ndarray, y: np.ndarray, feature_names: list[str], n_repeats: int = 5) -> pd.DataFrame:
+        """Permutation importance -- same model-agnostic technique GradientBoostingResidualModel
+        and LightGBMResidualModel already use, so all nonlinear arms report importance on the
+        same footing rather than each using its own library's built-in (differently-scaled)
+        importance measure."""
+        try:
+            from sklearn.inspection import permutation_importance
+        except ImportError as exc:
+            raise ResidualModelUnavailableError(
+                "scikit-learn is not installed -- XGBoostResidualModel's feature_importance "
+                "reuses sklearn.inspection.permutation_importance (it works on any estimator "
+                "with predict(), not just sklearn's own models)."
+            ) from exc
+        result = permutation_importance(
+            self._model, X, y, n_repeats=n_repeats, random_state=self.random_state, scoring="neg_mean_absolute_error",
+        )
+        return pd.DataFrame({
+            "feature": feature_names,
+            "importance": result.importances_mean,
+            "direction": np.sign(result.importances_mean),
+        }).sort_values("importance", ascending=False).reset_index(drop=True)
+
+
 def sklearn_available() -> bool:
     try:
         import sklearn  # noqa: F401
@@ -334,6 +433,14 @@ def sklearn_available() -> bool:
 def lightgbm_available() -> bool:
     try:
         import lightgbm  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def xgboost_available() -> bool:
+    try:
+        import xgboost  # noqa: F401
         return True
     except ImportError:
         return False

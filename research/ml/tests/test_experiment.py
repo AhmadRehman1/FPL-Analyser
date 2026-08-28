@@ -18,7 +18,7 @@ import pytest
 import research.ml.experiment as experiment_module
 from research.ml import contract as C
 from research.ml.experiment import run_experiment, run_loop
-from research.ml.residual_model import lightgbm_available, sklearn_available
+from research.ml.residual_model import lightgbm_available, sklearn_available, xgboost_available
 
 # (contract attribute name, filename) for every artifact the experiment must produce.
 _ARTIFACTS = [
@@ -39,6 +39,8 @@ _ARTIFACTS = [
     ("SLICED_MODEL_COMPARISON_CSV", "sliced_model_comparison.csv"),
     ("FEATURE_IMPORTANCE_LIGHTGBM_CSV", "feature_importance_lightgbm.csv"),
     ("STABILITY_LIGHTGBM_CSV", "feature_stability_lightgbm.csv"),
+    ("FEATURE_IMPORTANCE_XGBOOST_CSV", "feature_importance_xgboost.csv"),
+    ("STABILITY_XGBOOST_CSV", "feature_stability_xgboost.csv"),
 ]
 
 
@@ -78,6 +80,10 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
         assert "quant_lightgbm" in set(comp["model"])
     if sklearn_available():
         assert "quant_gbm" in set(comp["model"])
+    # R13: quant_xgboost, the independent-implementation confirmation arm, must appear whenever
+    # xgboost is actually installed.
+    if xgboost_available():
+        assert "quant_xgboost" in set(comp["model"])
 
     # position is an approved feature (EXISTING_MODEL_AUDIT.md §9) that was attached to every
     # dataset row but never actually fed to any model until this feature-audit pass -- must be
@@ -89,6 +95,12 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
         fi_lightgbm = pd.read_csv(C.FEATURE_IMPORTANCE_LIGHTGBM_CSV)
         assert not fi_lightgbm.empty
         assert any(f.startswith("position=") for f in fi_lightgbm["feature"])
+
+    # R13: quant_xgboost's own feature importance/stability, same treatment as quant_lightgbm's.
+    if xgboost_available():
+        fi_xgboost = pd.read_csv(C.FEATURE_IMPORTANCE_XGBOOST_CSV)
+        assert not fi_xgboost.empty
+        assert any(f.startswith("position=") for f in fi_xgboost["feature"])
 
     # season points table compares the quant manager vs the ML manager
     sp = pd.read_csv(C.SEASON_POINTS_CSV)
@@ -111,6 +123,9 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
     if lightgbm_available():
         assert "quant_lightgbm" in bootstrap
         assert "quant_lightgbm" in set(runtime["model"])
+    if xgboost_available():
+        assert "quant_xgboost" in bootstrap
+        assert "quant_xgboost" in set(runtime["model"])
 
     # Track F, R11: the per-slice comparison must exist for every model, across more than one
     # slicing dimension, so a real "does the improvement hold across slices" check is possible.
@@ -120,11 +135,14 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
     assert sliced["dimension"].nunique() > 1
     if lightgbm_available():
         assert "quant_lightgbm" in set(sliced["model"])
+    if xgboost_available():
+        assert "quant_xgboost" in set(sliced["model"])
 
     # R11: manifest carries the bootstrap CI results directly, so Phase F-4 doesn't have to
     # re-derive them from bootstrap_ci.json separately.
     assert manifest["bootstrap_ci"] == bootstrap
     assert manifest["lightgbm_available"] == lightgbm_available()
+    assert manifest["xgboost_available"] == xgboost_available()
 
     # payload returned to caller matches what was written
     assert set(payload.keys()) >= {"manifest", "comparison", "improvement", "bootstrap_ci"}

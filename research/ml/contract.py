@@ -34,6 +34,11 @@ FEATURE_IMPORTANCE_CSV = RESULTS_DIR / "feature_importance.csv"
 STABILITY_CSV = RESULTS_DIR / "feature_stability.csv"
 FEATURE_IMPORTANCE_LIGHTGBM_CSV = RESULTS_DIR / "feature_importance_lightgbm.csv"
 STABILITY_LIGHTGBM_CSV = RESULTS_DIR / "feature_stability_lightgbm.csv"
+# R13: XGBoost, the independent-implementation confirmation arm for quant_lightgbm's result --
+# same per-fold importance/stability treatment, kept separate so its numbers are inspectable on
+# their own footing, not merged into the LightGBM files it exists to cross-check.
+FEATURE_IMPORTANCE_XGBOOST_CSV = RESULTS_DIR / "feature_importance_xgboost.csv"
+STABILITY_XGBOOST_CSV = RESULTS_DIR / "feature_stability_xgboost.csv"
 IMPROVEMENT_CSV = RESULTS_DIR / "improvement.csv"
 ENSEMBLE_CSV = RESULTS_DIR / "ensemble.csv"
 EXPERIMENT_MANIFEST_JSON = RESULTS_DIR / "experiment_manifest.json"
@@ -65,6 +70,7 @@ PER_RUN_RESULT_ATTRS: tuple[str, ...] = (
     "MODEL_COMPARISON_CSV", "IMPROVEMENT_CSV", "RESIDUAL_ANALYSIS_CSV",
     "HIGH_DISAGREEMENT_CSV", "CALIBRATION_CSV", "FEATURE_IMPORTANCE_CSV",
     "STABILITY_CSV", "FEATURE_IMPORTANCE_LIGHTGBM_CSV", "STABILITY_LIGHTGBM_CSV",
+    "FEATURE_IMPORTANCE_XGBOOST_CSV", "STABILITY_XGBOOST_CSV",
     "ENSEMBLE_CSV", "EXPERIMENT_MANIFEST_JSON", "SEASON_POINTS_CSV",
     "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON", "SLICED_MODEL_COMPARISON_CSV",
 )
