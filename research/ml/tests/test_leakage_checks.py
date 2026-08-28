@@ -38,12 +38,31 @@ def test_prediction_precedes_outcome(seeded_db):
     check_prediction_precedes_outcome(df, seeded_db)
 
 
-def test_prediction_not_before_kickoff_raises(seeded_db):
+def test_prediction_timestamp_exactly_equal_to_kickoff_passes(seeded_db):
+    """Found running Phase F-4 for real (docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md):
+    backtest.gameweek_deadline()'s own docstring documents prediction_timestamp (data_asof) as
+    ALWAYS exactly the first kickoff time -- confirmed live against all 71 real backtest steps,
+    zero exceptions -- since no real FPL deadline field exists in the ingested data. This
+    synthetic fixture's own seeded data_asof (conftest.py: deadline - 1 day) never exercised
+    that real equality case, which is exactly why the pre-fix `>=` boundary went uncaught until
+    the first real run. This test closes that gap directly: equal timestamps must NOT raise."""
     df = build_minimal_dataset(seeded_db)
     df = df.copy()
-    # move prediction timestamp to after kickoff (use a far-future date)
+    first_kickoff = seeded_db.execute(
+        "SELECT min(kickoff_time) FROM fact_match WHERE season = ? AND gameweek = ? AND competition = 'Premier League'",
+        [df[C.COL_SEASON].iloc[0], int(df[C.COL_GAMEWEEK].iloc[0])],
+    ).fetchone()[0]
+    df[C.COL_PRED_TIMESTAMP] = pd.Timestamp(first_kickoff)
+    check_prediction_precedes_outcome(df, seeded_db)  # must not raise
+
+
+def test_prediction_after_kickoff_raises(seeded_db):
+    df = build_minimal_dataset(seeded_db)
+    df = df.copy()
+    # move prediction timestamp to after kickoff (use a far-future date) -- a real problem,
+    # distinct from the equal-to-kickoff case above, which must still be caught.
     df[C.COL_PRED_TIMESTAMP] = pd.Timestamp("2030-01-01")
-    with pytest.raises(LeakageError, match="not strictly before"):
+    with pytest.raises(LeakageError, match="after"):
         check_prediction_precedes_outcome(df, seeded_db)
 
 

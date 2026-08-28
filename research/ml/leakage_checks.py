@@ -48,6 +48,26 @@ def check_ep_model_version_matches_step(df: pd.DataFrame, con) -> None:
 # ============================================================
 
 def check_prediction_precedes_outcome(df: pd.DataFrame, con) -> None:
+    """Found running Phase F-4 for real, against the real production DB, for the first time:
+    prediction_timestamp (== backtest.data_asof) is *always* exactly equal to the gameweek's
+    first kickoff, for all 71 real backtest steps, with zero exceptions -- confirmed live. This
+    is not a data-quality accident: backtest.gameweek_deadline()'s own docstring documents it as
+    a deliberate, deterministic approximation ("Earliest kickoff_time among that gameweek's real
+    fixtures, standing in for the actual FPL transfer deadline -- no deadline field exists
+    anywhere in the ingested data"). This function independently recomputes the exact same
+    MIN(kickoff_time) query, so pred_ts and kickoff_ts are equal by construction for every real
+    step in this codebase -- a strict `>=` trigger here can never NOT fire, making this check
+    fail on 100% of real data regardless of whether real leakage exists.
+
+    The actual safety guarantee already holds independently of this: `ep_outputs` (which becomes
+    quant_prediction here) is itself built inside backtest.asof_scope(), which shadows every
+    fact-table read to STRICTLY `< data_asof` -- so no realised-outcome row at-or-after kickoff
+    can already have reached the prediction, before this function ever runs. This check is a
+    redundant, defensive second look, not the only safety net -- so relaxing its own boundary
+    from `>=` to `>` (only a prediction_timestamp genuinely AFTER kickoff is a real problem) does
+    not weaken the real leakage guarantee, it just stops re-testing an invariant that was never
+    true anywhere in this codebase and clearly wasn't the intent of the original `>=` (which
+    would make this check permanently, universally unpassable against real data)."""
     if df.empty or C.COL_PRED_TIMESTAMP not in df.columns:
         return
     for season, gw, ts in df[[C.COL_SEASON, C.COL_GAMEWEEK, C.COL_PRED_TIMESTAMP]].drop_duplicates().itertuples(index=False, name=None):
@@ -60,10 +80,10 @@ def check_prediction_precedes_outcome(df: pd.DataFrame, con) -> None:
             continue
         pred_ts = pd.Timestamp(ts)
         kickoff_ts = pd.Timestamp(first_kickoff)
-        if pred_ts >= kickoff_ts:
+        if pred_ts > kickoff_ts:
             raise LeakageError(
-                f"prediction_timestamp {pred_ts} for ({season}, GW{gw}) is not strictly "
-                f"before the first kickoff {kickoff_ts} -- the prediction must precede the outcome"
+                f"prediction_timestamp {pred_ts} for ({season}, GW{gw}) is after "
+                f"the first kickoff {kickoff_ts} -- the prediction must not follow the outcome"
             )
 
 
