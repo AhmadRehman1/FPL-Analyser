@@ -45,7 +45,10 @@ any recovery/investigation of the `fpl-quant-v2-REAL-LOCAL-SAFE` directory's del
    more real managers (usable only as future gameweeks accumulate), or both? → **Both,
    retrospective first** (user) — with an explicit requirement that the retrospective number's
    methodology must state plainly it is the engine's own from-GW1 strategy vs. real managers'
-   actual outcomes, never framed as replaying real managers' decisions.
+   actual outcomes, never framed as replaying real managers' decisions. (Historical record of
+   what was actually said in the interview at this point — later found, building Phase E-2 for
+   real, that a true GW1 start isn't possible for any season; see Current State. Everywhere below
+   this point reflects the corrected GW2 start.)
 3. Q: What population scale/privacy posture for the real-manager data both pieces touch — large
    anonymized sample, or a small named set? → **Large anonymized sample** (user), extending
    Priority 10's existing no-names precedent.
@@ -213,8 +216,9 @@ No further forks remain that would change the shape of the plan.
 
 ## Approach
 
-**Track E** reuses `run_season_simulation()` (bootstraps the engine's own M5 squad at a real GW1
-and walks it forward on the engine's own M8-informed decisions) but calls it with **all 18
+**Track E** reuses `run_season_simulation()` (bootstraps the engine's own M5 squad at a real
+gameweek — GW2, not GW1, see Current State — and walks it forward on the engine's own
+M8-informed decisions) but calls it with **all 18
 required parameter-version kwargs hardcoded to `1`** — adapting `scripts/run_season_simulation.py`'s
 own `_param_versions()` function verbatim, but replacing every `active[...]` lookup (for the 8
 families that are normally recalibratable) with a literal `1`, since using their currently-active
@@ -246,9 +250,9 @@ instruction, not by whichever arm happens to look best.
 ## Requirements
 
 - **R1**: WHEN Track E's engine-run phase executes THE SYSTEM SHALL bootstrap a real M5 squad at
-  2025-26 GW1 via `run_season_simulation()`, passing **all 18 required version kwargs hardcoded
-  to `1`** (both the 8 normally-recalibratable families and the 10 that are never recalibrated
-  anywhere in this codebase) rather than resolving any of them via
+  2025-26 GW2 (not GW1 — see Current State) via `run_season_simulation()`, passing **all 18
+  required version kwargs hardcoded to `1`** (both the 8 normally-recalibratable families and the
+  10 that are never recalibrated anywhere in this codebase) rather than resolving any of them via
   `active_recalibratable_versions()`, and walk forward to GW38 using the engine's own M8-informed
   decisions.
 - **R2**: WHEN the sampling phase executes THE SYSTEM SHALL draw a **uniform-random sample of
@@ -260,10 +264,11 @@ instruction, not by whichever arm happens to look best.
   in any output artifact of Track E, **including log output**; retained/logged data is aggregate
   point totals and counts only.
 - **R5**: THE SYSTEM SHALL produce a written report whose methodology section explicitly states
-  (a) the comparison is the engine's own from-GW1 strategy versus real managers' actual outcomes,
-  never a replay of real managers' decisions, and (b) the simulation used default, pre-
-  recalibration parameters rather than current hindsight-tuned ones, and SHALL NOT wire this
-  report into any public page.
+  (a) the comparison is the engine's own from-GW2 strategy versus real managers' actual outcomes,
+  never a replay of real managers' decisions; (b) the simulation used default, pre-recalibration
+  parameters rather than current hindsight-tuned ones; and (c) the simulation starts at GW2, not
+  a true GW1, since no season has a pre-GW1 price snapshot in this schema — and SHALL NOT wire
+  this report into any public page.
 - **R6**: Sampling SHALL reuse the existing `_fetch_json` backoff/retry pattern, SHALL cache the
   pulled sample rather than re-fetching on every run, and SHALL log a real measured wall-clock
   time and rejection rate (IDs that don't exist or didn't play 2025-26).
@@ -490,10 +495,11 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   is the mitigation for two separate misreading risks; run the Critique Engine at build time)*
   Done when: `docs/reports/2025-26_retrospective_validation.md` exists, stating the engine's
   simulated total, its percentile rank and point differential against Phase E-1's real sample,
-  and an explicit methodology section covering both (a) this is the engine's own from-GW1
-  strategy versus real managers' actual outcomes, not a replay of any real manager's decisions,
-  and (b) the simulation used default, pre-recalibration parameters, not current hindsight-tuned
-  ones; the report is not linked from or wired into any public page.
+  and an explicit methodology section covering all three of (a) this is the engine's own
+  from-GW2 strategy versus real managers' actual outcomes, not a replay of any real manager's
+  decisions, (b) the simulation used default, pre-recalibration parameters, not current
+  hindsight-tuned ones, and (c) the simulation starts at GW2, not a true GW1 (see Current State);
+  the report is not linked from or wired into any public page.
   Steps: compute percentile/differential (unit-tested against a synthetic distribution with a
   known answer); write the report with both disclaimers; do not touch `track-record.html` or
   `index.html`.
@@ -550,19 +556,25 @@ live this session (see Current State) and is no longer tracked as a ledger risk.
   Covers: R10; checks: [A6]
 - [ ] **Phase F-4: Run the real experiment and record the definitive decision** *(risky — this is
   the actual ship/no-ship call the whole workstream exists to produce; run the Critique Engine at
-  build time)*
+  build time. Prep done ahead of the real run: `evaluate.sliced_comparison_rows()` +
+  `results/sliced_model_comparison.csv` now give every model — not just the Quant baseline — a
+  real, persisted per-slice breakdown, and `scripts/summarize_ml_experiment_results.py` assembles
+  all six real artifacts into one structured view for filling in REPORT.md accurately.)*
   Done when: `research/ml/results/` holds real, non-template output for all four arms
-  (Quant-alone, Quant+ridge, Quant+LightGBM, Quant+`quant_gbm`) on identical leakage-safe folds;
-  `REPORT.md` is filled with real numbers including per-fold results, aggregate metrics,
-  bootstrap CIs, compute/runtime, and season-points impact; §9's decision checkbox is explicitly
-  marked based on the **LightGBM arm alone** (R11), with `quant_gbm` clearly labeled
-  informational (R16) and the per-slice check confirmed before any "ship" verdict; if LightGBM's
-  result is positive or borderline, a flagged follow-up recommends whether to add XGBoost (R13);
-  a measured total runtime is logged, with an explicit note if any fold had to be abandoned for
-  time and why.
+  (Quant-alone, Quant+ridge, Quant+LightGBM, Quant+`quant_gbm`) on identical leakage-safe folds,
+  including `sliced_model_comparison.csv`; `REPORT.md` is filled with real numbers including
+  per-fold results, aggregate metrics, bootstrap CIs, compute/runtime, and season-points impact;
+  §9's decision checkbox is explicitly marked based on the **LightGBM arm alone** (R11), with
+  `quant_gbm` clearly labeled informational (R16) and the per-slice check (aggregated from
+  `sliced_model_comparison.csv`, comparing `quant_lightgbm` against `quant` in every slice)
+  confirmed before any "ship" verdict; if LightGBM's result is positive or borderline, a flagged
+  follow-up recommends whether to add XGBoost (R13); a measured total runtime is logged, with an
+  explicit note if any fold had to be abandoned for time and why.
   Steps: confirm `ep_outputs` still has real rows (cheap re-check of the 66,974-row fact already
-  verified this session); run `python -m research.ml.experiment` for real; fill `REPORT.md`;
-  apply R11's ship bar to the LightGBM arm specifically; record the decision.
+  verified this session); run `python -m research.ml.experiment` for real; run
+  `scripts/summarize_ml_experiment_results.py` to assemble the real numbers; fill `REPORT.md`;
+  apply R11's ship bar to the LightGBM arm specifically, checking the per-slice comparison before
+  any "ship" verdict; record the decision.
   Covers: R9, R11, R12, R13; checks: [A7]
 
 ## The Critique Engine (for Build Phases marked *risky* above)
