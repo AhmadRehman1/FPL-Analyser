@@ -19,9 +19,10 @@ from __future__ import annotations
 import argparse
 import time
 import traceback
+from datetime import datetime, timezone
 
 from . import contract as C
-from .experiment import run_experiment
+from .experiment import run_experiment, redirect_results_to
 from .experiment import _append_run_log  # noqa: F401  (re-exported helper, used below)
 
 
@@ -46,8 +47,11 @@ def run_forever(sleep_seconds: float, fold_mode: str, base_seed: int, seasons: t
     run_index = 0
     while max_iterations is None or run_index < max_iterations:
         seed = base_seed + run_index
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_dir = C.RUNS_DIR / f"run_{run_index:04d}_{ts}"
         try:
-            result = run_experiment(seasons=seasons, con=None, random_seed=seed, fold_mode=fold_mode)
+            with redirect_results_to(run_dir):
+                result = run_experiment(seasons=seasons, con=None, random_seed=seed, fold_mode=fold_mode)
             m = result["manifest"]
             sp = m["season_points"]
             _append_run_log({
@@ -58,6 +62,7 @@ def run_forever(sleep_seconds: float, fold_mode: str, base_seed: int, seasons: t
                 "quant_manager_points": sp["quant_manager"],
                 "ml_manager_points": sp["ml_manager"],
                 "ml_beats_quant": sp["ml_beats_quant"],
+                "run_dir": str(run_dir),
             })
             best = _best_so_far()
             best_pts = best.get("ml_manager_points") if best else sp["ml_manager"]

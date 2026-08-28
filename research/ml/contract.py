@@ -50,6 +50,25 @@ RUN_LOG_CSV = RESULTS_DIR / "experiment_runs.csv"  # rolling log of every run (l
 RUNS_DIR = RESULTS_DIR / "runs"                      # one timestamped subdir per loop run
 REPORT_MD = ML_ROOT / "REPORT.md"
 
+# Every result-artifact attribute a loop/24-7 caller must redirect into a per-run subdirectory
+# before calling run_experiment(), or successive iterations silently overwrite each other's
+# detailed output in place -- single source of truth so experiment.run_loop() and
+# run_continuous.run_forever() can't drift out of sync with each other (or with a newly added
+# result artifact) the way they previously did: run_loop() was missing BASELINE_METRICS_JSON/
+# BASELINE_PREDICTIONS_PARQUET (silently overwritten every `--runs N` iteration), and
+# run_continuous.py's own "one timestamped results subdir per run" docstring claim was not
+# actually implemented at all (its loop never redirected anything). DATASET_PARQUET/DATASET_CSV
+# and RUN_LOG_CSV/RUNS_DIR are deliberately excluded: the first two are the shared input dataset
+# cache, not a per-run result, and the second two are the rolling log/container themselves.
+PER_RUN_RESULT_ATTRS: tuple[str, ...] = (
+    "BASELINE_METRICS_JSON", "BASELINE_PREDICTIONS_PARQUET",
+    "MODEL_COMPARISON_CSV", "IMPROVEMENT_CSV", "RESIDUAL_ANALYSIS_CSV",
+    "HIGH_DISAGREEMENT_CSV", "CALIBRATION_CSV", "FEATURE_IMPORTANCE_CSV",
+    "STABILITY_CSV", "FEATURE_IMPORTANCE_LIGHTGBM_CSV", "STABILITY_LIGHTGBM_CSV",
+    "ENSEMBLE_CSV", "EXPERIMENT_MANIFEST_JSON", "SEASON_POINTS_CSV",
+    "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON", "SLICED_MODEL_COMPARISON_CSV",
+)
+
 for _d in (DATA_DIR, RESULTS_DIR, PLOTS_DIR, RUNS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 

@@ -45,6 +45,48 @@ def test_run_forever_loops_logs_and_tracks_best(seeded_db, monkeypatch, tmp_path
     assert list(log["ml_manager_points"]) == [100.0, 110.0]
 
 
+def test_run_forever_redirects_each_iteration_to_its_own_run_dir(seeded_db, monkeypatch, tmp_path):
+    # Regression test for a real bug: run_forever() never redirected result-artifact paths per
+    # iteration (unlike experiment.run_loop(), which does), despite this module's own docstring
+    # claiming "it writes one timestamped results subdir per run under results/runs/". Every
+    # iteration silently overwrote the SAME top-level results/*.csv/*.json in place -- only the
+    # rolling experiment_runs.csv log actually accumulated. The other tests in this file mock
+    # run_experiment entirely, so they never exercise real file-writing and could not have
+    # caught this. This test uses the real run_experiment (via seeded_db, unmocked) and asserts
+    # two consecutive iterations each get their own non-empty, genuinely separate subdirectory.
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(C, "RUNS_DIR", runs_dir)
+    monkeypatch.setattr(C, "RUN_LOG_CSV", tmp_path / "experiment_runs.csv")
+
+    def fake_run_experiment(seasons=None, con=None, random_seed=42, fold_mode="gameweek"):
+        # con is ignored by the real signature's caller contract here -- run_forever always
+        # passes con=None and lets run_experiment open its own connection, which would try the
+        # real production DB. Route it at the real seeded_db instead, exactly like
+        # research.ml.experiment.run_experiment's own test suite does elsewhere.
+        from research.ml.experiment import run_experiment as real_run_experiment
+        return real_run_experiment(seasons=seasons, con=seeded_db, random_seed=random_seed, fold_mode=fold_mode)
+
+    monkeypatch.setattr(rc, "run_experiment", fake_run_experiment)
+
+    n = rc.run_forever(sleep_seconds=0, fold_mode="gameweek", base_seed=42,
+                      seasons=["2024-2025", "2025-2026"], failure_backoff=0, max_iterations=2)
+    assert n == 2
+
+    run_dirs = sorted(p for p in runs_dir.iterdir() if p.is_dir())
+    assert len(run_dirs) == 2, f"expected 2 separate per-run subdirs, found {run_dirs}"
+    for run_dir in run_dirs:
+        manifest_path = run_dir / "experiment_manifest.json"
+        comparison_path = run_dir / "model_comparison.csv"
+        assert manifest_path.exists(), f"{run_dir} missing experiment_manifest.json"
+        assert comparison_path.exists(), f"{run_dir} missing model_comparison.csv"
+        assert comparison_path.stat().st_size > 0
+
+    # the module-level paths must be restored to their pre-redirect values once the loop ends,
+    # not left pointing at the last iteration's subdirectory.
+    assert C.MODEL_COMPARISON_CSV == C.RESULTS_DIR / "model_comparison.csv"
+
+
 def test_run_forever_survives_failure_and_continues(seeded_db, monkeypatch, tmp_path):
     runs_dir = tmp_path / "runs"
     runs_dir.mkdir(exist_ok=True)

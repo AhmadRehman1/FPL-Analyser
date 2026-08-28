@@ -15,8 +15,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import research.ml.experiment as experiment_module
 from research.ml import contract as C
-from research.ml.experiment import run_experiment
+from research.ml.experiment import run_experiment, run_loop
 from research.ml.residual_model import lightgbm_available, sklearn_available
 
 # (contract attribute name, filename) for every artifact the experiment must produce.
@@ -163,3 +164,41 @@ def test_run_experiment_survives_a_lightgbm_runtime_failure_not_just_import_fail
     assert "quant_lightgbm" not in set(comp["model"])  # the failing arm is genuinely absent...
     assert not comp.empty  # ...but nothing else was lost
     assert payload["manifest"]["lightgbm_available"] is True  # import succeeded; the *fit* failed
+
+
+def test_run_loop_redirects_every_per_run_artifact_including_baseline_files(seeded_db, monkeypatch, tmp_path):
+    # Regression test for a real, smaller gap in the same family as run_continuous.py's own bug
+    # (see test_run_continuous.py): run_loop()'s own redirect list was missing
+    # BASELINE_METRICS_JSON/BASELINE_PREDICTIONS_PARQUET, so every `--runs N` iteration silently
+    # overwrote the SAME baseline_metrics.json/baseline_predictions.parquet in place rather than
+    # preserving one per run like every other artifact. Fixed by centralising the redirect list
+    # as contract.PER_RUN_RESULT_ATTRS (used by both run_loop() and run_continuous.run_forever()
+    # now) rather than two independently-maintained copies.
+    runs_dir = tmp_path / "runs"
+    runs_dir.mkdir(exist_ok=True)
+    monkeypatch.setattr(C, "RUNS_DIR", runs_dir)
+    monkeypatch.setattr(C, "RUN_LOG_CSV", tmp_path / "experiment_runs.csv")
+
+    # run_loop() always calls run_experiment(con=None), which would open the real (absent, in
+    # this sandbox) production DB -- route it at the seeded synthetic DB instead, the same
+    # monkeypatch-the-module-global-name trick test_run_continuous.py's own equivalent test uses
+    # for run_continuous.run_forever(). run_loop is defined in this same module, so patching
+    # experiment_module.run_experiment intercepts run_loop's internal call to it.
+    def fake_run_experiment(seasons=None, con=None, random_seed=42, fold_mode="gameweek"):
+        return run_experiment(seasons=seasons, con=seeded_db, random_seed=random_seed, fold_mode=fold_mode)
+
+    monkeypatch.setattr(experiment_module, "run_experiment", fake_run_experiment)
+
+    best = run_loop(runs=2, seasons=["2024-2025", "2025-2026"], fold_mode="gameweek", base_seed=42)
+    assert best["runs"] == 2
+
+    run_dirs = sorted(p for p in runs_dir.iterdir() if p.is_dir())
+    assert len(run_dirs) == 2
+    for run_dir in run_dirs:
+        assert (run_dir / "baseline_metrics.json").exists()
+        assert (run_dir / "baseline_predictions.parquet").exists()
+        assert (run_dir / "experiment_manifest.json").exists()
+
+    # restored to the real (non-redirected) paths once the loop ends
+    assert C.BASELINE_METRICS_JSON == C.RESULTS_DIR / "baseline_metrics.json"
+    assert C.BASELINE_PREDICTIONS_PARQUET == C.RESULTS_DIR / "baseline_predictions.parquet"
