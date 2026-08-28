@@ -28,6 +28,7 @@ import json
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import numpy as np
@@ -360,6 +361,26 @@ def _append_run_log(summary: dict) -> None:
         row.to_csv(C.RUN_LOG_CSV, index=False)
 
 
+@contextmanager
+def redirect_results_to(run_dir):
+    """Temporarily redirect every per-run result-artifact path (contract.PER_RUN_RESULT_ATTRS)
+    into `run_dir`, restoring the originals on exit -- so a loop/24-7 caller's successive
+    run_experiment() calls each get their own subdirectory instead of silently overwriting each
+    other's detailed output in place. Single source of truth shared by run_loop() below and
+    run_continuous.run_forever(), so they can no longer drift out of sync with each other or
+    with a newly added result artifact the way they previously did (see PER_RUN_RESULT_ATTRS's
+    own comment for the real history)."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    orig = {a: getattr(C, a) for a in C.PER_RUN_RESULT_ATTRS}
+    for a in orig:
+        setattr(C, a, run_dir / orig[a].name)
+    try:
+        yield
+    finally:
+        for a in orig:
+            setattr(C, a, orig[a])
+
+
 def run_loop(runs: int, seasons: tuple[str, ...] | None, fold_mode: str, base_seed: int = 42) -> dict:
     """Run the experiment `runs` times, each with a distinct seed. Each run writes its artifacts
     to a timestamped subdir under results/runs/ and a summary row is appended to the rolling
@@ -369,18 +390,7 @@ def run_loop(runs: int, seasons: tuple[str, ...] | None, fold_mode: str, base_se
         seed = base_seed + i
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         run_dir = C.RUNS_DIR / f"run_{i:04d}_{ts}"
-        run_dir.mkdir(parents=True, exist_ok=True)
-        # redirect artifact paths to this run's subdir
-        orig = {a: getattr(C, a) for a in [
-            "MODEL_COMPARISON_CSV", "IMPROVEMENT_CSV", "RESIDUAL_ANALYSIS_CSV",
-            "HIGH_DISAGREEMENT_CSV", "CALIBRATION_CSV", "FEATURE_IMPORTANCE_CSV",
-            "STABILITY_CSV", "ENSEMBLE_CSV", "EXPERIMENT_MANIFEST_JSON", "SEASON_POINTS_CSV",
-            "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON", "SLICED_MODEL_COMPARISON_CSV",
-            "FEATURE_IMPORTANCE_LIGHTGBM_CSV", "STABILITY_LIGHTGBM_CSV",
-        ]}
-        for a in orig:
-            setattr(C, a, run_dir / orig[a].name)
-        try:
+        with redirect_results_to(run_dir):
             result = run_experiment(seasons=seasons, con=None, random_seed=seed, fold_mode=fold_mode)
             m = result["manifest"]
             summary = {
@@ -398,9 +408,6 @@ def run_loop(runs: int, seasons: tuple[str, ...] | None, fold_mode: str, base_se
             print(f"[loop] run {i + 1}/{runs} seed={seed} -> ML {summary['ml_manager_points']:.1f} "
                   f"vs Quant {summary['quant_manager_points']:.1f} pts "
                   f"({'ML wins' if summary['ml_beats_quant'] else 'quant holds'})")
-        finally:
-            for a in orig:
-                setattr(C, a, orig[a])
     if best is None:
         return {"runs": 0}
     best["runs"] = runs
