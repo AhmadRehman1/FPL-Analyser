@@ -110,7 +110,7 @@ def main() -> None:
         "mean": statistics.mean(totals) if totals else None,
         "median": statistics.median(totals) if totals else None,
     }
-    CACHE_FILE.write_text(json.dumps(cache_payload, indent=2))
+    CACHE_FILE.write_text(json.dumps(cache_payload, indent=2), encoding="utf-8")
     print(f"[run_retrospective_sample] cached to {CACHE_FILE}")
 
 
