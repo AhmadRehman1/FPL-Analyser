@@ -5,34 +5,38 @@
 > ingestion + backtest pipeline. A negative result is a successful research result (spec §30):
 > do not frame a non-improvement as a failure.
 >
-> **Track F build status** (`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md`):
-> Phase F-1 (scikit-learn + LightGBM installed and pinned in `requirements-research.txt`) and
-> Phase F-2/F-3 (LightGBM wired in as the primary nonlinear challenger — `quant_lightgbm` in
-> `residual_model.py`/`experiment.py`; bootstrap confidence intervals and per-model runtime
-> instrumentation added to `evaluate.py`/`experiment.py`, artifacts `bootstrap_ci.csv` and
-> `runtime.csv`) are code-complete and covered by `research/ml/tests/` (green against the
-> synthetic fixture DB). **Phase F-4 — the real run against the production database that this
-> report's numbers below would come from — has not been executed**: this was built in a sandboxed
-> session with no populated `db/fpl_quant_v2.duckdb` and no outbound access to the live FPL API
-> (`fantasy.premierleague.com` returns a proxy 403 from this environment), so `ep_outputs` cannot
-> be verified populated or the experiment run for real here. Run `python -m research.ml.experiment`
-> on a machine with the populated production DB to produce the real numbers and fill every
-> `___`/blank cell below — do not fabricate them.
+> **Track F update** (`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md`):
+> this template now includes a fourth model arm, `quant_lightgbm` — the **primary** nonlinear
+> challenger and the **only** arm the ship/no-ship decision in §9 is governed by (R11). The
+> original `quant_gbm` arm (sklearn's `HistGradientBoostingRegressor`) is kept and still reported
+> throughout, but demoted to informational/bonus only (R16) — its numbers are real and worth
+> reading, but they do not decide anything on their own. Every results table below also expects
+> a 95%-confidence bootstrap interval alongside each point estimate (R10) — "positive on
+> average" is not sufficient for §9's decision; the interval must exclude zero (R11).
+>
+> **Phase F-4 (the real run against the production database) has not been executed yet** in any
+> session that has touched this file so far — every session so far has been sandboxed, with no
+> populated `db/fpl_quant_v2.duckdb` and no outbound access to the live FPL API
+> (`fantasy.premierleague.com` returns a proxy 403). Run `python -m research.ml.experiment` on a
+> machine with the populated production DB and open internet to produce the real numbers and fill
+> every `___`/blank cell below — do not fabricate them.
 >
 > **Pre-run model improvements** (found while auditing the pipeline ahead of Phase F-4, since a
-> real run wasn't possible here): (1) `position` — approved as a feature source in
+> real run wasn't possible here either): (1) `position` — approved as a feature source in
 > `EXISTING_MODEL_AUDIT.md` §9 and `LEAKAGE_PROTOCOL.md` §4 from the start — was attached to
-> every dataset row but never actually listed in `feature_columns()`, so no model ever saw it;
-> now one-hot encoded alongside `status`. A goalkeeper's and a forward's point distributions
-> differ enormously, so this was likely costing every model (not just LightGBM) real signal.
-> (2) `LightGBMResidualModel`'s defaults were LightGBM's own stock settings (unbounded depth, no
-> L1/L2, no row/column subsampling) — fine for large datasets, but exhaustive gameweek
-> walk-forward means the earliest folds train on a few hundred rows, where those defaults risk
-> memorising noise rather than finding real signal. Tightened to `max_depth=6`,
-> `reg_alpha=reg_lambda=0.1`, `subsample=colsample_bytree=0.8` — a one-time, principled choice of
-> more conservative defaults, not a hyperparameter search (spec §3 forbids the latter only).
-> Both changes are covered by `research/ml/tests/` and should make Phase F-4's eventual real
-> numbers more trustworthy, not just different.
+> every dataset row but never actually listed in `feature_columns()`, so no model (linear,
+> `quant_gbm`, or `quant_lightgbm`) ever saw it; now one-hot encoded alongside `status`. A
+> goalkeeper's and a forward's point distributions differ enormously, so this was costing every
+> arm real signal, not just LightGBM. (2) `LightGBMResidualModel`'s hyperparameters had no L1/L2
+> regularisation or row/column subsampling — reasonable for large datasets, but exhaustive
+> gameweek walk-forward means the earliest folds train on a few hundred rows, where that risks
+> memorising noise. Added `reg_alpha=reg_lambda=0.1`, `subsample=colsample_bytree=0.8` on top of
+> the existing `max_depth=4` cap — a one-time, principled choice of more conservative defaults,
+> not a hyperparameter search (spec §3 forbids the latter only). (3) `lightgbm_importances` was
+> being computed per fold but never persisted anywhere (unlike the linear model's own
+> `feature_importance.csv`/`feature_stability.csv`) — added `feature_importance_lightgbm.csv` /
+> `feature_stability_lightgbm.csv` so the primary decision-governing arm's feature importance is
+> actually inspectable, not silently discarded. All three are covered by `research/ml/tests/`.
 
 ## 1. Question
 
@@ -58,12 +62,21 @@ does **not** modify live production recommendations.
   mode is also available. No `train_test_split`, no shuffling, no row from a later gameweek
   ever appearing in training (spec §4, enforced by `leakage_checks.check_chronological_split`).
 - **Models:** (1) Linear / Ridge residual model (closed-form numpy fallback when sklearn is
-  absent); (2) **LightGBM residual model (`quant_lightgbm`)** — the primary nonlinear challenger
-  that governs the ship/no-ship decision (Track F R8/R11), gated on the `lightgbm` package being
-  installed; (3) sklearn `HistGradientBoostingRegressor` residual model (`quant_gbm`) — kept only
-  because installing scikit-learn as a LightGBM dependency reactivates it; reported below as
-  **bonus/informational only, not part of the decision** (R16). No neural networks, no large
+  absent); (2) optional Gradient Boosting residual model, `quant_gbm` (only if sklearn is
+  available — reported, but informational only, R16); (3) **LightGBM residual model,
+  `quant_lightgbm`** (only if lightgbm is available — the primary nonlinear challenger; R11's
+  ship/no-ship decision is governed by this arm alone). No neural networks, no large
   hyperparameter search (spec §3).
+- **Bootstrap confidence intervals (R10/R11):** each ML arm's per-fold improvement over the Quant
+  baseline (on MAE) is bootstrap-resampled at fold granularity — not per-observation, since
+  players within one gameweek share match outcomes and aren't independent — 1,000 resamples, 95%
+  interval (`evaluate.bootstrap_ci_for_model_improvement`, `results/bootstrap_ci.json`). A model
+  only counts as a statistically credible improvement if the **entire interval** sits above
+  zero — a positive point estimate alone is exactly the failure mode this check exists to rule
+  out.
+- **Compute/runtime (R10):** each model's real fit+predict wall-clock time is captured per fold
+  (`results/compute_runtime.csv`), so §9's decision can weigh a real accuracy gain against its
+  real compute cost, not just assume ML is free.
 - **Baselines:** the Quant model unchanged, and a simple historical rolling-mean baseline. If the
   Quant model does not beat the dumb historical baseline, the ML question is moot (spec §8).
 - **Ensemble:** `final = w·Quant + (1−w)·ML`, weight fit on **training** residuals only over the
@@ -86,32 +99,34 @@ does **not** modify live production recommendations.
 |--------|-------|-----|------|------|-----------|--------|---|
 |        | quant (baseline) |  |  |  |  |  |  |
 |        | quant_linear |  |  |  |  |  |  |
-|        | **quant_lightgbm (primary challenger — governs §9's decision)** |  |  |  |  |  |  |
-|        | quant_gbm *(bonus/informational only — not part of the decision, R16)* |  |  |  |  |  |  |
+|        | quant_gbm *(informational only — R16)* |  |  |  |  |  |  |
+|        | **quant_lightgbm *(governs §9's decision — R11)*** |  |  |  |  |  |  |
 |        | historical_baseline |  |  |  |  |  |  |
 |        | ensemble (best w=) |  |  |  |  |  |  |
 
 > Source: `results/model_comparison.csv`
 
-### 3.1a Bootstrap confidence intervals (R10)
+### 3.1b Bootstrap confidence intervals on MAE improvement (R10/R11)
 
-95% CI per metric per model, from 1,000 resamples over pooled out-of-sample predictions
-(not a point estimate — the ship/no-ship call in §9 requires the LightGBM arm's CI to clear
-the Quant baseline's, not just its point MAE):
+| Model | Point estimate (MAE improvement) | 95% CI low | 95% CI high | n folds | Statistically credible? |
+|-------|-----------------------------------|-----------|-----------|---------|--------------------------|
+| quant_linear |  |  |  |  |  |
+| quant_gbm *(informational only)* |  |  |  |  |  |
+| **quant_lightgbm** |  |  |  |  |  |
 
-| Model | Metric | Point | CI low | CI high |
-|-------|--------|-------|--------|---------|
-|       |        |       |        |         |
+> Source: `results/bootstrap_ci.json` (also embedded in `results/experiment_manifest.json` →
+> `bootstrap_ci`). "Statistically credible" = `True` only when the entire 95% interval sits above
+> zero. **This table's `quant_lightgbm` row is what §9's decision is actually based on.**
 
-> Source: `results/bootstrap_ci.csv`
+### 3.1c Compute/runtime (R10)
 
-### 3.1b Compute / runtime per model (R10)
+| Model | Total fit+predict seconds (all folds) | Mean seconds/fold | n folds |
+|-------|----------------------------------------|--------------------|---------|
+| quant_linear |  |  |  |
+| quant_gbm |  |  |  |
+| quant_lightgbm |  |  |  |
 
-| Model | Fit+predict seconds (per fold, mean) | Total (all folds) |
-|-------|---------------------------------------|--------------------|
-|       |                                       |                    |
-
-> Source: `results/runtime.csv`
+> Source: `results/compute_runtime.csv`, grouped by model.
 
 ### 3.2 Improvement vs the Quant baseline
 
@@ -120,6 +135,8 @@ the Quant baseline's, not just its point MAE):
 |        |       |        |             |           |             |               |
 
 > Source: `results/improvement.csv`. Improvement = quant_error − ml_error; positive = ML helps.
+> This table is the per-season point-estimate view; §3.1b's bootstrap CI is the one §9's decision
+> actually reads.
 
 ### 3.3 Ensemble weight selected
 
@@ -138,7 +155,9 @@ the Quant baseline's, not just its point MAE):
 
 > Source: `results/season_points.csv`. A manager using the ML-augmented signal must score more
 > real points than the Quant-only manager across multiple runs/seeds -- a lower MAE that doesn't
-> translate into more points is not a reason to integrate.
+> translate into more points is not a reason to integrate. Note (Track F): `ml_prediction` here
+> reflects the experiment's ensemble-priority convention (LightGBM > `quant_gbm` > linear, whichever
+> is available) — it is a "best available ML signal" view, not itself the §9 decision input.
 
 ## 4. Where the Quant model is wrong
 
@@ -159,36 +178,51 @@ mean realised. Summarise whether predictions of N actually average N realised po
 
 ## 7. Feature importance & stability
 
-`results/feature_importance.csv` (per-fold) and `results/feature_stability.csv` (mean / coefficient
-of variation across folds). A feature important in one season but irrelevant in every other is
-suspicious — note any such features here.
+`results/feature_importance.csv` (per-fold, `quant_linear`) and `results/feature_stability.csv`
+(mean / coefficient of variation across folds). `results/feature_importance_lightgbm.csv` /
+`results/feature_stability_lightgbm.csv` are the same for `quant_lightgbm` — the arm §9's
+decision is actually governed by, so its own feature importance matters more than the linear
+model's. A feature important in one season but irrelevant in every other is suspicious — note
+any such features here.
 
 ## 8. Slicing check (spec §12)
 
 A model that improves one slice but loses badly in others is **not** declared successful. Confirm
 the improvement holds (or document where it does not) across: position, price band, minutes band,
-fixture difficulty, ownership, gameweek, and season.
+fixture difficulty, ownership, gameweek, and season. **R11 requires this check specifically for
+`quant_lightgbm`** before any "ship" verdict in §9 — a slicing regression there blocks shipping
+even if the aggregate/bootstrap-CI numbers in §3.1b look credible.
+
+> Source: `results/sliced_model_comparison.csv` — one row per (fold, model, dimension, slice),
+> for every model, using the same slice definitions `baselines.sliced_metrics()`/
+> `save_baseline_metrics()`'s own Quant-only report already uses (added for Track F; previously
+> this breakdown only ever existed for the Quant baseline). Aggregate across folds per
+> (model, dimension, slice) and compare `quant_lightgbm`'s MAE against `quant`'s in every slice
+> before summarising here — a slice where `quant_lightgbm` is worse than Quant, even if the
+> aggregate number in §3.1b looks good, is exactly what this check exists to catch.
 
 ## 9. Decision
 
-Per R11, this decision is governed by the **`quant_lightgbm` arm alone**. `quant_gbm` is reported
-above for information only (R16) and must not move this checkbox either way.
+**Governed by `quant_lightgbm` alone (R11)** — §3.1b's bootstrap CI for that arm, plus this
+section's slicing check for that arm, decide the verdict below. `quant_gbm`'s numbers (real,
+reported throughout this document) are informational only and do not factor into this checkbox
+(R16) — do not let a `quant_gbm` result substitute for `quant_lightgbm`'s here even if the two
+happen to point the same direction.
 
-- [ ] **Ship — LightGBM shows a statistically credible improvement** (bootstrap-CI-based per
-      §3.1a, not a point estimate) in decision-relevant metrics vs the Quant baseline, without
-      regressing calibration (§6) or per-slice performance (§8) → recommend a controlled
-      integration (separate code path, shadow-only at first).
-- [ ] **No-ship — LightGBM does not clear the credibility bar, or improves a slice while
-      degrading others** → do not integrate. The existing Quant model stands. Document why ML
-      failed to find signal.
-
-**Not yet checked**: Phase F-4 (the real experiment run this decision depends on) has not been
-executed in this environment — see the Track F build status note at the top of this report.
+- [ ] **`quant_lightgbm` improves out-of-sample on the primary metric (MAE), the entire 95%
+      bootstrap CI sits above zero (§3.1b), and the improvement holds across slices (§8)** →
+      recommend a controlled integration (separate code path, shadow-only at first). Flag
+      whether XGBoost should be added as a further, independent-implementation confirmation
+      (R13 — only if this result is positive or borderline).
+- [ ] **`quant_lightgbm` does not improve, the CI does not exclude zero, or it only improves a
+      slice while degrading others** → do not integrate. The existing Quant model stands.
+      Document why ML failed to find signal below.
 
 ### 9.1 If not integrating — why?
 
 (e.g. residual is dominated by genuinely unpredictable variance; features leak no usable signal;
-the linear model is capacity-limited and GBM overfits the small sample; etc.)
+LightGBM overfits the small sample; the bootstrap CI crosses zero despite a positive point
+estimate — name the actual reason once real numbers exist, don't leave this templated.)
 
 ## 10. Reproducibility
 

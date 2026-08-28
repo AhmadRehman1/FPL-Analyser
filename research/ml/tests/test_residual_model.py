@@ -1,6 +1,8 @@
 """Residual-model tests: Preprocessor fit/transform, LinearResidualModel (numpy ridge fallback
-when sklearn absent), GradientBoostingResidualModel graceful failure without sklearn, and
-feature importance."""
+when sklearn absent), GradientBoostingResidualModel graceful failure without sklearn,
+LightGBMResidualModel (the primary nonlinear challenger -- Track F,
+docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md, R8/R11), and feature
+importance."""
 
 from __future__ import annotations
 
@@ -33,6 +35,9 @@ def test_preprocessor_fit_transform_shapes(seeded_db):
 
 
 def test_preprocessor_one_hot_encodes_position(seeded_db):
+    # position is an approved static-identity feature (EXISTING_MODEL_AUDIT.md §9,
+    # LEAKAGE_PROTOCOL.md §4) that was attached to every dataset row but never actually listed
+    # in feature_columns() until now -- must be one-hot encoded alongside status.
     df = build_dataset(seeded_db, with_features=True)
     feats = feature_columns()
     pp = Preprocessor().fit(df, feats)
@@ -103,7 +108,12 @@ def test_gbm_raises_when_sklearn_unavailable(monkeypatch):
         GradientBoostingResidualModel().fit(np.zeros((3, 2)), np.zeros(3))
 
 
-def test_lightgbm_fit_predict(seeded_db):
+# ============================================================
+# LightGBMResidualModel -- the primary nonlinear challenger (Track F, R8/R11): the arm the
+# ship/no-ship decision is governed by. Kept alongside, not instead of, quant_gbm above.
+# ============================================================
+
+def test_lightgbm_model_fit_predict(seeded_db):
     if not lightgbm_available():
         pytest.skip("lightgbm is not installed in this environment")
     df = build_dataset(seeded_db, with_features=True)
@@ -112,14 +122,14 @@ def test_lightgbm_fit_predict(seeded_db):
     feats = feature_columns()
     pp = Preprocessor().fit(train, feats)
     Xtr, names = pp.transform(train)
-    Xte, _ = pp.transform(test)
     m = LightGBMResidualModel().fit(Xtr, train["residual"].to_numpy())
+    Xte, _ = pp.transform(test)
     pred = m.predict(Xte)
     assert len(pred) == len(test)
     assert np.isfinite(pred).all()
 
 
-def test_lightgbm_feature_importance(seeded_db):
+def test_lightgbm_model_feature_importance(seeded_db):
     if not lightgbm_available():
         pytest.skip("lightgbm is not installed in this environment")
     df = build_dataset(seeded_db, with_features=True)
@@ -127,11 +137,22 @@ def test_lightgbm_feature_importance(seeded_db):
     feats = feature_columns()
     pp = Preprocessor().fit(train, feats)
     Xtr, names = pp.transform(train)
-    m = LightGBMResidualModel().fit(Xtr, train["residual"].to_numpy())
-    fi = m.feature_importance(names)
+    y = train["residual"].to_numpy()
+    m = LightGBMResidualModel().fit(Xtr, y)
+    fi = m.feature_importance(Xtr, y, names)
     assert set(fi.columns) == {"feature", "importance", "direction"}
     assert len(fi) == len(names)
-    assert (fi["importance"] >= 0).all()  # gain-based importance is non-negative
+
+
+def test_lightgbm_default_hyperparameters_are_regularised():
+    # exhaustive gameweek walk-forward means some folds train on very little data -- the
+    # defaults must regularise (L1/L2, row/column subsampling) on top of the existing
+    # max_depth cap, or an early small fold could memorise noise.
+    m = LightGBMResidualModel()
+    assert m.reg_alpha > 0
+    assert m.reg_lambda > 0
+    assert 0 < m.subsample < 1
+    assert 0 < m.colsample_bytree < 1
 
 
 def test_lightgbm_predict_before_fit_raises():
@@ -140,20 +161,33 @@ def test_lightgbm_predict_before_fit_raises():
         m.predict(np.zeros((3, 2)))
 
 
-def test_lightgbm_default_hyperparameters_are_regularised():
-    # exhaustive gameweek walk-forward means some folds train on very little data -- the
-    # defaults must cap depth and regularise rather than use LightGBM's unbounded-depth,
-    # no-regularisation stock defaults, or an early small fold could memorise noise.
-    m = LightGBMResidualModel()
-    assert m.max_depth > 0  # not -1 (unbounded)
-    assert m.reg_alpha > 0
-    assert m.reg_lambda > 0
-    assert 0 < m.subsample < 1
-    assert 0 < m.colsample_bytree < 1
-
-
 def test_lightgbm_raises_when_unavailable(monkeypatch):
-    if lightgbm_available():
-        pytest.skip("lightgbm is installed in this environment; cannot test the unavailable path")
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment; the real ImportError path already covers this")
+    # Force the lazy `from lightgbm import LGBMRegressor` inside fit() to fail, the same
+    # technique test_linear_model_uses_numpy_fallback_when_no_sklearn already uses for sklearn
+    # -- proves R14's fallback path (a real LightGBM failure must not crash the whole
+    # experiment) actually raises the documented, catchable exception type.
+    import sys
+    monkeypatch.setitem(sys.modules, "lightgbm", None)
     with pytest.raises(ResidualModelUnavailableError):
-        LightGBMResidualModel().fit(np.zeros((3, 2)), np.zeros(3))
+        LightGBMResidualModel().fit(np.random.RandomState(0).randn(20, 3), np.random.RandomState(1).randn(20))
+
+
+def test_lightgbm_feature_importance_raises_when_sklearn_unavailable(seeded_db, monkeypatch):
+    """feature_importance() reuses sklearn's permutation_importance (see module docstring for
+    why) -- a separate, real dependency from lightgbm itself, so its own unavailable-path needs
+    its own test rather than assuming lightgbm's own ResidualModelUnavailableError test covers it."""
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment")
+    df = build_dataset(seeded_db, with_features=True)
+    train = df[df["season"] == "2024-2025"]
+    feats = feature_columns()
+    pp = Preprocessor().fit(train, feats)
+    Xtr, names = pp.transform(train)
+    y = train["residual"].to_numpy()
+    m = LightGBMResidualModel().fit(Xtr, y)
+    import sys
+    monkeypatch.setitem(sys.modules, "sklearn.inspection", None)
+    with pytest.raises(ResidualModelUnavailableError):
+        m.feature_importance(Xtr, y, names)

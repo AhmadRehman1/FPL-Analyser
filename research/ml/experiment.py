@@ -94,7 +94,7 @@ def _fit_and_predict_lightgbm(train_df: pd.DataFrame, test_df: pd.DataFrame, fea
     model = LightGBMResidualModel(random_state=seed).fit(Xtr, ytr)
     resid_train = model.predict(Xtr)
     resid_test = model.predict(Xte)
-    return resid_train, resid_test, model, pp, names
+    return resid_train, resid_test, model, pp, Xte, names
 
 
 def run_experiment(
@@ -127,21 +127,15 @@ def run_experiment(
     calibration_frames: list[pd.DataFrame] = []
     linear_importances: list[pd.DataFrame] = []
     gbm_importances: list[pd.DataFrame] = []
-    lightgbm_importances: list[pd.DataFrame] = []
     ensemble_rows: list[dict] = []
-    runtime_rows: list[dict] = []
+    lightgbm_importances: list[pd.DataFrame] = []
+    runtime_rows: list[dict] = []  # R10: per-model fit+predict wall-clock time, per fold
+    sliced_rows: list[dict] = []  # R11: per-model, per-slice metrics, every fold
     sklearn_ok = sklearn_available()
     lightgbm_ok = lightgbm_available()
 
     # per-gameweek prediction frames, collected so we can simulate a full season manager
     per_gw_frames: list[pd.DataFrame] = []
-    # pooled out-of-sample predictions per model, for bootstrap CIs computed once over the
-    # whole run rather than per fold (see evaluate.bootstrap_ci_rows). Actuals are pooled per
-    # model too (not once globally) because quant_gbm/quant_lightgbm can be absent from a fold
-    # (dependency unavailable, or a fit failure) -- pooling a shared actual list would misalign
-    # predictions and actuals for any model that skipped a fold.
-    pooled_predictions: dict[str, list[np.ndarray]] = {}
-    pooled_actual_by_model: dict[str, list[np.ndarray]] = {}
 
     for fold in folds:
         train_df, test_df = fold.train_df, fold.test_df
@@ -154,35 +148,21 @@ def run_experiment(
         }
 
         # ---- linear residual model ----
-        t0 = time.perf_counter()
+        _t0 = time.perf_counter()
         resid_train_lin, resid_test_lin, lin_model, _pp, feat_names = _fit_and_predict_linear(train_df, test_df, feat_cols, random_seed)
-        runtime_rows.append({"fold": fold.name, "model": "quant_linear", "fit_predict_seconds": time.perf_counter() - t0})
+        runtime_rows.append({"fold": fold.name, "model": "quant_linear", "fit_predict_seconds": time.perf_counter() - _t0})
         ml_pred_lin = quant_test + resid_test_lin
         predictions["quant_linear"] = ml_pred_lin
         linear_importances.append(lin_model.feature_importance(feat_names))
 
-        # ---- LightGBM residual model (Track F primary nonlinear challenger, optional) ----
-        ml_pred_lightgbm = None
-        resid_train_lightgbm = None
-        if lightgbm_ok:
-            try:
-                t0 = time.perf_counter()
-                resid_train_lightgbm, resid_test_lightgbm, lightgbm_model, _pp_lgbm, lgbm_names = _fit_and_predict_lightgbm(train_df, test_df, feat_cols, random_seed)
-                runtime_rows.append({"fold": fold.name, "model": "quant_lightgbm", "fit_predict_seconds": time.perf_counter() - t0})
-                ml_pred_lightgbm = quant_test + resid_test_lightgbm
-                predictions["quant_lightgbm"] = ml_pred_lightgbm
-                lightgbm_importances.append(lightgbm_model.feature_importance(lgbm_names))
-            except ResidualModelUnavailableError as exc:
-                print(f"[experiment] skipping LightGBM for fold {fold.name}: {exc}", file=sys.stderr)
-
-        # ---- gradient boosting residual model (sklearn quant_gbm -- bonus/informational only,
-        # per R16: never governs the ship/no-ship decision, LightGBM above does) ----
+        # ---- gradient boosting residual model (optional, bonus/informational -- R16: does
+        # not factor into the R11 ship/no-ship decision, which is governed by LightGBM below) ----
         ml_pred_gbm = None
         if sklearn_ok:
             try:
-                t0 = time.perf_counter()
+                _t0 = time.perf_counter()
                 resid_train_gbm, resid_test_gbm, gbm_model, pp_gbm, Xte_gbm, gbm_names = _fit_and_predict_gbm(train_df, test_df, feat_cols, random_seed)
-                runtime_rows.append({"fold": fold.name, "model": "quant_gbm", "fit_predict_seconds": time.perf_counter() - t0})
+                runtime_rows.append({"fold": fold.name, "model": "quant_gbm", "fit_predict_seconds": time.perf_counter() - _t0})
                 ml_pred_gbm = quant_test + resid_test_gbm
                 predictions["quant_gbm"] = ml_pred_gbm
                 gbm_importances.append(
@@ -191,10 +171,29 @@ def run_experiment(
             except ResidualModelUnavailableError as exc:
                 print(f"[experiment] skipping gradient boosting for fold {fold.name}: {exc}", file=sys.stderr)
 
+        # ---- LightGBM residual model (optional; R8/R11 -- the PRIMARY nonlinear challenger,
+        # the sole arm the ship/no-ship decision is governed by) ----
+        ml_pred_lightgbm = None
+        resid_train_lightgbm = None
+        if lightgbm_ok:
+            try:
+                _t0 = time.perf_counter()
+                resid_train_lightgbm, resid_test_lightgbm, lightgbm_model, pp_lgb, Xte_lgb, lgb_names = _fit_and_predict_lightgbm(train_df, test_df, feat_cols, random_seed)
+                runtime_rows.append({"fold": fold.name, "model": "quant_lightgbm", "fit_predict_seconds": time.perf_counter() - _t0})
+                ml_pred_lightgbm = quant_test + resid_test_lightgbm
+                predictions["quant_lightgbm"] = ml_pred_lightgbm
+                lightgbm_importances.append(
+                    lightgbm_model.feature_importance(Xte_lgb, test_df[C.COL_ACTUAL].to_numpy(dtype=float) - quant_test, lgb_names)
+                )
+            except ResidualModelUnavailableError as exc:
+                # R14: a real LightGBM failure must not block the rest of the pipeline --
+                # quant/historical/linear/quant_gbm results for this fold still complete.
+                print(f"[experiment] skipping LightGBM for fold {fold.name}: {exc}", file=sys.stderr)
+
         # ---- ensemble (quant + best available ML model), weight learned on train only.
-        # Priority LightGBM > quant_gbm > linear: LightGBM is the primary nonlinear challenger
-        # (R11), so when it's available the ensemble and season-manager sim are built from it,
-        # not from the informational-only quant_gbm arm. ----
+        # Priority: LightGBM (now the primary nonlinear challenger) > quant_gbm > linear -- this
+        # is the "best available ML signal" convenience column for season_points.csv, separate
+        # from R11's ship/no-ship criterion, which reads the quant_lightgbm row directly. ----
         if ml_pred_lightgbm is not None:
             ml_for_ensemble = ml_pred_lightgbm
             resid_train_for_ensemble = resid_train_lightgbm
@@ -210,15 +209,13 @@ def run_experiment(
         ensemble_rows.append({"fold": fold.name, "season": fold.test_season, **{k: v for k, v in ens.items() if k != "test_pred"}})
 
         comparison_rows.extend(ev.model_comparison_rows(fold.name, fold.test_season, test_df, predictions))
+        sliced_rows.extend(ev.sliced_comparison_rows(fold.name, fold.test_season, test_df, predictions))
         residual_rows.append(ev.residual_analysis(test_df, quant_test).assign(fold=fold.name, season=fold.test_season))
         disagreement_frames.append(
             ev.high_disagreement_cases(test_df, quant_test, ml_for_ensemble).assign(fold=fold.name)
         )
-        fold_actual = test_df[C.COL_ACTUAL].to_numpy(dtype=float)
         for model_name, pred in predictions.items():
             calibration_frames.append(ev.calibration(test_df, pred, model_name).assign(fold=fold.name))
-            pooled_predictions.setdefault(model_name, []).append(pred)
-            pooled_actual_by_model.setdefault(model_name, []).append(fold_actual)
 
         # collect this gameweek's rows + the ensemble prediction for the season manager sim
         gw_frame = test_df.copy()
@@ -230,6 +227,23 @@ def run_experiment(
 
     improvement_df = ev.improvement_rows(comparison_df)
     improvement_df.to_csv(C.IMPROVEMENT_CSV, index=False)
+
+    pd.DataFrame(runtime_rows).to_csv(C.COMPUTE_RUNTIME_CSV, index=False)
+    pd.DataFrame(sliced_rows).to_csv(C.SLICED_MODEL_COMPARISON_CSV, index=False)
+
+    # ---- bootstrap confidence intervals (R10/R11): per-fold improvement over quant, resampled
+    # at fold granularity (see evaluate.bootstrap_ci's own docstring for why). quant_lightgbm's
+    # entry here is what R11's ship/no-ship decision is actually governed by; the others are
+    # reported for completeness, not decision-relevant on their own (R16 for quant_gbm). ----
+    bootstrap_ci_by_model: dict[str, dict] = {}
+    if not comparison_df.empty:
+        for candidate_model in ("quant_linear", "quant_gbm", "quant_lightgbm"):
+            if candidate_model in comparison_df["model"].unique():
+                bootstrap_ci_by_model[candidate_model] = ev.bootstrap_ci_for_model_improvement(
+                    comparison_df, candidate_model, metric="mae", n_resamples=1000,
+                    confidence=0.95, random_state=random_seed,
+                )
+    C.BOOTSTRAP_CI_JSON.write_text(json.dumps(bootstrap_ci_by_model, indent=2, default=str), encoding="utf-8")
 
     residual_df = pd.concat(residual_rows, ignore_index=True) if residual_rows else pd.DataFrame()
     residual_df.to_csv(C.RESIDUAL_ANALYSIS_CSV, index=False)
@@ -246,26 +260,17 @@ def run_experiment(
     stability_df = ev.stability_table(linear_importances)
     stability_df.to_csv(C.STABILITY_CSV, index=False)
 
+    # quant_lightgbm's own feature importance/stability -- it was being computed per fold
+    # (lightgbm_importances above) but never persisted anywhere, unlike quant_linear's. R11's
+    # ship/no-ship decision is governed by this arm, so its feature importance matters more
+    # than the linear model's and should be inspectable, not silently discarded.
     fi_lightgbm_df = pd.concat(lightgbm_importances, ignore_index=True) if lightgbm_importances else pd.DataFrame()
     fi_lightgbm_df.to_csv(C.FEATURE_IMPORTANCE_LIGHTGBM_CSV, index=False)
 
-    lightgbm_stability_df = ev.stability_table(lightgbm_importances)
-    lightgbm_stability_df.to_csv(C.STABILITY_LIGHTGBM_CSV, index=False)
+    stability_lightgbm_df = ev.stability_table(lightgbm_importances)
+    stability_lightgbm_df.to_csv(C.STABILITY_LIGHTGBM_CSV, index=False)
 
     pd.DataFrame(ensemble_rows).to_csv(C.ENSEMBLE_CSV, index=False)
-
-    pd.DataFrame(runtime_rows).to_csv(C.RUNTIME_CSV, index=False)
-
-    # ---- bootstrap confidence intervals (R10/R11): computed once over pooled out-of-sample
-    # predictions per model, not per fold (see evaluate.bootstrap_ci_rows's docstring) ----
-    bootstrap_rows: list[dict] = []
-    for model_name, preds_list in pooled_predictions.items():
-        pooled_pred = np.concatenate(preds_list)
-        pooled_act = np.concatenate(pooled_actual_by_model[model_name])
-        for r in ev.bootstrap_ci(pooled_pred, pooled_act, random_state=random_seed):
-            bootstrap_rows.append({"model": model_name, **r})
-    bootstrap_df = pd.DataFrame(bootstrap_rows)
-    bootstrap_df.to_csv(C.BOOTSTRAP_CI_CSV, index=False)
 
     # ---- season manager simulation: how many real points would each signal score? ----
     if per_gw_frames:
@@ -312,18 +317,27 @@ def run_experiment(
         "feature_columns": feat_cols,
         "sklearn_available": sklearn_ok,
         "lightgbm_available": lightgbm_ok,
+        # quant_lightgbm is the primary nonlinear challenger and the sole arm R11's ship/no-ship
+        # decision is governed by (docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md);
+        # quant_gbm is kept, but bonus/informational only (R16) -- both listed here, neither
+        # implies the other decides anything on its own.
         "models": (
             ["quant", "historical_baseline", "quant_linear"]
-            + (["quant_lightgbm"] if lightgbm_ok else [])
             + (["quant_gbm"] if sklearn_ok else [])
+            + (["quant_lightgbm"] if lightgbm_ok else [])
             + ["ensemble"]
         ),
-        # the model whose predictions feed the ensemble and season-manager sim (R11: LightGBM
-        # is the primary nonlinear challenger; quant_gbm is bonus/informational only, per R16)
-        "primary_ml_model": "quant_lightgbm" if lightgbm_ok else ("quant_gbm" if sklearn_ok else "quant_linear"),
         "random_seed": random_seed,
         "season_points": {"quant_manager": quant_points, "ml_manager": ml_points,
                           "ml_beats_quant": ml_points > quant_points},
+        # R10/R11: confidence-interval-based, not point-estimate -- statistically_credible_
+        # improvement is True only when the entire 95% CI of per-fold MAE improvement sits
+        # above zero. R11's ship/no-ship decision reads bootstrap_ci["quant_lightgbm"] here.
+        "bootstrap_ci": bootstrap_ci_by_model,
+        "compute_runtime_seconds_by_model": (
+            pd.DataFrame(runtime_rows).groupby("model")["fit_predict_seconds"].agg(["sum", "mean", "count"]).to_dict("index")
+            if runtime_rows else {}
+        ),
     }
     C.EXPERIMENT_MANIFEST_JSON.write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
 
@@ -332,6 +346,7 @@ def run_experiment(
         "comparison": comparison_df,
         "improvement": improvement_df,
         "season_points": season_pts,
+        "bootstrap_ci": bootstrap_ci_by_model,
     }
 
 
@@ -359,9 +374,9 @@ def run_loop(runs: int, seasons: tuple[str, ...] | None, fold_mode: str, base_se
         orig = {a: getattr(C, a) for a in [
             "MODEL_COMPARISON_CSV", "IMPROVEMENT_CSV", "RESIDUAL_ANALYSIS_CSV",
             "HIGH_DISAGREEMENT_CSV", "CALIBRATION_CSV", "FEATURE_IMPORTANCE_CSV",
-            "FEATURE_IMPORTANCE_LIGHTGBM_CSV", "STABILITY_CSV", "STABILITY_LIGHTGBM_CSV",
-            "ENSEMBLE_CSV", "BOOTSTRAP_CI_CSV", "RUNTIME_CSV", "EXPERIMENT_MANIFEST_JSON",
-            "SEASON_POINTS_CSV",
+            "STABILITY_CSV", "ENSEMBLE_CSV", "EXPERIMENT_MANIFEST_JSON", "SEASON_POINTS_CSV",
+            "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON", "SLICED_MODEL_COMPARISON_CSV",
+            "FEATURE_IMPORTANCE_LIGHTGBM_CSV", "STABILITY_LIGHTGBM_CSV",
         ]}
         for a in orig:
             setattr(C, a, run_dir / orig[a].name)

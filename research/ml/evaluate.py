@@ -41,6 +41,33 @@ def model_comparison_rows(
     return rows
 
 
+def sliced_comparison_rows(
+    fold_name: str, test_season: str, df_test: pd.DataFrame,
+    predictions: dict[str, np.ndarray],
+) -> list[dict]:
+    """Track F (R11/R16, docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md):
+    one row per (fold, model, dimension, slice) with MAE/RMSE/bias -- the per-model,
+    per-slice breakdown `baselines.sliced_metrics()` already computes generically, but that
+    persists nowhere for any model except the Quant baseline (`save_baseline_metrics`'s own
+    `baseline_metrics.json`). R11 requires confirming quant_lightgbm's improvement holds across
+    every slice (position/price/minutes/fixture difficulty/ownership/gameweek/season) before any
+    "ship" verdict -- this needs quant_lightgbm's own sliced numbers persisted across the whole
+    walk-forward run, not just Quant's. Reuses `baselines.sliced_metrics()` per model, so the
+    slice *definitions* (price bands, minutes bands, etc.) stay identical to what the Quant
+    baseline's own report already uses -- no second, silently-different slicing scheme."""
+    rows = []
+    for model_name, pred in predictions.items():
+        sliced = B.sliced_metrics(df_test, pred)
+        for dimension, by_slice in sliced.items():
+            for slice_value, m in by_slice.items():
+                rows.append({
+                    "fold": fold_name, "season": test_season, "model": model_name,
+                    "dimension": dimension, "slice": slice_value,
+                    "mae": m.mae, "rmse": m.rmse, "bias": m.bias, "n": m.n,
+                })
+    return rows
+
+
 # ============================================================
 # Improvement (spec §12)
 # ============================================================
@@ -169,77 +196,65 @@ def evaluate_ensemble(train_df: pd.DataFrame, test_df: pd.DataFrame, ml_train: n
 
 
 # ============================================================
-# Bootstrap confidence intervals (Track F R10/R11 -- a point-estimate MAE/RMSE improvement is
-# not a statistically credible ship decision on its own)
+# Bootstrap confidence intervals (Track F, R10/R11 --
+# docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md): the ship/no-ship
+# decision must be governed by a confidence interval, not a point estimate, so "quant_lightgbm's
+# MAE improved by 0.03" alone is never enough to ship it.
 # ============================================================
 
 def bootstrap_ci(
-    pred: np.ndarray,
-    actual: np.ndarray,
-    metrics: tuple[str, ...] = ("mae", "rmse"),
-    n_resamples: int = 1000,
-    confidence: float = 0.95,
-    random_state: int = 42,
-) -> list[dict]:
-    """Bootstrap confidence interval for each metric, resampling (pred, actual) pairs with
-    replacement (A6: 1,000 resamples / 95% interval by default). Never resamples across models
-    with different random draws for the same fold -- callers pass the same random_state across
-    models being compared so paired resampling stays comparable."""
-    pred = np.asarray(pred, dtype=float)
-    actual = np.asarray(actual, dtype=float)
-    mask = np.isfinite(pred) & np.isfinite(actual)
-    pred, actual = pred[mask], actual[mask]
-    n = len(actual)
-    point = B.compute_metrics(pred, actual)
+    values: np.ndarray, *, n_resamples: int = 1000, confidence: float = 0.95,
+    statistic=np.mean, random_state: int | None = None,
+) -> dict:
+    """Percentile bootstrap CI for `statistic` applied to `values`. `values` is expected to be
+    one row per walk-forward FOLD, not per observation -- players within the same gameweek
+    share the same underlying match outcomes (goals, cards, bonus) and are not independent, so
+    bootstrapping at the observation level would understate real uncertainty. Resampling at
+    fold granularity treats each gameweek's result as one (much closer to) independent draw,
+    consistent with this module's own existing fold-level "improvement" reporting
+    (improvement_rows above)."""
+    values = np.asarray(values, dtype=float)
+    values = values[~np.isnan(values)]
+    n = len(values)
     if n == 0:
-        return [
-            {"metric": m, "point": float("nan"), "ci_low": float("nan"), "ci_high": float("nan"),
-             "n": 0, "n_resamples": n_resamples, "confidence": confidence}
-            for m in metrics
-        ]
+        return {
+            "point_estimate": float("nan"), "ci_low": float("nan"), "ci_high": float("nan"),
+            "n_resamples": n_resamples, "confidence": confidence, "n": 0,
+        }
     rng = np.random.RandomState(random_state)
-    samples = {m: np.empty(n_resamples) for m in metrics}
+    point = float(statistic(values))
+    resampled = np.empty(n_resamples)
     for i in range(n_resamples):
         idx = rng.randint(0, n, size=n)
-        resampled = B.compute_metrics(pred[idx], actual[idx])
-        for metric in metrics:
-            samples[metric][i] = getattr(resampled, metric)
-    lo_pct = (1 - confidence) / 2 * 100
-    hi_pct = (1 + confidence) / 2 * 100
-    out = []
-    for metric in metrics:
-        vals = samples[metric]
-        vals = vals[np.isfinite(vals)]
-        out.append({
-            "metric": metric,
-            "point": getattr(point, metric),
-            "ci_low": float(np.percentile(vals, lo_pct)) if len(vals) else float("nan"),
-            "ci_high": float(np.percentile(vals, hi_pct)) if len(vals) else float("nan"),
-            "n": n,
-            "n_resamples": n_resamples,
-            "confidence": confidence,
-        })
-    return out
+        resampled[i] = statistic(values[idx])
+    alpha = 1.0 - confidence
+    ci_low = float(np.percentile(resampled, 100 * (alpha / 2)))
+    ci_high = float(np.percentile(resampled, 100 * (1 - alpha / 2)))
+    return {
+        "point_estimate": point, "ci_low": ci_low, "ci_high": ci_high,
+        "n_resamples": n_resamples, "confidence": confidence, "n": n,
+    }
 
 
-def bootstrap_ci_rows(
-    model_predictions: dict[str, np.ndarray],
-    actual: np.ndarray,
-    metrics: tuple[str, ...] = ("mae", "rmse"),
-    n_resamples: int = 1000,
-    confidence: float = 0.95,
-    random_state: int = 42,
-) -> list[dict]:
-    """One bootstrap CI per metric per model, computed over pooled out-of-sample predictions
-    (all walk-forward folds concatenated) rather than per-fold -- per-fold CIs at n_resamples=
-    1,000 would multiply runtime by the fold count for no decision-relevant benefit; the ship/
-    no-ship call (R11) needs one credible interval per model, not one per fold."""
-    rows: list[dict] = []
-    for model_name, pred in model_predictions.items():
-        for r in bootstrap_ci(pred, actual, metrics=metrics, n_resamples=n_resamples,
-                               confidence=confidence, random_state=random_state):
-            rows.append({"model": model_name, **r})
-    return rows
+def bootstrap_ci_for_model_improvement(
+    comparison_df: pd.DataFrame, model_name: str, *, metric: str = "mae",
+    n_resamples: int = 1000, confidence: float = 0.95, random_state: int | None = None,
+) -> dict:
+    """Bootstrap CI on `model_name`'s per-fold improvement over the quant baseline
+    (quant_error - ml_error per fold; positive = model_name helps), resampled at fold
+    granularity -- see bootstrap_ci's own docstring for why. `statistically_credible_improvement`
+    is True only when the ENTIRE interval sits above zero (ci_low > 0) -- a positive point
+    estimate alone is exactly the "point estimate, not a confidence interval" failure mode R11
+    exists to rule out."""
+    quant = comparison_df[comparison_df["model"] == "quant"].set_index("fold")[metric]
+    model = comparison_df[comparison_df["model"] == model_name].set_index("fold")[metric]
+    common_folds = quant.index.intersection(model.index)
+    improvements = (quant.loc[common_folds] - model.loc[common_folds]).to_numpy(dtype=float)
+    result = bootstrap_ci(improvements, n_resamples=n_resamples, confidence=confidence, random_state=random_state)
+    result["model"] = model_name
+    result["metric"] = metric
+    result["statistically_credible_improvement"] = result["n"] > 0 and result["ci_low"] > 0
+    return result
 
 
 # ============================================================
