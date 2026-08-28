@@ -130,6 +130,7 @@ def run_experiment(
     ensemble_rows: list[dict] = []
     lightgbm_importances: list[pd.DataFrame] = []
     runtime_rows: list[dict] = []  # R10: per-model fit+predict wall-clock time, per fold
+    sliced_rows: list[dict] = []  # R11: per-model, per-slice metrics, every fold
     sklearn_ok = sklearn_available()
     lightgbm_ok = lightgbm_available()
 
@@ -208,6 +209,7 @@ def run_experiment(
         ensemble_rows.append({"fold": fold.name, "season": fold.test_season, **{k: v for k, v in ens.items() if k != "test_pred"}})
 
         comparison_rows.extend(ev.model_comparison_rows(fold.name, fold.test_season, test_df, predictions))
+        sliced_rows.extend(ev.sliced_comparison_rows(fold.name, fold.test_season, test_df, predictions))
         residual_rows.append(ev.residual_analysis(test_df, quant_test).assign(fold=fold.name, season=fold.test_season))
         disagreement_frames.append(
             ev.high_disagreement_cases(test_df, quant_test, ml_for_ensemble).assign(fold=fold.name)
@@ -227,6 +229,7 @@ def run_experiment(
     improvement_df.to_csv(C.IMPROVEMENT_CSV, index=False)
 
     pd.DataFrame(runtime_rows).to_csv(C.COMPUTE_RUNTIME_CSV, index=False)
+    pd.DataFrame(sliced_rows).to_csv(C.SLICED_MODEL_COMPARISON_CSV, index=False)
 
     # ---- bootstrap confidence intervals (R10/R11): per-fold improvement over quant, resampled
     # at fold granularity (see evaluate.bootstrap_ci's own docstring for why). quant_lightgbm's
@@ -362,7 +365,7 @@ def run_loop(runs: int, seasons: tuple[str, ...] | None, fold_mode: str, base_se
             "MODEL_COMPARISON_CSV", "IMPROVEMENT_CSV", "RESIDUAL_ANALYSIS_CSV",
             "HIGH_DISAGREEMENT_CSV", "CALIBRATION_CSV", "FEATURE_IMPORTANCE_CSV",
             "STABILITY_CSV", "ENSEMBLE_CSV", "EXPERIMENT_MANIFEST_JSON", "SEASON_POINTS_CSV",
-            "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON",
+            "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON", "SLICED_MODEL_COMPARISON_CSV",
         ]}
         for a in orig:
             setattr(C, a, run_dir / orig[a].name)
