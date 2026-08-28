@@ -13,6 +13,30 @@
 > reading, but they do not decide anything on their own. Every results table below also expects
 > a 95%-confidence bootstrap interval alongside each point estimate (R10) — "positive on
 > average" is not sufficient for §9's decision; the interval must exclude zero (R11).
+>
+> **Phase F-4 (the real run against the production database) has not been executed yet** in any
+> session that has touched this file so far — every session so far has been sandboxed, with no
+> populated `db/fpl_quant_v2.duckdb` and no outbound access to the live FPL API
+> (`fantasy.premierleague.com` returns a proxy 403). Run `python -m research.ml.experiment` on a
+> machine with the populated production DB and open internet to produce the real numbers and fill
+> every `___`/blank cell below — do not fabricate them.
+>
+> **Pre-run model improvements** (found while auditing the pipeline ahead of Phase F-4, since a
+> real run wasn't possible here either): (1) `position` — approved as a feature source in
+> `EXISTING_MODEL_AUDIT.md` §9 and `LEAKAGE_PROTOCOL.md` §4 from the start — was attached to
+> every dataset row but never actually listed in `feature_columns()`, so no model (linear,
+> `quant_gbm`, or `quant_lightgbm`) ever saw it; now one-hot encoded alongside `status`. A
+> goalkeeper's and a forward's point distributions differ enormously, so this was costing every
+> arm real signal, not just LightGBM. (2) `LightGBMResidualModel`'s hyperparameters had no L1/L2
+> regularisation or row/column subsampling — reasonable for large datasets, but exhaustive
+> gameweek walk-forward means the earliest folds train on a few hundred rows, where that risks
+> memorising noise. Added `reg_alpha=reg_lambda=0.1`, `subsample=colsample_bytree=0.8` on top of
+> the existing `max_depth=4` cap — a one-time, principled choice of more conservative defaults,
+> not a hyperparameter search (spec §3 forbids the latter only). (3) `lightgbm_importances` was
+> being computed per fold but never persisted anywhere (unlike the linear model's own
+> `feature_importance.csv`/`feature_stability.csv`) — added `feature_importance_lightgbm.csv` /
+> `feature_stability_lightgbm.csv` so the primary decision-governing arm's feature importance is
+> actually inspectable, not silently discarded. All three are covered by `research/ml/tests/`.
 
 ## 1. Question
 
@@ -154,9 +178,12 @@ mean realised. Summarise whether predictions of N actually average N realised po
 
 ## 7. Feature importance & stability
 
-`results/feature_importance.csv` (per-fold) and `results/feature_stability.csv` (mean / coefficient
-of variation across folds). A feature important in one season but irrelevant in every other is
-suspicious — note any such features here.
+`results/feature_importance.csv` (per-fold, `quant_linear`) and `results/feature_stability.csv`
+(mean / coefficient of variation across folds). `results/feature_importance_lightgbm.csv` /
+`results/feature_stability_lightgbm.csv` are the same for `quant_lightgbm` — the arm §9's
+decision is actually governed by, so its own feature importance matters more than the linear
+model's. A feature important in one season but irrelevant in every other is suspicious — note
+any such features here.
 
 ## 8. Slicing check (spec §12)
 

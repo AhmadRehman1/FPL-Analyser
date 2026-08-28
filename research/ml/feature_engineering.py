@@ -283,8 +283,15 @@ def _compute_step_features(
 
 def feature_columns() -> list[str]:
     """The ordered, documented list of feature columns this module produces. Used by
-    leakage_checks.assert_feature_matrix_invariants and by the model layer to know X."""
-    cols: list[str] = ["is_home"]
+    leakage_checks.assert_feature_matrix_invariants and by the model layer to know X.
+
+    `position` is not computed here -- it is a static-identity column dataset_builder already
+    attaches to every row from dim_player (LEAKAGE_PROTOCOL.md §4: "position, team ... static
+    identity, knowable"), listed here so the model layer picks it up as a (categorical)
+    feature. It was previously carried through the dataset only for slicing/evaluation and
+    never fed to the residual model, despite being an approved, zero-cost, high-signal feature
+    (a goalkeeper's and a forward's point distributions differ enormously)."""
+    cols: list[str] = ["is_home", "position"]
     for w in C.ROLLING_WINDOWS:
         cols += [f"rolling_points_{w}", f"rolling_goals_{w}", f"rolling_assists_{w}",
                  f"rolling_minutes_{w}", f"rolling_starts_{w}"]

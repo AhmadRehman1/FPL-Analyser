@@ -34,6 +34,19 @@ def test_preprocessor_fit_transform_shapes(seeded_db):
     assert not np.isnan(X).any()
 
 
+def test_preprocessor_one_hot_encodes_position(seeded_db):
+    # position is an approved static-identity feature (EXISTING_MODEL_AUDIT.md §9,
+    # LEAKAGE_PROTOCOL.md §4) that was attached to every dataset row but never actually listed
+    # in feature_columns() until now -- must be one-hot encoded alongside status.
+    df = build_dataset(seeded_db, with_features=True)
+    feats = feature_columns()
+    pp = Preprocessor().fit(df, feats)
+    _, names = pp.transform(df)
+    assert any(n.startswith("position=") for n in names)
+    assert "status" in pp.categorical_cols
+    assert "position" in pp.categorical_cols
+
+
 def test_preprocessor_fit_on_train_transform_test_consistent(seeded_db):
     df = build_dataset(seeded_db, with_features=True)
     train = df[df["season"] == "2024-2025"]
@@ -129,6 +142,17 @@ def test_lightgbm_model_feature_importance(seeded_db):
     fi = m.feature_importance(Xtr, y, names)
     assert set(fi.columns) == {"feature", "importance", "direction"}
     assert len(fi) == len(names)
+
+
+def test_lightgbm_default_hyperparameters_are_regularised():
+    # exhaustive gameweek walk-forward means some folds train on very little data -- the
+    # defaults must regularise (L1/L2, row/column subsampling) on top of the existing
+    # max_depth cap, or an early small fold could memorise noise.
+    m = LightGBMResidualModel()
+    assert m.reg_alpha > 0
+    assert m.reg_lambda > 0
+    assert 0 < m.subsample < 1
+    assert 0 < m.colsample_bytree < 1
 
 
 def test_lightgbm_predict_before_fit_raises():

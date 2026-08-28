@@ -30,7 +30,12 @@ portions of the dataset"):
   applied to test -- never computed from test data, which would leak test-set statistics into
   the model).
 - Categorical features (position, status): one-hot encoded, categories fixed from the training
-  set; an unseen test-time category maps to the all-zero row rather than crashing.
+  set; an unseen test-time category maps to the all-zero row rather than crashing. `position` is
+  an approved static-identity feature source (EXISTING_MODEL_AUDIT.md §9, LEAKAGE_PROTOCOL.md
+  §4) that dataset_builder already attaches to every row, but it was not actually listed here
+  until this feature-audit pass found the gap -- no model (linear, quant_gbm, or quant_lightgbm)
+  was ever conditioning on it, despite a goalkeeper's and a forward's point distributions
+  differing enormously.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-CATEGORICAL_FEATURES = ("status",)
+CATEGORICAL_FEATURES = ("status", "position")
 
 
 class ResidualModelUnavailableError(RuntimeError):
@@ -231,10 +236,29 @@ class LightGBMResidualModel:
 
     name = "quant_lightgbm"
 
-    def __init__(self, max_depth: int = 4, n_estimators: int = 100, learning_rate: float = 0.05, random_state: int = 42):
+    def __init__(
+        self,
+        max_depth: int = 4,
+        n_estimators: int = 100,
+        learning_rate: float = 0.05,
+        # No L1/L2 or row/column subsampling by default is fine for large datasets, but
+        # exhaustive gameweek walk-forward means the earliest folds train on a few hundred
+        # rows, where that risks memorising noise rather than finding real signal -- a
+        # one-time, principled choice of more conservative defaults (not a hyperparameter
+        # search, which spec §3 forbids; this is picking better defaults once).
+        reg_alpha: float = 0.1,
+        reg_lambda: float = 0.1,
+        subsample: float = 0.8,
+        colsample_bytree: float = 0.8,
+        random_state: int = 42,
+    ):
         self.max_depth = max_depth
         self.n_estimators = n_estimators
         self.learning_rate = learning_rate
+        self.reg_alpha = reg_alpha
+        self.reg_lambda = reg_lambda
+        self.subsample = subsample
+        self.colsample_bytree = colsample_bytree
         self.random_state = random_state
         self._model = None
 
@@ -254,7 +278,10 @@ class LightGBMResidualModel:
             # across potentially dozens of walk-forward folds.
             model = LGBMRegressor(
                 max_depth=self.max_depth, n_estimators=self.n_estimators,
-                learning_rate=self.learning_rate, random_state=self.random_state, verbose=-1,
+                learning_rate=self.learning_rate, reg_alpha=self.reg_alpha,
+                reg_lambda=self.reg_lambda, subsample=self.subsample, subsample_freq=1,
+                colsample_bytree=self.colsample_bytree,
+                random_state=self.random_state, verbose=-1,
             )
             model.fit(X, y)
         except Exception as exc:

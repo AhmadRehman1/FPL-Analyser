@@ -260,6 +260,16 @@ def run_experiment(
     stability_df = ev.stability_table(linear_importances)
     stability_df.to_csv(C.STABILITY_CSV, index=False)
 
+    # quant_lightgbm's own feature importance/stability -- it was being computed per fold
+    # (lightgbm_importances above) but never persisted anywhere, unlike quant_linear's. R11's
+    # ship/no-ship decision is governed by this arm, so its feature importance matters more
+    # than the linear model's and should be inspectable, not silently discarded.
+    fi_lightgbm_df = pd.concat(lightgbm_importances, ignore_index=True) if lightgbm_importances else pd.DataFrame()
+    fi_lightgbm_df.to_csv(C.FEATURE_IMPORTANCE_LIGHTGBM_CSV, index=False)
+
+    stability_lightgbm_df = ev.stability_table(lightgbm_importances)
+    stability_lightgbm_df.to_csv(C.STABILITY_LIGHTGBM_CSV, index=False)
+
     pd.DataFrame(ensemble_rows).to_csv(C.ENSEMBLE_CSV, index=False)
 
     # ---- season manager simulation: how many real points would each signal score? ----
@@ -366,6 +376,7 @@ def run_loop(runs: int, seasons: tuple[str, ...] | None, fold_mode: str, base_se
             "HIGH_DISAGREEMENT_CSV", "CALIBRATION_CSV", "FEATURE_IMPORTANCE_CSV",
             "STABILITY_CSV", "ENSEMBLE_CSV", "EXPERIMENT_MANIFEST_JSON", "SEASON_POINTS_CSV",
             "COMPUTE_RUNTIME_CSV", "BOOTSTRAP_CI_JSON", "SLICED_MODEL_COMPARISON_CSV",
+            "FEATURE_IMPORTANCE_LIGHTGBM_CSV", "STABILITY_LIGHTGBM_CSV",
         ]}
         for a in orig:
             setattr(C, a, run_dir / orig[a].name)

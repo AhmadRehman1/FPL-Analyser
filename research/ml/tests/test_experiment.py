@@ -36,6 +36,8 @@ _ARTIFACTS = [
     ("COMPUTE_RUNTIME_CSV", "compute_runtime.csv"),
     ("BOOTSTRAP_CI_JSON", "bootstrap_ci.json"),
     ("SLICED_MODEL_COMPARISON_CSV", "sliced_model_comparison.csv"),
+    ("FEATURE_IMPORTANCE_LIGHTGBM_CSV", "feature_importance_lightgbm.csv"),
+    ("STABILITY_LIGHTGBM_CSV", "feature_stability_lightgbm.csv"),
 ]
 
 
@@ -75,6 +77,17 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
         assert "quant_lightgbm" in set(comp["model"])
     if sklearn_available():
         assert "quant_gbm" in set(comp["model"])
+
+    # position is an approved feature (EXISTING_MODEL_AUDIT.md §9) that was attached to every
+    # dataset row but never actually fed to any model until this feature-audit pass -- must be
+    # present in every model's feature matrix.
+    assert "position" in manifest["feature_columns"]
+
+    # quant_lightgbm's own feature importance/stability, previously computed but discarded.
+    if lightgbm_available():
+        fi_lightgbm = pd.read_csv(C.FEATURE_IMPORTANCE_LIGHTGBM_CSV)
+        assert not fi_lightgbm.empty
+        assert any(f.startswith("position=") for f in fi_lightgbm["feature"])
 
     # season points table compares the quant manager vs the ML manager
     sp = pd.read_csv(C.SEASON_POINTS_CSV)

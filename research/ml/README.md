@@ -20,9 +20,10 @@ python -m research.ml.run_continuous               # 24/7: loop forever, never s
 
 The experiment builds the player×gameweek dataset from the existing DuckDB (populated by
 `scripts/run_ingestion.py` + `scripts/run_backtest.py`), runs chronological walk-forward
-folds, fits a linear residual model (and an optional gradient-boosting model if sklearn is
-installed), simulates an FPL manager's season points, and writes every artifact to
-`research/ml/results/`.
+folds, fits a linear residual model, a LightGBM residual model (the primary nonlinear
+challenger, if `lightgbm` is installed -- see `requirements-research.txt`), and an sklearn
+gradient-boosting model (informational only, if `scikit-learn` is installed), simulates an
+FPL manager's season points, and writes every artifact to `research/ml/results/`.
 
 The default walk-forward mode is **exhaustive gameweek**: every historical gameweek with prior
 training data becomes an out-of-sample test point (one gameweek at a time, re-training on all
@@ -49,6 +50,9 @@ blocked from some sandboxed environments, so run this on a machine with open int
 | `feature_importance.csv` | Per-fold feature importance |
 | `feature_stability.csv` | Mean / coefficient-of-variation of importance across folds |
 | `ensemble.csv` | Best ensemble weight (fit on training only) |
+| `bootstrap_ci.csv` | Bootstrap confidence interval (default 1,000 resamples, 95%) per metric per model, pooled across all walk-forward folds |
+| `runtime.csv` | Fit+predict wall-clock seconds per model per fold |
+| `feature_importance_lightgbm.csv`, `feature_stability_lightgbm.csv` | LightGBM gain-based feature importance, per-fold and stability across folds |
 | `season_points.csv` | FPL-manager season points: Quant signal vs ML signal |
 | `experiment_manifest.json` | Git commit, timestamp, dataset shape, fold mode, skip log |
 | `experiment_runs.csv` | Rolling log of every loop run (seed, points, best-so-far) |
