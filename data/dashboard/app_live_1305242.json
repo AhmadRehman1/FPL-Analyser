@@ -4,7 +4,7 @@
   "gameweek": 2,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 32,
+  "live_total": 37,
   "players": [
     {
       "player_id": 496,
@@ -16,9 +16,9 @@
     {
       "player_id": 356,
       "web_name": "Virgil",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 8,
@@ -44,9 +44,9 @@
     {
       "player_id": 368,
       "web_name": "Szoboszlai",
-      "live_points": 0,
+      "live_points": 4,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 4
     },
     {
       "player_id": 427,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 33.0,
-    "estimated_rank": 6676734
+    "percentile": 60.0,
+    "estimated_rank": 4004344
   },
   "fixtures": [
     {
@@ -106,9 +106,76 @@
         "name": "Man City",
         "score": 4
       }
+    },
+    {
+      "id": 14,
+      "kickoff": "2026-08-29T11:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LIV",
+        "name": "Liverpool",
+        "score": 2
+      },
+      "away": {
+        "short_name": "NFO",
+        "name": "Nott'm Forest",
+        "score": 2
+      }
+    },
+    {
+      "id": 12,
+      "kickoff": "2026-08-29T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "BOU",
+        "name": "Bournemouth",
+        "score": 1
+      },
+      "away": {
+        "short_name": "EVE",
+        "name": "Everton",
+        "score": 0
+      }
+    },
+    {
+      "id": 13,
+      "kickoff": "2026-08-29T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "COV",
+        "name": "Coventry City",
+        "score": 0
+      },
+      "away": {
+        "short_name": "HUL",
+        "name": "Hull City",
+        "score": 0
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 69,
+      "web_name": "Scott",
+      "team": 3,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 12
+    },
+    {
+      "player_id": 79,
+      "web_name": "Evanilson",
+      "team": 3,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 12
+    },
     {
       "player_id": 211,
       "web_name": "Yeremy",
@@ -116,6 +183,38 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 11
+    },
+    {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 14
+    },
+    {
+      "player_id": 367,
+      "web_name": "Gakpo",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 14
+    },
+    {
+      "player_id": 377,
+      "web_name": "Munoz",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 14
+    },
+    {
+      "player_id": 379,
+      "web_name": "Isak",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 14
     },
     {
       "player_id": 384,
@@ -164,7 +263,39 @@
       "event": "goal",
       "count": 2,
       "fixture_id": 11
+    },
+    {
+      "player_id": 469,
+      "web_name": "N.Williams",
+      "team": 18,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 14
+    },
+    {
+      "player_id": 480,
+      "web_name": "Gibbs-White",
+      "team": 18,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 14
+    },
+    {
+      "player_id": 480,
+      "web_name": "Gibbs-White",
+      "team": 18,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 14
+    },
+    {
+      "player_id": 483,
+      "web_name": "Ndoye",
+      "team": 18,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 14
     }
   ],
-  "generated_at": "2026-08-29T01:18:55.381291+00:00"
+  "generated_at": "2026-08-29T15:34:48.948652+00:00"
 }
