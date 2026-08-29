@@ -1,0 +1,70 @@
+{
+  "backtest_run_id": 1,
+  "proposals": [
+    {
+      "dimensions": null,
+      "metric_after": 0.016760258813289724,
+      "metric_before": 0.0,
+      "metric_name": "rho_hat",
+      "new_params_version": 4,
+      "new_value": 0.016760258813289724,
+      "old_params_version": 2,
+      "old_value": 0.0,
+      "param_family": "correlation_params",
+      "param_key": "rho_residual",
+      "proposal_id": 3,
+      "reviewed_at": "2026-08-29T20:19:46.314245",
+      "reviewed_by": "auto-regression-gate",
+      "status": "confirmed"
+    },
+    {
+      "dimensions": null,
+      "metric_after": -0.745998220282534,
+      "metric_before": -0.7447755651678877,
+      "metric_name": "log_score_minutes_mean_holdout",
+      "new_params_version": 11,
+      "new_value": 20.0,
+      "old_params_version": 1,
+      "old_value": 10.0,
+      "param_family": "minutes_model_shrinkage_params",
+      "param_key": "competitive_matches_threshold",
+      "proposal_id": 4,
+      "reviewed_at": null,
+      "reviewed_by": null,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
+      "metric_after": 4.265205054679625,
+      "metric_before": 3.518799793217603,
+      "metric_name": "realized_sharpe",
+      "new_params_version": 2,
+      "new_value": 0.05,
+      "old_params_version": 1,
+      "old_value": 0.15,
+      "param_family": "risk_aversion_params",
+      "param_key": "lambda_value",
+      "proposal_id": 5,
+      "reviewed_at": "2026-08-29T20:19:46.338901",
+      "reviewed_by": "auto-regression-gate",
+      "status": "confirmed"
+    },
+    {
+      "dimensions": null,
+      "metric_after": 1.063568596258088,
+      "metric_before": 1.0234021814136016,
+      "metric_name": "realized_sharpe",
+      "new_params_version": 2,
+      "new_value": 0.5,
+      "old_params_version": 1,
+      "old_value": 0.15,
+      "param_family": "tc_risk_aversion_params",
+      "param_key": "kappa_tc",
+      "proposal_id": 6,
+      "reviewed_at": "2026-08-29T20:19:46.356266",
+      "reviewed_by": "auto-regression-gate",
+      "status": "confirmed"
+    }
+  ],
+  "written_at": "2026-08-29T19:19:46.368534+00:00"
+}
