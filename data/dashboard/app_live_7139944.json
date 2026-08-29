@@ -4,14 +4,14 @@
   "gameweek": 2,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 32,
+  "live_total": 33,
   "players": [
     {
       "player_id": 496,
       "web_name": "Kinsky",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 4,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 10.5,
-    "estimated_rank": 8959719
+    "percentile": 4.5,
+    "estimated_rank": 9575077
   },
   "fixtures": [
     {
@@ -138,7 +138,7 @@
       "away": {
         "short_name": "EVE",
         "name": "Everton",
-        "score": 0
+        "score": 1
       }
     },
     {
@@ -155,7 +155,24 @@
       "away": {
         "short_name": "HUL",
         "name": "Hull City",
+        "score": 1
+      }
+    },
+    {
+      "id": 15,
+      "kickoff": "2026-08-29T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "TOT",
+        "name": "Spurs",
         "score": 0
+      },
+      "away": {
+        "short_name": "NEW",
+        "name": "Newcastle",
+        "score": 2
       }
     }
   ],
@@ -183,6 +200,30 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 11
+    },
+    {
+      "player_id": 229,
+      "web_name": "Tarkowski",
+      "team": 9,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 12
+    },
+    {
+      "player_id": 286,
+      "web_name": "Belloumi",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 13
+    },
+    {
+      "player_id": 287,
+      "web_name": "Millar",
+      "team": 11,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 13
     },
     {
       "player_id": 366,
@@ -265,6 +306,30 @@
       "fixture_id": 11
     },
     {
+      "player_id": 454,
+      "web_name": "Elanga",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 15
+    },
+    {
+      "player_id": 463,
+      "web_name": "Woltemade",
+      "team": 17,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 15
+    },
+    {
+      "player_id": 464,
+      "web_name": "Wissa",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 15
+    },
+    {
       "player_id": 469,
       "web_name": "N.Williams",
       "team": 18,
@@ -295,7 +360,15 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 14
+    },
+    {
+      "player_id": 593,
+      "web_name": "Dedi\u0107",
+      "team": 17,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 15
     }
   ],
-  "generated_at": "2026-08-29T15:34:26.993068+00:00"
+  "generated_at": "2026-08-29T18:51:49.677388+00:00"
 }
