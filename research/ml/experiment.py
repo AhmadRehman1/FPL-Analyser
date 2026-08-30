@@ -94,7 +94,9 @@ def _fit_and_predict_lightgbm(train_df: pd.DataFrame, test_df: pd.DataFrame, fea
     Xtr, names = pp.transform(train_df)
     Xte, _ = pp.transform(test_df)
     ytr = train_df[C.COL_RESIDUAL].to_numpy(dtype=float)
-    model = LightGBMResidualModel(random_state=seed).fit(Xtr, ytr)
+    # L1 objective: aligns the training loss with the experiment's primary metric (MAE) and is
+    # more robust to the heavy right tail of FPL points -- see LightGBMResidualModel.__init__.
+    model = LightGBMResidualModel(random_state=seed, objective="regression_l1").fit(Xtr, ytr)
     resid_train = model.predict(Xtr)
     resid_test = model.predict(Xte)
     return resid_train, resid_test, model, pp, Xte, names

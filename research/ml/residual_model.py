@@ -251,6 +251,12 @@ class LightGBMResidualModel:
         subsample: float = 0.8,
         colsample_bytree: float = 0.8,
         random_state: int = 42,
+        # "regression" = L2. The experiment's primary metric is MAE (evaluate.py), so training
+        # the objective LightGBM optimises to L1 ("regression_l1") aligns the loss with the
+        # metric and is more robust to the heavy right tail of FPL points (a rare double-digit
+        # haul). Same category as the reg_alpha/subsample defaults above: a one-time principled
+        # choice, not a hyperparameter search.
+        objective: str = "regression",
     ):
         self.max_depth = max_depth
         self.n_estimators = n_estimators
@@ -260,6 +266,7 @@ class LightGBMResidualModel:
         self.subsample = subsample
         self.colsample_bytree = colsample_bytree
         self.random_state = random_state
+        self.objective = objective
         self._model = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "LightGBMResidualModel":
@@ -277,6 +284,7 @@ class LightGBMResidualModel:
             # which would otherwise interleave with this project's own per-fold progress output
             # across potentially dozens of walk-forward folds.
             model = LGBMRegressor(
+                objective=self.objective,
                 max_depth=self.max_depth, n_estimators=self.n_estimators,
                 learning_rate=self.learning_rate, reg_alpha=self.reg_alpha,
                 reg_lambda=self.reg_lambda, subsample=self.subsample, subsample_freq=1,
