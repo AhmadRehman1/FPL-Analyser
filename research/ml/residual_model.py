@@ -296,7 +296,9 @@ class LightGBMResidualModel:
             # which would otherwise interleave with this project's own per-fold progress output
             # across potentially dozens of walk-forward folds.
             kw = {}
-            if self.objective == "quantile":
+            if self.objective in ("quantile", "huber", "fair"):
+                # LightGBM shares the `alpha` param across these objectives: the quantile for
+                # "quantile", the Huber delta for "huber", the c parameter for "fair".
                 kw["alpha"] = self.alpha
             model = LGBMRegressor(
                 objective=self.objective, **kw,

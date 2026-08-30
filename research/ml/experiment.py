@@ -95,9 +95,12 @@ def _fit_and_predict_lightgbm(train_df: pd.DataFrame, test_df: pd.DataFrame, fea
     Xtr, names = pp.transform(train_df)
     Xte, _ = pp.transform(test_df)
     ytr = train_df[C.COL_RESIDUAL].to_numpy(dtype=float)
-    # L1 objective: aligns the training loss with the experiment's primary metric (MAE) and is
-    # more robust to the heavy right tail of FPL points -- see LightGBMResidualModel.__init__.
-    model = LightGBMResidualModel(random_state=seed, objective="regression_l1").fit(Xtr, ytr)
+    # Huber objective (delta = 2.0): L2 for |residual| < 2 (an unbiased conditional-MEAN fit for
+    # the bulk of players, which is what XI selection actually needs) and L1 beyond, so a rare
+    # double-digit haul does not drag the whole fit. Pure L1 (objective="regression_l1") fits the
+    # conditional MEDIAN and, because FPL points are so zero/2-heavy, is biased ~-0.5 low -- it
+    # minimises MAE but is the wrong functional for "how many points will this player score".
+    model = LightGBMResidualModel(random_state=seed, objective="huber", alpha=2.0).fit(Xtr, ytr)
     resid_train = model.predict(Xtr)
     resid_test = model.predict(Xte)
     return resid_train, resid_test, model, pp, Xte, names
