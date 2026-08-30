@@ -498,14 +498,16 @@ The aggregate case was never weak — 33–35% MAE improvement per season, CI cl
 win rate on the highest-disagreement rows, ML beating Quant on the manager-points proxy in every
 run. §8b makes the per-slice picture match: the model is now better than Quant on every slice.
 
-**Open tension (follow-up, not a blocker):** the L1 objective costs ~90–120 points in the
-greedy-manager season-points proxy versus L2 (still a clear ML win, ~4086 vs Quant's 3745). L1
-optimises the median; the proxy's captain pick is `argmax(prediction)` and wants the upper tail.
-The right fix is a **ceiling-aware captain signal** in `research/ml/season_sim.py` (the
-production optimiser already has M4's `quantile_95` for exactly this), decoupling "who scores
-most points on average" (L1, for MAE) from "who is most likely to haul" (for the captaincy
-pick). Adding `rolling_defcon` features recovers ~25 of the lost points and is included in the
-ship branch. Tracked as the next item after the shadow integration.
+**Metric tension — addressed (PR #79, merged 2026-08-30):** the L1 objective costs ~90 points in
+the greedy-manager season-points proxy versus L2, because L1 optimises the median while the
+proxy's captain pick wants the upper tail. Fixed by decoupling the two decisions: a **q90
+quantile residual arm** (`LightGBMResidualModel(objective="quantile", alpha=0.9)`) produces
+`ml_ceiling = Q(x) + q90_resid`, and the ML manager now picks its **XI on the L1 median** but
+its **captain on `ml_ceiling`**. The ceiling column never touches the MAE tables, the CI, the
+slicing check, or this decision — season-sim captain pick only. Cloud run `33314060135`:
+`ml_manager` recovers to **4157** (from 4086; L2 was 4178) with the MAE improvement and the 0
+regressing slices unchanged. `rolling_defcon` features contribute a further ~25 points and are in
+the ship model. Both are on `master`.
 
 ## 10. Reproducibility
 
