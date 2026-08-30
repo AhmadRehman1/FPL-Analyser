@@ -1,23 +1,26 @@
 # Phase-0 ML Residual Experiment — Report
 
-> **Status: SHIP (recommend shadow-only integration) — as of 2026-08-30, see §8b + §9.**
-> §3–§8 document the L2-objective model (`git_commit` `45514ae`, run against `backtest_run_id=1`)
-> and its multi-seed cloud confirmation (§8a); that model was **NO-SHIP** on one seed-stable
-> per-slice regression (`ownership_band=20%+`). §8b then identifies the cause (L2 loss vs an MAE
-> metric) and the fix (L1 objective on all tree arms), which removes the regression on every
-> slice and lifts the MAE improvement to 0.611. §8b + §9 carry the current verdict; the older
-> sections are the historical record and their numbers are the L2 model's, not the ship model's.
+> **Status: SHIP — shadow-only integration — as of 2026-08-30. See §8c + §9 + §10.**
+> **§3–§8 are the historical L2-objective record** (`git_commit` `45514ae`, `backtest_run_id=1`)
+> and its multi-seed cloud confirmation (§8a), where the model was **NO-SHIP** on one seed-stable
+> per-slice regression (`ownership_band=20%+`, 5/5 seeds). **§8c + §9 + §10 carry the current
+> state; all on `master`.**
 >
-> **2026-08-30 — verdict: SHIP (recommend shadow-only integration). See §8c + §9.** The
-> 2026-08-29 sweep (§8a) left NO-SHIP resting on one per-slice regression (`quant_lightgbm` worse
-> than Quant on `ownership_band=20%+`, 5/5 seeds). §8b switched the training objective from L2 to
-> L1 and that cleared it — but an external review (§8c) then showed L1 "won" on MAE by fitting the
-> biased conditional *median* (final bias −0.48, worse player-ranking and worse manager-sim points
-> than L2). The shipped answer is **Huber δ=4**: 0 regressing slices, near-L2 RMSE, best rank
-> correlation, best season points among gate-clearing models. §8c also documents that **pure L2 is
-> strictly better on value** but trips the one-slice gate — a carve-out call for the plan owner.
-> §3–§8 document the original L2 model (historical); **§8c + §9 carry the current state.** All on
-> `master`.
+> **What ships:** a **Huber δ=4** residual point forecast, published as `ep_total_ml` *alongside*
+> `ep_total`, never replacing it. 5-seed corroboration (run `33333434359`): MAE improvement 0.559
+> CI [0.544, 0.572], **0 / 60 regressing slices**, near-L2 RMSE (1.94), best within-gameweek rank
+> correlation (0.710), greedy-manager season points 4,208.
+>
+> **How it got here:** §8a (L2) was NO-SHIP on the one slice. §8b switched to **L1**, which
+> cleared it — but an external review (§8c) showed L1 "won" MAE by fitting the biased conditional
+> *median* (bias −0.48, worse ranking, worse manager points than L2). Huber δ=4 is the frontier
+> between them.
+>
+> **Owner decisions after a second review (§9):** Huber δ=4 ships in **shadow mode only**;
+> **pure L2 stays the principal challenger** (`quant_lightgbm_l2`, the better conditional-mean
+> candidate — bias −0.03, +107 season points — logged every fold, not a discard); the **"no
+> per-slice regression" hard gate is retired** for a tiered gate (§10a); promotion to any live
+> decision layer needs a **frozen forward test** (§10b); `seeds_1.json` **stays reverted** (§10c).
 >
 > **Track F update** (`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md`):
 > this template now includes a fourth model arm, `quant_lightgbm` — the **primary** nonlinear
@@ -501,6 +504,21 @@ same functional); `quant_gbm` unchanged; the q90 quantile captain-ceiling arm (�
 > bias −0.17, rank ρ 0.710, 0 regressing slices; `quant_xgboost` (matched pseudo-Huber) MAE
 > 0.967, bias −0.17, 0 regressing slices.
 
+> **5-seed corroboration (run `33333434359`, `master`, seeds 42–46):** the §8c table's Huber δ=4
+> row was single-seed. A full 5-seed sweep holds it: `quant_lightgbm` MAE improvement **0.559**
+> CI [0.544, 0.572] (credible), MAE 0.967, RMSE 1.94, bias **−0.165**, rank ρ **0.710** (best of
+> the three objectives), **0 / 60 regressing slices**, `ownership_band=20%+` Δ **+0.078** (the
+> original L2-objective blocker, now positive), greedy-manager season points **4,208**.
+> Held-out check (last 10 folds): MAE 0.90, bias −0.12 — no research-loop-overfit tell.
+> `quant_xgboost` (matched pseudo-Huber) agrees: 0.559 improvement.
+>
+> **`quant_lightgbm_l2` arm live (run `33334342024`, first to carry it):** the pure-L2 challenger
+> (§9 decision #2) is now computed every fold on `master`. It reproduces the §8c "pure L2" row
+> exactly — MAE **1.011**, RMSE **1.933** (best), bias **−0.034**, rank ρ **0.709**, greedy-manager
+> season points **4,315** (+107 over Huber δ=4). Logged in `model_comparison` / `sliced_model_comparison`
+> / `calibration` / `season_points` (`ml_l2_prediction`); not a ship/no-ship arm, carried for the
+> frozen forward test (§10b).
+
 ## 9. Decision
 
 **Governed by `quant_lightgbm` alone (R11)** — §3.1b's bootstrap CI for that arm, plus this
@@ -559,22 +577,29 @@ pre-committed rule. §8b then over-corrected: switching to **L1** removed the re
 shows L1 minimised MAE by fitting the biased conditional median (bias −0.48, worse ranking, worse
 season points than L2). The shipped answer, **Huber δ=4**, is the frontier between the two.
 
-### 9.1 The residual signal, and the one open tension
+### 9.1 The residual signal, and decision-by-decision forecast products
 
 The aggregate case was never weak — 33–35% MAE improvement per season, CI clear of zero, 87.6%
 win rate on the highest-disagreement rows, ML beating Quant on the manager-points proxy in every
-run. §8b makes the per-slice picture match: the model is now better than Quant on every slice.
+run. §8c makes the per-slice picture match: the model is better than Quant on every one of 60
+slices under Huber δ=4.
 
-**Metric tension — addressed (PR #79, merged 2026-08-30):** the L1 objective costs ~90 points in
-the greedy-manager season-points proxy versus L2, because L1 optimises the median while the
-proxy's captain pick wants the upper tail. Fixed by decoupling the two decisions: a **q90
-quantile residual arm** (`LightGBMResidualModel(objective="quantile", alpha=0.9)`) produces
-`ml_ceiling = Q(x) + q90_resid`, and the ML manager now picks its **XI on the L1 median** but
-its **captain on `ml_ceiling`**. The ceiling column never touches the MAE tables, the CI, the
-slicing check, or this decision — season-sim captain pick only. Cloud run `33314060135`:
-`ml_manager` recovers to **4157** (from 4086; L2 was 4178) with the MAE improvement and the 0
-regressing slices unchanged. `rolling_defcon` features contribute a further ~25 points and are in
-the ship model. Both are on `master`.
+**Different decisions want different functionals — the model exposes three columns:**
+
+- **`ml_prediction`** — Huber δ=4 point forecast (near-unbiased conditional mean for the bulk).
+  The ML manager picks its **XI** on this. *Shipped.*
+- **`ml_ceiling`** — `Q(x) + q90 residual` from a quantile arm
+  (`LightGBMResidualModel(objective="quantile", alpha=0.9)`). The ML manager **captains** on
+  this — a real captaincy call is an upper-tail bet, not an EP call. Never touches the MAE
+  tables, the CI, or the slicing check — season-sim captain pick only. *Shipped (PR #79).*
+- **`ml_l2_prediction`** — pure-L2 residual, the principal challenger (§9 decision #2). Its own
+  `season_points` signal; carried for the frozen forward test (§10b). *Logged, not a ship arm.*
+
+This decoupling was forced by a metric tension: an L1 median forecast cost ~90 season points vs
+L2 because the captain pick wants the tail. Under the shipped Huber δ=4 + q90-captain split,
+cloud run `33314060135` had `ml_manager` at 4,157; the 5-seed Huber run `33333434359` has it at
+**4,208** (Quant 3,745; pure-L2 challenger 4,315). `rolling_defcon_{3,5,10}` features add ~25
+points and are in the ship model. All on `master`.
 
 ## 10. Reproducibility
 
@@ -608,6 +633,10 @@ the ship model. Both are on `master`.
 - §8c objective sweep: `33328436934` (Huber δ2), `33329089778` (Huber δ4), `33329778704` (pure
   L2 control). PRs #80/#81; #82 fixed the LightGBM alpha plumbing (see §8c fix note);
   `33332070357` re-confirms the shipped Huber δ4 numbers.
+- §8c 5-seed corroboration: `33333434359` (`master`, seeds 42–46) — Huber δ4 MAE improvement
+  0.559 CI [0.544, 0.572], 0 regressing slices, season points 4,208.
+- `quant_lightgbm_l2` challenger arm (PR #83, `9dd622b`): first run `33334342024` — MAE 1.011,
+  bias −0.03, rank ρ 0.709, season points 4,315.
 - Shipped `experiment.py`: LightGBM point forecast `objective="huber", alpha=4.0`;
   `quant_xgboost` `objective="reg:pseudohubererror", huber_slope=4.0` (matched); `quant_gbm`
   unchanged (`loss="absolute_error"`); `rolling_defcon_{3,5,10}` features; q90 quantile
