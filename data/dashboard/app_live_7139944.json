@@ -4,7 +4,7 @@
   "gameweek": 2,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 33,
+  "live_total": 79,
   "players": [
     {
       "player_id": 496,
@@ -23,30 +23,30 @@
     {
       "player_id": 534,
       "web_name": "Hume",
-      "live_points": 0,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     },
     {
       "player_id": 418,
       "web_name": "Maguire",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 426,
       "web_name": "B.Fernandes",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 427,
       "web_name": "Mbeumo",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 557,
@@ -58,16 +58,16 @@
     {
       "player_id": 124,
       "web_name": "Gro\u00df",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 16,
+      "provisional_bonus": 3,
+      "contribution": 16
     },
     {
       "player_id": 346,
       "web_name": "Calvert-Lewin",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 10,
+      "provisional_bonus": 2,
+      "contribution": 10
     },
     {
       "player_id": 411,
@@ -79,15 +79,15 @@
     {
       "player_id": 165,
       "web_name": "Jo\u00e3o Pedro",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 11,
+      "provisional_bonus": 2,
+      "contribution": 11
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 4.5,
-    "estimated_rank": 9587458
+    "percentile": 88.5,
+    "estimated_rank": 1159260
   },
   "fixtures": [
     {
@@ -174,9 +174,85 @@
         "name": "Newcastle",
         "score": 2
       }
+    },
+    {
+      "id": 16,
+      "kickoff": "2026-08-30T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "CHE",
+        "name": "Chelsea",
+        "score": 4
+      },
+      "away": {
+        "short_name": "BHA",
+        "name": "Brighton",
+        "score": 3
+      }
+    },
+    {
+      "id": 17,
+      "kickoff": "2026-08-30T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LEE",
+        "name": "Leeds",
+        "score": 1
+      },
+      "away": {
+        "short_name": "BRE",
+        "name": "Brentford",
+        "score": 1
+      }
+    },
+    {
+      "id": 19,
+      "kickoff": "2026-08-30T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "SUN",
+        "name": "Sunderland",
+        "score": 1
+      },
+      "away": {
+        "short_name": "FUL",
+        "name": "Fulham",
+        "score": 0
+      }
+    },
+    {
+      "id": 18,
+      "kickoff": "2026-08-30T15:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 0
+      },
+      "away": {
+        "short_name": "IPS",
+        "name": "Ipswich Town",
+        "score": 1
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 40,
+      "web_name": "Rogers",
+      "team": 6,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 16
+    },
     {
       "player_id": 69,
       "web_name": "Scott",
@@ -192,6 +268,110 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 12
+    },
+    {
+      "player_id": 86,
+      "web_name": "Lewis-Potter",
+      "team": 4,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 17
+    },
+    {
+      "player_id": 94,
+      "web_name": "Schade",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 17
+    },
+    {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 127,
+      "web_name": "Gomez",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 138,
+      "web_name": "Kostoulas",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 148,
+      "web_name": "Hato",
+      "team": 6,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 154,
+      "web_name": "Palmer",
+      "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 156,
+      "web_name": "Neto",
+      "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 161,
+      "web_name": "Lavia",
+      "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 165,
+      "web_name": "Jo\u00e3o Pedro",
+      "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 165,
+      "web_name": "Jo\u00e3o Pedro",
+      "team": 6,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 16
+    },
+    {
+      "player_id": 165,
+      "web_name": "Jo\u00e3o Pedro",
+      "team": 6,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 16
     },
     {
       "player_id": 211,
@@ -224,6 +404,38 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 13
+    },
+    {
+      "player_id": 305,
+      "web_name": "Davis",
+      "team": 12,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 315,
+      "web_name": "Fatawu",
+      "team": 12,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 346,
+      "web_name": "Calvert-Lewin",
+      "team": 13,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 17
+    },
+    {
+      "player_id": 347,
+      "web_name": "Nmecha",
+      "team": 13,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 17
     },
     {
       "player_id": 366,
@@ -362,13 +574,37 @@
       "fixture_id": 14
     },
     {
+      "player_id": 543,
+      "web_name": "Diarra",
+      "team": 20,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 19
+    },
+    {
+      "player_id": 553,
+      "web_name": "Isidor",
+      "team": 20,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 19
+    },
+    {
       "player_id": 593,
       "web_name": "Dedi\u0107",
       "team": 17,
       "event": "assist",
       "count": 1,
       "fixture_id": 15
+    },
+    {
+      "player_id": 605,
+      "web_name": "Yalcouy\u00e9",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 16
     }
   ],
-  "generated_at": "2026-08-29T23:36:58.301944+00:00"
+  "generated_at": "2026-08-30T16:09:23.360500+00:00"
 }
