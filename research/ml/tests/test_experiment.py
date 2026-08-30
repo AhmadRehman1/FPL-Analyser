@@ -78,6 +78,10 @@ def test_run_experiment_produces_all_artifacts(seeded_db, monkeypatch, tmp_path)
     # this environment has it, so its absence here would be a real regression, not a skip.
     if lightgbm_available():
         assert "quant_lightgbm" in set(comp["model"])
+        # REPORT.md §9 decision #2: the pure-L2 challenger is kept computed + logged every fold.
+        assert "quant_lightgbm_l2" in set(comp["model"])
+        sp = pd.read_csv(C.SEASON_POINTS_CSV)
+        assert C.COL_ML_L2_PRED in set(sp["signal"])
     if sklearn_available():
         assert "quant_gbm" in set(comp["model"])
     # R13: quant_xgboost, the independent-implementation confirmation arm, must appear whenever

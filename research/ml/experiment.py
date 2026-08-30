@@ -231,6 +231,19 @@ def run_experiment(
                     ml_ceiling_test = quant_test + _fit_and_predict_lightgbm_ceiling(train_df, test_df, feat_cols, random_seed)
                 except Exception as exc:  # never fatal -- captain falls back to ml_prediction
                     print(f"[experiment] q90 ceiling skipped for fold {fold.name}: {exc}", file=sys.stderr)
+                # Pure-L2 challenger (REPORT.md §9 owner decision #2): the better conditional-MEAN
+                # candidate -- kept computed and logged every fold, not discarded, so the frozen
+                # forward test (§10) can compare it against the shipped Huber arm on the real
+                # decision + calibration metrics. Not a ship/no-ship arm; season-sim only.
+                try:
+                    pp_l2 = Preprocessor().fit(train_df, feat_cols)
+                    Xtr_l2, _ = pp_l2.transform(train_df)
+                    Xte_l2, _ = pp_l2.transform(test_df)
+                    l2m = LightGBMResidualModel(random_state=random_seed, objective="regression").fit(
+                        Xtr_l2, train_df[C.COL_RESIDUAL].to_numpy(dtype=float))
+                    predictions["quant_lightgbm_l2"] = quant_test + l2m.predict(Xte_l2)
+                except Exception as exc:
+                    print(f"[experiment] L2 challenger skipped for fold {fold.name}: {exc}", file=sys.stderr)
             except ResidualModelUnavailableError as exc:
                 # R14: a real LightGBM failure must not block the rest of the pipeline --
                 # quant/historical/linear/quant_gbm results for this fold still complete.
@@ -289,6 +302,8 @@ def run_experiment(
         gw_frame = test_df.copy()
         gw_frame[C.COL_ML_PRED] = ml_for_ensemble
         gw_frame[C.COL_ML_CEILING] = ml_ceiling_test if ml_ceiling_test is not None else ml_for_ensemble
+        # the pure-L2 challenger's own manager-sim signal (REPORT.md §9 owner decision #2)
+        gw_frame[C.COL_ML_L2_PRED] = predictions.get("quant_lightgbm_l2", ml_for_ensemble)
         per_gw_frames.append(gw_frame)
 
     comparison_df = pd.DataFrame(comparison_rows)
@@ -353,9 +368,13 @@ def run_experiment(
     # ---- season manager simulation: how many real points would each signal score? ----
     if per_gw_frames:
         season_pool = pd.concat(per_gw_frames, ignore_index=True)
-        signal_cols = {C.COL_QUANT_PRED: C.COL_QUANT_PRED, C.COL_ML_PRED: C.COL_ML_PRED}
-        # the ML manager picks its XI on the L1 (median) prediction but captains on the q90
-        # ceiling -- a real manager's captaincy is a ceiling call, not an EP call.
+        signal_cols = {
+            C.COL_QUANT_PRED: C.COL_QUANT_PRED,
+            C.COL_ML_PRED: C.COL_ML_PRED,           # shipped Huber δ=4 point forecast
+            C.COL_ML_L2_PRED: C.COL_ML_L2_PRED,     # pure-L2 challenger (§9 decision #2)
+        }
+        # the ML manager picks its XI on the point forecast but captains on the q90 ceiling --
+        # a real manager's captaincy is a ceiling call, not an EP call.
         captain_cols = {C.COL_ML_PRED: C.COL_ML_CEILING}
         season_pts = sim.season_points_table(season_pool, signal_cols, captain_cols)
         season_pts.to_csv(C.SEASON_POINTS_CSV, index=False)
@@ -405,7 +424,7 @@ def run_experiment(
         "models": (
             ["quant", "historical_baseline", "quant_linear"]
             + (["quant_gbm"] if sklearn_ok else [])
-            + (["quant_lightgbm"] if lightgbm_ok else [])
+            + (["quant_lightgbm", "quant_lightgbm_l2"] if lightgbm_ok else [])
             + (["quant_xgboost"] if xgboost_ok else [])
             + ["ensemble"]
         ),
