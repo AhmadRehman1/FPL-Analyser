@@ -8,16 +8,16 @@
 > slice and lifts the MAE improvement to 0.611. §8b + §9 carry the current verdict; the older
 > sections are the historical record and their numbers are the L2 model's, not the ship model's.
 >
-> **2026-08-30 — verdict changed to SHIP (see §8b).** The 2026-08-29 cloud sweep (§8a) left
-> NO-SHIP resting on one thing: `quant_lightgbm` regressed against Quant on `ownership_band=20%+`
-> (highly-owned players) in 5/5 seeds. A cloud iteration loop found the cause — every tree arm
-> trained on an **L2 objective** while the metric is MAE — and the fix: train on **L1**
-> (`regression_l1` etc.). With L1, all three tree arms improve on **every one of 60 slices in 5/5
-> seeds**, `quant_lightgbm` MAE improvement rises to **0.611** CI [0.594, 0.624] (from 0.515), and
-> `ownership_band=20%+` flips to +0.15. The R13 confirmation arm (`quant_xgboost`) now confirms
-> the cleared result. This meets §9 checkbox #1 without qualification → **recommend a controlled,
-> shadow-only integration.** §3–§8 below still document the L2 model (the historical record);
-> §8b and §9 carry the current state. Ship branch: `claude/ml-l1-defcon-ship`.
+> **2026-08-30 — verdict: SHIP (recommend shadow-only integration). See §8c + §9.** The
+> 2026-08-29 sweep (§8a) left NO-SHIP resting on one per-slice regression (`quant_lightgbm` worse
+> than Quant on `ownership_band=20%+`, 5/5 seeds). §8b switched the training objective from L2 to
+> L1 and that cleared it — but an external review (§8c) then showed L1 "won" on MAE by fitting the
+> biased conditional *median* (final bias −0.48, worse player-ranking and worse manager-sim points
+> than L2). The shipped answer is **Huber δ=4**: 0 regressing slices, near-L2 RMSE, best rank
+> correlation, best season points among gate-clearing models. §8c also documents that **pure L2 is
+> strictly better on value** but trips the one-slice gate — a carve-out call for the plan owner.
+> §3–§8 document the original L2 model (historical); **§8c + §9 carry the current state.** All on
+> `master`.
 >
 > **Track F update** (`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md`):
 > this template now includes a fourth model arm, `quant_lightgbm` — the **primary** nonlinear
@@ -453,6 +453,44 @@ wants the upper tail. The `rolling_defcon` features recover ~25 of those points 
 the slice result. This is a genuine metric tension worth a follow-up (a ceiling-aware captain
 signal for the manager sim), not a blocker.
 
+### 8c. Correction — L1 gamed MAE; the shipped point forecast is Huber (2026-08-30, later)
+
+An external review (Perplexity, prompt in `scratchpad/PERPLEXITY_PROMPT.md`) plus the L1 ship
+run's own numbers exposed a real problem with §8b's framing: **MAE targets the conditional
+*median*, and FPL points are so zero/2-heavy that the median sits ~0.5 below the mean.** The L1
+model therefore "won" on MAE partly by predicting low everywhere:
+
+- final-prediction **bias −0.48** (the L2 baseline is −0.04, essentially unbiased)
+- **RMSE 2.05** — barely better than the L2 baseline's 1.93, while MAE dropped 40%
+- **within-gameweek rank correlation 0.688** — *worse* than L2's 0.709; L1 is measurably worse at
+  the thing XI selection actually needs, which is *ranking* players
+- greedy-manager **season points 4,086 — below the L2 model's 4,178**
+
+So L1 minimised the reporting metric while being the wrong functional for team selection. A
+five-run sweep on the LightGBM point-forecast objective settles it (compare artifacts vs the L2
+baseline `33303614405` and the L1 ship `33313576174`):
+
+| objective | MAE | RMSE | bias | rank ρ | regressing slices | ml season pts |
+|-----------|-----|------|------|--------|-------------------|---------------|
+| pure L2 (`regression`) | 1.011 | **1.933** | **−0.03** | 0.709 | **1** (`ownership_band=20%+` −0.057) | **4,313** |
+| **Huber δ=4** (shipped) | 0.967 | 1.941 | −0.17 | **0.710** | **0** | 4,208 |
+| Huber δ=2 | 0.932 | 1.982 | −0.32 | 0.709 | 0 | 4,192 |
+| L1 (`regression_l1`) | **0.915** | 2.048 | −0.48 | 0.688 | 0 | 4,086 |
+
+The picture: **the per-slice regression is real and loss-dependent.** Pure L2 is the best mean
+forecast on every value axis — near-zero bias, best RMSE, best season points (4,313) — but it
+over-corrects the highest-variance slice (captained premiums, whose outcomes are near-random) and
+dips 0.057 MAE below Quant there. L1 removes that by being biased low. **Huber δ=4 is the frontier
+point**: L2 behaviour for `|residual| < 4` (a near-unbiased mean for the bulk of players), L1 only
+for genuine hauls — 0 regressing slices, rank ρ and season points at/above the L2 baseline, RMSE
+back to L2, residual bias −0.17 (closeable with a linear calibration step; tracked).
+
+Shipped model (`experiment.py`, all on `master`): LightGBM point forecast on **Huber δ=4**;
+`quant_xgboost` on **pseudo-Huber slope 4** (matched, so the R13 confirmation arm confirms the
+same functional); `quant_gbm` unchanged; the q90 quantile captain-ceiling arm (§9.1) unchanged.
+
+> Source runs: `33328436934` (Huber δ2), `33329089778` (Huber δ4), `33329778704` (pure L2 control).
+
 ## 9. Decision
 
 **Governed by `quant_lightgbm` alone (R11)** — §3.1b's bootstrap CI for that arm, plus this
@@ -461,36 +499,42 @@ numbers (real, reported throughout this document) are informational only and do 
 this checkbox (R16) — do not let a `quant_gbm` or `quant_xgboost` result substitute for
 `quant_lightgbm`'s here even when all three point the same direction (as they do in this run).
 
-- [x] **`quant_lightgbm` improves out-of-sample on the primary metric (MAE), the entire 95%
-      bootstrap CI sits above zero (§3.1b / §8b), and the improvement holds across slices
-      (§8b)** → recommend a controlled integration (separate code path, shadow-only at first).
-      R13 is resolved *and consistent*: with the L1 objective, `quant_xgboost` (independent
-      library, independent implementation) clears the same bar — 0 regressing slices, ~0.611
-      MAE improvement — so the confirmation arm confirms rather than contradicts.
+- [x] **`quant_lightgbm` improves out-of-sample on the primary metric, the entire 95%
+      bootstrap CI sits above zero, and the improvement holds across all slices (§8c)** →
+      recommend a controlled integration (separate code path, shadow-only at first). R13 is
+      resolved *and consistent*: `quant_xgboost` (independent library, matched pseudo-Huber
+      objective) clears the same bar.
 - [ ] **`quant_lightgbm` does not improve, the CI does not exclude zero, or it only improves a
       slice while degrading others** → do not integrate. *(This was the verdict under the L2
-      objective — see the struck-through history below.)*
+      objective — see the history below.)*
 
 **Verdict: SHIP — recommend a controlled, shadow-only integration** (a separate `ep_total_ml`
-column produced alongside the existing `ep_total`, never replacing it, with the L1-objective
-residual model of `claude/ml-l1-defcon-ship`). This satisfies checkbox #1 above without
-qualification: 0.611 MAE improvement, CI [0.594, 0.624] entirely above zero, and **every one of
-60 slices improves for every one of the three tree arms across 5 seeds** (§8b). The one slice
-that drove the earlier NO-SHIP now *improves* by ~0.15 MAE.
+column alongside `ep_total`, never replacing it), with the **Huber δ=4** point-forecast model on
+`master`. It clears the pre-committed per-slice gate — **0 regressing slices, every one of 60
+slices improves** (§8c) — while being a genuine value improvement over both the L2 baseline and
+the L1 model: near-L2 RMSE, best within-gameweek rank correlation (0.710), best greedy-manager
+season points among gate-clearing models (4,208 vs the L2 baseline's 4,178), MAE 0.967 vs 1.011.
+
+**One thing for the plan owner to decide.** §8c shows **pure L2 is strictly better on every
+value metric** — bias −0.03, RMSE 1.93, season points 4,313 — but it dips 0.057 MAE (1.8%
+relative) below Quant on the single `ownership_band=20%+` slice, a highly-owned population whose
+gameweek outcomes are near-random and where Quant's own MAE is already its worst (~3.1). The
+pre-committed rule (line 349; R11) is no-ship on *any* per-slice regression, which forces the
+choice toward Huber. If the plan owner judges that one narrow, noise-dominated slice an
+acceptable carve-out, pure L2 is the better model — this is exactly the "conditional ship with a
+named carve-out" question §9.1 has flagged from the start. Huber δ=4 is what ships **under the
+rule as written**; it is close to L2 on value and strictly better than the L1 model that §8b
+originally proposed.
 
 The human who owns
 `docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md` still makes the actual
-production-integration call and sets the shadow-period length; this section records that the
-pre-committed statistical bar is now met.
+production-integration call and sets the shadow-period length.
 
-**History — why this was NO-SHIP under L2 (2026-08-28 → 08-30):** the residual arms trained on
-an L2 objective while the metric was MAE. That mismatch made `quant_lightgbm` worse than Quant
-on `ownership_band=20%+` (highly-owned players) in 5/5 cloud seeds — a real, seed-stable
-per-slice regression, and the plan pre-commits to NO-SHIP on any such regression (line 349;
-R11's "ship only if… **without regressing**… per-slice performance"). An even-earlier draft
-recorded a "CONDITIONAL SHIP" here, which was rejected in blind review as an unauthorized third
-decision category. Both are moot now: §8b removes the regression outright by fixing the loss
-function, so the clean checkbox #1 applies and no new decision category is needed.
+**History (2026-08-28 → 08-30):** under an **L2** objective `quant_lightgbm` was worse than Quant
+on `ownership_band=20%+` in 5/5 cloud seeds — a real per-slice regression → **NO-SHIP** under the
+pre-committed rule. §8b then over-corrected: switching to **L1** removed the regression but §8c
+shows L1 minimised MAE by fitting the biased conditional median (bias −0.48, worse ranking, worse
+season points than L2). The shipped answer, **Huber δ=4**, is the frontier between the two.
 
 ### 9.1 The residual signal, and the one open tension
 
@@ -533,18 +577,21 @@ the ship model. Both are on `master`.
 - Reproduce on cloud: `gh workflow run ml_experiment.yml --ref <branch> [-f runs=N]`
   (`.github/workflows/ml_experiment.yml`, PR #73).
 
-**L1 ship model (2026-08-30), §8b — the current recommendation:**
-- Iteration loop: `scratchpad/ITERATION_LOG.md`. Master baseline for the comparison: Actions run
-  `33303614405` (commit `a941953`) — `quant_lightgbm` MAE improvement 0.515, 1 regressing slice.
-- LightGBM-only L1: runs `33309139236` (single) + `33309669402` (5-seed) — 0 regressing slices in
-  5/5, MAE improvement 0.611 CI [0.594, 0.624].
-- All-arms L1: run `33311976548` — `quant_gbm` and `quant_xgboost` also reach 0 regressing slices.
-- All-arms L1 + `rolling_defcon`: run `33312534544` — same slice result, ml season points ~4086.
-- Ship branch `claude/ml-l1-defcon-ship`: `experiment.py` opts every tree arm into L1
-  (`regression_l1` / `absolute_error` / `reg:absoluteerror`); class defaults stay L2. Plus the
-  `rolling_defcon_{3,5,10}` features. Full `research/ml/tests/` green.
-- Reproduce: `python -m research.ml.experiment` on that branch, or `gh workflow run
-  ml_experiment.yml --ref claude/ml-l1-defcon-ship -f runs=5`.
+**Ship model (2026-08-30), §8c — the current recommendation (all on `master`):**
+- Iteration loop: `scratchpad/ITERATION_LOG.md`. Reference runs: L2 baseline `33303614405`
+  (commit `a941953`), L1 ship `33313576174` (5-seed).
+- §8b (L1) runs: `33309139236` / `33309669402` (LightGBM-only) → `33311976548` (all arms) →
+  `33312534544` (+ `rolling_defcon`). Merged as PRs #78/#79.
+- §8c objective sweep: `33328436934` (Huber δ2), `33329089778` (Huber δ4), `33329778704` (pure
+  L2 control). PR #80 → the consolidated ship PR.
+- Shipped `experiment.py`: LightGBM point forecast `objective="huber", alpha=4.0`;
+  `quant_xgboost` `objective="reg:pseudohubererror", huber_slope=4.0` (matched); `quant_gbm`
+  unchanged (`loss="absolute_error"`); `rolling_defcon_{3,5,10}` features; q90 quantile
+  captain-ceiling arm (§9.1). Class objective defaults all stay L2. Full `research/ml/tests/` green.
+- Compare-vs-baselines helper: `scratchpad/compare_run.py <run_id> <label>` (MAE / RMSE / bias /
+  rank corr / per-season season points / per-slice / last-10-folds held-out check).
+- Reproduce: `python -m research.ml.experiment` on `master`, or `gh workflow run
+  ml_experiment.yml --ref master -f runs=5`.
 
 ## 11. Absolute rule — leakage
 

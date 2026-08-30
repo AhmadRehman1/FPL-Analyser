@@ -159,7 +159,8 @@ def test_lightgbm_default_hyperparameters_are_regularised():
 
 def test_lightgbm_objective_is_configurable_and_defaults_to_l2(seeded_db):
     # the class default stays "regression" (L2) so nothing else that constructs it changes
-    # behaviour; the experiment orchestrator opts into "regression_l1" explicitly.
+    # behaviour; the experiment orchestrator opts in per arm (point forecast = huber delta 4;
+    # captain-ceiling arm = quantile alpha 0.9).
     assert LightGBMResidualModel().objective == "regression"
     if not lightgbm_available():
         pytest.skip("lightgbm is not installed in this environment")
@@ -167,9 +168,11 @@ def test_lightgbm_objective_is_configurable_and_defaults_to_l2(seeded_db):
     pp = Preprocessor().fit(train, feature_columns())
     Xtr, _ = pp.transform(train)
     y = train["residual"].to_numpy()
-    m = LightGBMResidualModel(objective="regression_l1").fit(Xtr, y)
-    assert m._model.get_params()["objective"] == "regression_l1"
-    assert m.predict(Xtr).shape == (len(train),)
+    for obj, kw in [("regression_l1", {}), ("huber", {"alpha": 4.0}), ("quantile", {"alpha": 0.9})]:
+        m = LightGBMResidualModel(objective=obj, **kw).fit(Xtr, y)
+        assert m._model.get_params()["objective"] == obj
+        assert m.alpha == kw.get("alpha", 0.9)  # class stores it; LightGBM reads it from params
+        assert m.predict(Xtr).shape == (len(train),)
 
 
 def test_lightgbm_predict_before_fit_raises():
@@ -265,7 +268,7 @@ def test_xgboost_predict_before_fit_raises():
 
 def test_all_tree_arms_objective_is_configurable_and_defaults_to_l2(seeded_db):
     # class defaults stay L2 so nothing that constructs these unexpectedly changes; the
-    # experiment orchestrator opts every tree arm into L1 explicitly (aligns loss w/ the MAE metric).
+    # experiment orchestrator opts each arm in explicitly (LightGBM huber, XGBoost pseudo-huber).
     assert GradientBoostingResidualModel().loss == "squared_error"
     assert XGBoostResidualModel().objective == "reg:squarederror"
     train = build_dataset(seeded_db, with_features=True)
@@ -277,8 +280,9 @@ def test_all_tree_arms_objective_is_configurable_and_defaults_to_l2(seeded_db):
         assert g._model.loss == "absolute_error"
         assert g.predict(Xtr).shape == (len(train),)
     if xgboost_available():
-        x = XGBoostResidualModel(objective="reg:absoluteerror").fit(Xtr, y)
-        assert x._model.get_params()["objective"] == "reg:absoluteerror"
+        x = XGBoostResidualModel(objective="reg:pseudohubererror", huber_slope=4.0).fit(Xtr, y)
+        assert x._model.get_params()["objective"] == "reg:pseudohubererror"
+        assert x.huber_slope == 4.0
         assert x.predict(Xtr).shape == (len(train),)
 
 

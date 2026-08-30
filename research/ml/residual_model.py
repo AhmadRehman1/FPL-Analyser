@@ -379,10 +379,12 @@ class XGBoostResidualModel:
         subsample: float = 0.8,
         colsample_bytree: float = 0.8,
         random_state: int = 42,
-        # "reg:squarederror" = L2. "reg:absoluteerror" aligns the training loss with the
-        # experiment's MAE metric -- see LightGBMResidualModel.__init__ for the reasoning.
+        # "reg:squarederror" = L2. The experiment opts into "reg:pseudohubererror" to match the
+        # LightGBM point-forecast objective -- see LightGBMResidualModel.__init__ / experiment.py
+        # for why (MAE targets the median; XI selection needs a near-unbiased mean).
         # Constructor default preserved so nothing that builds this class changes behaviour.
         objective: str = "reg:squarederror",
+        huber_slope: float = 1.0,  # only consulted for objective == "reg:pseudohubererror"
     ):
         self.max_depth = max_depth
         self.n_estimators = n_estimators
@@ -393,6 +395,7 @@ class XGBoostResidualModel:
         self.colsample_bytree = colsample_bytree
         self.random_state = random_state
         self.objective = objective
+        self.huber_slope = huber_slope
         self._model = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "XGBoostResidualModel":
@@ -406,8 +409,11 @@ class XGBoostResidualModel:
                 "quant_lightgbm (whichever dependencies are available) all still run without it."
             ) from exc
         try:
+            xkw = {}
+            if self.objective == "reg:pseudohubererror":
+                xkw["huber_slope"] = self.huber_slope
             model = XGBRegressor(
-                objective=self.objective,
+                objective=self.objective, **xkw,
                 max_depth=self.max_depth, n_estimators=self.n_estimators,
                 learning_rate=self.learning_rate, reg_alpha=self.reg_alpha,
                 reg_lambda=self.reg_lambda, subsample=self.subsample,
