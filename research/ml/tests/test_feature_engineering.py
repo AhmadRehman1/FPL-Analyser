@@ -72,3 +72,20 @@ def test_no_feature_uses_future_gameweek(seeded_db):
     assert seeded_db.execute(
         "SELECT count(*) FROM fact_player_season_stats WHERE gw = 1 AND event_points IS NOT NULL"
     ).fetchone()[0] > 0
+
+
+def test_rolling_defcon_is_in_feature_columns_and_asof_safe(seeded_db):
+    """rolling_defcon_{3,5,10}: mean per-match defensive actions over prior matches. Sits beside
+    rolling_goals_{w} in _rolling_match_features and follows the same asof discipline -- prior
+    match rows only (cross-season history is valid, exactly like rolling_goals), and the very
+    first match ever (2024-2025 GW1) has none -> NaN."""
+    assert {"rolling_defcon_3", "rolling_defcon_5", "rolling_defcon_10"} <= set(feature_columns())
+    df = build_dataset(seeded_db, with_features=True)
+    first_ever = df[(df["season"] == "2024-2025") & (df["gameweek"] == 1)]
+    assert len(first_ever) > 0
+    assert first_ever["rolling_defcon_3"].isna().all()
+    gw3 = df[df["gameweek"] == 3]
+    populated = gw3[gw3["rolling_defcon_3"].notna()]
+    assert len(populated) > 0
+    # fixture seeds tackles+clearances+interceptions+recoveries+blocks = 1+2+1+3+1 = 8 per match
+    assert (populated["rolling_defcon_3"] - 8.0).abs().max() < 1e-9

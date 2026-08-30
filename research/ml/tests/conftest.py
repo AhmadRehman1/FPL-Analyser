@@ -223,7 +223,8 @@ def _seed_two_seasons(c, seasons=("2024-2025", "2025-2026"), gameweeks=(1, 2, 3)
                 c.execute(
                     "INSERT INTO fact_player_match_stats (player_uid, match_id, season, "
                     "start_min, finish_min, minutes_played, goals, assists, team_goals_conceded, "
-                    "_ingested_at) VALUES (?, ?, ?, 0, 90, 90, 0, 0, 1, ?)",
+                    "tackles, clearances, interceptions, recoveries, blocks, "
+                    "_ingested_at) VALUES (?, ?, ?, 0, 90, 90, 0, 0, 1, 1, 2, 1, 3, 1, ?)",
                     [pid, match_id, season, now]
                 )
 
