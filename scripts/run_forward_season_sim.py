@@ -22,6 +22,7 @@ Usage (from repo root):
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -47,6 +48,13 @@ ACCOUNTS = [
 ]
 
 DEFAULT_END_GAMEWEEK = 16
+
+# Which sims to run per account. `hold_wildcard` alone answers the timing question; the other
+# two add "what the model would do on its own" and "the projected points delta from taking it".
+# Override via FWSIM_MODES=hold_wildcard (comma-separated) to run a leaner job if the full set
+# risks the workflow timeout.
+ALL_MODES = ("hold_wildcard", "model_choice", "forced")
+MODES = tuple(m.strip() for m in os.environ.get("FWSIM_MODES", ",".join(ALL_MODES)).split(",") if m.strip())
 
 
 def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
@@ -75,38 +83,40 @@ def _run_account(con, entry_id: int, label: str, start_gw: int, end_gw: int, act
         bootstrap_squad=squad, active_versions=active,
     )
 
-    t0 = time.time()
-    held = fss.run_forward_season_sim(con, hold_wildcard=True, **common)
-    print(f"[{label}] hold_wildcard sim: {time.time() - t0:.0f}s; "
-          f"projected {held.total_projected_points:.0f} pts; WC reco {held.wildcard_recommendation}")
+    out: dict = {
+        "entry_id": entry_id, "label": label, "start_gameweek": start_gw, "end_gameweek": end_gw,
+        "hold_wildcard": None, "model_choice": None, "forced_at_recommendation": None,
+        "season_points_delta_from_wildcard": None,
+    }
 
-    t0 = time.time()
-    model = fss.run_forward_season_sim(con, **common)
-    model_wc_gw = next((r.gameweek for r in model.rows if r.action == "wildcard"), None)
-    print(f"[{label}] model_choice sim: {time.time() - t0:.0f}s; "
-          f"projected {model.total_projected_points:.0f} pts; model played WC at GW{model_wc_gw}")
+    held = None
+    if "hold_wildcard" in MODES:
+        t0 = time.time()
+        held = fss.run_forward_season_sim(con, hold_wildcard=True, **common)
+        out["hold_wildcard"] = held.to_dict()
+        print(f"[{label}] hold_wildcard sim: {time.time() - t0:.0f}s; "
+              f"projected {held.total_projected_points:.0f} pts; WC reco {held.wildcard_recommendation}")
 
-    forced = None
-    reco = held.wildcard_recommendation
-    if reco is not None:
+    if "model_choice" in MODES:
+        t0 = time.time()
+        model = fss.run_forward_season_sim(con, **common)
+        model_wc_gw = next((r.gameweek for r in model.rows if r.action == "wildcard"), None)
+        out["model_choice"] = {**model.to_dict(), "model_played_wildcard_at": model_wc_gw}
+        print(f"[{label}] model_choice sim: {time.time() - t0:.0f}s; "
+              f"projected {model.total_projected_points:.0f} pts; model played WC at GW{model_wc_gw}")
+
+    reco = held.wildcard_recommendation if held is not None else None
+    if "forced" in MODES and reco is not None and held is not None:
         t0 = time.time()
         forced = fss.run_forward_season_sim(con, force_wildcard_at=reco["gameweek"], **common)
+        out["forced_at_recommendation"] = forced.to_dict()
+        out["season_points_delta_from_wildcard"] = round(
+            forced.total_projected_points - held.total_projected_points, 1)
         print(f"[{label}] force_wildcard_gw{reco['gameweek']} sim: {time.time() - t0:.0f}s; "
               f"projected {forced.total_projected_points:.0f} pts "
               f"({forced.total_projected_points - held.total_projected_points:+.0f} vs no-WC baseline)")
 
-    return {
-        "entry_id": entry_id,
-        "label": label,
-        "start_gameweek": start_gw,
-        "end_gameweek": end_gw,
-        "hold_wildcard": held.to_dict(),
-        "model_choice": {**model.to_dict(), "model_played_wildcard_at": model_wc_gw},
-        "forced_at_recommendation": forced.to_dict() if forced is not None else None,
-        "season_points_delta_from_wildcard": (
-            None if forced is None else round(forced.total_projected_points - held.total_projected_points, 1)
-        ),
-    }
+    return out
 
 
 def _render_summary(results: list[dict], generated_at: str) -> str:
@@ -121,24 +131,30 @@ def _render_summary(results: list[dict], generated_at: str) -> str:
         "",
     ]
     for r in results:
-        held = r["hold_wildcard"]
-        reco = held["wildcard_recommendation"]
-        lines += [
-            f"## {r['label']} (entry {r['entry_id']})",
-            "",
-            f"- Window: GW{r['start_gameweek']}–{r['end_gameweek']}",
-            "- **Recommended Wildcard week: "
-            + (f"GW{reco['gameweek']}** (projected gain +{reco['projected_gain']:.0f} pts vs "
-               f"continuing weekly transfers)" if reco else "none in this window** — hold it"),
-            "- Model's own choice (free to play it): "
-            + (f"GW{r['model_choice']['model_played_wildcard_at']}"
-               if r["model_choice"]["model_played_wildcard_at"] else "did not play it in-window"),
-        ]
+        held = r.get("hold_wildcard")
+        model = r.get("model_choice")
+        lines += [f"## {r['label']} (entry {r['entry_id']})", "", f"- Window: GW{r['start_gameweek']}–{r['end_gameweek']}"]
+        if held is not None:
+            reco = held["wildcard_recommendation"]
+            lines.append(
+                "- **Recommended Wildcard week: "
+                + (f"GW{reco['gameweek']}** (projected gain +{reco['projected_gain']:.0f} pts vs "
+                   "continuing weekly transfers)" if reco else "none in this window** — hold it")
+            )
+        if model is not None:
+            lines.append(
+                "- Model's own choice (free to play it): "
+                + (f"GW{model['model_played_wildcard_at']}"
+                   if model["model_played_wildcard_at"] else "did not play it in-window")
+            )
         if r["season_points_delta_from_wildcard"] is not None:
             lines.append(
                 f"- Projected window-points if Wildcarded at the recommendation: "
                 f"{r['season_points_delta_from_wildcard']:+.0f} pts vs never"
             )
+        if held is None:
+            lines.append("")
+            continue
         lines += ["", "| GW | proj pts | 80% band | action | WC gain | WC reco? |",
                   "|----|----------|----------|--------|---------|----------|"]
         for g in held["gameweeks"]:
