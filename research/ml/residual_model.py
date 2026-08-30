@@ -296,7 +296,11 @@ class LightGBMResidualModel:
             # which would otherwise interleave with this project's own per-fold progress output
             # across potentially dozens of walk-forward folds.
             kw = {}
-            if self.objective == "quantile":
+            if self.objective in ("quantile", "huber", "fair"):
+                # LightGBM shares `alpha` across these: the quantile for "quantile", the Huber
+                # delta for "huber", the c parameter for "fair". Without this, "huber" silently
+                # uses LightGBM's default delta (0.9) -- which is ~L1, defeating the point of
+                # choosing Huber for an unbiased conditional-mean fit (REPORT.md §8c).
                 kw["alpha"] = self.alpha
             model = LGBMRegressor(
                 objective=self.objective, **kw,
