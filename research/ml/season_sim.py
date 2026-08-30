@@ -41,9 +41,13 @@ def _feasible_after_add(counts: dict[str, int], adding_pos: str, current_size: i
     return remaining_slots >= unmet
 
 
-def select_starting_xi(gw_df: pd.DataFrame, pred_col: str) -> tuple[list[str], str | None]:
+def select_starting_xi(gw_df: pd.DataFrame, pred_col: str, captain_col: str | None = None) -> tuple[list[str], str | None]:
     """Greedily pick an 11-man starting XI maximising `pred_col`, respecting position balance
-    (1 GK; DEF 3-5, MID 2-5, FWD 1-3), 3-per-club. Returns (player_uids, captain_uid)."""
+    (1 GK; DEF 3-5, MID 2-5, FWD 1-3), 3-per-club. Returns (player_uids, captain_uid).
+
+    The captain is the XI member with the highest `captain_col` (default: `pred_col`). A real
+    manager picks the XI on expected points but the captain on ceiling / haul potential -- pass
+    a separate upper-tail signal (e.g. a q90 estimate) as `captain_col` to model that."""
     pool = gw_df.dropna(subset=[pred_col, C.COL_ACTUAL]).copy()
     if pool.empty:
         return [], None
@@ -89,15 +93,16 @@ def select_starting_xi(gw_df: pd.DataFrame, pred_col: str) -> tuple[list[str], s
             club_count[club] = club_count.get(club, 0) + 1
     captain = None
     if selected:
-        rows = gw_df[gw_df[C.COL_PLAYER_UID].isin(selected)]
+        cap_signal = captain_col if (captain_col and captain_col in gw_df.columns) else pred_col
+        rows = gw_df[gw_df[C.COL_PLAYER_UID].isin(selected)].dropna(subset=[cap_signal])
         if not rows.empty:
-            captain = str(rows.loc[rows[pred_col].idxmax(), C.COL_PLAYER_UID])
+            captain = str(rows.loc[rows[cap_signal].idxmax(), C.COL_PLAYER_UID])
     return selected, captain
 
 
-def simulate_gameweek(gw_df: pd.DataFrame, pred_col: str) -> float:
+def simulate_gameweek(gw_df: pd.DataFrame, pred_col: str, captain_col: str | None = None) -> float:
     """Pick a starting XI using `pred_col`, return the actual points scored (captain doubles)."""
-    xi, captain = select_starting_xi(gw_df, pred_col)
+    xi, captain = select_starting_xi(gw_df, pred_col, captain_col)
     if not xi:
         return 0.0
     xi_df = gw_df[gw_df[C.COL_PLAYER_UID].isin(xi)]
@@ -109,25 +114,30 @@ def simulate_gameweek(gw_df: pd.DataFrame, pred_col: str) -> float:
     return base
 
 
-def simulate_season(season_df: pd.DataFrame, pred_col: str) -> dict:
+def simulate_season(season_df: pd.DataFrame, pred_col: str, captain_col: str | None = None) -> dict:
     """Accumulate actual points across every gameweek in `season_df`, picking from `pred_col`
     each gameweek. Returns total points + per-gameweek breakdown."""
     per_gw: list[dict] = []
     total = 0.0
     for gw, gw_df in season_df.sort_values(C.COL_GAMEWEEK).groupby(C.COL_GAMEWEEK):
-        pts = simulate_gameweek(gw_df, pred_col)
+        pts = simulate_gameweek(gw_df, pred_col, captain_col)
         total += pts
         per_gw.append({"gameweek": int(gw), "points": pts})
     return {"total_points": total, "per_gameweek": per_gw}
 
 
-def season_points_table(df: pd.DataFrame, signal_cols: dict[str, str]) -> pd.DataFrame:
+def season_points_table(df: pd.DataFrame, signal_cols: dict[str, str],
+                        captain_cols: dict[str, str] | None = None) -> pd.DataFrame:
     """For each (signal_name -> prediction column) and each season, simulate a manager picking
-    from that signal and return total season points. One row per (season, signal)."""
+    from that signal and return total season points. One row per (season, signal).
+
+    `captain_cols` optionally maps a signal_name to a separate column to captain on (ceiling
+    signal); signals not in the map captain on their own `pred_col`."""
+    captain_cols = captain_cols or {}
     rows: list[dict] = []
     for season, season_df in df.groupby(C.COL_SEASON):
         for signal_name, pred_col in signal_cols.items():
-            sim = simulate_season(season_df, pred_col)
+            sim = simulate_season(season_df, pred_col, captain_cols.get(signal_name))
             rows.append({
                 "season": season, "signal": signal_name,
                 "total_points": sim["total_points"],
