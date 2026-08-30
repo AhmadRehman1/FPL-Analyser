@@ -1,0 +1,122 @@
+name: Forward season sim + Wildcard timing (real squads)
+
+# Runs scripts/run_forward_season_sim.py: seeds each of the two tracked FPL accounts from its
+# ACTUAL current squad (live FPL API), walks the season forward one real transfer_planner.run()
+# decision per gameweek, scores on PROJECTED expected points, and reports when to play the
+# Wildcard. See src/fpl_quant/forward_season_sim.py's own module docstring for the method and
+# its early-season limitation.
+#
+# Why its own workflow, not a step in scheduled_pipeline.yml: three full forward simulations
+# per account (hold-wildcard / model-choice / forced-at-recommendation), each a real MIQP solve
+# per gameweek across a ~14-gameweek window -- the same cost class as weekly_backtest.yml's own
+# run_backtest.py, far too heavy for the twice-daily pipeline. Weekly is plenty: the Wildcard
+# timing answer does not move gameweek to gameweek, only as the season's data fills in.
+#
+# Restores the most recent scheduled_pipeline.yml DB cache (real historical fact tables +
+# ep_outputs already there), same `duckdb-` prefix restore-key match weekly_backtest.yml and
+# on_demand_report.yml use. Falls back to a fresh M0-M6 ingestion only if no run has cached one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      end_gameweek:
+        description: "Simulate forward through this gameweek (default 16)."
+        required: false
+        default: "16"
+        type: string
+  schedule:
+    - cron: "30 4 * * 0"    # 04:30 UTC Sunday -- after weekly_backtest.yml (03:00), before ml_experiment.yml (05:00)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forward-season-sim
+  cancel-in-progress: false
+
+jobs:
+  forward-sim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size
+            size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then
+              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page"
+              exit 1
+            fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then
+              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook"
+              exit 1
+            fi
+          }
+          fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Forward season simulation + Wildcard timing
+        run: PYTHONPATH=src python scripts/run_forward_season_sim.py "${{ github.event.inputs.end_gameweek || '16' }}"
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f data/forward_sim/SUMMARY.md ]; then
+            cat data/forward_sim/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No SUMMARY.md produced -- see the step log above." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit forward-sim outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/forward_sim/
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: forward season sim + wildcard timing [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
+            git fetch origin master
+            git rebase origin/master
+          done
+          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
+          exit 1
