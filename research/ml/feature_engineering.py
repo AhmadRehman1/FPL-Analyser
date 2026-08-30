@@ -53,7 +53,10 @@ def _prior_match_stats(con: duckdb.DuckDBPyConnection, player_uids: list[str]) -
 def _prior_season_snapshots(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, player_uids: list[str]) -> pd.DataFrame:
     """Per-gameweek season snapshots strictly before the target gw, newest first. The shadow
     truncates the in-progress season to gw < target, so event_points here is the realised
-    points for PRIOR gameweeks only -- a valid asof feature source."""
+    points for PRIOR gameweeks only -- a valid asof feature source. expected_goals /
+    expected_assists are cumulative-to-date (monotonic across gw); consecutive gw < G rows are
+    differenced by _recent_xg_xa_deltas() to recover per-gameweek xG/xA (LEAKAGE_PROTOCOL.md §2:
+    "Per-gameweek deltas are derived as differences of consecutive gw < G snapshots")."""
     if not player_uids:
         return pd.DataFrame()
     placeholders = ", ".join(["?"] * len(player_uids))
@@ -61,7 +64,8 @@ def _prior_season_snapshots(con: duckdb.DuckDBPyConnection, season: str, gamewee
         f"""
         SELECT player_uid, gw, now_cost, selected_by_percent, chance_of_playing_next_round,
                status, expected_goals_per_90, expected_assists_per_90,
-               defensive_contribution_per_90, saves_per_90, bps, event_points
+               defensive_contribution_per_90, saves_per_90, bps, event_points,
+               expected_goals, expected_assists
         FROM fact_player_season_stats
         WHERE season = ? AND gw < ? AND player_uid IN ({placeholders})
         ORDER BY player_uid, gw DESC
@@ -166,6 +170,41 @@ def _latest_snapshot_features(snaps: pd.DataFrame, windows: Iterable[int]) -> pd
     return pd.DataFrame(out_rows)
 
 
+# Recent xG/xA volume: which windows to average per-gameweek deltas over. Deliberately shorter
+# than C.ROLLING_WINDOWS (no 10) -- this is a "recent underlying threat" signal for the
+# premium/highly-owned slice where the model regresses (REPORT.md §8a), and a 10-gameweek mean
+# washes out exactly the hot/cold streak it is meant to catch.
+_XG_XA_DELTA_WINDOWS = (3, 5)
+
+
+def _recent_xg_xa_deltas(snaps: pd.DataFrame) -> pd.DataFrame:
+    """Per-player mean per-gameweek xG and xA over the last 3 / 5 knowable gameweeks.
+
+    `expected_goals` / `expected_assists` in fact_player_season_stats are cumulative-to-date, so
+    per-gameweek xG = the difference between consecutive gw < G snapshots (LEAKAGE_PROTOCOL.md §2
+    / §4). Snapshots arrive newest-first; we sort ascending, `.diff()` (first row -> NaN, dropped
+    by mean), and average the most recent N deltas. A player with fewer than 2 prior snapshots
+    has no computable delta -> NaN (same convention as rolling_xg_per90). This pairs with
+    rolling_goals_{w}: goals running hot vs recent xG is a mean-reversion signal the model
+    otherwise cannot see.
+    """
+    if snaps.empty:
+        return pd.DataFrame(columns=["player_uid"])
+    out_rows = []
+    for player_uid, g in snaps.groupby("player_uid", sort=False):
+        g = g.sort_values("gw")  # ascending for a forward difference
+        d_xg = g["expected_goals"].diff()
+        d_xa = g["expected_assists"].diff()
+        rec: dict = {"player_uid": player_uid}
+        for w in _XG_XA_DELTA_WINDOWS:
+            tail_xg = d_xg.tail(w)
+            tail_xa = d_xa.tail(w)
+            rec[f"xg_last_{w}"] = tail_xg.mean() if tail_xg.notna().any() else np.nan
+            rec[f"xa_last_{w}"] = tail_xa.mean() if tail_xa.notna().any() else np.nan
+        out_rows.append(rec)
+    return pd.DataFrame(out_rows)
+
+
 def _team_features(team_matches: pd.DataFrame, team_uid: str | None, deadline) -> dict:
     """Goals for/against over a team's last 10 prior finished matches + congestion counts.
     Returns NaNs if the team has no prior history (a genuinely new/promoted side)."""
@@ -249,6 +288,7 @@ def _compute_step_features(
 
     roll_match = _rolling_match_features(stats, C.ROLLING_WINDOWS)
     snap_feat = _latest_snapshot_features(snaps, C.ROLLING_WINDOWS)
+    xg_xa = _recent_xg_xa_deltas(snaps)
 
     team_uids = [t for t in grp[C.COL_TEAM_UID].unique().tolist() if pd.notna(t)]
     opp_uids = [t for t in grp[C.COL_OPPONENT_UID].unique().tolist() if pd.notna(t)]
@@ -265,6 +305,7 @@ def _compute_step_features(
     feats = grp[["player_uid"]].reset_index(drop=True)
     feats = feats.merge(roll_match, on="player_uid", how="left")
     feats = feats.merge(snap_feat, on="player_uid", how="left")
+    feats = feats.merge(xg_xa, on="player_uid", how="left")
     feats = feats.merge(m2, on="player_uid", how="left")
     feats["is_home"] = (grp[C.COL_HOME_AWAY].reset_index(drop=True) == "home").astype(float)
     # Attach the per-row team/opponent features (fixture_difficulty, goals for/against, congestion).
@@ -300,6 +341,7 @@ def feature_columns() -> list[str]:
         "now_cost", "selected_by_percent", "chance_of_playing_next_round", "status",
         "rolling_xg_per90", "rolling_xa_per90", "rolling_defcon_per90", "rolling_saves_per90",
         "rolling_bps", "p_start_final", "p_60plus_min",
+        "xg_last_3", "xg_last_5", "xa_last_3", "xa_last_5",
         "team_goals_for_last_10", "team_goals_against_last_10",
         "opponent_goals_for_last_10", "opponent_goals_against_last_10",
         "fixture_difficulty", "matches_last_7_days", "matches_last_14_days",

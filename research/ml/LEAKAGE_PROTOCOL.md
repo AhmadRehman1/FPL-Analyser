@@ -62,6 +62,7 @@ a new aggregation invented here.
 |---|---|---|
 | rolling goals/assists/minutes/starts/def-actions | `fact_player_match_stats` | `kickoff_time < deadline` |
 | rolling per-90 xG/xA/defcon/saves/bps | `fact_player_season_stats` | `gw < G` |
+| recent per-gameweek xG/xA (`xg_last_{3,5}`, `xa_last_{3,5}`) | `fact_player_season_stats` cumulative `expected_goals`/`expected_assists` | mean of differences of consecutive `gw < G` snapshots (§2) — never touches the `gw == G` row |
 | price, ownership, status, injury news | `fact_player_season_stats` | most-recent `gw < G` snapshot |
 | position, team | `dim_player` / `dim_team` / aliases | static identity, knowable |
 | opponent, home/away, fixture difficulty, congestion | `fact_match` schedule | schedule-only, `kickoff_time` unrestricted |

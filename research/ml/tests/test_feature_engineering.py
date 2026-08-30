@@ -13,10 +13,14 @@ from research.ml.leakage_checks import assert_feature_matrix_invariants
 def test_feature_columns_are_deterministic_and_no_label():
     cols = feature_columns()
     assert cols == feature_columns()  # cached / deterministic
-    forbidden = {"minutes", "goals_scored", "assists", "bps", "total_points", "saves", "expected_goals"}
+    forbidden = {"minutes", "goals_scored", "assists", "bps", "total_points", "saves",
+                 "expected_goals", "expected_assists"}
     assert not (forbidden & set(cols))
     assert C.COL_ACTUAL not in cols
     assert C.COL_RESIDUAL not in cols
+    # the recent-xG/xA delta features are present and named so they never collide with the
+    # forbidden raw same-gameweek outcome columns
+    assert {"xg_last_3", "xg_last_5", "xa_last_3", "xa_last_5"} <= set(cols)
 
 
 def test_position_is_a_feature_column():
@@ -72,3 +76,29 @@ def test_no_feature_uses_future_gameweek(seeded_db):
     assert seeded_db.execute(
         "SELECT count(*) FROM fact_player_season_stats WHERE gw = 1 AND event_points IS NOT NULL"
     ).fetchone()[0] > 0
+
+
+def test_recent_xg_xa_deltas_are_nan_before_two_prior_snapshots(seeded_db):
+    """xg_last_{3,5} / xa_last_{3,5} need >=2 prior gw < G snapshots to difference. GW1 has no
+    prior snapshot, GW2 has exactly one -> both must be NaN, even though the DB carries a
+    cumulative expected_goals for every gameweek (so NaN is asof discipline, not missing data)."""
+    df = build_dataset(seeded_db, with_features=True)
+    for col in ("xg_last_3", "xg_last_5", "xa_last_3", "xa_last_5"):
+        assert df.loc[df["gameweek"] == 1, col].isna().all()
+        assert df.loc[df["gameweek"] == 2, col].isna().all()
+    assert seeded_db.execute(
+        "SELECT count(*) FROM fact_player_season_stats WHERE gw IN (1, 2) AND expected_goals IS NOT NULL"
+    ).fetchone()[0] > 0
+
+
+def test_recent_xg_xa_deltas_recover_the_per_gameweek_value(seeded_db):
+    """By GW3 a player with GW1+GW2 snapshots has one computable delta. The fixture accrues a
+    flat 0.2 xG / 0.1 xA per gameweek cumulatively, so the recovered per-gameweek delta is
+    exactly that -- and never the target GW's own xG (which would make it 0.2*3 - 0.2*2 anyway,
+    but the point is only gw < G rows are touched)."""
+    df = build_dataset(seeded_db, with_features=True)
+    gw3 = df[df["gameweek"] == 3]
+    populated = gw3[gw3["xg_last_3"].notna()]
+    assert len(populated) > 0
+    assert (populated["xg_last_3"] - 0.2).abs().max() < 1e-9
+    assert (populated["xa_last_3"] - 0.1).abs().max() < 1e-9

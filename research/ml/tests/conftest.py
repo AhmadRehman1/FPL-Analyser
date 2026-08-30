@@ -208,6 +208,11 @@ def _seed_two_seasons(c, seasons=("2024-2025", "2025-2026"), gameweeks=(1, 2, 3)
                 # spread actual around prediction so residuals are nonzero
                 actual_offset = (pid.count("p")) % 3 - 1
                 realised_pts += actual_offset
+                # expected_goals / expected_assists are cumulative-to-date in the real table, so
+                # they grow monotonically; here a flat 0.2 xG / 0.1 xA per gameweek -> the
+                # per-gameweek delta _recent_xg_xa_deltas() recovers is exactly 0.2 / 0.1.
+                cum_xg = round(0.2 * gw, 2)
+                cum_xa = round(0.1 * gw, 2)
                 c.execute(
                     "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, "
                     "selected_by_percent, chance_of_playing_next_round, status, minutes, "
@@ -215,7 +220,7 @@ def _seed_two_seasons(c, seasons=("2024-2025", "2025-2026"), gameweeks=(1, 2, 3)
                     "expected_goals_per_90, expected_assists_per_90, "
                     "defensive_contribution_per_90, saves_per_90, total_points, event_points, "
                     "_ingested_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [pid, season, gw, 6.0, 5.0, 100.0, "Available", 90, 0, 0, 5, 0.2, 0.1,
+                    [pid, season, gw, 6.0, 5.0, 100.0, "Available", 90, 0, 0, 5, cum_xg, cum_xa,
                      0.3, 0.2, 0.1, 0.1, realised_pts, realised_pts, now]
                 )
 
