@@ -157,6 +157,21 @@ def test_lightgbm_default_hyperparameters_are_regularised():
     assert 0 < m.colsample_bytree < 1
 
 
+def test_lightgbm_objective_is_configurable_and_defaults_to_l2(seeded_db):
+    # the class default stays "regression" (L2) so nothing else that constructs it changes
+    # behaviour; the experiment orchestrator opts into "regression_l1" explicitly.
+    assert LightGBMResidualModel().objective == "regression"
+    if not lightgbm_available():
+        pytest.skip("lightgbm is not installed in this environment")
+    train = build_dataset(seeded_db, with_features=True)
+    pp = Preprocessor().fit(train, feature_columns())
+    Xtr, _ = pp.transform(train)
+    y = train["residual"].to_numpy()
+    m = LightGBMResidualModel(objective="regression_l1").fit(Xtr, y)
+    assert m._model.get_params()["objective"] == "regression_l1"
+    assert m.predict(Xtr).shape == (len(train),)
+
+
 def test_lightgbm_predict_before_fit_raises():
     m = LightGBMResidualModel()
     with pytest.raises(ResidualModelUnavailableError):
@@ -246,6 +261,25 @@ def test_xgboost_predict_before_fit_raises():
     m = XGBoostResidualModel()
     with pytest.raises(ResidualModelUnavailableError):
         m.predict(np.zeros((3, 2)))
+
+
+def test_all_tree_arms_objective_is_configurable_and_defaults_to_l2(seeded_db):
+    # class defaults stay L2 so nothing that constructs these unexpectedly changes; the
+    # experiment orchestrator opts every tree arm into L1 explicitly (aligns loss w/ the MAE metric).
+    assert GradientBoostingResidualModel().loss == "squared_error"
+    assert XGBoostResidualModel().objective == "reg:squarederror"
+    train = build_dataset(seeded_db, with_features=True)
+    pp = Preprocessor().fit(train, feature_columns())
+    Xtr, _ = pp.transform(train)
+    y = train["residual"].to_numpy()
+    if sklearn_available():
+        g = GradientBoostingResidualModel(loss="absolute_error").fit(Xtr, y)
+        assert g._model.loss == "absolute_error"
+        assert g.predict(Xtr).shape == (len(train),)
+    if xgboost_available():
+        x = XGBoostResidualModel(objective="reg:absoluteerror").fit(Xtr, y)
+        assert x._model.get_params()["objective"] == "reg:absoluteerror"
+        assert x.predict(Xtr).shape == (len(train),)
 
 
 def test_xgboost_raises_when_unavailable(monkeypatch):
