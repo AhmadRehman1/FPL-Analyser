@@ -489,7 +489,17 @@ Shipped model (`experiment.py`, all on `master`): LightGBM point forecast on **H
 `quant_xgboost` on **pseudo-Huber slope 4** (matched, so the R13 confirmation arm confirms the
 same functional); `quant_gbm` unchanged; the q90 quantile captain-ceiling arm (§9.1) unchanged.
 
-> Source runs: `33328436934` (Huber δ2), `33329089778` (Huber δ4), `33329778704` (pure L2 control).
+> Source runs: `33328436934` (Huber δ2), `33329089778` (Huber δ4), `33329778704` (pure L2
+> control), `33332070357` (Huber δ4 re-confirm after the alpha-plumbing fix below).
+>
+> **Fix note (PR #82):** `LightGBMResidualModel` only forwarded `alpha` to LightGBM for
+> `objective="quantile"`, so for one commit `master`'s `objective="huber", alpha=4.0` silently
+> ran with LightGBM's default Huber delta (0.9 ≈ L1). Caught by comparing the consolidated ship
+> run (`quant_lightgbm` bias −0.40) against `33329089778` (bias −0.17 — that branch's lineage
+> carried the fix). One line: `if self.objective in ("quantile", "huber", "fair")`. Run
+> `33332070357` re-confirms the δ4 numbers in the table: `quant_lightgbm` MAE 0.967, RMSE 1.94,
+> bias −0.17, rank ρ 0.710, 0 regressing slices; `quant_xgboost` (matched pseudo-Huber) MAE
+> 0.967, bias −0.17, 0 regressing slices.
 
 ## 9. Decision
 
@@ -583,7 +593,8 @@ the ship model. Both are on `master`.
 - §8b (L1) runs: `33309139236` / `33309669402` (LightGBM-only) → `33311976548` (all arms) →
   `33312534544` (+ `rolling_defcon`). Merged as PRs #78/#79.
 - §8c objective sweep: `33328436934` (Huber δ2), `33329089778` (Huber δ4), `33329778704` (pure
-  L2 control). PR #80 → the consolidated ship PR.
+  L2 control). PRs #80/#81; #82 fixed the LightGBM alpha plumbing (see §8c fix note);
+  `33332070357` re-confirms the shipped Huber δ4 numbers.
 - Shipped `experiment.py`: LightGBM point forecast `objective="huber", alpha=4.0`;
   `quant_xgboost` `objective="reg:pseudohubererror", huber_slope=4.0` (matched); `quant_gbm`
   unchanged (`loss="absolute_error"`); `rolling_defcon_{3,5,10}` features; q90 quantile
