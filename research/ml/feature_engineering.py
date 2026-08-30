@@ -41,7 +41,9 @@ def _prior_match_stats(con: duckdb.DuckDBPyConnection, player_uids: list[str]) -
     return con.execute(
         f"""
         SELECT s.player_uid, s.match_id, m.kickoff_time, s.start_min, s.minutes_played,
-               s.goals, s.assists
+               s.goals, s.assists,
+               COALESCE(s.tackles, 0) + COALESCE(s.clearances, 0) + COALESCE(s.interceptions, 0)
+               + COALESCE(s.recoveries, 0) + COALESCE(s.blocks, 0) AS def_actions
         FROM fact_player_match_stats s JOIN fact_match m ON m.match_id = s.match_id
         WHERE s.player_uid IN ({placeholders})
         ORDER BY s.player_uid, m.kickoff_time DESC
@@ -111,9 +113,14 @@ def _team_prior_matches(con: duckdb.DuckDBPyConnection, team_uids: list[str], de
 # ============================================================
 
 def _rolling_match_features(stats: pd.DataFrame, windows: Iterable[int]) -> pd.DataFrame:
-    """Per-player rolling means of goals/assists/minutes and start counts over N prior matches.
-    Computed by taking the first N rows per player (already ordered newest-first) and averaging
-    -- a true walk-back rolling window, never including the target match (which is absent)."""
+    """Per-player rolling means of goals/assists/minutes, start counts, and defensive actions
+    over N prior matches. Computed by taking the first N rows per player (already ordered
+    newest-first) and averaging -- a true walk-back rolling window, never including the target
+    match (which is absent). rolling_defcon_{w} is the mean per-match count of
+    tackles+clearances+interceptions+recoveries+blocks -- the raw ingredients of FPL's 2025-26
+    defensive-contribution scoring, which Quant's ep_total may not fully price (REPORT.md §4:
+    Quant under-predicts defenders by the widest margin of the four positions). Distinct from
+    rolling_defcon_per90, which is a season-snapshot rate."""
     if stats.empty:
         return pd.DataFrame(columns=["player_uid"])
     stats = stats.copy()
@@ -129,6 +136,7 @@ def _rolling_match_features(stats: pd.DataFrame, windows: Iterable[int]) -> pd.D
             rec[f"rolling_assists_{w}"] = head["assists"].mean() if not head.empty else 0.0
             rec[f"rolling_minutes_{w}"] = head["minutes_played"].mean() if not head.empty else 0.0
             rec[f"rolling_starts_{w}"] = head["started"].mean() if not head.empty else 0.0
+            rec[f"rolling_defcon_{w}"] = head["def_actions"].mean() if not head.empty else 0.0
         # discrete windows the spec calls out explicitly
         rec["starts_last_3"] = int(g.head(3)["started"].sum()) if not g.empty else 0
         rec["starts_last_5"] = int(g.head(5)["started"].sum()) if not g.empty else 0
@@ -294,7 +302,7 @@ def feature_columns() -> list[str]:
     cols: list[str] = ["is_home", "position"]
     for w in C.ROLLING_WINDOWS:
         cols += [f"rolling_points_{w}", f"rolling_goals_{w}", f"rolling_assists_{w}",
-                 f"rolling_minutes_{w}", f"rolling_starts_{w}"]
+                 f"rolling_minutes_{w}", f"rolling_starts_{w}", f"rolling_defcon_{w}"]
     cols += [
         "starts_last_3", "starts_last_5", "minutes_last_5",
         "now_cost", "selected_by_percent", "chance_of_playing_next_round", "status",
