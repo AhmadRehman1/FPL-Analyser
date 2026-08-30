@@ -263,6 +263,25 @@ def test_xgboost_predict_before_fit_raises():
         m.predict(np.zeros((3, 2)))
 
 
+def test_all_tree_arms_objective_is_configurable_and_defaults_to_l2(seeded_db):
+    # class defaults stay L2 so nothing that constructs these unexpectedly changes; the
+    # experiment orchestrator opts every tree arm into L1 explicitly (aligns loss w/ the MAE metric).
+    assert GradientBoostingResidualModel().loss == "squared_error"
+    assert XGBoostResidualModel().objective == "reg:squarederror"
+    train = build_dataset(seeded_db, with_features=True)
+    pp = Preprocessor().fit(train, feature_columns())
+    Xtr, _ = pp.transform(train)
+    y = train["residual"].to_numpy()
+    if sklearn_available():
+        g = GradientBoostingResidualModel(loss="absolute_error").fit(Xtr, y)
+        assert g._model.loss == "absolute_error"
+        assert g.predict(Xtr).shape == (len(train),)
+    if xgboost_available():
+        x = XGBoostResidualModel(objective="reg:absoluteerror").fit(Xtr, y)
+        assert x._model.get_params()["objective"] == "reg:absoluteerror"
+        assert x.predict(Xtr).shape == (len(train),)
+
+
 def test_xgboost_raises_when_unavailable(monkeypatch):
     if not xgboost_available():
         pytest.skip("xgboost is not installed in this environment; the real ImportError path already covers this")
