@@ -112,6 +112,7 @@ COL_RESIDUAL = "residual"                     # y - Q(x)
 COL_PREDICTED_RESIDUAL = "predicted_residual"  # ML(x)
 COL_ML_PRED = "ml_prediction"                  # Q(x) + ML(x)  -- L1 (median) point estimate
 COL_ML_CEILING = "ml_ceiling"                   # Q(x) + q90 residual -- an upper-tail "haul" estimate, used ONLY for the season-sim captain pick
+COL_ML_L2_PRED = "ml_l2_prediction"             # Q(x) + pure-L2 residual -- the conditional-mean challenger kept alongside the shipped Huber arm (REPORT.md §9)
 
 # The label. Used exactly once, as the target, never as a feature.
 LABEL_COL = COL_ACTUAL

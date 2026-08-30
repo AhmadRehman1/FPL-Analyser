@@ -525,20 +525,33 @@ slices improves** (§8c) — while being a genuine value improvement over both t
 the L1 model: near-L2 RMSE, best within-gameweek rank correlation (0.710), best greedy-manager
 season points among gate-clearing models (4,208 vs the L2 baseline's 4,178), MAE 0.967 vs 1.011.
 
-**One thing for the plan owner to decide.** §8c shows **pure L2 is strictly better on every
-value metric** — bias −0.03, RMSE 1.93, season points 4,313 — but it dips 0.057 MAE (1.8%
-relative) below Quant on the single `ownership_band=20%+` slice, a highly-owned population whose
-gameweek outcomes are near-random and where Quant's own MAE is already its worst (~3.1). The
-pre-committed rule (line 349; R11) is no-ship on *any* per-slice regression, which forces the
-choice toward Huber. If the plan owner judges that one narrow, noise-dominated slice an
-acceptable carve-out, pure L2 is the better model — this is exactly the "conditional ship with a
-named carve-out" question §9.1 has flagged from the start. Huber δ=4 is what ships **under the
-rule as written**; it is close to L2 on value and strictly better than the L1 model that §8b
-originally proposed.
+**Owner decision (2026-08-30, recorded after a second external review):**
 
-The human who owns
-`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md` still makes the actual
-production-integration call and sets the shadow-period length.
+1. **Ship Huber δ=4 in shadow mode only** — publish `ep_total_ml` alongside `ep_total`, never in
+   place of it; log every model input, prediction, delta, version, and eventual outcome at each
+   deadline. Huber is the *conservative* first deployable, not a claim of superiority over L2.
+2. **Pure L2 stays the principal challenger, not a discard.** §8c shows it is the better
+   conditional-mean candidate — bias −0.03, equal ranking, +105 season points over Huber — and
+   "expected FPL points" for team selection *is* the conditional mean. The one
+   `ownership_band=20%+` slice where it dips 0.057 MAE (1.8% relative) below Quant is a
+   high-variance, near-random population; it is a **risk flag to monitor, not a production
+   veto.** `experiment.py` keeps `quant_lightgbm_l2` computed and logged every fold.
+3. **The "no per-slice regression" rule is retired as a hard production gate.** Inspecting 60
+   post-hoc slices repeatedly creates selection pressure toward over-shrunk models. It is
+   replaced by a tiered gate (see §10 "Promotion gate"): aggregate calibration + within-GW
+   ranking + policy backtest are primary; degradation on *safety-critical* slices (high-minutes
+   starters, premium/captain candidates, optimizer-selected players) is a blocker; exploratory
+   slices are monitored with intervals, not used as binary vetoes.
+4. **Promote Huber *or* L2 to a live decision layer only after a frozen forward test** — a
+   pre-registered feature list, model config, calibration method, metrics, and slice thresholds,
+   evaluated on an untouched future segment (see §10). The 70-fold historical record is now a
+   *development* set.
+5. **`data/recalibration/seeds_1.json` stays reverted** pending a separate policy-level review
+   of its objective, horizon, and effect (the λ 0.15→0.05 change alone is a 3× cut in risk
+   aversion — see §10 note).
+
+The human who owns `docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md` makes
+the production-integration call and sets the shadow-period length.
 
 **History (2026-08-28 → 08-30):** under an **L2** objective `quant_lightgbm` was worse than Quant
 on `ownership_band=20%+` in 5/5 cloud seeds — a real per-slice regression → **NO-SHIP** under the
@@ -603,6 +616,56 @@ the ship model. Both are on `master`.
   rank corr / per-season season points / per-slice / last-10-folds held-out check).
 - Reproduce: `python -m research.ml.experiment` on `master`, or `gh workflow run
   ml_experiment.yml --ref master -f runs=5`.
+
+### 10a. Promotion gate (replaces the "no per-slice regression" hard gate — §9 decision #3)
+
+Promoting either `quant_lightgbm` (Huber δ=4, shipped in shadow) **or** `quant_lightgbm_l2`
+(pure-L2 challenger) to a *live decision layer* — anything that feeds transfers, XI, or
+captaincy — requires, on the **frozen forward test** (§10b):
+
+- **Primary (all must hold):** (a) conditional-mean **calibration** — overall bias within a
+  pre-set band and calibration slope (`y ~ a + b·ŷ`, fit on prior out-of-fold predictions) near
+  1, reported by position / expected-minutes bucket / SGW-vs-DGW / prediction decile;
+  (b) within-gameweek **rank correlation** ≥ the shipped model's; (c) **policy backtest**
+  (§10b) points ≥ Quant with a paired per-gameweek block-bootstrap / HAC CI excluding zero.
+- **Safety-critical slices (blockers):** no material MAE *or bias* degradation vs Quant on
+  high-minutes starters, premium / captain-candidate players, and optimizer-selected players.
+- **Exploratory slices (monitor, not veto):** every other post-hoc slice — reported with
+  gameweek-block CIs; a single noisy subgroup regression is a risk flag, not a rejection.
+- **Replication:** the improvement must repeat on a genuinely *unseen* future segment, not the
+  70-fold development record.
+
+### 10b. Frozen forward test — freeze before the shadow period starts
+
+The L2 → L1 → Huber δ=4 sweep, the q90 arm, and the alpha bug are all legitimate iteration, but
+they make the 70-fold history a **development set**. Freeze and do not revise in response to
+shadow outcomes for a pre-declared window (target: a meaningful fraction of a season):
+
+- exact feature list · data cutoff + as-of protocol · Quant version
+- Huber δ=4 + tree params + seed protocol + ensemble weights · the L2 challenger config
+- calibration method · decision-policy rules (transfer horizon, hit thresholds, captain rule)
+- primary + secondary metrics · slice definitions + thresholds
+
+The shadow ledger (`ml_experiment.yml` auto-appends `weekly_quality_history.csv`; add a
+per-deadline immutable record: SHA, data-snapshot id, Quant + ML versions, seed, every player's
+`ep_total` / `ep_total_ml` / residual / q90 / minutes inputs / validity flags, Quant-vs-ML
+ranks, recommended XI + bench + mean-captain + q90-captain, then realised minutes + points) is
+the evaluation surface. A **stateful** manager sim (real 15-squad, bank, free-transfer bank,
+hits, bench, autosubs, price changes) replaces the current greedy XI proxy before any promotion.
+
+### 10c. Recalibration `seeds_1.json` — do not re-enable without a policy study (§9 decision #5)
+
+`data/recalibration/seeds_1.json` is reverted (kept at
+`scratchpad/seeds_1.json.PENDING-REVIEW`). It carried **three** auto-promoted proposals, not
+one: `rho_residual` 0.0→0.0168 (correlation treatment), `lambda_value` 0.15→0.05 (**a 3× cut in
+risk aversion**), `kappa_tc` 0.15→0.5 (transaction-cost / turnover aversion). The λ change alone
+materially changes the manager's utility trade-off (favours volatile players, more aggressive
+captain/transfer choices, higher selected-player correlation, lower downside protection). Before
+activation, require: the exact objective + sign convention for λ; a sensitivity curve over
+λ ∈ {0.05, 0.10, 0.15, 0.20, 0.30} showing expected points, realised points, a downside
+percentile, transfer activity, and captain exposure, by season and early/mid/late segment; and
+a demonstration that the chosen value is stable, not the single best noisy retrospective grid
+point. Until then `0.15` (existing audited behaviour) is the operational default.
 
 ## 11. Absolute rule — leakage
 
