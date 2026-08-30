@@ -209,24 +209,33 @@ jobs:
       - name: Append this run to the tracked quality-trend history
         run: python scripts/append_ml_run_to_history.py
 
+      # This step commits ONE file, appended by scripts/append_ml_run_to_history.py from the
+      # workspace's results/ (still present here). weekly_quality_history.csv is append-only, so
+      # a `git rebase` against a concurrent run's own append always conflicts on the last line
+      # and the old retry loop would spin forever (a real failure: run 33281374600, 2026-08-30).
+      # Instead, on a rejected push we reset hard to the current remote head and RE-APPEND onto
+      # it -- the append is a pure function of this run's results/, so re-running it after a
+      # reset yields exactly this run's one row on top of whatever landed meanwhile.
       - name: Commit the updated quality-trend history
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add research/ml/results_history/weekly_quality_history.csv
-          if git diff --cached --quiet; then
-            echo "No change to the quality-trend history this run."
-          else
+          HIST=research/ml/results_history/weekly_quality_history.csv
+          for attempt in 1 2 3 4 5; do
+            git add "$HIST"
+            if git diff --cached --quiet; then
+              echo "No change to the quality-trend history this run."
+              exit 0
+            fi
             git commit -m "chore(ml): append weekly quality-trend history [skip ci]"
-            for attempt in 1 2 3 4 5; do
-              git push && exit 0
-              echo "push rejected (attempt $attempt/5) -- fetch + rebase onto the new head"
-              git fetch origin "${GITHUB_REF_NAME}"
-              git rebase "origin/${GITHUB_REF_NAME}"
-            done
-            echo "::error::git push kept failing after 5 rebase-and-retry attempts"
-            exit 1
-          fi
+            git push && exit 0
+            echo "push rejected (attempt $attempt/5) -- reset to remote head and re-append"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset --hard "origin/${GITHUB_REF_NAME}"
+            python scripts/append_ml_run_to_history.py
+          done
+          echo "::error::git push kept failing after 5 reset-and-re-append attempts"
+          exit 1
 
       - name: Install Ollama and pull phi4-mini [best-effort]
         continue-on-error: true
