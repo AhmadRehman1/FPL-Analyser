@@ -38,7 +38,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest, db  # noqa: E402
+from fpl_quant import backtest, db, transfer_planner as tp  # noqa: E402
 
 TARGET_SEASON = "2025-2026"
 START_GAMEWEEK = 2  # GW1 is not bootstrappable -- see module docstring for the verified reason
@@ -77,6 +77,14 @@ def main() -> None:
           f"{END_GAMEWEEK}, blind (all 18 param versions = 1): {param_versions}")
 
     con = db.connect()
+    # Critique Engine finding on this phase's first real run: free_hit_gain_threshold_params'
+    # v1 seed row (transfer_planner.seed_v1_params) was applied as a one-off manual step, not
+    # by this script -- meaning the script as delivered was not actually reproducible against a
+    # fresh/restored DB (it would crash mid-run with ParamNotFoundError, per the same finding
+    # documented in the plan's Current State). seed_v1_params() is idempotent (params.write_param
+    # no-ops on a byte-identical re-write), so calling it here is always safe, whether the seed
+    # already exists or not.
+    tp.seed_v1_params(con)
     t0 = time.time()
     result = backtest.run_season_simulation(
         con, TARGET_SEASON, START_GAMEWEEK, END_GAMEWEEK, **param_versions,
@@ -95,6 +103,7 @@ def main() -> None:
         "end_gameweek": END_GAMEWEEK,
         "param_versions_used": param_versions,
         "blind_simulation": True,
+        "bootstrap_run_id": result["bootstrap_run_id"],
         "final_state_version": result["final_state_version"],
         "weekly_points": result["weekly_points"],
         "gameweeks": result["gameweeks"],

@@ -17,3 +17,10 @@ research/ml/data/
 # kept out of git anyway per the plan's "no entry_id, no persistence beyond the fetch step
 # guarantee" spirit -- regenerable via scripts/run_retrospective_sample.py)
 data/retrospective/
+
+# seeds_1.json was auto-promoted by a recovery recalibration run (2026-08-30) and needs
+# human review via scripts/review_recalibration.py before its lambda 0.15->0.05 /
+# kappa_tc 0.15->0.5 / rho_residual v4 become the active config. Ignored so it can't be
+# re-committed by accident; kept at scratchpad/seeds_1.json.PENDING-REVIEW. `git add -f`
+# to activate after review (and update tests/test_backtest.py + test_print_chip_timing_roadmap.py).
+data/recalibration/seeds_1.json

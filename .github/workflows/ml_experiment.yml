@@ -4,46 +4,40 @@ name: Weekly ML residual-challenger experiment (Track F, Phase F-4)
 # validation_and_ml_decision_plan.md, Track F) against the production database on a real,
 # open-internet GitHub Actions runner -- automating the one thing every prior sandboxed session
 # working on Track F could not do: this repo's own Claude Code Remote sandbox has no populated
-# db/fpl_quant_v2.duckdb and blocks outbound access to fantasy.premierleague.com by policy, so
-# Phase F-4 (the real experiment run the whole workstream exists to produce) had never actually
-# executed anywhere before this workflow existed -- every REPORT.md status note said so
-# explicitly. This runner has neither restriction (same reasoning scheduled_pipeline.yml's own
-# header already gives for why its scheduling lives here, not as a Claude Code Remote Routine).
+# db/fpl_quant_v2.duckdb and blocks outbound access to fantasy.premierleague.com by policy.
+#
+# WALK-FORWARD PROVISIONING (added 2026-08-30): research/ml/experiment.py reads
+# `backtest_gameweek_steps` -- the walk-forward's per-gameweek asof predictions. Nothing else
+# in this repo's cloud pipeline produces those: scheduled_pipeline.yml caches an M0-M6
+# ingestion-only DB (~40 MB, no walk-forward), and weekly_backtest.yml runs the full
+# scripts/run_backtest.py whose recalibration tail exceeds a GitHub Actions job's 6h hard cap
+# (a real dispatch on 2026-08-25 was cancelled at 5h, unfinished) and never saves its DB back.
+# So this workflow runs the walk-forward itself, via scripts/run_walkforward.py -- backtest.run()
+# only, no recalibration, ~1-2h, comfortably inside the job budget -- and caches the resulting
+# DB keyed on a hash of the model code + deps + active param seeds. A later run that changed
+# only research/ml/ hits that cache and skips straight to the experiment (~30-60m); a run that
+# changed src/fpl_quant/** or the confirmed recalibration seeds rebuilds the walk-forward.
 #
 # research/ml/ is explicitly a non-production research layer (research/ml/README.md: "does not
 # modify live production recommendations") -- kept in its own workflow file rather than added
-# as a third step to weekly_backtest.yml's job so a slow or failing research run can never eat
-# into that job's own timeout budget or block its production Track Record commit. The real
-# per-fold model-fitting cost of exhaustive gameweek walk-forward against the full production
-# dataset has never been measured (no environment has run it for real before this), so the
-# timeout below is deliberately generous rather than guessed tight; narrow it once a real run's
-# actual wall-clock time is known.
+# to weekly_backtest.yml's job so a slow or failing research run can never eat into that job's
+# own timeout budget or block its production Track Record commit.
 #
 # Does NOT commit research/ml/results/ back to the repo: it stays gitignored on purpose, and
 # REPORT.md's actual decision prose is a real analytical judgment call each run
 # (scripts/summarize_ml_experiment_results.py's own docstring) -- not something to
 # template-generate unattended. The real numbers land in this run's job summary (via
-# $GITHUB_STEP_SUMMARY) for a human to read without downloading anything, and the full results/
-# directory uploads as a build artifact for deeper inspection or to hand-copy into REPORT.md's
-# real §1-§11 write-up.
+# $GITHUB_STEP_SUMMARY) and the full results/ directory uploads as a build artifact.
 #
 # One narrow, deliberate exception: scripts/append_ml_run_to_history.py appends this run's real
-# bootstrap-CI numbers (quant_lightgbm/quant_xgboost point estimates, CI bounds, whether each
-# excludes zero) and season-manager points -- nothing else, never prose or a decision -- to
-# research/ml/results_history/weekly_quality_history.csv, which IS tracked in git, and this
-# workflow commits just that one file back. A single run's results/ tells you nothing about
-# whether the model is improving over time; a 90-day, per-run build artifact doesn't either.
-# This tracked ledger is the only place that question can actually be answered by looking at
-# real numbers across real weeks as the season's data grows. See that script's own docstring.
+# bootstrap-CI numbers and season-manager points -- nothing else, never prose or a decision --
+# to research/ml/results_history/weekly_quality_history.csv, which IS tracked in git, and this
+# workflow commits just that one file back. That tracked ledger is the only place the "is the
+# model improving over real weeks" question can be answered by looking at real numbers.
 
 on:
   schedule:
-    # 05:00 UTC every Sunday -- two hours after weekly_backtest.yml's own 03:00 UTC Sunday run,
-    # so both never contend for the same DB-restore cache write/read window even though neither
-    # strictly depends on the other (cache/restore is read-only and safe to run concurrently
-    # regardless). Weekly, not daily: matches weekly_backtest.yml's own reasoning -- a walk-
-    # forward research result over historical data doesn't meaningfully change gameweek to
-    # gameweek, and this is explicitly non-production research, not a live-data pipeline.
+    # 05:00 UTC every Sunday -- two hours after weekly_backtest.yml's own 03:00 UTC Sunday run.
     - cron: "0 5 * * 0"
   workflow_dispatch:
     inputs:
@@ -51,21 +45,33 @@ on:
         description: >-
           research.ml.experiment --fold-mode value. Leave blank for the module's own default
           (exhaustive gameweek walk-forward -- the real Phase F-4 run). "season" is a much
-          cheaper one-fold-per-season sanity check, useful for an ad-hoc manual run without
-          waiting on the full exhaustive mode.
+          cheaper one-fold-per-season sanity check.
         required: false
         type: choice
         options: ["", "gameweek", "season"]
         default: ""
+      runs:
+        description: >-
+          research.ml.experiment --runs value: repeat the experiment this many times with
+          consecutive seeds (42, 43, ...), appending each to research/ml/results/experiment_runs.csv
+          (uploaded as an artifact). Use >1 to measure seed-to-seed stability of the aggregate
+          result and the per-slice regression in one job. Default 1.
+        required: false
+        default: "1"
+      rebuild_walkforward:
+        description: >-
+          Force a fresh walk-forward even if the cache has one for this model code. Use after a
+          change this workflow's cache key doesn't capture. Default false.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
-  # write, not read: this workflow commits exactly one file back (see the header above) --
+  # write, not read: this workflow commits exactly one file back --
   # research/ml/results_history/weekly_quality_history.csv. Nothing else in the job writes to
-  # the repo; research/ml/results/ itself stays gitignored and untouched by git entirely.
+  # the repo; research/ml/results/ itself stays gitignored.
   contents: write
 
-# A real exhaustive walk-forward run is long and of genuinely unknown duration (see the header
-# above); queue rather than overlap a manual dispatch with the scheduled run.
 concurrency:
   group: ml-experiment
   cancel-in-progress: false
@@ -73,9 +79,9 @@ concurrency:
 jobs:
   run-experiment:
     runs-on: ubuntu-latest
-    # Generous headroom under GitHub's own 360-minute job cap -- see the header above on why
-    # this is deliberately not tuned tight yet: no real run has ever measured the actual cost.
-    timeout-minutes: 340
+    # Walk-forward (~1-2h on a miss) + experiment (~30-60m) + margin. Well under GitHub's 360m
+    # cap. A cache hit on the walk-forward makes the real run ~1h.
+    timeout-minutes: 330
     steps:
       - name: Checkout FPL-Analyser
         uses: actions/checkout@v7
@@ -85,20 +91,41 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Pinned lockfile (see requirements.lock's own header) plus research/ml/'s own separate,
-      # exactly-pinned ML dependencies (requirements-research.txt's own header explains why
-      # these are never part of requirements.lock/requirements.txt: no production/pipeline
-      # install should have to pull in scikit-learn/lightgbm just to serve a real user).
       - name: Install dependencies
         run: |
           pip install -r requirements.lock
           pip install -r requirements-research.txt
 
-      # Same `duckdb-` prefix restore-key match on_demand_report.yml and weekly_backtest.yml
-      # already use -- reuses the most recent scheduled_pipeline.yml run's freshly-ingested DB
-      # rather than re-running the full ~20-25 minute M0-M6 ingestion here.
-      - name: Restore the most recent ingested DB
-        id: cache
+      # The walk-forward DB (carries backtest_gameweek_steps). Keyed on everything that changes
+      # what the walk-forward produces: the M1-M6 model code, the pinned deps, and the
+      # git-committed confirmed recalibration seeds (active_recalibratable_versions reads these).
+      # Exact-key restore is a deliberate miss (no run writes this literal); the restore-keys
+      # prefix picks up the newest cache for this same model-code hash.
+      - name: Restore walk-forward DB
+        id: wfcache
+        if: ${{ github.event.inputs.rebuild_walkforward != 'true' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-none
+          restore-keys: |
+            walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-
+
+      - name: Note walk-forward cache result
+        run: |
+          if [ "${{ steps.wfcache.outputs.cache-matched-key }}" != "" ]; then
+            echo "WALKFORWARD_CACHE_HIT=true" >> "$GITHUB_ENV"
+            echo "Reusing walk-forward DB from cache: ${{ steps.wfcache.outputs.cache-matched-key }}"
+          else
+            echo "WALKFORWARD_CACHE_HIT=false" >> "$GITHUB_ENV"
+            echo "No walk-forward cache for this model code -- will build it."
+          fi
+
+      # ---- everything from here to "Save walk-forward DB" runs only on a walk-forward miss ----
+
+      - name: Restore the most recent ingested DB (walk-forward seed)
+        id: ingestcache
+        if: env.WALKFORWARD_CACHE_HIT == 'false'
         uses: actions/cache/restore@v6
         with:
           path: db/fpl_quant_v2.duckdb
@@ -106,17 +133,14 @@ jobs:
           restore-keys: |
             duckdb-
 
-      # Same cache-miss fallback as weekly_backtest.yml/on_demand_report.yml's own steps of the
-      # same name -- only hit on the very first run ever, before any scheduled_pipeline.yml run
-      # has cached a DB.
-      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Fetch FPL-Core-Insights (public dataset) [ingestion fallback]
+        if: env.WALKFORWARD_CACHE_HIT == 'false' && steps.ingestcache.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
 
-      - name: Materialize evidence workbooks [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Materialize evidence workbooks [ingestion fallback]
+        if: env.WALKFORWARD_CACHE_HIT == 'false' && steps.ingestcache.outputs.cache-hit != 'true'
         run: |
           mkdir -p data/external
           fetch_drive_file() {
@@ -126,65 +150,93 @@ jobs:
             local size
             size=$(stat -c%s "${out_path}")
             if [ "${size}" -lt 1024 ]; then
-              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page, not the real workbook"
+              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page"
               exit 1
             fi
             if head -c 256 "${out_path}" | grep -qi "<html"; then
-              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook (Google Drive virus-scan interstitial?)"
+              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook"
               exit 1
             fi
           }
           fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
           fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
-      - name: Run ingestion (M0-M6) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Run ingestion (M0-M6) [ingestion fallback]
+        if: env.WALKFORWARD_CACHE_HIT == 'false' && steps.ingestcache.outputs.cache-hit != 'true'
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
-      # research.ml's own __init__.py bootstraps src/ onto sys.path itself (see its module
-      # docstring), so `python -m research.ml.experiment` needs no PYTHONPATH here. Empty
-      # fold_mode input (the default: unset on a scheduled run, or "" chosen on a manual
-      # dispatch) means "use the module's own default" -- exhaustive gameweek walk-forward,
-      # the real Phase F-4 run this workflow exists to finally make possible.
+      - name: Run the walk-forward (backtest.run only, no recalibration) [walk-forward miss]
+        if: env.WALKFORWARD_CACHE_HIT == 'false'
+        run: PYTHONPATH=src python scripts/run_walkforward.py
+
+      - name: Save walk-forward DB to cache [walk-forward miss]
+        if: env.WALKFORWARD_CACHE_HIT == 'false'
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-${{ github.run_id }}
+
+      # ---- experiment ----
+
+      # Optional seed-stability sweep FIRST: `--runs N` sends every artifact into per-run
+      # subdirs (research/ml/experiment.py::run_loop via redirect_results_to) + a rolling
+      # research/ml/results/experiment_runs.csv. It deliberately does NOT write the top-level
+      # results/ files, so it can't feed append_ml_run_to_history.py -- that's what the
+      # canonical single run below is for. The sweep's value is purely the seed-to-seed spread,
+      # captured in the uploaded artifact.
+      - name: Seed-stability sweep [only if runs > 1]
+        if: ${{ (github.event.inputs.runs || '1') != '1' }}
+        env:
+          FOLD_MODE: ${{ github.event.inputs.fold_mode }}
+          RUNS: ${{ github.event.inputs.runs }}
+        run: |
+          ARGS="--runs $RUNS"
+          [ -n "$FOLD_MODE" ] && ARGS="$ARGS --fold-mode $FOLD_MODE"
+          echo "python -m research.ml.experiment $ARGS"
+          python -m research.ml.experiment $ARGS
+
+      # Canonical single run (seed 42): writes the top-level research/ml/results/ artifacts that
+      # append_ml_run_to_history.py + the job summary read. Always runs.
       - name: Run the real Phase-0 residual ML experiment (Track F, Phase F-4)
         env:
           FOLD_MODE: ${{ github.event.inputs.fold_mode }}
         run: |
-          if [ -n "$FOLD_MODE" ]; then
-            python -m research.ml.experiment --fold-mode "$FOLD_MODE"
-          else
-            python -m research.ml.experiment
-          fi
+          ARGS=""
+          [ -n "$FOLD_MODE" ] && ARGS="--fold-mode $FOLD_MODE"
+          echo "python -m research.ml.experiment $ARGS"
+          python -m research.ml.experiment $ARGS
 
-      # Appends this run's real bootstrap-CI numbers + season points to the tracked history
-      # ledger (see the header above). Runs only if the experiment step above actually
-      # succeeded and produced a manifest -- the script itself fails clearly if it didn't, which
-      # is the right outcome here too (no silent partial row).
       - name: Append this run to the tracked quality-trend history
         run: python scripts/append_ml_run_to_history.py
 
-      # [skip ci] matches this repo's own existing convention for automated commits (see
-      # weekly_backtest.yml's Track Record commit) -- stops this push from re-triggering
-      # tests.yml/deploy_pages.yml (both push-triggered on master) for a data-only commit.
+      # This step commits ONE file, appended by scripts/append_ml_run_to_history.py from the
+      # workspace's results/ (still present here). weekly_quality_history.csv is append-only, so
+      # a `git rebase` against a concurrent run's own append always conflicts on the last line
+      # and the old retry loop would spin forever (a real failure: run 33281374600, 2026-08-30).
+      # Instead, on a rejected push we reset hard to the current remote head and RE-APPEND onto
+      # it -- the append is a pure function of this run's results/, so re-running it after a
+      # reset yields exactly this run's one row on top of whatever landed meanwhile.
       - name: Commit the updated quality-trend history
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add research/ml/results_history/weekly_quality_history.csv
-          if git diff --cached --quiet; then
-            echo "No change to the quality-trend history this run."
-          else
+          HIST=research/ml/results_history/weekly_quality_history.csv
+          for attempt in 1 2 3 4 5; do
+            git add "$HIST"
+            if git diff --cached --quiet; then
+              echo "No change to the quality-trend history this run."
+              exit 0
+            fi
             git commit -m "chore(ml): append weekly quality-trend history [skip ci]"
-            git push
-          fi
+            git push && exit 0
+            echo "push rejected (attempt $attempt/5) -- reset to remote head and re-append"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset --hard "origin/${GITHUB_REF_NAME}"
+            python scripts/append_ml_run_to_history.py
+          done
+          echo "::error::git push kept failing after 5 reset-and-re-append attempts"
+          exit 1
 
-      # Best-effort, free-cloud local-LLM narration (research/ml/README.md's "Running locally
-      # with Ollama" section): ubuntu-latest runners have no GPU, so this runs phi4-mini
-      # (small, ~2.5GB, CPU-only here) rather than a larger model -- fine for a once-a-week,
-      # non-interactive narration job. continue-on-error: true because this is a convenience,
-      # not something that should ever turn a real experiment run red; if Ollama's own install
-      # or the model pull is slow/unavailable this week, the run's real numbers (job summary +
-      # artifact + the history ledger above) are entirely unaffected.
       - name: Install Ollama and pull phi4-mini [best-effort]
         continue-on-error: true
         run: |
@@ -197,31 +249,26 @@ jobs:
         continue-on-error: true
         run: python scripts/narrate_ml_results.py
 
-      # scripts/summarize_ml_experiment_results.py assembles the real numbers from every
-      # results/ artifact into one structured, human-readable report -- posted to this run's
-      # job summary so the real headline numbers (MAE, bootstrap CIs, season points, the R11
-      # slicing check) are visible without downloading the artifact below. It does NOT decide
-      # ship/no-ship itself (a real analytical judgment call, per its own module docstring) --
-      # a human still writes REPORT.md's actual §9 decision from this output.
       - name: Summarize real results into the job summary
         if: always()
         run: |
           {
             echo "## Real ML experiment run -- $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            echo "- walk-forward cache hit: \`${WALKFORWARD_CACHE_HIT:-unknown}\`"
+            echo "- fold_mode: \`${{ github.event.inputs.fold_mode || '(default: gameweek)' }}\`   runs: \`${{ github.event.inputs.runs || '1' }}\`"
+            echo ""
             echo '```'
-            python scripts/summarize_ml_experiment_results.py 2>&1 || echo "(summarize script failed or found no results -- see the step above for the real error)"
+            python scripts/summarize_ml_experiment_results.py 2>&1 || echo "(summarize script failed or found no results -- see the experiment step for the real error)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # research/ml/results/ is deliberately gitignored (not committed) -- this is the artifact
-      # path instead: every CSV/JSON/plot this run produced, downloadable for deeper inspection
-      # or to hand-copy real numbers into REPORT.md. if-no-files-found: warn rather than error --
-      # a run that failed before producing any output shouldn't itself fail this cleanup step.
       - name: Upload real experiment results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ml-experiment-results-${{ github.run_id }}
-          path: research/ml/results/
+          path: |
+            research/ml/results/
           if-no-files-found: warn
           retention-days: 90
