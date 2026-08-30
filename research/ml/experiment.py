@@ -103,6 +103,18 @@ def _fit_and_predict_lightgbm(train_df: pd.DataFrame, test_df: pd.DataFrame, fea
     return resid_train, resid_test, model, pp, Xte, names
 
 
+def _fit_and_predict_lightgbm_ceiling(train_df: pd.DataFrame, test_df: pd.DataFrame, feat_cols: list[str], seed: int):
+    """q90 quantile fit on the residual -> an upper-tail estimate. Used ONLY for the season-sim
+    captain pick (a real manager captains on ceiling, not median EP). Never feeds the MAE
+    tables or the ship/no-ship decision."""
+    pp = Preprocessor().fit(train_df, feat_cols)
+    Xtr, _ = pp.transform(train_df)
+    Xte, _ = pp.transform(test_df)
+    ytr = train_df[C.COL_RESIDUAL].to_numpy(dtype=float)
+    model = LightGBMResidualModel(random_state=seed, objective="quantile", alpha=0.9).fit(Xtr, ytr)
+    return model.predict(Xte)
+
+
 def _fit_and_predict_xgboost(train_df: pd.DataFrame, test_df: pd.DataFrame, feat_cols: list[str], seed: int):
     pp = Preprocessor().fit(train_df, feat_cols)
     Xtr, names = pp.transform(train_df)
@@ -195,6 +207,7 @@ def run_experiment(
         # the sole arm the ship/no-ship decision is governed by) ----
         ml_pred_lightgbm = None
         resid_train_lightgbm = None
+        ml_ceiling_test = None
         if lightgbm_ok:
             try:
                 _t0 = time.perf_counter()
@@ -205,6 +218,11 @@ def run_experiment(
                 lightgbm_importances.append(
                     lightgbm_model.feature_importance(Xte_lgb, test_df[C.COL_ACTUAL].to_numpy(dtype=float) - quant_test, lgb_names)
                 )
+                # q90 ceiling estimate for the season-sim captain pick only (see the helper).
+                try:
+                    ml_ceiling_test = quant_test + _fit_and_predict_lightgbm_ceiling(train_df, test_df, feat_cols, random_seed)
+                except Exception as exc:  # never fatal -- captain falls back to ml_prediction
+                    print(f"[experiment] q90 ceiling skipped for fold {fold.name}: {exc}", file=sys.stderr)
             except ResidualModelUnavailableError as exc:
                 # R14: a real LightGBM failure must not block the rest of the pipeline --
                 # quant/historical/linear/quant_gbm results for this fold still complete.
@@ -262,6 +280,7 @@ def run_experiment(
         # collect this gameweek's rows + the ensemble prediction for the season manager sim
         gw_frame = test_df.copy()
         gw_frame[C.COL_ML_PRED] = ml_for_ensemble
+        gw_frame[C.COL_ML_CEILING] = ml_ceiling_test if ml_ceiling_test is not None else ml_for_ensemble
         per_gw_frames.append(gw_frame)
 
     comparison_df = pd.DataFrame(comparison_rows)
@@ -327,9 +346,10 @@ def run_experiment(
     if per_gw_frames:
         season_pool = pd.concat(per_gw_frames, ignore_index=True)
         signal_cols = {C.COL_QUANT_PRED: C.COL_QUANT_PRED, C.COL_ML_PRED: C.COL_ML_PRED}
-        if "historical_baseline" in comparison_df["model"].unique() if not comparison_df.empty else False:
-            pass
-        season_pts = sim.season_points_table(season_pool, signal_cols)
+        # the ML manager picks its XI on the L1 (median) prediction but captains on the q90
+        # ceiling -- a real manager's captaincy is a ceiling call, not an EP call.
+        captain_cols = {C.COL_ML_PRED: C.COL_ML_CEILING}
+        season_pts = sim.season_points_table(season_pool, signal_cols, captain_cols)
         season_pts.to_csv(C.SEASON_POINTS_CSV, index=False)
     else:
         season_pts = pd.DataFrame()

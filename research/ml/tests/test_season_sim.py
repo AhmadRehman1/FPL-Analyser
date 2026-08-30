@@ -39,6 +39,41 @@ def _gw_df(preds: dict[str, float], actuals: dict[str, float]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def test_captain_col_picks_a_different_captain_from_the_xi_signal():
+    """A real manager picks the XI on expected points but captains on ceiling. With a separate
+    `captain_col`, the captain is the XI member highest on THAT column, not on `predicted`."""
+    preds = {f"p{i}": 10.0 - i * 0.1 for i in range(14)}          # p0 highest EP
+    ceiling = {f"p{i}": float(i) for i in range(14)}               # p13 highest ceiling
+    actuals = {f"p{i}": 2.0 for i in range(14)}
+    df = _gw_df(preds, actuals)
+    df["ceiling"] = df[C.COL_PLAYER_UID].map(ceiling)
+
+    xi_default, cap_default = select_starting_xi(df, "predicted")
+    xi_ceiling, cap_ceiling = select_starting_xi(df, "predicted", captain_col="ceiling")
+
+    assert xi_default == xi_ceiling                               # same XI
+    assert cap_default != cap_ceiling                             # different captain
+    # the ceiling captain is the selected player with the highest `ceiling`
+    sel = df[df[C.COL_PLAYER_UID].isin(xi_ceiling)]
+    assert cap_ceiling == str(sel.loc[sel["ceiling"].idxmax(), C.COL_PLAYER_UID])
+
+
+def test_season_points_table_captain_cols_only_affects_named_signals():
+    preds = {f"p{i}": 10.0 - i * 0.1 for i in range(14)}
+    actuals = {f"p{i}": (20.0 if i == 13 else 1.0) for i in range(14)}  # p13 hauls
+    df = _gw_df(preds, actuals)
+    df["ceiling"] = df[C.COL_PLAYER_UID].astype(str).str.lstrip("p").astype(float)  # p13 highest
+
+    tbl = season_points_table(
+        df, {"ep": "predicted", "ceil": "predicted"},
+        captain_cols={"ceil": "ceiling"},
+    )
+    ep = tbl.loc[tbl.signal == "ep", "total_points"].iloc[0]
+    ceil = tbl.loc[tbl.signal == "ceil", "total_points"].iloc[0]
+    # captaining the hauler (p13) is worth an extra 20 vs captaining the EP leader (p0, 1 pt)
+    assert ceil > ep
+
+
 def test_select_starting_xi_respects_real_fpl_position_rules():
     # Regression test for a real bug: _POS_MIN/_POS_MAX were keyed by FPL's short position
     # codes ("GK"/"DEF"/"MID"/"FWD"), which never appear in this repo's actual data (positions

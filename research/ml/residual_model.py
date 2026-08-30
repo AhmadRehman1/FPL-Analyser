@@ -264,6 +264,10 @@ class LightGBMResidualModel:
         # haul). Same category as the reg_alpha/subsample defaults above: a one-time principled
         # choice, not a hyperparameter search.
         objective: str = "regression",
+        # only consulted when objective == "quantile": the quantile to fit. 0.9 gives an
+        # upper-tail "how much could this player haul" estimate, used for the season-sim captain
+        # pick (which wants the ceiling, not the median the MAE-optimal L1 fit gives).
+        alpha: float = 0.9,
     ):
         self.max_depth = max_depth
         self.n_estimators = n_estimators
@@ -274,6 +278,7 @@ class LightGBMResidualModel:
         self.colsample_bytree = colsample_bytree
         self.random_state = random_state
         self.objective = objective
+        self.alpha = alpha
         self._model = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "LightGBMResidualModel":
@@ -290,8 +295,11 @@ class LightGBMResidualModel:
             # verbose=-1 silences LightGBM's own stdout logging (e.g. "[LightGBM] [Info] ..."),
             # which would otherwise interleave with this project's own per-fold progress output
             # across potentially dozens of walk-forward folds.
+            kw = {}
+            if self.objective == "quantile":
+                kw["alpha"] = self.alpha
             model = LGBMRegressor(
-                objective=self.objective,
+                objective=self.objective, **kw,
                 max_depth=self.max_depth, n_estimators=self.n_estimators,
                 learning_rate=self.learning_rate, reg_alpha=self.reg_alpha,
                 reg_lambda=self.reg_lambda, subsample=self.subsample, subsample_freq=1,

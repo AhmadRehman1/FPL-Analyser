@@ -110,7 +110,8 @@ COL_EP_MODEL_VERSION = "ep_model_version"      # provenance: which Quant run pro
 COL_ACTUAL = "actual_points"                  # y: fact_player_season_stats.event_points
 COL_RESIDUAL = "residual"                     # y - Q(x)
 COL_PREDICTED_RESIDUAL = "predicted_residual"  # ML(x)
-COL_ML_PRED = "ml_prediction"                  # Q(x) + ML(x)
+COL_ML_PRED = "ml_prediction"                  # Q(x) + ML(x)  -- L1 (median) point estimate
+COL_ML_CEILING = "ml_ceiling"                   # Q(x) + q90 residual -- an upper-tail "haul" estimate, used ONLY for the season-sim captain pick
 
 # The label. Used exactly once, as the target, never as a feature.
 LABEL_COL = COL_ACTUAL
