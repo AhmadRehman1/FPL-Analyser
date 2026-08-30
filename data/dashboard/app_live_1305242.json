@@ -4,7 +4,7 @@
   "gameweek": 2,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 78,
+  "live_total": 116,
   "players": [
     {
       "player_id": 496,
@@ -30,16 +30,16 @@
     {
       "player_id": 423,
       "web_name": "Shaw",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     },
     {
       "player_id": 426,
       "web_name": "B.Fernandes",
-      "live_points": 1,
-      "provisional_bonus": 0,
-      "contribution": 1
+      "live_points": 26,
+      "provisional_bonus": 3,
+      "contribution": 26
     },
     {
       "player_id": 368,
@@ -51,9 +51,9 @@
     {
       "player_id": 427,
       "web_name": "Mbeumo",
-      "live_points": 1,
-      "provisional_bonus": 0,
-      "contribution": 1
+      "live_points": 13,
+      "provisional_bonus": 2,
+      "contribution": 13
     },
     {
       "player_id": 124,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 83.5,
-    "estimated_rank": 1663287
+    "percentile": 92.0,
+    "estimated_rank": 808968
   },
   "fixtures": [
     {
@@ -235,12 +235,12 @@
       "home": {
         "short_name": "MUN",
         "name": "Man Utd",
-        "score": 0
+        "score": 5
       },
       "away": {
         "short_name": "IPS",
         "name": "Ipswich Town",
-        "score": 1
+        "score": 2
       }
     }
   ],
@@ -414,10 +414,26 @@
       "fixture_id": 18
     },
     {
+      "player_id": 306,
+      "web_name": "Greaves",
+      "team": 12,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
       "player_id": 315,
       "web_name": "Fatawu",
       "team": 12,
       "event": "assist",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 320,
+      "web_name": "Akpom",
+      "team": 12,
+      "event": "goal",
       "count": 1,
       "fixture_id": 18
     },
@@ -518,6 +534,54 @@
       "fixture_id": 11
     },
     {
+      "player_id": 418,
+      "web_name": "Maguire",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 426,
+      "web_name": "B.Fernandes",
+      "team": 16,
+      "event": "goal",
+      "count": 3,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 426,
+      "web_name": "B.Fernandes",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 427,
+      "web_name": "Mbeumo",
+      "team": 16,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 427,
+      "web_name": "Mbeumo",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
+      "player_id": 428,
+      "web_name": "Cunha",
+      "team": 16,
+      "event": "assist",
+      "count": 2,
+      "fixture_id": 18
+    },
+    {
       "player_id": 454,
       "web_name": "Elanga",
       "team": 17,
@@ -590,6 +654,14 @@
       "fixture_id": 19
     },
     {
+      "player_id": 591,
+      "web_name": "Enciso",
+      "team": 12,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 18
+    },
+    {
       "player_id": 593,
       "web_name": "Dedi\u0107",
       "team": 17,
@@ -606,5 +678,5 @@
       "fixture_id": 16
     }
   ],
-  "generated_at": "2026-08-30T16:09:48.076990+00:00"
+  "generated_at": "2026-08-30T19:19:34.589749+00:00"
 }
