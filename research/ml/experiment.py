@@ -95,9 +95,16 @@ def _fit_and_predict_lightgbm(train_df: pd.DataFrame, test_df: pd.DataFrame, fea
     Xtr, names = pp.transform(train_df)
     Xte, _ = pp.transform(test_df)
     ytr = train_df[C.COL_RESIDUAL].to_numpy(dtype=float)
-    # L1 objective: aligns the training loss with the experiment's primary metric (MAE) and is
-    # more robust to the heavy right tail of FPL points -- see LightGBMResidualModel.__init__.
-    model = LightGBMResidualModel(random_state=seed, objective="regression_l1").fit(Xtr, ytr)
+    # Huber objective (delta = 4.0). The experiment's primary metric is MAE, but MAE targets the
+    # conditional MEDIAN, and FPL points are so zero/2-heavy that the median sits ~0.5 below the
+    # mean -- an L1 fit is biased ~-0.5 low and, in the cloud sweep, had worse within-gameweek
+    # rank correlation and worse manager-sim season points than L2. XI selection needs the
+    # conditional MEAN. Pure L2 gets the best mean (near-zero bias, best season points) but
+    # over-corrects the highest-variance slice (captained premiums) and dips below Quant there.
+    # Huber delta 4 is the frontier point: L2 behaviour for |residual| < 4 (a near-unbiased mean
+    # for the bulk), L1 only for the genuine hauls -- 0 regressing slices, rank corr and season
+    # points at/above L2, bias -0.17 (a small residual, closeable with a calibration step).
+    model = LightGBMResidualModel(random_state=seed, objective="huber", alpha=4.0).fit(Xtr, ytr)
     resid_train = model.predict(Xtr)
     resid_test = model.predict(Xte)
     return resid_train, resid_test, model, pp, Xte, names
@@ -120,8 +127,9 @@ def _fit_and_predict_xgboost(train_df: pd.DataFrame, test_df: pd.DataFrame, feat
     Xtr, names = pp.transform(train_df)
     Xte, _ = pp.transform(test_df)
     ytr = train_df[C.COL_RESIDUAL].to_numpy(dtype=float)
-    # L1 objective -- aligns training with the MAE metric, same reasoning as the LightGBM arm.
-    model = XGBoostResidualModel(random_state=seed, objective="reg:absoluteerror").fit(Xtr, ytr)
+    # Pseudo-Huber (slope 4) -- matches the LightGBM point-forecast objective so the R13
+    # independent-implementation arm confirms the same functional, not a different one.
+    model = XGBoostResidualModel(random_state=seed, objective="reg:pseudohubererror", huber_slope=4.0).fit(Xtr, ytr)
     resid_train = model.predict(Xtr)
     resid_test = model.predict(Xte)
     return resid_train, resid_test, model, pp, Xte, names
