@@ -8,9 +8,19 @@
 > confirmation arm (`xgboost` is now installed; `xgboost_available: true` in the manifest). Its
 > numbers appear alongside `quant_gbm` throughout as **informational only** (R16) — §9's decision
 > is still governed by `quant_lightgbm` alone (R11). The verdict is unchanged from the prior run:
-> **NO-SHIP**, and the per-slice check that drives it is now marginally firmer — 2 of 60 slices
-> regress for `quant_lightgbm` (was 1 of 60 in the `8a94bd2` run), and `quant_xgboost` regresses
-> on the *same two slices*, so the narrow weakness is not an artifact of one library.
+> **NO-SHIP**. The per-slice check that drives it: `quant_lightgbm` regresses on 2 of 60 slices
+> in this local run, `quant_xgboost` on the same two.
+>
+> **2026-08-30 cloud confirmation** (see §8a): the whole experiment was re-run on GitHub Actions
+> against a fresh `scripts/run_walkforward.py` walk-forward, once for a baseline plus a 5-seed
+> sweep (seeds 42–46). The aggregate result reproduces exactly (`quant_lightgbm` MAE improvement
+> 0.517, CI [0.502, 0.530]; season points ml 4356 / 4243 / 4154 / 4177 / 4218 vs quant 3750 —
+> ML wins all five). The per-slice picture **sharpened**: `ownership_band=20%+` regresses for
+> `quant_lightgbm` in **all 5 seeds** (−0.052 to −0.085) and for `quant_xgboost` in all 5 —
+> a real, seed-stable weakness. `price_band=9.0+` is **noise for the governing arm**: it improves
+> in 2 seeds, regresses in 3, pools to ≈0 (−0.004) for `quant_lightgbm`, though it still regresses
+> for `quant_xgboost` in all 5. So the honest count is **one stable regressing slice**
+> (highly-owned players), plus one borderline slice. NO-SHIP still holds on that one stable slice.
 >
 > **Track F update** (`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md`):
 > this template now includes a fourth model arm, `quant_lightgbm` — the **primary** nonlinear
@@ -326,9 +336,11 @@ irrelevant in every other" red flag this section exists to catch.
 
 ## 8. Slicing check (spec §12)
 
-**Real result: 58 of 60 (dimension, slice) combinations show `quant_lightgbm` improving on Quant.
-2 of 60 show a real regression — both named here in full, per R11/this section's own requirement,
-not omitted. `quant_xgboost` (the R13 confirmation arm) regresses on the *same two slices*:**
+**Real result (this local run): 58 of 60 (dimension, slice) combinations show `quant_lightgbm`
+improving on Quant. 2 of 60 regress — both named here in full, per R11/this section's own
+requirement, not omitted. `quant_xgboost` (the R13 confirmation arm) regresses on the *same two
+slices*. §8a's 5-seed cloud sweep then resolves which of the two is real (`ownership_band=20%+`)
+and which is noise (`price_band=9.0+`):**
 
 | Dimension | Slice | Quant MAE | quant_lightgbm MAE | Change (lgbm) | Change (xgboost) | n (real, non-trivial) |
 |-----------|-------|-----------|----------------------|---------------|------------------|----|
@@ -365,6 +377,41 @@ pre-committed rule for this exact situation applies.
 > `quant_lightgbm`'s (and `quant_xgboost`'s) MAE against `quant`'s in all 60 real (dimension,
 > slice) combinations before summarising above.
 
+### 8a. Multi-seed cloud confirmation (2026-08-30)
+
+The experiment above ran locally against `backtest_run_id=1`. To separate a real per-slice
+weakness from run-to-run fold-variance noise, it was re-run on GitHub Actions (`ubuntu-latest`,
+unthrottled) against a **fresh** walk-forward built by `scripts/run_walkforward.py` — one baseline
+run plus a 5-seed sweep (seeds 42–46), each a full 70-fold gameweek walk-forward. All six agree on
+the aggregate: `quant_lightgbm` MAE improvement 0.517, CI [0.502, 0.530]; `ml_beats_quant` in
+every run.
+
+Per-slice regression, by seed (`quant_lightgbm` vs `quant`, n-weighted MAE; − = worse):
+
+| seed | # slices `quant_lightgbm` regresses on | `ownership_band=20%+` Δ | `price_band=9.0+` Δ |
+|------|----------------------------------------|-------------------------|---------------------|
+| 42 | 1 | −0.052 | **+0.020** |
+| 43 | 1 | −0.065 | **+0.013** |
+| 44 | 2 | −0.085 | −0.037 |
+| 45 | 2 | −0.065 | −0.016 |
+| 46 | 2 | −0.073 | −0.002 |
+| **pooled (n≈5.7k / 2.5k)** | — | **−0.068** | **−0.004** |
+
+`quant_xgboost` regresses on **both** slices in all 5 seeds (pooled: `ownership_band=20%+` −0.107,
+`price_band=9.0+` −0.101).
+
+**Reading:**
+- **`ownership_band=20%+`** (highly-owned players, n≈1,150/seed) — regresses in **5/5 seeds for
+  `quant_lightgbm` and 5/5 for `quant_xgboost`**. This is a **real, seed-stable weakness**, not
+  noise. It is the one slice §9's NO-SHIP now genuinely rests on.
+- **`price_band=9.0+`** (premium-priced, n≈500/seed) — for the governing arm it *improves* in 2
+  seeds and *regresses* in 3, pooling to ≈0. **Noise-dominated for `quant_lightgbm`.** It stays a
+  real regression for `quant_xgboost` (informational only).
+
+> Source: run artifacts `ml-experiment-results-33281320762` (baseline) and
+> `ml-experiment-results-33281374600` (`experiment_runs.csv` + `runs/run_000{0..4}/`). Cloud
+> pipeline: `.github/workflows/ml_experiment.yml` (PR #73).
+
 ## 9. Decision
 
 **Governed by `quant_lightgbm` alone (R11)** — §3.1b's bootstrap CI for that arm, plus this
@@ -387,11 +434,14 @@ this checkbox (R16) — do not let a `quant_gbm` or `quant_xgboost` result subst
 **Verdict: NO-SHIP**, per this plan's own pre-committed "Edge Cases & Failure Handling" rule
 (`docs/plans/2026-08_retrospective_validation_and_ml_decision_plan.md`, line 349): *"ML result is
 a near-tie or **fails the per-slice check** → recorded as an explicit 'no-ship' in `REPORT.md`."*
-§8's real result is a per-slice check failure — 2 of 60 slices (`ownership_band=20%+`, a real
-1,149-observation effect; and `price_band=9.0+`, 498 observations — not noise, and both confirmed
-by the independent `quant_xgboost` arm) show `quant_lightgbm` regressing against Quant. R11's own
-text is unconditional on this point: *"ship only if it shows a statistically credible
-improvement... **without regressing**... per-slice performance."* An earlier draft of this
+§8's result is a per-slice check failure. The local run shows 2 regressing slices; the 5-seed
+cloud sweep (§8a) resolves them: **`ownership_band=20%+` (highly-owned players, n≈1,150/seed) is a
+real, seed-stable regression** — `quant_lightgbm` is worse there in 5/5 seeds, `quant_xgboost` in
+5/5 — while `price_band=9.0+` is noise for the governing arm (improves in 2 seeds, regresses in 3,
+pools to ≈0). So NO-SHIP rests on **one stable slice**, not two — but one real per-slice
+regression is still an automatic no-ship under the pre-committed rule. R11's own text is
+unconditional on this point: *"ship only if it shows a statistically credible improvement...
+**without regressing**... per-slice performance."* An earlier draft of this
 section (in the prior run) recorded a "CONDITIONAL SHIP" verdict instead — reasoning that 58–59 of
 60 slices passing was close enough to justify shipping with the failing slice(s) carved out. That
 reasoning is not adopted here: it invented a third decision category the plan never defined or
@@ -402,25 +452,26 @@ failure after the fact. Caught in blind review; the plan's own literal rule gove
 
 This does **not** mean the result is weak — it very much is not (33–35% MAE improvement in both
 seasons independently, CI excludes zero with real margin, 87.6% win rate on the highest-
-disagreement cases, real season-points gains in both seasons under the manager-points proxy, and
-an independent second gradient-boosting library reproducing the aggregate result). But the
-per-slice check is a hard, pre-committed gate, and this run fails it on 2 of 60 slices (the prior
-run failed it on 1 of 60; adding the `quant_xgboost` confirmation arm and re-running has if
-anything firmed the failure up rather than dissolved it). `quant_gbm` and `quant_xgboost` are
-correctly kept informational-only (R16) throughout and did not *govern* this decision — though
-`quant_xgboost` agreeing on the regressing slices is a relevant corroboration, not a deciding
-input. See §9.1 for the full reasoning and a flagged (not decided) follow-up path.
+disagreement cases, real season-points gains in every one of six independent runs under the
+manager-points proxy, and an independent second gradient-boosting library reproducing the
+aggregate result). But the per-slice check is a hard, pre-committed gate, and it fails on the one
+slice the 5-seed sweep confirms is real (`ownership_band=20%+`). `quant_gbm` and `quant_xgboost`
+are correctly kept informational-only (R16) and did not *govern* this decision. See §9.1 for the
+full reasoning and a flagged (not decided) follow-up path — and §8a's finding gives that path a
+concrete target: **the model is worse specifically on highly-owned players; a feature or handling
+change that removes that regression without opening a new one would clear the gate.**
 
 ### 9.1 If not integrating — why?
 
 Not because ML failed to find signal — it found a strong, consistent, statistically credible one.
 The reason is procedural and deliberate: this plan pre-committed, before any real result existed,
 to treating *any* real per-slice regression as an automatic "no-ship," specifically to prevent a
-strong aggregate number from being used to talk past a real, narrow weakness after the fact. §8's
-real result — 2 of 60 slices regressing (highly-owned and premium-priced players, the segments
-that matter most for captaincy calls), both corroborated by the independent `quant_xgboost`
-arm — is precisely the scenario that rule exists to catch, even though the regressions themselves
-are small (2.1% and 0.8% relative) and the aggregate case is otherwise very strong.
+strong aggregate number from being used to talk past a real, narrow weakness after the fact. The
+5-seed sweep (§8a) confirms **one** such regression is real: `ownership_band=20%+` (highly-owned
+players — the segment that matters most for captaincy calls), worse in 5/5 seeds for the governing
+arm and 5/5 for `quant_xgboost`. That is precisely the scenario the rule exists to catch, even
+though the regression itself is small (≈2% relative, pooled −0.068 MAE) and the aggregate case is
+otherwise very strong.
 
 **Flagged, not decided:** whether to formally define a "conditional ship, with named per-slice
 carve-outs" category for a future case like this one — where the aggregate case is strong, CI is
@@ -444,6 +495,16 @@ regression — governs, and this section records that outcome rather than overri
   degraded/partial run (R14's fallback path was not exercised)
 - `random_seed: 42`
 - Reproduce: `python -m research.ml.experiment` (run from repo root)
+
+**Cloud re-runs (2026-08-30), §8a:**
+- Baseline: Actions run `33281320762`, branch `claude/cloud-ml-pipeline` (`0efa684`), fresh
+  walk-forward via `scripts/run_walkforward.py`. `quant_lightgbm` MAE improvement 0.517
+  CI [0.502, 0.530]; season points ml 4356 / quant 3750.
+- 5-seed sweep: Actions run `33281374600`, seeds 42–46, artifact `experiment_runs.csv` +
+  `runs/run_000{0..4}/`. All five: `ml_beats_quant = true`; `ownership_band=20%+` regresses for
+  `quant_lightgbm` in 5/5.
+- Reproduce on cloud: `gh workflow run ml_experiment.yml --ref <branch> [-f runs=N]`
+  (`.github/workflows/ml_experiment.yml`, PR #73).
 
 ## 11. Absolute rule — leakage
 
