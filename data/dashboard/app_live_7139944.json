@@ -4,7 +4,7 @@
   "gameweek": 2,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 119,
+  "live_total": 127,
   "players": [
     {
       "player_id": 496,
@@ -16,9 +16,9 @@
     {
       "player_id": 4,
       "web_name": "Gabriel",
-      "live_points": 0,
+      "live_points": 8,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 8
     },
     {
       "player_id": 534,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 94.5,
-    "estimated_rank": 557057
+    "percentile": 92.0,
+    "estimated_rank": 817076
   },
   "fixtures": [
     {
@@ -242,9 +242,42 @@
         "name": "Ipswich Town",
         "score": 2
       }
+    },
+    {
+      "id": 20,
+      "kickoff": "2026-08-31T19:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "AVL",
+        "name": "Aston Villa",
+        "score": 0
+      },
+      "away": {
+        "short_name": "ARS",
+        "name": "Arsenal",
+        "score": 1
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 8,
+      "web_name": "Calafiori",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 20
+    },
+    {
+      "player_id": 12,
+      "web_name": "Saka",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 20
+    },
     {
       "player_id": 40,
       "web_name": "Rogers",
@@ -678,5 +711,5 @@
       "fixture_id": 16
     }
   ],
-  "generated_at": "2026-08-30T21:55:54.597800+00:00"
+  "generated_at": "2026-08-31T22:33:50.245173+00:00"
 }
