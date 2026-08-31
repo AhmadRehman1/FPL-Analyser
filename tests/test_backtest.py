@@ -95,9 +95,23 @@ def test_tier_for_2025_26_boundaries():
     assert bt.tier_for("2025-2026", 38) == "mature"
 
 
+def test_tier_for_2026_27_is_mature_from_gw1():
+    # Two complete prior seasons precede every 2026-2027 gameweek -- no cold/warm phase.
+    assert bt.tier_for("2026-2027", 1) == "mature"
+    assert bt.tier_for("2026-2027", 38) == "mature"
+
+
 def test_tier_for_rejects_unknown_season():
     with pytest.raises(ValueError):
-        bt.tier_for("2026-2027", 1)
+        bt.tier_for("2027-2028", 1)
+
+
+def test_fit_seasons_for_covers_the_three_loaded_seasons():
+    assert bt.fit_seasons_for("2024-2025") == ("2024-2025",)
+    assert bt.fit_seasons_for("2025-2026") == ("2024-2025", "2025-2026")
+    assert bt.fit_seasons_for("2026-2027") == ("2024-2025", "2025-2026", "2026-2027")
+    with pytest.raises(ValueError):
+        bt.fit_seasons_for("2027-2028")
 
 
 # ============================================================
