@@ -204,6 +204,8 @@ def main() -> None:
     print(f"\n[write] {OUT_DIR}/forward_sim_{date_tag}.json + SUMMARY.md")
 
     for r in results:
+        if r["hold_wildcard"] is None:
+            continue  # hold_wildcard not in MODES -- no timing verdict to print
         reco = r["hold_wildcard"]["wildcard_recommendation"]
         print(f"  {r['label']}: wildcard "
               + (f"GW{reco['gameweek']} (+{reco['projected_gain']:.0f})" if reco else "hold"))
