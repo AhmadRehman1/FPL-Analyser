@@ -24,6 +24,14 @@ on:
         required: false
         default: "16"
         type: string
+      modes:
+        description: >-
+          Comma-separated sims to run per account: hold_wildcard (the timing answer),
+          model_choice, forced. Default all three. Use "hold_wildcard,model_choice" or just
+          "hold_wildcard" for a faster job if the full set risks the timeout.
+        required: false
+        default: "hold_wildcard,model_choice,forced"
+        type: string
   schedule:
     - cron: "30 4 * * 0"    # 04:30 UTC Sunday -- after weekly_backtest.yml (03:00), before ml_experiment.yml (05:00)
 
@@ -92,6 +100,8 @@ jobs:
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
       - name: Forward season simulation + Wildcard timing
+        env:
+          FWSIM_MODES: ${{ github.event.inputs.modes || 'hold_wildcard,model_choice,forced' }}
         run: PYTHONPATH=src python scripts/run_forward_season_sim.py "${{ github.event.inputs.end_gameweek || '16' }}"
 
       - name: Job summary

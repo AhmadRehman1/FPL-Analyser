@@ -57,12 +57,20 @@ TIER_BOUNDARIES = {
 
 def tier_for(season: str, gameweek: int) -> str:
     """Implements the spec's tiering table literally: 2024-25 GW1-9 cold, 2024-25 GW10-38 +
-    2025-26 GW1-~15 warm, rest of 2025-26 mature."""
+    2025-26 GW1-~15 warm, rest of 2025-26 mature.
+
+    2026-2027 is "mature" from GW1: every one of its gameweeks sits on top of two complete
+    prior Premier League seasons (760 finished matches) under any asof cutoff, so its
+    calibration-data volume is already well past the bar 2025-2026 only cleared at GW16. The
+    cold/warm split existed to flag genuinely data-starved early gameweeks in the first
+    loaded season, a condition that cannot recur once two full seasons precede the target."""
     if season == "2024-2025":
         return "cold" if gameweek <= TIER_BOUNDARIES["2024-2025"]["cold_through_gw"] else "warm"
     if season == "2025-2026":
         return "warm" if gameweek <= TIER_BOUNDARIES["2025-2026"]["warm_through_gw"] else "mature"
-    raise ValueError(f"no tier definition for season {season!r} -- backtest only covers 2024-25/2025-26")
+    if season == "2026-2027":
+        return "mature"
+    raise ValueError(f"no tier definition for season {season!r} -- backtest only covers 2024-25/2025-26/2026-27")
 
 
 def fit_seasons_for(season: str) -> tuple[str, ...]:
@@ -74,12 +82,24 @@ def fit_seasons_for(season: str) -> tuple[str, ...]:
     shadows to zero rows and no team can ever reach the len(fit_seasons)=2 threshold, no matter
     how late in the season -- calibrate() would hard-crash in fit_elo_regression on every single
     2024-2025 step, not just the earliest ones. fit_seasons must instead be only the seasons
-    actually reachable as of the season being backtested."""
+    actually reachable as of the season being backtested.
+
+    2026-2027 adds itself to the pair: under a 2026-2027 asof cutoff none of the three
+    seasons shadows entirely to empty (2024-25 and 2025-26 are complete; 2026-27 has its own
+    played gameweeks), so len(fit_seasons)=3 makes effective_threshold=min(3,3)=3 and the
+    eligible-teams population is the clubs present in all three seasons -- 15 in the real
+    ingested DB, a healthy Elo-regression population (fit_elo_regression needs >=2), not the
+    empty set the 2024-2025 bug produced. Early in 2026-2027 its own match rows are sparse,
+    but fit_dixon_coles' xi-decay weighting and weight_own_data=min(1,seasons/3) already
+    govern how much that thin recent slice is trusted; fit_seasons only decides what data is
+    on the table, and all reachable data is the consistent answer."""
     if season == "2024-2025":
         return ("2024-2025",)
     if season == "2025-2026":
         return ("2024-2025", "2025-2026")
-    raise ValueError(f"no fit_seasons definition for season {season!r} -- backtest only covers 2024-25/2025-26")
+    if season == "2026-2027":
+        return ("2024-2025", "2025-2026", "2026-2027")
+    raise ValueError(f"no fit_seasons definition for season {season!r} -- backtest only covers 2024-25/2025-26/2026-27")
 
 
 def gameweek_deadline(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
