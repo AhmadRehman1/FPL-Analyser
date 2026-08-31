@@ -88,10 +88,16 @@ def _held_uids(con, entry_id: int, event: int) -> list[str]:
     return uids
 
 
+class _BundleIncomplete(RuntimeError):
+    pass
+
+
 def _bundle_report(con, entry_id: int, bundle: str, g: dict, evidence_flags: list[dict]) -> tuple:
     hold = g["hold"]
     if hold is None:
-        raise SystemExit(f"entry {entry_id} bundle {bundle}: no hold_wildcard arm artifact -- cannot compare")
+        raise _BundleIncomplete(
+            f"entry {entry_id} bundle {bundle}: no hold_wildcard arm artifact -- cannot compare"
+        )
     comparison = cta.compare_wildcard_timing(
         entry_label=g["label"],
         start_gameweek=g["start_gameweek"],
@@ -199,9 +205,13 @@ def main() -> None:
             g = grouped.get((entry_id, bundle))
             if g is None:
                 continue
-            per_bundle[bundle] = _bundle_report(con, entry_id, bundle, g, ev_flags)
+            try:
+                per_bundle[bundle] = _bundle_report(con, entry_id, bundle, g, ev_flags)
+            except _BundleIncomplete as exc:
+                print(f"::warning::{exc}")
 
         if not per_bundle:
+            print(f"::warning::entry {entry_id}: no complete bundle -- skipping")
             continue
         sens = _sensitivity(per_bundle)
 
