@@ -27,9 +27,12 @@ on:
         default: "19"
         type: string
       eval_end_gameweek:
-        description: "Score every arm over the shared window GW(current+1)..this (default 20)."
+        description: >-
+          Score every arm over the shared window GW(current+1)..this (default 22 -- 3 weeks
+          past the GW19 set-1 deadline, so a late-forced Wildcard still gets a few post-rebuild
+          gameweeks of credit rather than being scored on almost none).
         required: false
-        default: "20"
+        default: "22"
         type: string
       bundles:
         description: >-
@@ -127,7 +130,10 @@ jobs:
   sweep:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # One walk over ~20 gameweeks is ~2-2.5h of MIQP on this runner; a forced arm adds its own
+    # Step 2/4 (~5m). 240 leaves margin under GitHub's 360 cap. An arm that times out just drops
+    # from the sweep (fail-fast: false) -- aggregate still produces a report from what landed.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       max-parallel: 20
@@ -151,7 +157,7 @@ jobs:
           CTA_ENTRY_ID: ${{ matrix.entry }}
           CTA_MODE: ${{ matrix.mode }}
           CTA_FORCE_GW: ${{ matrix.force_gw }}
-          CTA_END_GW: ${{ github.event.inputs.eval_end_gameweek || '20' }}
+          CTA_END_GW: ${{ github.event.inputs.eval_end_gameweek || '22' }}
           CTA_PARAM_BUNDLE: ${{ matrix.bundle }}
           CTA_OUT: data/chip_timing/arms/arm_${{ matrix.entry }}_${{ matrix.tag }}_${{ matrix.bundle }}.json
         run: PYTHONPATH=src python scripts/run_chip_timing_arm.py

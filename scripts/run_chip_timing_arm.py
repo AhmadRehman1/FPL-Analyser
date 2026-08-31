@@ -15,7 +15,7 @@ Config via env vars (the workflow sets them from the matrix):
     CTA_ENTRY_ID     7139944 | 1305242            (required)
     CTA_MODE         hold | model_choice | force  (required)
     CTA_FORCE_GW     int                          (required iff CTA_MODE=force)
-    CTA_END_GW       eval-window end gameweek     (default 20)
+    CTA_END_GW       eval-window end gameweek     (default 22)
     CTA_PARAM_BUNDLE active | confirmed_pending | all_v1   (default active)
     CTA_OUT          output path                  (default data/chip_timing/arms/<name>.json)
 """
@@ -89,7 +89,7 @@ def real_chip_state(entry_id: int) -> tuple[list[str], list[str]]:
 def main() -> None:
     entry_id = int(os.environ["CTA_ENTRY_ID"])
     mode = os.environ["CTA_MODE"]
-    end_gw = int(os.environ.get("CTA_END_GW", "20"))
+    end_gw = int(os.environ.get("CTA_END_GW", "22"))
     bundle_name = os.environ.get("CTA_PARAM_BUNDLE", "active")
     force_gw = int(os.environ["CTA_FORCE_GW"]) if mode == "force" else None
     label = ENTRY_LABELS.get(entry_id, f"entry {entry_id}")
