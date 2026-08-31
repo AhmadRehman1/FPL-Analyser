@@ -55,6 +55,13 @@ class GameweekResult:
     wildcard_recommended: bool
     current_squad_horizon_value: float | None
     chips_used: list[str] = field(default_factory=list)
+    # evaluate_free_hit()'s own projected gain / recommendation for this gameweek -- the planner
+    # evaluates Free Hit every gameweek anyway (it is one of the four chips run() scores), so
+    # surfacing it here is a read of chip_evaluations, not an extra solve. Lets a caller scan
+    # the whole walked window for a Free-Hit-worthy blank/bad-fixture week (chip_timing_analysis
+    # Step 3) off the hold-Wildcard arm alone.
+    free_hit_gain: float | None = None
+    free_hit_recommended: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -70,6 +77,8 @@ class GameweekResult:
                 None if self.current_squad_horizon_value is None else round(self.current_squad_horizon_value, 2)
             ),
             "chips_used": self.chips_used,
+            "free_hit_gain": None if self.free_hit_gain is None else round(self.free_hit_gain, 2),
+            "free_hit_recommended": self.free_hit_recommended,
         }
 
 
@@ -151,6 +160,20 @@ def _read_wildcard_eval(con: duckdb.DuckDBPyConnection, plan_run_id: int) -> dic
     return d
 
 
+def _read_free_hit_eval(con: duckdb.DuckDBPyConnection, plan_run_id: int) -> dict:
+    row = con.execute(
+        "SELECT recommended, score_or_gain, detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'free_hit'",
+        [plan_run_id],
+    ).fetchone()
+    if not row:
+        return {}
+    recommended, score, detail = row
+    d = json.loads(detail or "{}")
+    d.setdefault("gain", score)
+    d.setdefault("recommended", bool(recommended))
+    return d
+
+
 def _best_transfer_rank_if_positive(con: duckdb.DuckDBPyConnection, plan_run_id: int) -> int | None:
     row = con.execute(
         "SELECT rank FROM transfer_recommendations WHERE run_id = ? AND net_value > 0 ORDER BY rank LIMIT 1",
@@ -170,6 +193,13 @@ class ForwardSimResult:
     total_projected_points: float
     total_band_low: float
     total_band_high: float
+    # Populated (once) at the gameweek the Wildcard was actually played -- forced or
+    # model-chosen -- with the live-DB handles a caller needs to run a Bench-Boost-combo or a
+    # squad-robustness check against that fresh Wildcard squad WITHOUT re-walking the season
+    # (chip_timing_analysis Steps 2 and 4). Not serialised by to_dict(): fresh_run_id /
+    # ts_model_version / mm_model_version are only meaningful in the same DB the walk ran
+    # against. None whenever the Wildcard was never played in-window.
+    wildcard_context: dict | None = None
 
     @property
     def wildcard_recommendation(self) -> dict | None:
@@ -209,9 +239,19 @@ def run_forward_season_sim(
     active_versions: dict,
     hold_wildcard: bool = False,
     force_wildcard_at: int | None = None,
+    real_chips_used_set1: list[str] | None = None,
+    real_chips_used_set2: list[str] | None = None,
 ) -> ForwardSimResult:
     """Walk `start_gameweek..end_gameweek` from the real `bootstrap_squad`, one real planner
-    decision per gameweek, scoring on projected EP. See module docstring for the two modes."""
+    decision per gameweek, scoring on projected EP. See module docstring for the two modes.
+
+    real_chips_used_set1 / real_chips_used_set2: the chips the real manager has ALREADY spent
+    (from the FPL API's own entry history). transfer_planner.bootstrap_from_real_squad() always
+    seeds an empty chip state (its docstring is explicit that it inherits a fresh-account
+    assumption); passing the real used-chip lists here writes them onto the bootstrapped
+    manager_state_versions row so the walk's own _decide_gameweek_action() will not re-play a
+    chip that is gone. None (the default) keeps the fresh-account behavior unchanged -- correct
+    for the two currently-tracked entries, which have used zero chips as of GW2 2026-27."""
     versions = _resolve_versions(con, active_versions)
     horizon_gameweeks = int(params_mod.resolve_param(
         con, "planning_horizon_params", "horizon_gameweeks", versions["horizon_params_version"])[0])
@@ -239,8 +279,18 @@ def run_forward_season_sim(
             con, asof, target_season, start_gameweek, ep_model_version=ep0, uncertainty_model_version=un0,
             squad=bootstrap_squad,
         )
+        if real_chips_used_set1 is not None or real_chips_used_set2 is not None:
+            con.execute(
+                "UPDATE manager_state_versions SET chips_used_set1 = ?, chips_used_set2 = ? WHERE state_version = ?",
+                [
+                    json.dumps(sorted(set(real_chips_used_set1 or []))),
+                    json.dumps(sorted(set(real_chips_used_set2 or []))),
+                    state_version,
+                ],
+            )
 
     rows: list[GameweekResult] = []
+    wildcard_context: dict | None = None
     for gw in range(start_gameweek, end_gameweek + 1):
         if bt.has_double_gameweek(con, target_season, gw):
             continue  # v1 scope: DGW planning skipped (same boundary as backtest.run_season_simulation)
@@ -274,6 +324,10 @@ def run_forward_season_sim(
             wc_traj = wc.get("current_squad_value_per_gw") or {}
             cur_horizon_val = sum(wc_traj.values()) if wc_traj else None
 
+            fh = _read_free_hit_eval(con, plan_run_id)
+            fh_gain = fh.get("gain")
+            fh_reco = bool(fh.get("recommended", False))
+
             # ---- decide the action ----
             forced = force_wildcard_at == gw and "wildcard" not in (chips_set1 | chips_set2)
             accept_rank: int | None
@@ -292,9 +346,26 @@ def run_forward_season_sim(
             if accept_chip == "free_hit":
                 free_hit_squad = transfer_planner.read_fresh_chip_squad(con, plan_run_id, "free_hit")
 
+            holdings_before_wc: list[dict] = (
+                transfer_planner._read_holdings(con, state_version) if accept_chip == "wildcard" else []
+            )
+
             state_version = transfer_planner.apply_recommendation(
                 con, plan_run_id, accept_transfer_rank=accept_rank, accept_chip=accept_chip,
             )
+
+            if accept_chip == "wildcard" and wildcard_context is None:
+                wildcard_context = {
+                    "gameweek": gw,
+                    "asof_date": asof,
+                    "fresh_run_id": wc.get("fresh_run_id"),
+                    "wildcard_result": wc,
+                    "holdings_before_uids": sorted(h["player_uid"] for h in holdings_before_wc),
+                    "xi_before_uids": sorted(h["player_uid"] for h in holdings_before_wc if h["in_xi"]),
+                    "ts_model_version": ts_mv,
+                    "mm_model_version": mm_mv,
+                    "versions": dict(versions),
+                }
 
             # ---- score this gameweek on projected EP ----
             horizon_versions = transfer_planner.compute_horizon_ep(
@@ -340,6 +411,7 @@ def run_forward_season_sim(
             wildcard_gain=wc_gain, wildcard_recommended=wc_reco,
             current_squad_horizon_value=cur_horizon_val,
             chips_used=sorted(chips_set1 | chips_set2 | ({accept_chip} if accept_chip else set())),
+            free_hit_gain=fh_gain, free_hit_recommended=fh_reco,
         ))
 
     total = sum(r.projected_points for r in rows)
@@ -348,4 +420,5 @@ def run_forward_season_sim(
     return ForwardSimResult(
         entry_label=entry_label, season=target_season, start_gameweek=start_gameweek, end_gameweek=end_gameweek,
         mode=mode, rows=rows, total_projected_points=total, total_band_low=lo, total_band_high=hi,
+        wildcard_context=wildcard_context,
     )

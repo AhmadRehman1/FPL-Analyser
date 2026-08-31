@@ -381,6 +381,24 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   -- no new validation logic needed. The sidebar drop-zone was verified via direct wiring
   (a synthetic drag event, since simulating a real cross-sheet-transition drag in headless mode
   is unreliable) and confirmed it stages an identical pending transfer to tapping the same row.
+- **Two-team chip-timing sweep (`chip_timing_analysis.py`): built, not yet run for real.**
+  `forward_season_sim` answers "when does the model Wildcard?" only through its own greedy
+  5-gameweek-visible horizon (`_is_best_gameweek_in_visible_horizon` genuinely cannot compare a
+  GW7 rebuild against a GW14 one when planning at GW7). `chip_timing_analysis.py` closes that
+  blind spot: it runs the forward sim once per *forced* Wildcard gameweek across a full
+  candidate window (GW4-19), plus a `hold_wildcard` and a `model_choice` baseline, and
+  `compare_wildcard_timing()` reports the full-horizon best week, the greedy answer, and where
+  they disagree (with the per-GW `evaluate_wildcard` gain trajectory as the explanation). Step 2
+  layers `evaluate_wildcard_bench_boost_combo()` onto the winning week + 3 (against the fresh
+  post-WC squad, not a re-solve); Step 3 scans `evaluate_free_hit()` across the window (a read
+  off the hold arm -- the planner evaluates Free Hit every gameweek anyway); Step 4 re-solves
+  `squad_optimizer.solve()` under a one-axis-at-a-time spread of `lambda_value` / `rho_residual`
+  / jittered-EP perturbations and splits the squad into core (in every solve) vs fragile; Step 5
+  re-runs the whole sweep under a second parameter bundle. One forward walk is ~1-1.5h of MIQP
+  on the CI runner, so `.github/workflows/chip_timing_analysis.yml` fans the sweep out as a
+  matrix (one job per entry x arm x bundle, ~36-72 jobs) and an `aggregate` job does Steps 2-6.
+  20 new unit/integration tests. See the "chip timing sweep" Design note below for the
+  recalibration-state correction and the two tracked entries' verified GW2 2026-27 state.
 
 ## Quick start
 
@@ -1511,3 +1529,76 @@ honest "couldn't check" where it wasn't, not a guess dressed up as a finding.
   live; a column of 1s everywhere would mean it's currently inert (safe, per above, but worth
   knowing) -- a five-minute check against the real DB, not run here because the real DB isn't
   here, named as the natural next step rather than silently skipped.
+
+### chip timing sweep (`chip_timing_analysis.py`) -- design notes
+
+- **The greedy walk has a real horizon blind spot; the forced sweep is the fix, not an
+  optional extra.** `backtest._decide_gameweek_action()` weighs a recommended chip against
+  `_is_best_gameweek_in_visible_horizon()`, which can only ever compare the candidate gameweek
+  against the `planning_horizon_params.horizon_gameweeks = 5` weeks visible from that point. A
+  single `model_choice` forward walk starting at GW3 genuinely cannot tell whether GW14 is a
+  structurally better Wildcard week than GW9 -- GW14 is outside the window it can see when it
+  decides at GW9. So `run_forward_season_sim(force_wildcard_at=k)` is run for *every* k in the
+  candidate window and the arms are compared on total projected points over one shared
+  evaluation window. `compare_wildcard_timing()` reports the swept best, the greedy answer, and
+  an explicit disagreement note built from the per-GW `evaluate_wildcard` gain trajectory.
+- **The prompt's "recalibration_proposals" premise did not match the real DB -- corrected
+  here.** The task described "six proposals sitting as `status='pending'` including `xi`
+  0.0018->0.005, `rho_residual` 0.15->0.0, `lambda_value` 0.15->0.0, none currently active."
+  Checked against `db/fpl_quant_v2.duckdb` (2026-08-29 snapshot): `recalibration_proposals`
+  has **four** rows from `backtest_run_id=1`, of which **three are already `status='confirmed'`**
+  (rho_residual 0.15->0.0168 v4, lambda_value 0.15->**0.05** v2, kappa_tc 0.15->0.5 v2) and
+  **one is genuinely `pending`** (`competitive_matches_threshold` 10->20). There is no proposal
+  for `xi`->0.005 or `rho_residual`->0.0; those two are **already the active config** via the
+  committed `data/recalibration/seeds_historical_commit_7bf7604.json`
+  (`active_recalibratable_versions()` returns xi v2, rho_residual v2 = 0.0, everything else v1).
+  The three confirmed proposals are NOT active -- their seed file was reverted to
+  `scratchpad/seeds_1.json.PENDING-REVIEW` pending owner review (see the `.gitignore` note). So
+  Step 5's sensitivity axis is `active` vs `confirmed_pending` (active + rho_residual v4 +
+  lambda v2 + kappa_tc v2), not the prompt's framing. `all_v1` is available as a third bundle.
+- **Both tracked entries' real state, verified live against the FPL API (2026-27, FPL current
+  event = 2).** 7139944 "Ahmad sucks": bank £0.5m, value £100.1m, 0 transfers made, **0 chips
+  used**. 1305242 "Matippy toes": bank £0.0m, value £100.2m, 0 transfers, **0 chips used**
+  (Joe Rodon on the bench flagged `status=d`/50% by FPL -- the only availability flag on either
+  squad; the model does not read that field, see M2). All 15 players on both squads resolve
+  cleanly through `ingest_workbook._resolve_player()`. Both walks start at GW3. GW9 was only
+  ever the human operator's suggested trigger, never a model output -- it is a candidate in the
+  sweep, nothing more.
+- **Evidence-workbook freshness is a disclosed input, not a gate (`evidence_freshness_flags()`,
+  Step 0.2).** The workbook was *ingested* 2026-08-29 but its observations are overwhelmingly
+  preseason: on the two squads' held players the newest `injury_status` / `predicted_xi`
+  observation is 2026-07-27 (~5 weeks stale as of the decision date), and three cheap bench
+  players (Verbruggen, Leif Davis, Regan Slater) have no availability claim at all. A held
+  player whose newest availability claim is older than 14 days is flagged in the report's
+  `data_flags`; nothing is blocked.
+- **`bootstrap_from_real_squad()` still assumes `free_transfers_available=1`** (its own
+  docstring's disclosed limitation). Both entries have made zero transfers across GW1-2 so
+  their real free-transfer count at GW3 is likely 2-5 under the current rules -- a minor
+  understatement of transfer flexibility in the pre-Wildcard weeks, unchanged here. What this
+  round *did* add: `run_forward_season_sim(real_chips_used_set1=, real_chips_used_set2=)`, which
+  writes the real used-chip lists onto the bootstrapped `manager_state_versions` row so the
+  walk's own `_decide_gameweek_action()` will not re-play a spent chip. `None` (the default)
+  keeps the fresh-account behaviour; correct for both entries today, needed the moment either
+  plays a chip. `chip_timing_analysis.assert_wildcard_available()` refuses a Wildcard sweep
+  outright if the entry has already spent the Wildcard for the set covering those gameweeks.
+- **Step 4's perturbation spread is one-axis-at-a-time on purpose.** `plan_perturbations()`
+  emits the unperturbed base point, then each `lambda_value` alone, each `rho_residual` version
+  alone (v1 = 0.15, v2 = 0.0, v4 = 0.0168 -- all real registered versions, so no ephemeral
+  param rows), then a few seeded EP-jitter draws alone (`mu_i + N(0, k*sqrt(var_i))`). A full
+  cross product explodes and over-weights joint extremes nobody is proposing. `solve()` is
+  called directly (raw MIQP, no divergence check, no DB writes -- the fast path);
+  `classify_core_fragile()` splits the union of all solved squads into core (every solve) vs
+  fragile (some), verdict `fragile` above two swing players.
+- **Compute shape.** One forward walk over a ~17-gameweek window is ~1-1.5h of MIQP on the
+  `ubuntu-latest` runner (measured against `forward_season_sim.yml` run 33432100674). GW4-19 is
+  16 forced walks + hold + model_choice per entry = ~36h per bundle in series, many times the
+  6h job cap. `chip_timing_analysis.yml` fans it out: a `prepare` job warms one shared DB cache
+  and emits the arm list, a `sweep` matrix runs every arm in parallel (`max-parallel: 20`,
+  `fail-fast: false`), and an `aggregate` job (`if: always()`) reads whatever arms landed and
+  does Steps 2-6. Each `force_wildcard_gw{k}` arm also computes its *own* Step 2 + Step 4
+  inline (via `ForwardSimResult.wildcard_context`, the live-DB handles the walk captured at the
+  gameweek it played the Wildcard) -- no re-walk in aggregation, and robustness is available for
+  every candidate week, not just the winner.
+- **Inherits `forward_season_sim`'s early-season limitation, restated.** With only ~2 gameweeks
+  of 2026-27 played, every future gameweek's EP model is fit on the same data, so a GW6 and a
+  GW16 projection differ by fixtures and minutes, not by form. Re-run as the season fills in.
