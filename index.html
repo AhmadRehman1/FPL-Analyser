@@ -4871,7 +4871,11 @@ function ownershipBlock(ownership) {
 // empty by default) or the tracker hasn't run yet -- never a fabricated "no elites tracked" row.
 function eliteDivergenceBlock() {
   const ed = state.eliteDivergence;
-  if (!ed || !ed.managers || !ed.managers.length) return "";
+  // track_elite.py always writes this feed now, with a status: "not_configured" (no maintainer
+  // has populated data/elite_managers.json -- the default) or "ok". Unlike the leaderboard,
+  // this is a maintainer-only feature an end user can't switch on, so "off" is correctly shown
+  // as nothing at all, not an "unavailable" note.
+  if (!ed || ed.status === "not_configured" || !ed.managers || !ed.managers.length) return "";
   return `
     <div class="section" style="margin-top:16px;">
       <div class="section-title"><span>What the elites did &middot; GW${ed.gw}</span></div>
@@ -5216,12 +5220,26 @@ function playerSheetLocalActions(p) {
 // gameweek it can't legally fill a squad for), so model_beats_baseline_by is the real,
 // already-computed comparison over just the gameweeks that baseline actually has data for,
 // not a naive total-points subtraction across mismatched windows.
+// Gap 2 (docs/BUSINESS_PLAN.md 2.4): never silently omit this section -- a reader should be
+// able to tell "the model-vs-baselines proof isn't built" apart from "it failed to load / hasn't
+// run this cycle". leaderboard_latest.json is written by the weekly weekly_backtest.yml job;
+// early in a season it legitimately carries {"status": "insufficient_data"}.
+function leaderboardUnavailable(note) {
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Model vs baselines</span></div>
+    <p class="empty-state" style="margin-bottom:16px;">${note}</p>`;
+}
+
 function leaderboardBlock() {
   const lb = state.leaderboard;
-  if (!lb || !lb.rows || !lb.rows.length) return "";
+  if (!lb) return leaderboardUnavailable("Hasn't been published yet &mdash; the model-vs-baselines season simulation runs in the weekly deep-backtest job. Check back after Sunday's run.");
+  if (lb.status === "insufficient_data") {
+    return leaderboardUnavailable(`Not enough completed gameweeks this season yet for a season-long simulation (GW${lb.start_gameweek ?? 2}&ndash;${lb.end_gameweek ?? "?"}, needs ${lb.min_gameweeks ?? 3}). Fills in as the season progresses.`);
+  }
+  if (!lb.rows || !lb.rows.length) return leaderboardUnavailable("Couldn't load the model-vs-baselines comparison this time. It refreshes weekly.");
   const modelRow = lb.rows.find(r => !r.is_baseline);
   const baselineRows = lb.rows.filter(r => r.is_baseline);
-  if (!modelRow) return "";
+  if (!modelRow) return leaderboardUnavailable("Couldn't load the model-vs-baselines comparison this time. It refreshes weekly.");
   return `
     <div class="section-title" style="color:var(--on-dark);"><span>Model vs baselines</span></div>
     <div class="stat-list" style="margin-bottom:10px;">

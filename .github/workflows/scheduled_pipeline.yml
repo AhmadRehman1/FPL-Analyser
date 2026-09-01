@@ -275,13 +275,22 @@ jobs:
 
       # Roadmap P2 item: track_elite.py (Feature 9, elite-manager divergence) was written and
       # tested but never invoked anywhere -- same "built but never invoked" gap as the projections
-      # export above. It already no-ops safely when data/elite_managers.json's `managers` list is
-      # empty (its own default), so wiring it in now is inert until an operator populates real
-      # entry IDs there -- this step just removes the "nothing ever runs it" gap.
+      # export above. When data/elite_managers.json's `managers` list is empty (its own default)
+      # it now writes an explicit {"status": "not_configured"} feed rather than nothing, so the
+      # PWA can tell "switched off" apart from "failed to load" -- wiring it in is still inert
+      # for end users until an operator populates real entry IDs there.
       - name: Track elite-manager divergence
         env:
           EVENT: ${{ steps.gw.outputs.event }}
         run: PYTHONPATH=src python scripts/track_elite.py "$EVENT"
+
+      # Gap 2 (docs/BUSINESS_PLAN.md 2.4): fail the run LOUDLY if either of the two optional
+      # dashboard feeds this job writes every run is missing, unparseable, or stale. Before this,
+      # a generator that errored mid-run degraded silently -- index.html's `.catch(() => null)`
+      # on those fetches made a real regression look identical to "feature not built". Runs after
+      # both export steps above; does NOT check leaderboard_latest.json (separate weekly job).
+      - name: Verify dashboard feeds are present and fresh
+        run: PYTHONPATH=src python scripts/verify_dashboard_feeds.py
 
       # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
       # a one-off re-check) without needing a code change -- the two real accounts above always
