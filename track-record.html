@@ -300,14 +300,41 @@ function render(data) {
   `;
 }
 
+function renderModelTeam(mt) {
+  if (!mt || !mt.ready) return "";
+  const sign = n => (n == null ? "—" : (n >= 0 ? "+" : "") + n);
+  const rows = (mt.weeks || []).filter(w => w.realized_points != null).map(w => `
+    <div class="snap">
+      <div class="gw">GW${w.gameweek}<small>${w.simulated ? "sim" : "live"}</small></div>
+      <div class="meta">${esc(w.action)}${w.action_detail ? " — " + esc(w.action_detail) : ""}<br>
+        <span class="cap">${w.realized_points} pts · field avg ${w.field_average ?? "—"}</span></div>
+      <div class="ep" style="color:${w.delta_vs_field > 0 ? "var(--good,#2ecc71)" : w.delta_vs_field < 0 ? "var(--bad,#e74c3c)" : "var(--ink-dim)"}">${sign(w.delta_vs_field)}<small>vs field</small></div>
+    </div>`).join("");
+  return `
+    <section class="card" style="border:1px solid var(--accent,#4a9eff);">
+      <h2>The model's own team</h2>
+      <p class="sub">Not advice on someone else's squad — the model's <em>own</em> team: its from-scratch GW1 XI, then its real weekly transfer/captain/chip call, applied and scored against the average FPL manager. ${esc(mt.disclaimer || "")}</p>
+      <div class="kpis">
+        <div class="kpi"><div class="v">${mt.total_realized_points}</div><div class="l">Total points · GW${mt.current_gameweek}</div></div>
+        <div class="kpi"><div class="v">${sign(mt.total_vs_field)}</div><div class="l">vs the average manager</div></div>
+        <div class="kpi"><div class="v">${mt.n_gameweeks_scored}<small style="font-size:11px;"> (${mt.n_gameweeks_simulated} sim)</small></div><div class="l">Gameweeks scored</div></div>
+      </div>
+      ${mt.chips_used && mt.chips_used.length ? `<p class="empty-note">Chips played: ${mt.chips_used.map(esc).join(", ")}.</p>` : ""}
+      ${rows ? `<div class="timeline">${rows}</div>` : `<p class="empty-note">First gameweek not scored yet.</p>`}
+    </section>`;
+}
+
 async function load() {
   renderStatus(document.getElementById("status-row"), null);
   const el = document.getElementById("content");
   el.innerHTML = `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
+  const modelTeam = await fetchJSON("data/dashboard/app_model_team.json").catch(() => null);
   try {
     const data = await fetchJSON("data/dashboard/app_track_record.json");
     renderStatus(document.getElementById("status-row"), data.generated_at);
     render(data);
+    const mtHtml = renderModelTeam(modelTeam);
+    if (mtHtml) el.insertAdjacentHTML("afterbegin", mtHtml);
   } catch (err) {
     el.innerHTML = `<div class="err">Couldn't load the track record. This file is written by the scheduled report run — if the app has never run a report yet, it won't exist. <br><br>${esc(err.message)}</div>`;
   }

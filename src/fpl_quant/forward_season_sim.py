@@ -62,6 +62,15 @@ class GameweekResult:
     # Step 3) off the hold-Wildcard arm alone.
     free_hit_gain: float | None = None
     free_hit_recommended: bool = False
+    # The squad this gameweek scored (post-decision holdings) -- so a stateful caller (the
+    # model-managed team track record) can persist the evolving 15 without re-deriving them.
+    squad_uids: list[str] = field(default_factory=list)
+    xi_uids: list[str] = field(default_factory=list)
+    captain_uid: str | None = None
+    # Real FPL points this XI actually scored, only when score_realized=True AND the gameweek
+    # has been played+ingested. None for a future gameweek -- projected_points still carries the
+    # forward estimate either way.
+    realized_points: float | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +82,10 @@ class GameweekResult:
             "action_detail": self.action_detail,
             "wildcard_gain": None if self.wildcard_gain is None else round(self.wildcard_gain, 2),
             "wildcard_recommended": self.wildcard_recommended,
+            "squad_uids": self.squad_uids,
+            "xi_uids": self.xi_uids,
+            "captain_uid": self.captain_uid,
+            "realized_points": None if self.realized_points is None else round(self.realized_points, 1),
             "current_squad_horizon_value": (
                 None if self.current_squad_horizon_value is None else round(self.current_squad_horizon_value, 2)
             ),
@@ -241,6 +254,7 @@ def run_forward_season_sim(
     force_wildcard_at: int | None = None,
     real_chips_used_set1: list[str] | None = None,
     real_chips_used_set2: list[str] | None = None,
+    score_realized: bool = False,
 ) -> ForwardSimResult:
     """Walk `start_gameweek..end_gameweek` from the real `bootstrap_squad`, one real planner
     decision per gameweek, scoring on projected EP. See module docstring for the two modes.
@@ -393,6 +407,18 @@ def run_forward_season_sim(
             else:
                 mean, std = _projected_xi_points(con, target_season, gw, ep_mv_gw, un_mv_gw, xi, cap, mult)
 
+            realized = None
+            if score_realized:
+                # Real FPL scoring where the gameweek has already been played and ingested
+                # (fact_player_season_stats.event_points is populated); None otherwise -- a
+                # caller mixing realized past + projected future can tell which is which.
+                played = con.execute(
+                    "SELECT count(*) FROM fact_player_season_stats WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+                    [target_season, gw],
+                ).fetchone()[0]
+                if played:
+                    realized = bt._realized_xi_points(con, target_season, gw, frozenset(xi), cap, captain_multiplier=mult)
+
         action = accept_chip or ("transfer" if accept_rank is not None else "hold")
         detail = ""
         if accept_chip == "wildcard":
@@ -405,6 +431,7 @@ def run_forward_season_sim(
             if tr:
                 detail = f"{tr[0]} -> {tr[1]} (net {tr[2]:+.2f})"
 
+        scored_squad = free_hit_squad if (accept_chip == "free_hit" and free_hit_squad is not None) else holdings
         rows.append(GameweekResult(
             gameweek=gw, projected_points=mean, band_low=mean - _Z80 * std, band_high=mean + _Z80 * std,
             action=action, action_detail=detail,
@@ -412,6 +439,8 @@ def run_forward_season_sim(
             current_squad_horizon_value=cur_horizon_val,
             chips_used=sorted(chips_set1 | chips_set2 | ({accept_chip} if accept_chip else set())),
             free_hit_gain=fh_gain, free_hit_recommended=fh_reco,
+            squad_uids=sorted(h["player_uid"] for h in scored_squad),
+            xi_uids=sorted(xi), captain_uid=cap, realized_points=realized,
         ))
 
     total = sum(r.projected_points for r in rows)
