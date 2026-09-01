@@ -429,6 +429,37 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     completed gameweek is not cheap/safe for every run -- the prompt's own constraint).
   15 new tests (`test_verify_dashboard_feeds.py`, `test_export_leaderboard.py`,
   `test_track_elite_script.py`, `test_app_export.py`).
+- **App gap 5 -- "Explain this" inline from every model recommendation (Transfers + Plan).**
+  The M9 explain adapters (`expected_points.explain_player_ep`, `uncertainty.explain_player_risk`,
+  `transfer_planner.explain_plan`, `decision_engine`'s sensitivity list) all existed but only
+  the single headline move on the Home tab (`explainMoveCard()`, from `decision_<id>_latest.json`)
+  ever rendered the rich version; the transfer/captain rows and the Plan tab got a one-line
+  `explainLinesFallback()` "not available in this snapshot yet".
+  - `run_transfer_planner_for_real_squad.py` now attaches `explain.captain_breakdown` and
+    `explain.transfer_breakdowns[]` to `real_squad_<id>.json` -- each is
+    `explain_player_ep()` + `explain_player_risk()` for the recommended (and current) captain
+    and the top transfer's in/out players, **computed for `plan_for_gameweek`** using
+    `transfer_plan_runs.ep_model_versions[0]` (NOT `projections_latest.json`'s `gameweeks[0]`,
+    which starts at the current event and is one gameweek early for a decision -- a real
+    off-by-one that a first cut of this feature hit).
+  - `index.html`: a reusable `openExplainSheet()` over the existing `.sheet` primitive, plus
+    `epBreakdownBlock()` ("where the points come from", biggest category first, near-zero
+    dropped), `riskRangeBlock()` (floor/ceiling), and `whatWouldChangeBlock()` (the decision's
+    own sensitivity list, only for the move that IS the current top recommendation). An
+    "Explain this" button on the transfer + captain rows of "Your moves this week", in the
+    Transfer Review sheet, and on the Plan tab's "model suggests" card; the chip sheet's "Why"
+    section gains the sensitivity + downside when that chip is the recommended action.
+  - `tests.yml` gains a `node` job -- `npm test` (planner/*.js + the new
+    `tests/explain_sheet.test.js`, which extracts the DOM-free renderers from `index.html`
+    and checks them against the real feed shapes) was never in CI before. `package.json`'s
+    test glob widened to `tests/*.test.js`.
+  - New: `tests/explain_sheet.test.js` (8 tests), `tests/test_explain_adapters.py` (4 --
+    the first direct coverage of `explain_player_ep` / `explain_player_risk`, as a contract
+    against the frontend's consumed keys).
+  Plan-tab caveat: the Plan tab's "model suggests" is the client solver's read of published
+  projections, not `real_squad`'s own rec, so its "Explain this" shows the swap reason +
+  downside + sensitivity when the two agree on the #1 move (common) and a bounded fallback
+  otherwise -- full per-player Plan-tab breakdowns are a follow-up.
 
 ## Quick start
 

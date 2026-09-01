@@ -1,6 +1,7 @@
 name: Tests
 
-# Runs the full pytest suite, ruff lint, and (advisory) mypy on every push and pull request.
+# Runs the full pytest suite, the Node test suite (planner/*.js + the DOM-free renderers
+# extracted from index.html), ruff lint, and (advisory) mypy on every push and pull request.
 # Deliberately independent of scheduled_pipeline.yml: it needs none of that workflow's data
 # (FPL-Core-Insights clone, evidence workbooks, a populated DuckDB) since every test builds
 # its own throwaway in-memory/tmp-path DB via tests/conftest.py's `con` fixture -- no network
@@ -46,6 +47,25 @@ jobs:
 
       - name: Run test suite
         run: PYTHONPATH=src python -m pytest tests/ -v
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # No install step -- package.json has zero dependencies (the planner/*.js modules and the
+      # renderers extracted from index.html both ship no third-party code; the tests use Node's
+      # own built-in test runner). This job existed nowhere before: ~76 planner tests passed
+      # locally on `npm test` but nothing enforced them in CI, the same gap this workflow's own
+      # header describes for pytest.
+      - name: Run Node test suite (planner + index.html renderers)
+        run: npm test
 
   lint:
     runs-on: ubuntu-latest

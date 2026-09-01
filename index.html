@@ -2145,6 +2145,10 @@ function openChipSheet(chipType) {
     <div class="stat-list">
       ${renderDetailBullets(detail) || `<div class="sl-row"><div class="sl-label">Detailed rationale not available in this snapshot yet.</div></div>`}
     </div>
+    ${state.decision && state.decision.action === chipType ? whatWouldChangeBlock() : ""}
+    ${state.decision && state.decision.action === chipType && state.decision.downside_ci
+      ? `<div class="stat-list" style="margin-bottom:12px;"><div class="sl-row"><div class="sl-label">Squad downside if you play it (5th&ndash;95th)</div><div class="sl-value">[${(+state.decision.downside_ci[0]).toFixed(1)}, ${(+state.decision.downside_ci[1]).toFixed(1)}]</div></div></div>`
+      : ""}
     ${chipPreviewSquadBlock(chipType, chip.preview_squad)}
     <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;">
       This app never activates a chip for you &mdash; it only tells you what the model thinks.
@@ -2290,6 +2294,7 @@ function renderTransferReviewBody() {
           <div class="sl-row"><div class="sl-label">Net value</div><div class="sl-value">+${rec.net.toFixed(1)}</div></div>
         ` : `<div class="sl-row"><div class="sl-label">This exact pairing isn't one of the model's current top recommendations, so no projected-points gain is shown &mdash; only real, available stats above.</div></div>`}
       </div>
+      ${rec ? `<button class="local-btn active" style="margin-bottom:12px;" onclick="explainTransfer(${JSON.stringify(rec.player_in).replace(/"/g, "&quot;")}, ${JSON.stringify(rec.player_out).replace(/"/g, "&quot;")})">Explain this pick</button>` : ""}
       ${riskForPlayerName(inPlayer.web_name) ? `<div class="badges" style="margin-bottom:12px;">${riskBadge(riskForPlayerName(inPlayer.web_name))}</div>` : ""}
       <button class="confirm-btn ${alreadyConfirmed ? "success" : ""}" onclick="confirmTransferReview(${outPlayer.id}, ${inPlayer.id})">
         ${alreadyConfirmed ? "Confirmed locally ✓" : "Confirm locally"}
@@ -2535,6 +2540,115 @@ function explainLinesFallback() {
   return `<div class="explain-line">Detailed rationale not available in this snapshot yet &mdash; a future scheduled run will include it.</div>`;
 }
 
+// ============================================================
+// "EXPLAIN THIS" -- one tap from a model recommendation (Transfers + Plan) to the M9
+// breakdown, reusing the existing .sheet dialog. No new export script: the per-player
+// category split and risk range come from real_squad_<id>.json's own `explain` block, which
+// run_transfer_planner_for_real_squad.py now fills with expected_points.explain_player_ep()
+// / uncertainty.explain_player_risk() for the captain pick and the top transfer(s), computed
+// for the exact gameweek being planned. The swap reason, "what would change my mind" and
+// squad downside come from decision_<id>_latest.json (state.decision).
+// ============================================================
+
+const EP_CATEGORY_LABELS = {
+  appearance: "Appearance (60+ mins)", goals: "Goals", assists: "Assists",
+  clean_sheet: "Clean sheet", goals_conceded: "Goals conceded", defcon: "Defensive contribution",
+  bonus: "Bonus", saves: "Saves", penalty_save: "Penalty saves", cards: "Cards", own_goal: "Own goals",
+};
+
+function realSquadExplain() {
+  return (state.realSquad && state.realSquad.explain) || null;
+}
+
+// expected_points.explain_player_ep() output -> a "where the points come from" list, biggest
+// contributor first, near-zero categories dropped (honest: a striker's clean-sheet EP really
+// is ~0). Returns "" when the run didn't carry a breakdown for this player.
+function epBreakdownBlock(epExplain) {
+  if (!epExplain || !epExplain.categories) return "";
+  const cats = Object.entries(epExplain.categories)
+    .map(([k, v]) => [k, Number(v) || 0])
+    .filter(([, v]) => Math.abs(v) >= 0.05)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  if (!cats.length) return "";
+  return `
+    <div class="stat-list" style="margin-bottom:12px;">
+      ${cats.map(([k, v]) => `<div class="sl-row"><div class="sl-label">${EP_CATEGORY_LABELS[k] || humanizeKey(k)}</div><div class="sl-value">${v >= 0 ? "+" : ""}${v.toFixed(2)}</div></div>`).join("")}
+      <div class="sl-row" style="border-top:1px solid var(--divider);"><div class="sl-label" style="font-weight:700;color:var(--ink);">Expected total</div><div class="sl-value" style="font-weight:700;">${Number(epExplain.total).toFixed(2)}</div></div>
+    </div>`;
+}
+
+// uncertainty.explain_player_risk() output -> the Cornish-Fisher outcome range M4 already
+// surfaces elsewhere. Floor/ceiling is the honest "one bad week vs one haul" spread.
+function riskRangeBlock(riskExplain) {
+  if (!riskExplain || riskExplain.floor == null) return "";
+  return `<div class="stat-list" style="margin-bottom:12px;">
+    <div class="sl-row"><div class="sl-label">Floor &middot; ceiling (5th&ndash;95th pct)</div><div class="sl-value">${(+riskExplain.floor).toFixed(1)} &ndash; ${(+riskExplain.ceiling).toFixed(1)}</div></div>
+    <div class="sl-row"><div class="sl-label">Middle half (25th&ndash;75th)</div><div class="sl-value">${(+riskExplain.q25).toFixed(1)} &ndash; ${(+riskExplain.q75).toFixed(1)}</div></div>
+  </div>`;
+}
+
+function playerBreakdownSection(heading, pb) {
+  if (!pb || (!pb.ep && !pb.risk)) return "";
+  return `<div class="section-title" style="color:var(--on-dark);"><span>${heading}</span></div>`
+    + epBreakdownBlock(pb.ep) + riskRangeBlock(pb.risk);
+}
+
+// decision_engine's own sensitivity list ("what would change my mind") -- only meaningful for
+// the ONE move that IS the model's current top recommendation, so callers gate on that.
+function whatWouldChangeBlock() {
+  const d = state.decision;
+  if (!d || !d.sensitivity || !d.sensitivity.length) return "";
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>What would change the model's mind</span></div>
+    <div style="margin-bottom:12px;">${d.sensitivity.map(s => `<div class="rec"><span class="move" style="flex-wrap:wrap;">If <b style="margin:0 3px;color:var(--ink);">${escapeHtml(s.if_condition_display || s.if_condition)}</b> &rarr; ${escapeHtml(s.then_action_display || s.then_action)}</span><span class="net">${(+s.delta_ep) >= 0 ? "+" : ""}${(+s.delta_ep).toFixed(1)}</span></div>`).join("")}</div>`;
+}
+
+function openExplainSheet(title, subtitle, bodyHtml) {
+  document.getElementById("sheet-content").innerHTML = `
+    <div class="player-hero" style="padding-bottom:10px;">
+      <div class="name" style="font-size:19px;">${title}</div>
+      ${subtitle ? `<div class="sub" style="max-width:280px;text-align:center;">${subtitle}</div>` : ""}
+    </div>
+    ${bodyHtml || `<p class="empty-state">The detailed model breakdown isn't in the latest run yet &mdash; check back after the next scheduled run.</p>`}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:14px;">
+      Model output, shown for your own eye-check &mdash; this app never makes the move for you.
+    </p>`;
+  openSheet();
+}
+
+// in/outName are the display names from transfer_recommendations (canonical_name), the same
+// spelling _player_explain() writes into explain.transfer_breakdowns -- so an exact match.
+function explainTransfer(inName, outName) {
+  const ex = realSquadExplain();
+  const tb = ex && (ex.transfer_breakdowns || []).find(t =>
+    t.player_in && t.player_out && t.player_in.name === inName && t.player_out.name === outName);
+  const d = state.decision;
+  const swap = d && d.swaps && d.swaps[0];
+  const reason = swap && (!swap.in_name || swap.in_name === inName) ? swap.reason : null;
+  let body = "";
+  if (reason) body += `<p class="explain-line" style="margin:0 0 14px;">${escapeHtml(reason)}</p>`;
+  if (tb) {
+    body += playerBreakdownSection(`In &middot; ${escapeHtml(inName)}`, tb.player_in);
+    body += playerBreakdownSection(`Out &middot; ${escapeHtml(outName)}`, tb.player_out);
+  }
+  body += whatWouldChangeBlock();
+  if (d && d.downside_ci) body += `<div class="stat-list" style="margin-top:4px;"><div class="sl-row"><div class="sl-label">Squad downside if you make it (5th&ndash;95th)</div><div class="sl-value">[${(+d.downside_ci[0]).toFixed(1)}, ${(+d.downside_ci[1]).toFixed(1)}]</div></div></div>`;
+  if (!body.trim() && !reason) body = `<p class="explain-line">Projected to add points over the planning horizon; the per-player model breakdown will appear here after the next scheduled run.</p>`;
+  openExplainSheet(`${escapeHtml(outName)} &rarr; ${escapeHtml(inName)}`, "Why the model rates this transfer", body);
+}
+
+function explainCaptain(cr) {
+  if (!cr) return;
+  const cb = (realSquadExplain() || {}).captain_breakdown;
+  let body = `<p class="explain-line" style="margin:0 0 14px;">${cr.matches_current
+    ? `The model's own top captain pick this week is also <b style="color:var(--ink);">${escapeHtml(cr.recommended_name)}</b> &mdash; your armband already matches, at ${cr.recommended_expected_points} projected points.`
+    : `<b style="color:var(--ink);">${escapeHtml(cr.recommended_name)}</b> projects ${cr.recommended_expected_points} points vs ${cr.current_expected_points ?? "&mdash;"} for ${escapeHtml(cr.current_name || "your current pick")}. Captained, that gap roughly doubles to about +${(cr.potential_gain * 2).toFixed(1)}.`}</p>`;
+  if (cb && cb.recommended) body += playerBreakdownSection(escapeHtml(cr.recommended_name), cb.recommended);
+  if (cb && cb.current && !cr.matches_current) body += playerBreakdownSection(`${escapeHtml(cr.current_name)} &middot; current`, cb.current);
+  if (state.decision && state.decision.action === "triple_captain") body += whatWouldChangeBlock();
+  openExplainSheet(cr.matches_current ? `Keep ${escapeHtml(cr.recommended_name)}` : `Captain ${escapeHtml(cr.recommended_name)}`, "Why the model rates this captain", body);
+}
+
 // ---- "Your moves this week" action list -- one directive each for transfer/captain/chip,
 // each pointing at the real official FPL screen where it's actually made. This app never
 // submits anything on the manager's behalf (no stored FPL login) -- it only tells you what
@@ -2557,19 +2671,22 @@ function transferDirective(hold, topRec) {
     title: `${topRec.player_out} &rarr; ${topRec.player_in}`,
     sub: `Net gain +${topRec.net.toFixed(1)} over holding this transfer.`,
     cta: "Review transfer", confidence: estimateConfidence(topRec.net, 8, 3), risk: riskForPlayerName(topRec.player_in),
-    explainHtml: `<div class="explain-line">Projected gain of <b>${topRec.gain.toFixed(1)}</b> points over the planning horizon, at a cost of <b>${topRec.cost}</b> for a net of <b>+${topRec.net.toFixed(1)}</b>.</div>` + explainLinesFallback(),
+    explainHtml: `<div class="explain-line">Projected gain of <b>${topRec.gain.toFixed(1)}</b> points over the planning horizon, at a cost of <b>${topRec.cost}</b> for a net of <b>+${topRec.net.toFixed(1)}</b>.</div>`,
+    explain: `explainTransfer(${JSON.stringify(topRec.player_in)}, ${JSON.stringify(topRec.player_out)})`,
     reviewRec: topRec,
   };
 }
 
 function captainDirective(cr) {
   if (!cr) return null;
+  const explain = `explainCaptain(${JSON.stringify(cr)})`;
   if (cr.matches_current) {
     return {
       title: `Keep the armband on ${cr.recommended_name}`,
       sub: `Model's own top captain pick this week too &mdash; ${cr.recommended_expected_points} expected points.`,
       cta: "Confirm captain", confidence: "high", risk: riskForPlayerName(cr.recommended_name),
       explainHtml: `<div class="explain-line">${cr.recommended_name} projects the highest expected points among your squad this gameweek, so the model's captain pick and your current armband already agree.</div>`,
+      explain,
     };
   }
   return {
@@ -2579,6 +2696,7 @@ function captainDirective(cr) {
       : `${cr.recommended_expected_points} expected points this week.`,
     cta: "Set captain", confidence: estimateConfidence(cr.potential_gain, 1.0, 0.3), risk: riskForPlayerName(cr.recommended_name),
     explainHtml: `<div class="explain-line">${cr.recommended_name}'s expected points (${cr.recommended_expected_points}) edge out ${cr.current_name || "your current captain"}${cr.current_expected_points != null ? ` (${cr.current_expected_points})` : ""} by ${cr.potential_gain.toFixed(2)} &mdash; captained, that difference is doubled.</div>`,
+    explain,
     playerId: playerIdByName(cr.recommended_name),
   };
 }
@@ -2617,6 +2735,7 @@ function actionRow(id, directive, url) {
     <div class="action-detail ${expanded ? "open" : ""}" id="detail-${id}">
       <div class="action-detail-inner"><div class="action-detail-body">
         ${directive.explainHtml || ""}
+        ${directive.explain ? `<button class="local-btn" onclick="event.stopPropagation();${directive.explain.replace(/"/g, "&quot;")}">Explain this</button>` : ""}
         ${directive.reviewRec ? `<button class="local-btn active" onclick="event.stopPropagation();goToTransferReview(${JSON.stringify(directive.reviewRec).replace(/"/g, "&quot;")})">Review this transfer</button>` : ""}
         ${directive.chipType ? `<button class="local-btn active" onclick="event.stopPropagation();location.hash='chip-${directive.chipType}'">See chip detail</button>` : ""}
         ${directive.playerId != null ? `<button class="local-btn" onclick="event.stopPropagation();setLocalCaptain(${directive.playerId})">Set captain (local)</button>` : ""}
@@ -4596,7 +4715,10 @@ function planSummaryCard(computed, projByElement, rows) {
             <div style="font-size:10px;margin-top:2px;">${escapeHtml(cmp.best.outName)} &rarr; ${escapeHtml(cmp.best.inName)} (${cmp.best.net >= 0 ? "+" : ""}${cmp.best.net.toFixed(1)})</div>
           </div>
         </div>
-        <button class="local-btn" onclick="planSelectSuggestion(${cmp.best.outId}, ${cmp.best.inId})">Review this suggestion</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="local-btn" onclick="planSelectSuggestion(${cmp.best.outId}, ${cmp.best.inId})">Review this suggestion</button>
+          <button class="local-btn" onclick="explainTransfer(${JSON.stringify(cmp.best.inName).replace(/"/g, "&quot;")}, ${JSON.stringify(cmp.best.outName).replace(/"/g, "&quot;")})">Explain this</button>
+        </div>
       ` : `<p style="font-size:11px;color:var(--ink-dim2);margin:4px 0 0;">${PlannerSolver.hasProjections(projByElement) ? "No net-positive single transfer found for this squad right now." : "Projections not published yet, so no comparison to show."}</p>`}
       <p style="font-size:10.5px;color:var(--ink-dim2);margin:10px 0 0;line-height:1.5;">Key assumptions: projected points use published per-gameweek xPts for each starting XI slot (captain doubled), a hit costs 4pts per transfer beyond your free transfers, and bench points only count while Bench Boost is active.</p>
     </div>`;

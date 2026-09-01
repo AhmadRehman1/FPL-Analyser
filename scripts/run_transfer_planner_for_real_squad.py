@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest as bt, db, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, transfer_planner as tp  # noqa: E402
+from fpl_quant import backtest as bt, db, expected_points as ep_mod, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, transfer_planner as tp, uncertainty as un_mod  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -298,6 +298,51 @@ def main() -> None:
     # adapter; the frontend falls back to showing the uid when a name lookup isn't available.
     explain = tp.explain_plan(con, run_id, top_n=5)
     print(f"\n[explain] attached transfer_planner.explain_plan() output (gw19_urgent={explain['gw19_deadline']})")
+
+    # Gap 5 (inline explainability): attach the M9 per-player EP + risk breakdown for the two
+    # recommendations the app surfaces most -- the captain pick and the top transfer(s) -- so
+    # the "Explain this" sheet can show a real category-level "where the points come from"
+    # split instead of one blended number, without the frontend inventing any text or a new
+    # export script. Reuses expected_points.explain_player_ep() / uncertainty.explain_player_risk()
+    # unchanged; the ep/un model versions are transfer_plan_runs' own per-horizon-gameweek JSON
+    # lists (index 0 == plan_for_gameweek, the gameweek this run actually plans for -- NOT
+    # projections_latest.json's gameweeks[0], which starts at the CURRENT event and is one
+    # gameweek early for a decision).
+    mv_row = con.execute(
+        "SELECT ep_model_versions, uncertainty_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id],
+    ).fetchone()
+    target_ep_mv, target_un_mv = json.loads(mv_row[0])[0], json.loads(mv_row[1])[0]
+
+    def _player_explain(uid: str, name: str | None) -> dict:
+        if not name:
+            row = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [uid]).fetchone()
+            name = row[0] if row else uid
+        return {
+            "player_uid": uid, "name": name,
+            "ep": ep_mod.explain_player_ep(con, target_ep_mv, uid),
+            "risk": un_mod.explain_player_risk(con, target_un_mv, uid),
+        }
+
+    rec_cap_uid = (tc_detail or {}).get("captain_candidate")
+    if rec_cap_uid:
+        explain["captain_breakdown"] = {
+            "gameweek": plan_for_gameweek,
+            "recommended": _player_explain(rec_cap_uid, player_name_by_uid.get(rec_cap_uid)),
+            "current": (
+                _player_explain(actual_captain_uid, player_name_by_uid.get(actual_captain_uid))
+                if actual_captain_uid and actual_captain_uid != rec_cap_uid else None
+            ),
+        }
+    explain["transfer_breakdowns"] = [
+        {
+            "rank": rank, "gameweek": plan_for_gameweek,
+            "player_in": _player_explain(in_uid, None),
+            "player_out": _player_explain(out_uid, None),
+        }
+        for rank, out_uid, in_uid, *_rest in recs[:2]
+    ]
+    print(f"[explain] +captain_breakdown={bool(explain.get('captain_breakdown'))}, "
+          f"transfer_breakdowns={len(explain['transfer_breakdowns'])} (GW{plan_for_gameweek})")
 
     con.close()
 
