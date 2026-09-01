@@ -5,44 +5,12 @@
 
 const { test, beforeEach } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
-const path = require("node:path");
-
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-
-function extractFn(name) {
-  const start = html.search(new RegExp("function\\s+" + name + "\\s*\\("));
-  if (start < 0) throw new Error("function not found: " + name);
-  let i = html.indexOf("{", start);
-  const stack = ["code"];
-  let depth = 0;
-  for (; i < html.length; i++) {
-    const c = html[i], p = html[i - 1], mode = stack[stack.length - 1];
-    if (mode === "'" || mode === '"') { if (c === mode && p !== "\\") stack.pop(); continue; }
-    if (mode === "`") {
-      if (c === "`" && p !== "\\") stack.pop();
-      else if (c === "$" && html[i + 1] === "{" && p !== "\\") { stack.push("code"); i++; }
-      continue;
-    }
-    if (c === "/" && html[i + 1] === "/") { const nl = html.indexOf("\n", i); i = nl < 0 ? html.length : nl; continue; }
-    if (c === "'" || c === '"' || c === "`") { stack.push(c); continue; }
-    if (c === "{") depth++;
-    else if (c === "}") { if (stack.length > 1) { stack.pop(); continue; } depth--; if (depth === 0) return html.slice(start, i + 1); }
-  }
-  throw new Error("unbalanced braces: " + name);
-}
+const { extractHtmlFn, extractHtmlConst } = require("./_extract_html_fn");
 
 const FN_NAMES = [
   "loadDecisionLogAll", "loadDecisionLog", "decisionChoiceFor", "logDecision",
   "decisionLogControl", "decisionLogBlock",
 ];
-
-// Pull the two module-level consts the functions close over out of the file verbatim.
-function extractConst(name) {
-  const m = html.match(new RegExp("const " + name + "\\s*=\\s*[^;]+;"));
-  if (!m) throw new Error("const not found: " + name);
-  return m[0];
-}
 
 function loadHarness() {
   const store = new Map();
@@ -51,8 +19,8 @@ function loadHarness() {
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
   };
-  const consts = ["DECISION_LOG_KEY", "DECISION_CHOICES", "DECISION_CHOICE_LABELS"].map(extractConst).join("\n");
-  const src = consts + "\n" + FN_NAMES.map(extractFn).join("\n\n");
+  const consts = ["DECISION_LOG_KEY", "DECISION_CHOICES", "DECISION_CHOICE_LABELS"].map(extractHtmlConst).join("\n");
+  const src = consts + "\n" + FN_NAMES.map(extractHtmlFn).join("\n\n");
   const state = { accountId: "7139944" };
   const sandbox = {
     state, localStorage,

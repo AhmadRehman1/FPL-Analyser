@@ -223,6 +223,20 @@ jobs:
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team"
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Main account"
 
+      # App gap 6: the "Attack rank" risk posture -- a full second planner run per account with
+      # lambda_value/kappa_tc set to the confirmed-but-not-active v2 values (see
+      # src/fpl_quant/risk_posture.py). Writes real_squad_<id>_attack.json, which the frontend
+      # loads ONLY when the user flips the Plan-tab toggle. continue-on-error: this is an
+      # opt-in what-if, not the recommendation of record -- a failure here must not block the
+      # balanced snapshot, decision log, report, or commit for the real accounts.
+      - name: Plan transfers -- Attack-rank risk posture (opt-in variant)
+        continue-on-error: true
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team" attack
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Main account" attack
+
       # Real bug fixed here: Feature 2 ("Rate My Team") and Feature 3 ("Explain My Move", the
       # README's own "strategic centerpiece") were both fully built, tested, and wired into
       # index.html's fetch calls (squad_grade_<id>_latest.json / decision_<id>_latest.json,

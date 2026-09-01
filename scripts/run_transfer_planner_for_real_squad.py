@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest as bt, db, expected_points as ep_mod, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, transfer_planner as tp, uncertainty as un_mod  # noqa: E402
+from fpl_quant import backtest as bt, db, expected_points as ep_mod, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, risk_posture, transfer_planner as tp, uncertainty as un_mod  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -117,16 +117,22 @@ def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
 
 
 def main() -> None:
-    if len(sys.argv) not in (3, 4):
-        raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label]")
+    if len(sys.argv) not in (3, 4, 5):
+        raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label] [risk_posture]")
     entry_id, current_event = int(sys.argv[1]), int(sys.argv[2])
     # Same signal this project already uses to distinguish the two accounts scheduled_pipeline.yml
     # runs twice daily (always passed a label) from the ad-hoc, workflow_dispatch-only, one-off
     # third-account path (never passed one) -- reused below to scope planner_decision_log to the
     # two recurring, tracked accounts a hold-vs-use backtest can actually mean something for, not
     # every one-off manual check anyone with push access ever runs.
-    is_tracked_account = len(sys.argv) == 4
+    is_tracked_account = len(sys.argv) >= 4
     label = sys.argv[3] if is_tracked_account else str(entry_id)
+    # App gap 6: an optional 4th arg selects the risk posture (balanced | attack). Absent =>
+    # balanced, which resolves the exact same lambda/kappa_tc versions this script always used,
+    # so the default invocation is unchanged. The 'attack' variant is written to a separate
+    # real_squad_<id>_attack.json the frontend loads only when the user flips the Plan-tab toggle.
+    posture = risk_posture.normalize(sys.argv[4] if len(sys.argv) == 5 else None)
+    posture_suffix = "" if posture == risk_posture.DEFAULT_POSTURE else f"_{posture}"
     plan_for_gameweek = current_event + 1
 
     con = db.connect()
@@ -139,6 +145,15 @@ def main() -> None:
     # rho_residual_params_version=1 while most of the rest of the pipeline had already moved to
     # the confirmed v2.
     active = bt.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+
+    # App gap 6: the risk posture overrides ONLY lambda_value + kappa_tc (squad-concentration
+    # aversion + captaincy-variance tolerance); every other family still resolves exactly as
+    # before. balanced -> {v1, v1}, identical to active[...] today, so an unflagged run is a
+    # true no-op. See src/fpl_quant/risk_posture.py.
+    posture_versions = risk_posture.resolve_versions(con, posture)
+    lambda_params_version = posture_versions["lambda_params_version"] if posture != risk_posture.DEFAULT_POSTURE else active["lambda_params_version"]
+    kappa_tc_params_version = posture_versions["kappa_tc_params_version"] if posture != risk_posture.DEFAULT_POSTURE else active["kappa_tc_params_version"]
+    print(f"[risk_posture] {posture} -> lambda v{lambda_params_version}, kappa_tc v{kappa_tc_params_version}")
 
     print(f"[fetch] pulling real picks for entry_id={entry_id}, GW{current_event}...")
     squad = _fetch_real_squad(entry_id, current_event)
@@ -166,11 +181,11 @@ def main() -> None:
         rho_residual_params_version=active["rho_residual_params_version"],
         corr_params_version=1,
         transfer_cost_params_version=1,
-        lambda_params_version=active["lambda_params_version"],
+        lambda_params_version=lambda_params_version,
         guardrail_params_version=1,
         wildcard_threshold_params_version=1,
         free_hit_threshold_params_version=1,
-        kappa_tc_params_version=active["kappa_tc_params_version"],
+        kappa_tc_params_version=kappa_tc_params_version,
         # Priority 3, opt-in: this script's whole point is a real hold-vs-transfer-now
         # recommendation, so it's worth the extra solve time here (unlike the default GW1->GW2
         # run_transfer_planner.py, which leaves this off).
@@ -273,7 +288,10 @@ def main() -> None:
     # needs, and was never in scope (see Track C's own Non-Goal). Ordered the same way the
     # dashboard snapshot below is (_order_chip_evaluations, not the raw DB-insertion order) so
     # the two outputs of this same run can never disagree about which chip was recommended.
-    if is_tracked_account:
+    # The committed planner_decision_log is the model's ONE official weekly call -- always the
+    # balanced (default) posture. The attack variant is a what-if the user opts into, not the
+    # recommendation of record, so it never writes a decision-log entry.
+    if is_tracked_account and posture == risk_posture.DEFAULT_POSTURE:
         decision_row = _resolve_decision_log_row(
             hold_rec, recs_out, _order_chip_evaluations(chips_out), captain_recommendation,
         )
@@ -354,15 +372,18 @@ def main() -> None:
         "current_gameweek": current_event,
         "plan_for_gameweek": plan_for_gameweek,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "risk_posture": risk_posture.posture_meta(posture),
         "transfer_recommendations": recs_out,
         "hold_vs_transfer_now": hold_out,
         "chip_evaluations": _order_chip_evaluations(chips_out),
         "captain_recommendation": captain_recommendation,
         "explain": explain,
     }
-    out_path = DASHBOARD_DIR / f"real_squad_{entry_id}.json"
+    # balanced -> real_squad_<id>.json (the path the frontend has always read); attack ->
+    # real_squad_<id>_attack.json, loaded only when the user flips the Plan-tab risk toggle.
+    out_path = DASHBOARD_DIR / f"real_squad_{entry_id}{posture_suffix}.json"
     out_path.write_text(json.dumps(snapshot, indent=2))
-    print(f"\n[dashboard] snapshot written to {out_path}")
+    print(f"\n[dashboard] {posture} snapshot written to {out_path}")
 
 
 if __name__ == "__main__":

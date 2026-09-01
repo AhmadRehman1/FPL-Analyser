@@ -8,42 +8,7 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert");
-const fs = require("node:fs");
-const path = require("node:path");
-
-const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-
-// Brace-match a `function NAME(...) { ... }` out of the file. Handles ' " ` strings, template
-// `${...}` interpolations (which re-enter code mode), and // line comments.
-function extractFn(name) {
-  const start = html.search(new RegExp("function\\s+" + name + "\\s*\\("));
-  if (start < 0) throw new Error("function not found: " + name);
-  let i = html.indexOf("{", start);
-  const stack = ["code"]; // code | ' | " | ` ; template interpolation pushes 'code' back on
-  let depth = 0;
-  for (; i < html.length; i++) {
-    const c = html[i], p = html[i - 1], mode = stack[stack.length - 1];
-    if (mode === "'" || mode === '"') {
-      if (c === mode && p !== "\\") stack.pop();
-      continue;
-    }
-    if (mode === "`") {
-      if (c === "`" && p !== "\\") stack.pop();
-      else if (c === "$" && html[i + 1] === "{" && p !== "\\") { stack.push("code"); i++; }
-      continue;
-    }
-    // mode === "code"
-    if (c === "/" && html[i + 1] === "/") { const nl = html.indexOf("\n", i); i = nl < 0 ? html.length : nl; continue; }
-    if (c === "'" || c === '"' || c === "`") { stack.push(c); continue; }
-    if (c === "{") depth++;
-    else if (c === "}") {
-      if (stack.length > 1) { stack.pop(); continue; } // closes a ${...}
-      depth--;
-      if (depth === 0) return html.slice(start, i + 1);
-    }
-  }
-  throw new Error("unbalanced braces extracting: " + name);
-}
+const { extractHtmlFn: extractFn } = require("./_extract_html_fn");
 
 const FN_NAMES = [
   "realSquadExplain", "epBreakdownBlock", "riskRangeBlock", "playerBreakdownSection",

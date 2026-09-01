@@ -485,6 +485,39 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     and lights the button, Profile summary shows "50% of 2 calls").
   - `tests.yml` `node` job bumped `node-version` 20 -> 22 (the v20 deprecation warning from
     gap 5's new job).
+- **App gap 6 -- user-facing risk-tolerance control (Plan tab).** A per-team 2-position
+  segmented toggle (`Balanced` / `Attack rank`) that maps to a FIXED, tested pair of
+  `lambda_value` / `kappa_tc` parameter versions -- never a raw slider over uncalibrated
+  internals (the prompt's own constraint).
+  - `src/fpl_quant/risk_posture.py` (new): `balanced` -> lambda v1 (0.15) + kappa_tc v1 (0.15),
+    identical to what every pipeline path already resolves, so it's a true no-op; `attack` ->
+    lambda v2 (0.05) + kappa_tc v2 (0.5), both `confirmed` recalibration proposals from
+    `backtest_run_id=1` (walk-forward realized Sharpe: lambda 0.15->0.05 was 3.52->4.27) --
+    a pre-validated alternative, not a guess. `resolve_versions()` seeds the versions
+    idempotently and returns exactly what `transfer_planner.run()` receives.
+  - A third `protect` posture (higher lambda for rank protection) is deliberately NOT shipped:
+    no such version has been backtested. Gated on the lambda-sensitivity study (lambda in
+    {0.05..0.30}) already flagged as pending. The toggle's `Attack rank` button also stays
+    disabled until the pipeline has actually published the variant plan once.
+  - `run_transfer_planner_for_real_squad.py` takes an optional 4th arg (`attack`) -> full
+    second planner solve per account, written to `real_squad_<id>_attack.json`. The committed
+    `planner_decision_log` stays balanced-only (the model's one official call). Wired into
+    `scheduled_pipeline.yml` as a `continue-on-error` opt-in step after the balanced runs.
+  - `index.html`: `riskPostureCard()` on the Plan tab (toggle + what-it-changes + the attack
+    plan's own captain/chip/transfer inline); `activeRealSquad()` routes the Home "Your moves",
+    Transfers tab and chip sheet to the chosen variant; a banner on "Your moves this week" when
+    Attack is active. Posture persisted per account (`fq_risk_posture`).
+  - New tests: `tests/test_risk_posture.py` (8 -- the version mapping, idempotency, the
+    unknown-posture guard, and a wiring guard that the planner script feeds `resolve_versions()`
+    into `tp.run()`), `tests/risk_posture.test.js` (5 -- per-account persistence, stale-value
+    fallback, `attackPostureActive()` gating, `activeRealSquad()` selection, card rendering).
+    Verified end-to-end in-browser (toggle switches the captain across the app, Home banner
+    appears, per-account persistence).
+  - `tests/_extract_html_fn.js` (new): the 4 Node test files that pull DOM-free renderers out
+    of `index.html` shared three near-identical brace-matchers, one of which silently relied on
+    coincidental rebalancing and broke when this gap added code near it. Consolidated into one
+    helper that also steps over `/regex/` literals (the codebase uses `.replace(/"/g, ...)`
+    everywhere). 97 Node tests green.
 
 ## Quick start
 
