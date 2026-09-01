@@ -656,6 +656,15 @@
   @media (hover:hover){
     .local-btn:not(:disabled):hover{box-shadow:0 4px 14px oklch(0.14 0.05 150/0.25);}
   }
+  /* Decision-log three-way control inside an expanded recommendation row (app gap 4) */
+  .dlog-control{margin-top:10px;padding-top:10px;border-top:1px solid var(--divider);}
+  .dlog-q{font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:7px;}
+  .dlog-q span{font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-dim2);}
+  .dlog-btns{display:flex;gap:6px;flex-wrap:wrap;}
+  .dlog-btn{flex:1;min-width:84px;background:var(--card-2);color:var(--ink-dim);border:1.5px solid transparent;font-size:10.5px;font-weight:700;padding:8px 6px;border-radius:100px;cursor:pointer;font-family:inherit;transition:transform var(--transition-interactive),background var(--transition-interactive),border-color var(--transition-interactive);}
+  .dlog-btn:active{transform:scale(0.95);}
+  .dlog-btn.active{background:var(--green);color:white;border-color:var(--green);}
+  .dlog-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
   /* One-line toast for share/install feedback */
   .fq-toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0) + 14px);left:50%;transform:translateX(-50%) translateY(20px);background:oklch(0.2 0.06 152);color:oklch(0.98 0.005 90);font-size:12.5px;font-weight:600;padding:11px 18px;border-radius:999px;z-index:1000;opacity:0;transition:opacity 0.18s ease,transform 0.18s ease;max-width:88vw;overflow-wrap:anywhere;box-shadow:0 8px 24px oklch(0.2 0.02 90 / 0.3);}
 
@@ -1383,6 +1392,59 @@ function saveConfirmedTransfer(record) {
   const list = loadConfirmedTransfers();
   list.unshift({ ...record, confirmedAt: new Date().toISOString() });
   localStorage.setItem(confirmedTransferKey(), JSON.stringify(list.slice(0, 20)));
+}
+
+// ============================================================
+// Decision log (app gap 4 / docs/BUSINESS_PLAN.md 2.6) -- a privacy-first, LOCAL-ONLY record
+// of whether the user actually followed each weekly model recommendation (transfer / captain /
+// chip), so they can self-audit their own adherence. Never transmitted anywhere: this static
+// PWA has no client->server write path by design, and adding a third-party tracker is
+// explicitly ruled out. This is separate from, and complementary to, the SERVER-side
+// data/decision_log/ counterfactual (the "if followed" points delta on the Track Record page),
+// which is objective but only exists for the two tracked accounts.
+// Shape: { [accountId]: { [gameweek]: { transfer|captain|chip: { choice, rec, ts } } } }
+// choice is one of "followed" | "modified" | "skipped".
+// ============================================================
+
+const DECISION_LOG_KEY = "fq_decision_log_v1";
+const DECISION_CHOICES = ["followed", "modified", "skipped"];
+const DECISION_CHOICE_LABELS = { followed: "Followed", modified: "Did my own thing", skipped: "Skipped it" };
+
+function loadDecisionLogAll() {
+  try { return JSON.parse(localStorage.getItem(DECISION_LOG_KEY)) || {}; } catch { return {}; }
+}
+function loadDecisionLog(accountId) {
+  return loadDecisionLogAll()[accountId] || {};
+}
+function decisionChoiceFor(kind, gw) {
+  const wk = loadDecisionLog(state.accountId)[gw];
+  return wk && wk[kind] ? wk[kind].choice : null;
+}
+// explicit=true is a deliberate user tap and always wins; explicit=false is a soft auto-fill
+// (e.g. confirming a transfer that exactly matches the rec) that never overwrites a real choice.
+function logDecision(kind, choice, gw, recSummary, explicit = true) {
+  if (!state.accountId || gw == null || !DECISION_CHOICES.includes(choice)) return;
+  const all = loadDecisionLogAll();
+  const acct = all[state.accountId] || (all[state.accountId] = {});
+  const wk = acct[gw] || (acct[gw] = {});
+  if (!explicit && wk[kind]) return;
+  wk[kind] = { choice, rec: recSummary || (wk[kind] && wk[kind].rec) || null, ts: Date.now() };
+  try { localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(all)); } catch {}
+  if (explicit) { hapticTick(); renderCurrentTab(); }
+}
+
+// The three-way control rendered inside each expanded recommendation row.
+function decisionLogControl(kind, gw, recSummary) {
+  if (gw == null) return "";
+  const sel = decisionChoiceFor(kind, gw);
+  const safeRec = JSON.stringify(recSummary || "").replace(/"/g, "&quot;");
+  return `
+    <div class="dlog-control">
+      <div class="dlog-q">Did you act on this? <span>(private, this device only)</span></div>
+      <div class="dlog-btns">
+        ${DECISION_CHOICES.map(c => `<button class="dlog-btn${sel === c ? " active" : ""}" onclick="event.stopPropagation();logDecision('${kind}','${c}',${gw},${safeRec})">${DECISION_CHOICE_LABELS[c]}</button>`).join("")}
+      </div>
+    </div>`;
 }
 
 // ============================================================
@@ -2312,6 +2374,15 @@ function confirmTransferReview(outId, inId) {
   const outPlayer = state.playersById[outId], inPlayer = state.playersById[inId];
   if (!outPlayer || !inPlayer) return;
   saveConfirmedTransfer({ outId, inId, outName: outPlayer.web_name, inName: inPlayer.web_name });
+  // Soft decision-log fill: if the pair the user just confirmed is exactly the model's own #1
+  // transfer, record it as "followed" for this gameweek (never overwrites an explicit choice).
+  const rs = state.realSquad;
+  const top = rs && rs.transfer_recommendations && rs.transfer_recommendations[0];
+  if (top && rs.plan_for_gameweek != null) {
+    const matchesRec = playerIdByName(top.player_out) === outId && playerIdByName(top.player_in) === inId;
+    logDecision("transfer", matchesRec ? "followed" : "modified", rs.plan_for_gameweek,
+      matchesRec ? `${top.player_out} → ${top.player_in}` : `${outPlayer.web_name} → ${inPlayer.web_name} (own pick)`, false);
+  }
   hapticTick();
   renderTransferReviewBody();
 }
@@ -2662,10 +2733,11 @@ function transferDirective(hold, topRec) {
       sub: `Holding (${hold.hold_value.toFixed(1)}) beats using a transfer now (${hold.transfer_now_value.toFixed(1)}).`,
       cta: "Review transfers", confidence: estimateConfidence(gap, 6, 2), risk: null,
       explainHtml: `<div class="explain-line">Over the horizon this plan looks at, holding your free transfer projects to more total points than using it right now &mdash; the gap is ${gap.toFixed(1)} points.</div>` + explainLinesFallback(),
+      logKind: "transfer", logRec: "Hold (no transfer)",
     };
   }
   if (!topRec) {
-    return { title: "Use a transfer this week", sub: "Model favors transferring now over holding.", cta: "Make transfer", confidence: estimateConfidence(gap, 6, 2), risk: null, explainHtml: explainLinesFallback() };
+    return { title: "Use a transfer this week", sub: "Model favors transferring now over holding.", cta: "Make transfer", confidence: estimateConfidence(gap, 6, 2), risk: null, explainHtml: explainLinesFallback(), logKind: "transfer", logRec: "Use a transfer" };
   }
   return {
     title: `${topRec.player_out} &rarr; ${topRec.player_in}`,
@@ -2674,6 +2746,7 @@ function transferDirective(hold, topRec) {
     explainHtml: `<div class="explain-line">Projected gain of <b>${topRec.gain.toFixed(1)}</b> points over the planning horizon, at a cost of <b>${topRec.cost}</b> for a net of <b>+${topRec.net.toFixed(1)}</b>.</div>`,
     explain: `explainTransfer(${JSON.stringify(topRec.player_in)}, ${JSON.stringify(topRec.player_out)})`,
     reviewRec: topRec,
+    logKind: "transfer", logRec: `${topRec.player_out} → ${topRec.player_in}`,
   };
 }
 
@@ -2687,6 +2760,7 @@ function captainDirective(cr) {
       cta: "Confirm captain", confidence: "high", risk: riskForPlayerName(cr.recommended_name),
       explainHtml: `<div class="explain-line">${cr.recommended_name} projects the highest expected points among your squad this gameweek, so the model's captain pick and your current armband already agree.</div>`,
       explain,
+      logKind: "captain", logRec: `Keep ${cr.recommended_name} (C)`,
     };
   }
   return {
@@ -2698,6 +2772,7 @@ function captainDirective(cr) {
     explainHtml: `<div class="explain-line">${cr.recommended_name}'s expected points (${cr.recommended_expected_points}) edge out ${cr.current_name || "your current captain"}${cr.current_expected_points != null ? ` (${cr.current_expected_points})` : ""} by ${cr.potential_gain.toFixed(2)} &mdash; captained, that difference is doubled.</div>`,
     explain,
     playerId: playerIdByName(cr.recommended_name),
+    logKind: "captain", logRec: `Switch (C) to ${cr.recommended_name}`,
   };
 }
 
@@ -2705,13 +2780,14 @@ function chipDirective(chips) {
   if (!chips || !chips.length) return null;
   const short = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };
   const rec = chips.find(c => c.recommended);
-  if (!rec) return { title: "No chip recommended this week", sub: "Model says save your chips for a better window.", cta: "Review chips", confidence: "medium", risk: null, explainHtml: `<div class="explain-line">None of Wildcard, Free Hit, Triple Captain or Bench Boost currently clear the model's own recommendation threshold this week.</div>` };
+  if (!rec) return { title: "No chip recommended this week", sub: "Model says save your chips for a better window.", cta: "Review chips", confidence: "medium", risk: null, explainHtml: `<div class="explain-line">None of Wildcard, Free Hit, Triple Captain or Bench Boost currently clear the model's own recommendation threshold this week.</div>`, logKind: "chip", logRec: "Hold all chips" };
   return {
     title: `Play ${short[rec.chip_type] || rec.chip_type} this week`,
     sub: rec.score != null ? `Model edge: +${rec.score.toFixed(1)}.` : "",
     cta: "Play chip", confidence: estimateConfidence(rec.score, 15, 5), risk: null,
     explainHtml: `<div class="explain-line">Tap through to see the full ${short[rec.chip_type] || rec.chip_type} breakdown.</div>`,
     chipType: rec.chip_type,
+    logKind: "chip", logRec: `Play ${short[rec.chip_type] || rec.chip_type}`,
   };
 }
 
@@ -2719,7 +2795,7 @@ function chipDirective(chips) {
 // "why", and the projected-impact numbers only reveal on tap (chevron rotates, height animates,
 // aria-expanded kept in sync for screen readers). The external CTA still always points at the
 // real official FPL screen -- expanding never substitutes for or auto-triggers that action.
-function actionRow(id, directive, url) {
+function actionRow(id, directive, url, gw) {
   if (!directive) return "";
   const expanded = state.expandedRows.has(id);
   return `
@@ -2738,8 +2814,9 @@ function actionRow(id, directive, url) {
         ${directive.explain ? `<button class="local-btn" onclick="event.stopPropagation();${directive.explain.replace(/"/g, "&quot;")}">Explain this</button>` : ""}
         ${directive.reviewRec ? `<button class="local-btn active" onclick="event.stopPropagation();goToTransferReview(${JSON.stringify(directive.reviewRec).replace(/"/g, "&quot;")})">Review this transfer</button>` : ""}
         ${directive.chipType ? `<button class="local-btn active" onclick="event.stopPropagation();location.hash='chip-${directive.chipType}'">See chip detail</button>` : ""}
-        ${directive.playerId != null ? `<button class="local-btn" onclick="event.stopPropagation();setLocalCaptain(${directive.playerId})">Set captain (local)</button>` : ""}
+        ${directive.playerId != null ? `<button class="local-btn" onclick="event.stopPropagation();setLocalCaptain(${directive.playerId});logDecision('captain','followed',${gw ?? "null"},'Set model captain (local)',false)">Set captain (local)</button>` : ""}
       </div></div>
+      ${directive.logKind ? decisionLogControl(directive.logKind, gw, directive.logRec) : ""}
       <a class="action-cta" style="display:inline-block;margin-top:4px;" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation();hapticTick();">${directive.cta} on FPL &rsaquo;</a>
     </div>`;
 }
@@ -2766,10 +2843,11 @@ function movesThisWeekCard() {
   if (transferDir && supersedingChipLabel) {
     transferDir.superseded = `Only weighs a single transfer &mdash; this week's ${supersedingChipLabel} recommendation below replaces that decision entirely, not just adds to it.`;
   }
+  const gw = rs.plan_for_gameweek;
   const rows = [
-    actionRow("transfer", transferDir, FPL_TRANSFERS_URL),
-    actionRow("captain", captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL),
-    actionRow("chip", chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL),
+    actionRow("transfer", transferDir, FPL_TRANSFERS_URL, gw),
+    actionRow("captain", captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL, gw),
+    actionRow("chip", chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL, gw),
   ].filter(Boolean).join("");
   if (!rows) return "";
   return `
@@ -3726,7 +3804,7 @@ function renderTransfers() {
         <div class="card-title">Model recommendation</div>
         ${verdictBlock(recs && recs.hold_vs_transfer_now)}
         ${recListBlock(recs && recs.transfer_recommendations, 5)}
-        ${actionRow("transfer-screen", transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL)}
+        ${actionRow("transfer-screen", transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL, recs && recs.plan_for_gameweek)}
         <button class="local-btn active" style="margin-top:10px;" onclick="goToTransferReview(null)">Start a manual transfer review</button>
       </div>
     </div>
@@ -5641,6 +5719,57 @@ function seasonTrendBlock() {
     </div>`;
 }
 
+// app gap 4: the in-app self-audit view over the LOCAL decision log (see loadDecisionLog()).
+// Distinct from trackRecordBlock()'s model track record above it -- this is the user's own
+// "am I actually following the calls" record, on this device only.
+function decisionLogBlock() {
+  const log = loadDecisionLog(state.accountId);
+  const gws = Object.keys(log).map(Number).filter(n => !Number.isNaN(n)).sort((a, b) => a - b);
+  const KINDS = ["transfer", "captain", "chip"];
+  const entries = [];
+  for (const gw of gws) for (const kind of KINDS) if (log[gw][kind]) entries.push({ gw, kind, ...log[gw][kind] });
+  if (!entries.length) {
+    return `
+      <div class="section-title" style="color:var(--on-dark);"><span>Your decisions</span></div>
+      <p class="empty-state" style="margin-bottom:16px;">Nothing logged yet. On the Home or Transfers tab, expand a recommendation and tap <b>Followed / Did my own thing / Skipped</b> &mdash; then this tracks, week by week, whether you're actually following the model or quietly overriding it. Stored on this device only, never sent anywhere.</p>`;
+  }
+  const n = c => entries.filter(e => e.choice === c).length;
+  const followed = n("followed"), modified = n("modified"), skipped = n("skipped");
+  const followRate = Math.round((followed / entries.length) * 100);
+  const capOverrides = entries.filter(e => e.kind === "captain" && e.choice === "modified").length;
+  const perGw = gws.map(gw => {
+    const parts = KINDS.filter(k => log[gw][k]).map(k => `${k}: ${DECISION_CHOICE_LABELS[log[gw][k].choice].toLowerCase()}`);
+    return `<div class="sl-row"><div class="sl-label">GW${gw}</div><div class="sl-value" style="font-size:10.5px;text-align:right;max-width:62%;">${escapeHtml(parts.join(" · "))}</div></div>`;
+  }).join("");
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Your decisions</span></div>
+    <div class="stat-grid4" style="grid-template-columns:repeat(3,1fr);margin-bottom:10px;">
+      <div class="g-tile"><div class="g-label">Followed</div><div class="g-value">${followed}</div></div>
+      <div class="g-tile"><div class="g-label">Own call</div><div class="g-value">${modified}</div></div>
+      <div class="g-tile"><div class="g-label">Skipped</div><div class="g-value">${skipped}</div></div>
+    </div>
+    <p class="explain-line" style="margin:0 0 12px;">You've gone with the model on <b>${followRate}%</b> of the ${entries.length} call${entries.length === 1 ? "" : "s"} you've logged${capOverrides ? `, and taken your own captain ${capOverrides} time${capOverrides === 1 ? "" : "s"}` : ""}.</p>
+    <div class="stat-list" style="margin-bottom:12px;">${perGw}</div>
+    <div style="display:flex;gap:8px;">
+      <button class="local-btn" onclick="copyDecisionLog()">Copy log</button>
+      <button class="local-btn" onclick="clearDecisionLog()">Clear</button>
+    </div>
+    <p style="font-size:10px;color:var(--on-dark-dim);line-height:1.6;margin:8px 0 16px;">Logged only on this device &mdash; never transmitted. This is your own adherence record, separate from the model's Track Record above.</p>`;
+}
+
+function copyDecisionLog() {
+  const txt = JSON.stringify(loadDecisionLog(state.accountId), null, 2);
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => flashToast("Decision log copied.")).catch(() => flashToast("Couldn't copy."));
+  else flashToast("Clipboard not available.");
+}
+function clearDecisionLog() {
+  const all = loadDecisionLogAll();
+  delete all[state.accountId];
+  try { localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(all)); } catch {}
+  flashToast("Decision log cleared.");
+  openProfileSheet();
+}
+
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
@@ -5667,6 +5796,7 @@ function openProfileSheet() {
       </div>
       ${seasonTrendBlock()}
       ${trackRecordBlock()}
+      ${decisionLogBlock()}
       ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>

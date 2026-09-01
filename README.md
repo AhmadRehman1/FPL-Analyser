@@ -460,6 +460,31 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   projections, not `real_squad`'s own rec, so its "Explain this" shows the swap reason +
   downside + sensitivity when the two agree on the #1 move (common) and a bounded fallback
   otherwise -- full per-player Plan-tab breakdowns are a follow-up.
+- **App gap 4 -- local decision log + in-app self-audit view** (`docs/BUSINESS_PLAN.md` 2.6).
+  Verify-first finding: a *server-side* decision log already exists (`data/decision_log/`,
+  `realize_decision_log_outcomes.py`, the "Planner decision accuracy" panel on
+  `track-record.html`) -- objective, from real FPL data, but only for the two tracked accounts
+  and only "did the squad end up matching the rec". The prompt's ask -- capturing whether the
+  *user* accepted / modified / ignored each recommendation *in the app* -- was missing, and so
+  was any in-app self-audit surface.
+  - Client capture is **`localStorage` only** (`fq_decision_log_v1`, namespaced by account then
+    gameweek then kind). This static PWA has no client->server write path by design and a
+    third-party tracker is explicitly ruled out, so a device-local log is the honest maximum --
+    stated as such, not stubbed.
+  - Every expanded transfer / captain / chip row in "Your moves this week" (Home + Transfers)
+    gets a three-way **"Did you act on this?"** control -> `followed` / `modified` / `skipped`,
+    re-selectable, `hapticTick` + re-render on tap. `confirmTransferReview()` and the captain
+    row's "Set captain (local)" button *soft-fill* the log (never overwriting an explicit tap).
+  - Profile sheet gains a **"Your decisions"** section (`decisionLogBlock()`): followed /
+    own-call / skipped tallies, a "you've gone with the model on N%" line, captain-override
+    count, a per-gameweek list, and Copy / Clear. Sits between the model's Track Record and the
+    baselines leaderboard, explicitly framed as "your own adherence record, this device only".
+  - `tests/decision_log.test.js` (8) -- storage round-trips, per-account namespacing,
+    explicit-wins-over-soft, the control's active state, and the summary rendering. Verified
+    end-to-end in-browser (control renders on all three rows, tap persists to `localStorage`
+    and lights the button, Profile summary shows "50% of 2 calls").
+  - `tests.yml` `node` job bumped `node-version` 20 -> 22 (the v20 deprecation warning from
+    gap 5's new job).
 
 ## Quick start
 
