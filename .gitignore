@@ -10,6 +10,9 @@ data/external/
 # a diff. Rebuild it with scripts/build_evidence_pull_workbook.py; the workflows use this
 # committed copy and only fall back to Google Drive if it is missing.
 !data/external/FPL_Evidence_Claims_Research_Pull.xlsx
+# ...and the raw Perplexity answers it was built from (provenance -- small markdown)
+!data/external/evidence_pull_sources/
+!data/external/evidence_pull_sources/**
 .pytest_cache/
 .mypy_cache/
 *.egg-info/

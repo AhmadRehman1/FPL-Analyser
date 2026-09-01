@@ -151,11 +151,15 @@ def _normalise_status(raw: str) -> str:
     return raw or "Doubt"
 
 
-def build(md_path: Path, out_path: Path, *, resolve: bool = True) -> dict:
-    text = md_path.read_text(encoding="utf-8")
-    sheets = _parse_markdown_tables(text)
+def build(md_paths: Path | list[Path], out_path: Path, *, resolve: bool = True) -> dict:
+    if isinstance(md_paths, Path):
+        md_paths = [md_paths]
+    sheets: dict[str, list[dict]] = {}
+    for p in md_paths:
+        for sheet, rows in _parse_markdown_tables(p.read_text(encoding="utf-8")).items():
+            sheets.setdefault(sheet, []).extend(rows)
     if not sheets:
-        raise SystemExit(f"no recognised markdown tables found in {md_path}")
+        raise SystemExit(f"no recognised markdown tables found in {', '.join(str(p) for p in md_paths)}")
 
     variants: dict[str, str] = {}
     ambiguous: set[str] = set()
@@ -196,7 +200,7 @@ def build(md_path: Path, out_path: Path, *, resolve: bool = True) -> dict:
     wb.remove(wb.active)
     readme = wb.create_sheet("README")
     readme.append(["FPL Quant -- Evidence Claims Database (built by scripts/build_evidence_pull_workbook.py)"])
-    readme.append([f"source: {md_path.name}"])
+    readme.append([f"sources: {', '.join(p.name for p in md_paths)}"])
     for sheet, rows in sheets.items():
         ws = wb.create_sheet(sheet)
         headers = list({k for row in rows for k in row})
@@ -223,14 +227,19 @@ def build(md_path: Path, out_path: Path, *, resolve: bool = True) -> dict:
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if a != "--no-resolve"]
+    if not args:
         raise SystemExit(__doc__)
-    md_path = Path(sys.argv[1])
-    out_path = Path(sys.argv[2]) if len(sys.argv) > 2 else (
+    # every .md/.txt arg is an input; an .xlsx arg (or the last arg) is the output
+    md_paths = [Path(a) for a in args if a.lower().endswith((".md", ".txt"))]
+    xlsx_args = [a for a in args if a.lower().endswith(".xlsx")]
+    if not md_paths:
+        raise SystemExit("give at least one markdown/text answer file")
+    out_path = Path(xlsx_args[0]) if xlsx_args else (
         REPO_ROOT / "data" / "external" / "FPL_Evidence_Claims_Research_Pull.xlsx"
     )
     resolve = "--no-resolve" not in sys.argv
-    report = build(md_path, out_path, resolve=resolve)
+    report = build(md_paths, out_path, resolve=resolve)
     print(json.dumps(report, indent=2))
     if report["unresolved_single_names"]:
         print("\nUnresolved single-word names (left as-is; the ingest will drop these rows unless "
