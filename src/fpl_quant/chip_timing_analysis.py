@@ -647,30 +647,41 @@ def wildcard_followups(
             lookahead_gameweeks=bench_boost_lookahead,
         )
         ep_mv_gw, un_mv_gw = horizon_ep_versions.get(gw, (None, None))
-        robustness = None
+        robustness = robustness_error = None
         if ep_mv_gw is not None and un_mv_gw is not None:
             base_lambda_value, _ = params_mod.resolve_param(
                 con, "risk_aversion_params", "lambda_value", v["lambda_params_version"])
-            robustness = robustness_check(
-                con,
-                entry_label=entry_label,
-                calibration_asof_date=asof,
-                target_season=target_season,
-                target_gameweek=gw,
-                ep_model_version=ep_mv_gw,
-                uncertainty_model_version=un_mv_gw,
-                ts_model_version=ctx["ts_model_version"],
-                mm_model_version=ctx["mm_model_version"],
-                scoring_params_version=v["scoring_params_version"],
-                bps_params_version=v["bps_params_version"],
-                tau_params_version=v["tau_params_version"],
-                corr_params_version=v["corr_params_version"],
-                guardrail_params_version=v["guardrail_params_version"],
+            perts = robustness_perturbations or plan_perturbations(
                 base_lambda_value=base_lambda_value,
                 base_rho_residual_params_version=v["rho_residual_params_version"],
-                perturbations=robustness_perturbations,
-                fresh_run_id=ctx["fresh_run_id"],
-            ).to_dict()
+                # only rho_residual versions actually seeded in THIS db -- a fresh CI ingestion
+                # has v1/v2; v3/v4 exist only after a run_backtest.py recalibrate, and resolving
+                # a missing version hard-errors ("refusing to fall back to a default").
+                rho_residual_params_versions=_available_rho_residual_versions(con),
+            )
+            try:
+                robustness = robustness_check(
+                    con,
+                    entry_label=entry_label,
+                    calibration_asof_date=asof,
+                    target_season=target_season,
+                    target_gameweek=gw,
+                    ep_model_version=ep_mv_gw,
+                    uncertainty_model_version=un_mv_gw,
+                    ts_model_version=ctx["ts_model_version"],
+                    mm_model_version=ctx["mm_model_version"],
+                    scoring_params_version=v["scoring_params_version"],
+                    bps_params_version=v["bps_params_version"],
+                    tau_params_version=v["tau_params_version"],
+                    corr_params_version=v["corr_params_version"],
+                    guardrail_params_version=v["guardrail_params_version"],
+                    base_lambda_value=base_lambda_value,
+                    base_rho_residual_params_version=v["rho_residual_params_version"],
+                    perturbations=perts,
+                    fresh_run_id=ctx["fresh_run_id"],
+                ).to_dict()
+            except Exception as exc:  # noqa: BLE001 -- robustness must never lose the sweep arm
+                robustness_error = str(exc)
 
     return {
         "wildcard_gameweek": gw,
@@ -678,7 +689,16 @@ def wildcard_followups(
         "wildcard_recommended": bool(ctx["wildcard_result"].get("recommended", False)),
         "bench_boost_window": bb_window,
         "robustness": robustness,
+        "robustness_error": robustness_error,
     }
+
+
+def _available_rho_residual_versions(con: duckdb.DuckDBPyConnection) -> tuple[int, ...]:
+    rows = con.execute(
+        "SELECT DISTINCT param_version FROM param_versions "
+        "WHERE param_family = 'correlation_params' AND param_key = 'rho_residual' ORDER BY 1"
+    ).fetchall()
+    return tuple(r[0] for r in rows) or (1,)
 
 
 # ============================================================
