@@ -1,0 +1,1516 @@
+{
+  "target_season": "2026-2027",
+  "generated_at": "2026-09-01T03:43:16.886114+00:00",
+  "teams": [
+    {
+      "entry_id": 1305242,
+      "primary_bundle": "active",
+      "report": {
+        "entry_id": 1305242,
+        "entry_label": "Matippy toes",
+        "generated_at": "2026-09-01T03:43:17.147774+00:00",
+        "active_param_bundle": "active (xi v2, rho_residual=0.0, lambda=0.15, kappa_tc=0.15)",
+        "comparison": {
+          "entry_label": "Matippy toes",
+          "start_gameweek": 3,
+          "eval_end_gameweek": 16,
+          "sweep_gameweeks": [
+            9,
+            10,
+            11,
+            12
+          ],
+          "hold_total_points": 594.6,
+          "hold_band": [
+            386.3,
+            802.8
+          ],
+          "greedy_gameweek": 3,
+          "greedy_total_points": 659.5,
+          "swept_best_gameweek": 12,
+          "swept_best_points": 660.0,
+          "swept_table": [
+            {
+              "gameweek": 9,
+              "total_projected_points": 656.9,
+              "band_low": 470.2,
+              "band_high": 843.6,
+              "delta_vs_hold": 62.3
+            },
+            {
+              "gameweek": 10,
+              "total_projected_points": 659.5,
+              "band_low": 471.8,
+              "band_high": 847.2,
+              "delta_vs_hold": 64.9
+            },
+            {
+              "gameweek": 11,
+              "total_projected_points": 658.0,
+              "band_low": 470.8,
+              "band_high": 845.3,
+              "delta_vs_hold": 63.4
+            },
+            {
+              "gameweek": 12,
+              "total_projected_points": 660.0,
+              "band_low": 472.3,
+              "band_high": 847.8,
+              "delta_vs_hold": 65.4
+            }
+          ],
+          "trajectory": [
+            {
+              "gameweek": 3,
+              "wildcard_gain": 30.6,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 197.52
+            },
+            {
+              "gameweek": 4,
+              "wildcard_gain": 28.82,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 212.62
+            },
+            {
+              "gameweek": 5,
+              "wildcard_gain": 25.22,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 207.39
+            },
+            {
+              "gameweek": 6,
+              "wildcard_gain": 18.78,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 220.87
+            },
+            {
+              "gameweek": 7,
+              "wildcard_gain": 4.81,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 219.55
+            },
+            {
+              "gameweek": 8,
+              "wildcard_gain": 5.65,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 219.21
+            },
+            {
+              "gameweek": 9,
+              "wildcard_gain": -1.95,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 228.84
+            },
+            {
+              "gameweek": 10,
+              "wildcard_gain": 7.6,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 240.42
+            },
+            {
+              "gameweek": 11,
+              "wildcard_gain": -1.51,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 245.2
+            },
+            {
+              "gameweek": 12,
+              "wildcard_gain": -7.31,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 247.6
+            },
+            {
+              "gameweek": 13,
+              "wildcard_gain": 2.25,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 248.39
+            },
+            {
+              "gameweek": 14,
+              "wildcard_gain": -9.94,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 259.24
+            },
+            {
+              "gameweek": 15,
+              "wildcard_gain": -22.47,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 259.69
+            },
+            {
+              "gameweek": 16,
+              "wildcard_gain": -23.35,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 266.93
+            }
+          ],
+          "hold_recommendation": {
+            "gameweek": 3,
+            "projected_gain": 30.6
+          },
+          "greedy_swept_agree": false,
+          "disagreement_note": "Greedy plays GW3; full-horizon sweep prefers GW12 (+65.4 projected pts vs holding). At GW3 the model only sees GW3..GW7, so GW12 is outside its visible horizon and cannot be compared against GW3 at decision time. Per-GW evaluate_wildcard gain: GW3~30.6, GW12~-7.3."
+        },
+        "bench_boost_window": [],
+        "free_hit_scan": [
+          {
+            "gameweek": 3,
+            "free_hit_gain": 16.97,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 4,
+            "free_hit_gain": 12.9,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 5,
+            "free_hit_gain": 10.81,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 6,
+            "free_hit_gain": 8.14,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 7,
+            "free_hit_gain": 7.43,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 8,
+            "free_hit_gain": 10.69,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 9,
+            "free_hit_gain": 7.35,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 10,
+            "free_hit_gain": 11.19,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 11,
+            "free_hit_gain": 11.6,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 12,
+            "free_hit_gain": 5.83,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 13,
+            "free_hit_gain": 8.46,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 14,
+            "free_hit_gain": 4.2,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 15,
+            "free_hit_gain": 4.61,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 16,
+            "free_hit_gain": 1.14,
+            "recommended": false,
+            "clears_threshold": false
+          }
+        ],
+        "robustness": null,
+        "sensitivity": {
+          "wildcard_week_by_bundle": {
+            "active": 12
+          },
+          "greedy_week_by_bundle": {
+            "active": 3
+          },
+          "free_hit_weeks_by_bundle": {
+            "active": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ]
+          },
+          "wildcard_stable": true,
+          "note": "Wildcard week by bundle: {'active': 12}. Stable across bundles."
+        },
+        "evidence_freshness_flags": [
+          {
+            "player_uid": "player_antonin_kinsky",
+            "name": "Anton\u00edn Kinsky",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_virgil_van_dijk",
+            "name": "Virgil van Dijk",
+            "latest_observed": "2026-06-24",
+            "age_days": 69,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_riccardo_calafiori",
+            "name": "Riccardo Calafiori",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_luke_shaw",
+            "name": "Luke Shaw",
+            "latest_observed": "2026-07-15",
+            "age_days": 48,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_bruno_borges_fernandes",
+            "name": "Bruno Borges Fernandes",
+            "latest_observed": "2026-07-21",
+            "age_days": 42,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_dominik_szoboszlai",
+            "name": "Dominik Szoboszlai",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_bryan_mbeumo",
+            "name": "Bryan Mbeumo",
+            "latest_observed": "2026-07-25",
+            "age_days": 38,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_pascal_gross",
+            "name": "Pascal Gro\u00df",
+            "latest_observed": "2026-08-08",
+            "age_days": 24,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_erling_haaland",
+            "name": "Erling Haaland",
+            "latest_observed": "2026-07-22",
+            "age_days": 41,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_dominic_calvert_lewin",
+            "name": "Dominic Calvert-Lewin",
+            "latest_observed": "2026-08-08",
+            "age_days": 24,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_joao_pedro_junqueira_de_jesus",
+            "name": "Jo\u00e3o Pedro Junqueira de Jesus",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_bart_verbruggen",
+            "name": "player_bart_verbruggen",
+            "latest_observed": null,
+            "age_days": null,
+            "status": "no_availability_claims"
+          },
+          {
+            "player_uid": "player_joe_rodon",
+            "name": "Joe Rodon",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_bobby_thomas",
+            "name": "Bobby Thomas",
+            "latest_observed": "2026-08-03",
+            "age_days": 29,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_regan_slater",
+            "name": "player_regan_slater",
+            "latest_observed": null,
+            "age_days": null,
+            "status": "no_availability_claims"
+          }
+        ],
+        "data_flags": [
+          "stale injury/rotation evidence (>14d) for held players: Anton\u00edn Kinsky, Virgil van Dijk, Riccardo Calafiori, Luke Shaw, Bruno Borges Fernandes, Dominik Szoboszlai, Bryan Mbeumo, Pascal Gro\u00df, Erling Haaland, Dominic Calvert-Lewin, Jo\u00e3o Pedro Junqueira de Jesus, Joe Rodon, Bobby Thomas",
+          "no availability evidence at all for held players: player_bart_verbruggen, player_regan_slater"
+        ]
+      },
+      "bundles": {
+        "active": {
+          "entry_id": 1305242,
+          "entry_label": "Matippy toes",
+          "generated_at": "2026-09-01T03:43:17.147774+00:00",
+          "active_param_bundle": "active (xi v2, rho_residual=0.0, lambda=0.15, kappa_tc=0.15)",
+          "comparison": {
+            "entry_label": "Matippy toes",
+            "start_gameweek": 3,
+            "eval_end_gameweek": 16,
+            "sweep_gameweeks": [
+              9,
+              10,
+              11,
+              12
+            ],
+            "hold_total_points": 594.6,
+            "hold_band": [
+              386.3,
+              802.8
+            ],
+            "greedy_gameweek": 3,
+            "greedy_total_points": 659.5,
+            "swept_best_gameweek": 12,
+            "swept_best_points": 660.0,
+            "swept_table": [
+              {
+                "gameweek": 9,
+                "total_projected_points": 656.9,
+                "band_low": 470.2,
+                "band_high": 843.6,
+                "delta_vs_hold": 62.3
+              },
+              {
+                "gameweek": 10,
+                "total_projected_points": 659.5,
+                "band_low": 471.8,
+                "band_high": 847.2,
+                "delta_vs_hold": 64.9
+              },
+              {
+                "gameweek": 11,
+                "total_projected_points": 658.0,
+                "band_low": 470.8,
+                "band_high": 845.3,
+                "delta_vs_hold": 63.4
+              },
+              {
+                "gameweek": 12,
+                "total_projected_points": 660.0,
+                "band_low": 472.3,
+                "band_high": 847.8,
+                "delta_vs_hold": 65.4
+              }
+            ],
+            "trajectory": [
+              {
+                "gameweek": 3,
+                "wildcard_gain": 30.6,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 197.52
+              },
+              {
+                "gameweek": 4,
+                "wildcard_gain": 28.82,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 212.62
+              },
+              {
+                "gameweek": 5,
+                "wildcard_gain": 25.22,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 207.39
+              },
+              {
+                "gameweek": 6,
+                "wildcard_gain": 18.78,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 220.87
+              },
+              {
+                "gameweek": 7,
+                "wildcard_gain": 4.81,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 219.55
+              },
+              {
+                "gameweek": 8,
+                "wildcard_gain": 5.65,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 219.21
+              },
+              {
+                "gameweek": 9,
+                "wildcard_gain": -1.95,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 228.84
+              },
+              {
+                "gameweek": 10,
+                "wildcard_gain": 7.6,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 240.42
+              },
+              {
+                "gameweek": 11,
+                "wildcard_gain": -1.51,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 245.2
+              },
+              {
+                "gameweek": 12,
+                "wildcard_gain": -7.31,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 247.6
+              },
+              {
+                "gameweek": 13,
+                "wildcard_gain": 2.25,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 248.39
+              },
+              {
+                "gameweek": 14,
+                "wildcard_gain": -9.94,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 259.24
+              },
+              {
+                "gameweek": 15,
+                "wildcard_gain": -22.47,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 259.69
+              },
+              {
+                "gameweek": 16,
+                "wildcard_gain": -23.35,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 266.93
+              }
+            ],
+            "hold_recommendation": {
+              "gameweek": 3,
+              "projected_gain": 30.6
+            },
+            "greedy_swept_agree": false,
+            "disagreement_note": "Greedy plays GW3; full-horizon sweep prefers GW12 (+65.4 projected pts vs holding). At GW3 the model only sees GW3..GW7, so GW12 is outside its visible horizon and cannot be compared against GW3 at decision time. Per-GW evaluate_wildcard gain: GW3~30.6, GW12~-7.3."
+          },
+          "bench_boost_window": [],
+          "free_hit_scan": [
+            {
+              "gameweek": 3,
+              "free_hit_gain": 16.97,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 4,
+              "free_hit_gain": 12.9,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 5,
+              "free_hit_gain": 10.81,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 6,
+              "free_hit_gain": 8.14,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 7,
+              "free_hit_gain": 7.43,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 8,
+              "free_hit_gain": 10.69,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 9,
+              "free_hit_gain": 7.35,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 10,
+              "free_hit_gain": 11.19,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 11,
+              "free_hit_gain": 11.6,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 12,
+              "free_hit_gain": 5.83,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 13,
+              "free_hit_gain": 8.46,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 14,
+              "free_hit_gain": 4.2,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 15,
+              "free_hit_gain": 4.61,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 16,
+              "free_hit_gain": 1.14,
+              "recommended": false,
+              "clears_threshold": false
+            }
+          ],
+          "robustness": null,
+          "sensitivity": {
+            "wildcard_week_by_bundle": {
+              "active": 12
+            },
+            "greedy_week_by_bundle": {
+              "active": 3
+            },
+            "free_hit_weeks_by_bundle": {
+              "active": [
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            },
+            "wildcard_stable": true,
+            "note": "Wildcard week by bundle: {'active': 12}. Stable across bundles."
+          },
+          "evidence_freshness_flags": [
+            {
+              "player_uid": "player_antonin_kinsky",
+              "name": "Anton\u00edn Kinsky",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_virgil_van_dijk",
+              "name": "Virgil van Dijk",
+              "latest_observed": "2026-06-24",
+              "age_days": 69,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_riccardo_calafiori",
+              "name": "Riccardo Calafiori",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_luke_shaw",
+              "name": "Luke Shaw",
+              "latest_observed": "2026-07-15",
+              "age_days": 48,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_bruno_borges_fernandes",
+              "name": "Bruno Borges Fernandes",
+              "latest_observed": "2026-07-21",
+              "age_days": 42,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_dominik_szoboszlai",
+              "name": "Dominik Szoboszlai",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_bryan_mbeumo",
+              "name": "Bryan Mbeumo",
+              "latest_observed": "2026-07-25",
+              "age_days": 38,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_pascal_gross",
+              "name": "Pascal Gro\u00df",
+              "latest_observed": "2026-08-08",
+              "age_days": 24,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_erling_haaland",
+              "name": "Erling Haaland",
+              "latest_observed": "2026-07-22",
+              "age_days": 41,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_dominic_calvert_lewin",
+              "name": "Dominic Calvert-Lewin",
+              "latest_observed": "2026-08-08",
+              "age_days": 24,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_joao_pedro_junqueira_de_jesus",
+              "name": "Jo\u00e3o Pedro Junqueira de Jesus",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_bart_verbruggen",
+              "name": "player_bart_verbruggen",
+              "latest_observed": null,
+              "age_days": null,
+              "status": "no_availability_claims"
+            },
+            {
+              "player_uid": "player_joe_rodon",
+              "name": "Joe Rodon",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_bobby_thomas",
+              "name": "Bobby Thomas",
+              "latest_observed": "2026-08-03",
+              "age_days": 29,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_regan_slater",
+              "name": "player_regan_slater",
+              "latest_observed": null,
+              "age_days": null,
+              "status": "no_availability_claims"
+            }
+          ],
+          "data_flags": [
+            "stale injury/rotation evidence (>14d) for held players: Anton\u00edn Kinsky, Virgil van Dijk, Riccardo Calafiori, Luke Shaw, Bruno Borges Fernandes, Dominik Szoboszlai, Bryan Mbeumo, Pascal Gro\u00df, Erling Haaland, Dominic Calvert-Lewin, Jo\u00e3o Pedro Junqueira de Jesus, Joe Rodon, Bobby Thomas",
+            "no availability evidence at all for held players: player_bart_verbruggen, player_regan_slater"
+          ]
+        }
+      }
+    },
+    {
+      "entry_id": 7139944,
+      "primary_bundle": "active",
+      "report": {
+        "entry_id": 7139944,
+        "entry_label": "Ahmad sucks",
+        "generated_at": "2026-09-01T03:43:17.269820+00:00",
+        "active_param_bundle": "active (xi v2, rho_residual=0.0, lambda=0.15, kappa_tc=0.15)",
+        "comparison": {
+          "entry_label": "Ahmad sucks",
+          "start_gameweek": 3,
+          "eval_end_gameweek": 16,
+          "sweep_gameweeks": [
+            9,
+            10,
+            11,
+            12
+          ],
+          "hold_total_points": 606.9,
+          "hold_band": [
+            397.4,
+            816.3
+          ],
+          "greedy_gameweek": 3,
+          "greedy_total_points": 659.5,
+          "swept_best_gameweek": 12,
+          "swept_best_points": 663.9,
+          "swept_table": [
+            {
+              "gameweek": 9,
+              "total_projected_points": 658.0,
+              "band_low": 470.8,
+              "band_high": 845.3,
+              "delta_vs_hold": 51.1
+            },
+            {
+              "gameweek": 10,
+              "total_projected_points": 658.0,
+              "band_low": 470.8,
+              "band_high": 845.3,
+              "delta_vs_hold": 51.1
+            },
+            {
+              "gameweek": 11,
+              "total_projected_points": 658.0,
+              "band_low": 470.8,
+              "band_high": 845.3,
+              "delta_vs_hold": 51.1
+            },
+            {
+              "gameweek": 12,
+              "total_projected_points": 663.9,
+              "band_low": 474.8,
+              "band_high": 853.1,
+              "delta_vs_hold": 57.0
+            }
+          ],
+          "trajectory": [
+            {
+              "gameweek": 3,
+              "wildcard_gain": 54.99,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 178.7
+            },
+            {
+              "gameweek": 4,
+              "wildcard_gain": 38.21,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 198.23
+            },
+            {
+              "gameweek": 5,
+              "wildcard_gain": 50.85,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 196.68
+            },
+            {
+              "gameweek": 6,
+              "wildcard_gain": 36.16,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 210.49
+            },
+            {
+              "gameweek": 7,
+              "wildcard_gain": 21.18,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 219.87
+            },
+            {
+              "gameweek": 8,
+              "wildcard_gain": 14.08,
+              "wildcard_recommended": true,
+              "current_squad_horizon_value": 218.07
+            },
+            {
+              "gameweek": 9,
+              "wildcard_gain": 6.04,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 230.8
+            },
+            {
+              "gameweek": 10,
+              "wildcard_gain": -1.44,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 237.21
+            },
+            {
+              "gameweek": 11,
+              "wildcard_gain": -6.2,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 240.65
+            },
+            {
+              "gameweek": 12,
+              "wildcard_gain": -19.76,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 250.29
+            },
+            {
+              "gameweek": 13,
+              "wildcard_gain": -18.02,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 255.82
+            },
+            {
+              "gameweek": 14,
+              "wildcard_gain": -15.57,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 252.51
+            },
+            {
+              "gameweek": 15,
+              "wildcard_gain": -20.77,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 254.14
+            },
+            {
+              "gameweek": 16,
+              "wildcard_gain": -9.81,
+              "wildcard_recommended": false,
+              "current_squad_horizon_value": 258.38
+            }
+          ],
+          "hold_recommendation": {
+            "gameweek": 3,
+            "projected_gain": 54.99
+          },
+          "greedy_swept_agree": false,
+          "disagreement_note": "Greedy plays GW3; full-horizon sweep prefers GW12 (+57.0 projected pts vs holding). At GW3 the model only sees GW3..GW7, so GW12 is outside its visible horizon and cannot be compared against GW3 at decision time. Per-GW evaluate_wildcard gain: GW3~55.0, GW12~-19.8."
+        },
+        "bench_boost_window": [],
+        "free_hit_scan": [
+          {
+            "gameweek": 3,
+            "free_hit_gain": 17.94,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 4,
+            "free_hit_gain": 11.86,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 5,
+            "free_hit_gain": 12.84,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 6,
+            "free_hit_gain": 7.75,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 7,
+            "free_hit_gain": 8.25,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 8,
+            "free_hit_gain": 9.11,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 9,
+            "free_hit_gain": 4.28,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 10,
+            "free_hit_gain": 10.06,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 11,
+            "free_hit_gain": 8.88,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 12,
+            "free_hit_gain": 4.44,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 13,
+            "free_hit_gain": 8.87,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 14,
+            "free_hit_gain": 5.46,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 15,
+            "free_hit_gain": 3.68,
+            "recommended": true,
+            "clears_threshold": true
+          },
+          {
+            "gameweek": 16,
+            "free_hit_gain": 1.53,
+            "recommended": true,
+            "clears_threshold": true
+          }
+        ],
+        "robustness": null,
+        "sensitivity": {
+          "wildcard_week_by_bundle": {
+            "active": 12
+          },
+          "greedy_week_by_bundle": {
+            "active": 3
+          },
+          "free_hit_weeks_by_bundle": {
+            "active": [
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ]
+          },
+          "wildcard_stable": true,
+          "note": "Wildcard week by bundle: {'active': 12}. Stable across bundles."
+        },
+        "evidence_freshness_flags": [
+          {
+            "player_uid": "player_antonin_kinsky",
+            "name": "Anton\u00edn Kinsky",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_gabriel_dos_santos_magalhaes",
+            "name": "Gabriel dos Santos Magalh\u00e3es",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_trai_hume",
+            "name": "player_trai_hume",
+            "latest_observed": null,
+            "age_days": null,
+            "status": "no_availability_claims"
+          },
+          {
+            "player_uid": "player_harry_maguire",
+            "name": "Harry Maguire",
+            "latest_observed": "2026-07-15",
+            "age_days": 48,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_bruno_borges_fernandes",
+            "name": "Bruno Borges Fernandes",
+            "latest_observed": "2026-07-21",
+            "age_days": 42,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_bryan_mbeumo",
+            "name": "Bryan Mbeumo",
+            "latest_observed": "2026-07-25",
+            "age_days": 38,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_christos_tzolis",
+            "name": "Christos Tzolis",
+            "latest_observed": null,
+            "age_days": null,
+            "status": "no_availability_claims"
+          },
+          {
+            "player_uid": "player_pascal_gross",
+            "name": "Pascal Gro\u00df",
+            "latest_observed": "2026-08-08",
+            "age_days": 24,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_dominic_calvert_lewin",
+            "name": "Dominic Calvert-Lewin",
+            "latest_observed": "2026-08-08",
+            "age_days": 24,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_erling_haaland",
+            "name": "Erling Haaland",
+            "latest_observed": "2026-07-22",
+            "age_days": 41,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_joao_pedro_junqueira_de_jesus",
+            "name": "Jo\u00e3o Pedro Junqueira de Jesus",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_martin_dubravka",
+            "name": "Martin D\u00fabravka",
+            "latest_observed": "2026-07-27",
+            "age_days": 36,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_bobby_thomas",
+            "name": "Bobby Thomas",
+            "latest_observed": "2026-08-03",
+            "age_days": 29,
+            "status": "stale"
+          },
+          {
+            "player_uid": "player_regan_slater",
+            "name": "player_regan_slater",
+            "latest_observed": null,
+            "age_days": null,
+            "status": "no_availability_claims"
+          },
+          {
+            "player_uid": "player_leif_davis",
+            "name": "player_leif_davis",
+            "latest_observed": null,
+            "age_days": null,
+            "status": "no_availability_claims"
+          }
+        ],
+        "data_flags": [
+          "stale injury/rotation evidence (>14d) for held players: Anton\u00edn Kinsky, Gabriel dos Santos Magalh\u00e3es, Harry Maguire, Bruno Borges Fernandes, Bryan Mbeumo, Pascal Gro\u00df, Dominic Calvert-Lewin, Erling Haaland, Jo\u00e3o Pedro Junqueira de Jesus, Martin D\u00fabravka, Bobby Thomas",
+          "no availability evidence at all for held players: player_trai_hume, Christos Tzolis, player_regan_slater, player_leif_davis"
+        ]
+      },
+      "bundles": {
+        "active": {
+          "entry_id": 7139944,
+          "entry_label": "Ahmad sucks",
+          "generated_at": "2026-09-01T03:43:17.269820+00:00",
+          "active_param_bundle": "active (xi v2, rho_residual=0.0, lambda=0.15, kappa_tc=0.15)",
+          "comparison": {
+            "entry_label": "Ahmad sucks",
+            "start_gameweek": 3,
+            "eval_end_gameweek": 16,
+            "sweep_gameweeks": [
+              9,
+              10,
+              11,
+              12
+            ],
+            "hold_total_points": 606.9,
+            "hold_band": [
+              397.4,
+              816.3
+            ],
+            "greedy_gameweek": 3,
+            "greedy_total_points": 659.5,
+            "swept_best_gameweek": 12,
+            "swept_best_points": 663.9,
+            "swept_table": [
+              {
+                "gameweek": 9,
+                "total_projected_points": 658.0,
+                "band_low": 470.8,
+                "band_high": 845.3,
+                "delta_vs_hold": 51.1
+              },
+              {
+                "gameweek": 10,
+                "total_projected_points": 658.0,
+                "band_low": 470.8,
+                "band_high": 845.3,
+                "delta_vs_hold": 51.1
+              },
+              {
+                "gameweek": 11,
+                "total_projected_points": 658.0,
+                "band_low": 470.8,
+                "band_high": 845.3,
+                "delta_vs_hold": 51.1
+              },
+              {
+                "gameweek": 12,
+                "total_projected_points": 663.9,
+                "band_low": 474.8,
+                "band_high": 853.1,
+                "delta_vs_hold": 57.0
+              }
+            ],
+            "trajectory": [
+              {
+                "gameweek": 3,
+                "wildcard_gain": 54.99,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 178.7
+              },
+              {
+                "gameweek": 4,
+                "wildcard_gain": 38.21,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 198.23
+              },
+              {
+                "gameweek": 5,
+                "wildcard_gain": 50.85,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 196.68
+              },
+              {
+                "gameweek": 6,
+                "wildcard_gain": 36.16,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 210.49
+              },
+              {
+                "gameweek": 7,
+                "wildcard_gain": 21.18,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 219.87
+              },
+              {
+                "gameweek": 8,
+                "wildcard_gain": 14.08,
+                "wildcard_recommended": true,
+                "current_squad_horizon_value": 218.07
+              },
+              {
+                "gameweek": 9,
+                "wildcard_gain": 6.04,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 230.8
+              },
+              {
+                "gameweek": 10,
+                "wildcard_gain": -1.44,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 237.21
+              },
+              {
+                "gameweek": 11,
+                "wildcard_gain": -6.2,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 240.65
+              },
+              {
+                "gameweek": 12,
+                "wildcard_gain": -19.76,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 250.29
+              },
+              {
+                "gameweek": 13,
+                "wildcard_gain": -18.02,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 255.82
+              },
+              {
+                "gameweek": 14,
+                "wildcard_gain": -15.57,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 252.51
+              },
+              {
+                "gameweek": 15,
+                "wildcard_gain": -20.77,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 254.14
+              },
+              {
+                "gameweek": 16,
+                "wildcard_gain": -9.81,
+                "wildcard_recommended": false,
+                "current_squad_horizon_value": 258.38
+              }
+            ],
+            "hold_recommendation": {
+              "gameweek": 3,
+              "projected_gain": 54.99
+            },
+            "greedy_swept_agree": false,
+            "disagreement_note": "Greedy plays GW3; full-horizon sweep prefers GW12 (+57.0 projected pts vs holding). At GW3 the model only sees GW3..GW7, so GW12 is outside its visible horizon and cannot be compared against GW3 at decision time. Per-GW evaluate_wildcard gain: GW3~55.0, GW12~-19.8."
+          },
+          "bench_boost_window": [],
+          "free_hit_scan": [
+            {
+              "gameweek": 3,
+              "free_hit_gain": 17.94,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 4,
+              "free_hit_gain": 11.86,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 5,
+              "free_hit_gain": 12.84,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 6,
+              "free_hit_gain": 7.75,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 7,
+              "free_hit_gain": 8.25,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 8,
+              "free_hit_gain": 9.11,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 9,
+              "free_hit_gain": 4.28,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 10,
+              "free_hit_gain": 10.06,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 11,
+              "free_hit_gain": 8.88,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 12,
+              "free_hit_gain": 4.44,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 13,
+              "free_hit_gain": 8.87,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 14,
+              "free_hit_gain": 5.46,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 15,
+              "free_hit_gain": 3.68,
+              "recommended": true,
+              "clears_threshold": true
+            },
+            {
+              "gameweek": 16,
+              "free_hit_gain": 1.53,
+              "recommended": true,
+              "clears_threshold": true
+            }
+          ],
+          "robustness": null,
+          "sensitivity": {
+            "wildcard_week_by_bundle": {
+              "active": 12
+            },
+            "greedy_week_by_bundle": {
+              "active": 3
+            },
+            "free_hit_weeks_by_bundle": {
+              "active": [
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16
+              ]
+            },
+            "wildcard_stable": true,
+            "note": "Wildcard week by bundle: {'active': 12}. Stable across bundles."
+          },
+          "evidence_freshness_flags": [
+            {
+              "player_uid": "player_antonin_kinsky",
+              "name": "Anton\u00edn Kinsky",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_gabriel_dos_santos_magalhaes",
+              "name": "Gabriel dos Santos Magalh\u00e3es",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_trai_hume",
+              "name": "player_trai_hume",
+              "latest_observed": null,
+              "age_days": null,
+              "status": "no_availability_claims"
+            },
+            {
+              "player_uid": "player_harry_maguire",
+              "name": "Harry Maguire",
+              "latest_observed": "2026-07-15",
+              "age_days": 48,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_bruno_borges_fernandes",
+              "name": "Bruno Borges Fernandes",
+              "latest_observed": "2026-07-21",
+              "age_days": 42,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_bryan_mbeumo",
+              "name": "Bryan Mbeumo",
+              "latest_observed": "2026-07-25",
+              "age_days": 38,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_christos_tzolis",
+              "name": "Christos Tzolis",
+              "latest_observed": null,
+              "age_days": null,
+              "status": "no_availability_claims"
+            },
+            {
+              "player_uid": "player_pascal_gross",
+              "name": "Pascal Gro\u00df",
+              "latest_observed": "2026-08-08",
+              "age_days": 24,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_dominic_calvert_lewin",
+              "name": "Dominic Calvert-Lewin",
+              "latest_observed": "2026-08-08",
+              "age_days": 24,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_erling_haaland",
+              "name": "Erling Haaland",
+              "latest_observed": "2026-07-22",
+              "age_days": 41,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_joao_pedro_junqueira_de_jesus",
+              "name": "Jo\u00e3o Pedro Junqueira de Jesus",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_martin_dubravka",
+              "name": "Martin D\u00fabravka",
+              "latest_observed": "2026-07-27",
+              "age_days": 36,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_bobby_thomas",
+              "name": "Bobby Thomas",
+              "latest_observed": "2026-08-03",
+              "age_days": 29,
+              "status": "stale"
+            },
+            {
+              "player_uid": "player_regan_slater",
+              "name": "player_regan_slater",
+              "latest_observed": null,
+              "age_days": null,
+              "status": "no_availability_claims"
+            },
+            {
+              "player_uid": "player_leif_davis",
+              "name": "player_leif_davis",
+              "latest_observed": null,
+              "age_days": null,
+              "status": "no_availability_claims"
+            }
+          ],
+          "data_flags": [
+            "stale injury/rotation evidence (>14d) for held players: Anton\u00edn Kinsky, Gabriel dos Santos Magalh\u00e3es, Harry Maguire, Bruno Borges Fernandes, Bryan Mbeumo, Pascal Gro\u00df, Dominic Calvert-Lewin, Erling Haaland, Jo\u00e3o Pedro Junqueira de Jesus, Martin D\u00fabravka, Bobby Thomas",
+            "no availability evidence at all for held players: player_trai_hume, Christos Tzolis, player_regan_slater, player_leif_davis"
+          ]
+        }
+      }
+    }
+  ]
+}
