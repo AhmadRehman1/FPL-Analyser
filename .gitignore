@@ -13,6 +13,11 @@ data/external/
 research/ml/results/
 research/ml/data/
 
+# chip_timing_analysis.yml matrix: one transient forward-sim artifact per (entry, arm, bundle),
+# downloaded and merged by the aggregate job. Only the aggregated reports in data/chip_timing/
+# itself (SUMMARY.md, per-team CSVs, chip_timing_latest.json) are committed.
+data/chip_timing/arms/
+
 # Track E retrospective validation: cached real-manager sample (aggregate totals only, but
 # kept out of git anyway per the plan's "no entry_id, no persistence beyond the fetch step
 # guarantee" spirit -- regenerable via scripts/run_retrospective_sample.py)

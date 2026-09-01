@@ -1,0 +1,231 @@
+name: Two-team chip timing (Wildcard / Bench Boost / Free Hit)
+
+# Data-driven Wildcard / Bench Boost / Free Hit timing for the two real tracked entries
+# (7139944 "Ahmad sucks", 1305242 "Matippy toes"). See src/fpl_quant/chip_timing_analysis.py.
+#
+# One forward_season_sim walk over a ~17-gameweek window is ~1-1.5h of MIQP solving on this
+# runner (measured: forward_season_sim.yml run 33432100674). A full GW4-19 forced Wildcard
+# sweep is 16 forced walks + hold + model_choice per entry -- run in series that is ~36h per
+# param bundle, past the 6h job cap many times over. So this fans the sweep out as a matrix:
+# `prepare` warms one shared DB cache and emits the arm list, `sweep` runs every arm in
+# parallel (each its own job, its own artifact), `aggregate` reads them all and does Steps 2-6.
+#
+# Same real-DB + live-FPL-API constraints as forward_season_sim.yml -- built for this runner,
+# not the network-blocked dev sandbox.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sweep_start:
+        description: "First forced-Wildcard gameweek in the sweep (default 4)."
+        required: false
+        default: "4"
+        type: string
+      sweep_end:
+        description: "Last forced-Wildcard gameweek in the sweep (default 19, the set-1 deadline)."
+        required: false
+        default: "19"
+        type: string
+      eval_end_gameweek:
+        description: >-
+          Score every arm over the shared window GW(current+1)..this (default 22 -- 3 weeks
+          past the GW19 set-1 deadline, so a late-forced Wildcard still gets a few post-rebuild
+          gameweeks of credit rather than being scored on almost none).
+        required: false
+        default: "22"
+        type: string
+      bundles:
+        description: >-
+          Comma-separated parameter bundles to run and compare (Step 5). "active" is what the
+          committed seed file resolves today; "confirmed_pending" adds the three confirmed-but-
+          unpromoted recalibration proposals; "all_v1" is a no-recalibration baseline. Running
+          just "active" is ~36 jobs; adding "confirmed_pending" doubles it.
+        required: false
+        default: "active,confirmed_pending"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chip-timing-analysis
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      arms: ${{ steps.gen.outputs.arms }}
+      db_cache_key: chip-timing-db-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
+        if: steps.cache.outputs.cache-matched-key == ''
+        run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks [cache miss fallback]
+        if: steps.cache.outputs.cache-matched-key == ''
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size; size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
+          }
+          fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6) [cache miss fallback]
+        if: steps.cache.outputs.cache-matched-key == ''
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Save one shared DB cache for every sweep arm
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: chip-timing-db-${{ github.run_id }}
+
+      - name: Generate the arm matrix
+        id: gen
+        env:
+          SWEEP_START: ${{ github.event.inputs.sweep_start || '4' }}
+          SWEEP_END: ${{ github.event.inputs.sweep_end || '19' }}
+          BUNDLES: ${{ github.event.inputs.bundles || 'active,confirmed_pending' }}
+        run: |
+          python - <<'EOF'
+          import json, os
+          entries = [7139944, 1305242]
+          bundles = [b.strip() for b in os.environ["BUNDLES"].split(",") if b.strip()]
+          sweep = list(range(int(os.environ["SWEEP_START"]), int(os.environ["SWEEP_END"]) + 1))
+          arms = []
+          for e in entries:
+              for b in bundles:
+                  for mode in ("hold", "model_choice"):
+                      arms.append({"entry": e, "mode": mode, "force_gw": 0, "bundle": b, "tag": mode})
+                  for gw in sweep:
+                      arms.append({"entry": e, "mode": "force", "force_gw": gw, "bundle": b, "tag": f"force_gw{gw}"})
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("arms=" + json.dumps({"include": arms}) + "\n")
+          print(f"{len(arms)} arms across {len(bundles)} bundle(s)")
+          EOF
+
+  sweep:
+    needs: prepare
+    runs-on: ubuntu-latest
+    # One walk over ~20 gameweeks is ~2-2.5h of MIQP on this runner; a forced arm adds its own
+    # Step 2/4 (~5m). 240 leaves margin under GitHub's 360 cap. An arm that times out just drops
+    # from the sweep (fail-fast: false) -- aggregate still produces a report from what landed.
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.prepare.outputs.arms) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: ${{ needs.prepare.outputs.db_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Run arm ${{ matrix.entry }} / ${{ matrix.tag }} / ${{ matrix.bundle }}
+        env:
+          CTA_ENTRY_ID: ${{ matrix.entry }}
+          CTA_MODE: ${{ matrix.mode }}
+          CTA_FORCE_GW: ${{ matrix.force_gw }}
+          CTA_END_GW: ${{ github.event.inputs.eval_end_gameweek || '22' }}
+          CTA_PARAM_BUNDLE: ${{ matrix.bundle }}
+          CTA_OUT: data/chip_timing/arms/arm_${{ matrix.entry }}_${{ matrix.tag }}_${{ matrix.bundle }}.json
+        run: PYTHONPATH=src python scripts/run_chip_timing_arm.py
+
+      - name: Upload this arm's artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-${{ matrix.entry }}-${{ matrix.tag }}-${{ matrix.bundle }}
+          path: data/chip_timing/arms/arm_${{ matrix.entry }}_${{ matrix.tag }}_${{ matrix.bundle }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    needs: [prepare, sweep]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: ${{ needs.prepare.outputs.db_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Download every sweep arm
+        uses: actions/download-artifact@v4
+        with:
+          pattern: arm-*
+          path: _arms
+          merge-multiple: true
+
+      - name: Collect arm artifacts
+        run: |
+          mkdir -p data/chip_timing/arms
+          find _arms -name 'arm_*.json' -exec cp {} data/chip_timing/arms/ \;
+          echo "collected $(ls data/chip_timing/arms | wc -l) arm files"
+
+      - name: Aggregate into per-team chip-timing reports
+        run: PYTHONPATH=src python scripts/aggregate_chip_timing.py
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f data/chip_timing/SUMMARY.md ]; then
+            cat data/chip_timing/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No SUMMARY.md produced -- see the aggregate step log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit chip-timing outputs
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/chip_timing/
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: two-team chip timing sweep [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            git push && exit 0
+            echo "push rejected (attempt $attempt/5) -- fetch + rebase"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git rebase "origin/${GITHUB_REF_NAME}"
+          done
+          echo "::error::git push kept failing after 5 attempts"
+          exit 1
