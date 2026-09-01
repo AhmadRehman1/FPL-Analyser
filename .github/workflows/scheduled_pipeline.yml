@@ -393,6 +393,29 @@ jobs:
               labels: ["deadline-alert"],
             });
 
+      # App gap 1: send the held-player alert (captain doubt / price move / unconfirmed pending
+      # rec near the deadline) as a REAL Web Push to every subscribed device -- not only a
+      # GitHub Issue. push_notify.py no-ops cleanly (exit 0) when the VAPID / gist secrets
+      # aren't set yet (see docs/PUSH_SETUP.md), so this step is inert until push is configured
+      # and never fails the run. continue-on-error as a second belt: a push-service hiccup must
+      # not undo the commit below.
+      - name: Send Web Push for held-player alerts
+        if: steps.alerts.outputs.push_payload != ''
+        continue-on-error: true
+        env:
+          PUSH_PAYLOAD_JSON: ${{ steps.alerts.outputs.push_payload }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          PUSH_SUBSCRIPTIONS_GIST: ${{ secrets.PUSH_SUBSCRIPTIONS_GIST }}
+          GIST_PAT: ${{ secrets.GIST_PAT }}
+        run: |
+          # pywebpush is only needed for the actual send -- installed here, not in
+          # requirements.lock, to keep the pinned pipeline install (SCIP/DuckDB-sensitive)
+          # untouched. push_notify.py already no-ops if it's somehow still missing.
+          pip install --quiet pywebpush
+          PYTHONPATH=src python scripts/push_notify.py
+
       # Priority 8c's snapshots (+ the real-squad dashboard snapshots above) are the point of
       # persisting anything here -- everything else (the DuckDB file itself) is gitignored and
       # rebuilt fresh next run. A real, observed failure mode (not hypothesized): two

@@ -27,22 +27,23 @@ function extractHtmlFn(name) {
   const html = HTML;
   const start = html.search(new RegExp("function\\s+" + name + "\\s*\\("));
   if (start < 0) throw new Error("function not found: " + name);
-  let i = html.indexOf("{", start);
-  const stack = ["code"];
-  let depth = 0;
+  let i = html.indexOf("{", start) + 1; // step INSIDE the function body
+  // Each entry is a mode. A "code" frame tracks its own brace depth (braces INSIDE this frame),
+  // so `{a,b}` object literals inside a template `${...}` don't prematurely close it.
+  const stack = [{ mode: "code", depth: 0 }];
+  const top = () => stack[stack.length - 1];
   for (; i < html.length; i++) {
-    const c = html[i], p = html[i - 1], mode = stack[stack.length - 1];
-    if (mode === "'" || mode === '"') { if (c === mode && p !== "\\") stack.pop(); continue; }
-    if (mode === "`") {
+    const c = html[i], p = html[i - 1], m = top().mode;
+    if (m === "'" || m === '"') { if (c === m && p !== "\\") stack.pop(); continue; }
+    if (m === "`") {
       if (c === "`" && p !== "\\") stack.pop();
-      else if (c === "$" && html[i + 1] === "{" && p !== "\\") { stack.push("code"); i++; }
+      else if (c === "$" && html[i + 1] === "{" && p !== "\\") { stack.push({ mode: "code", depth: 0 }); i++; }
       continue;
     }
     // code mode
     if (c === "/" && html[i + 1] === "/") { const nl = html.indexOf("\n", i); i = nl < 0 ? html.length : nl; continue; }
     if (c === "/" && html[i + 1] === "*") { const end = html.indexOf("*/", i + 2); i = end < 0 ? html.length : end + 1; continue; }
     if (c === "/" && (_REGEX_PRECEDERS.has(_lastCodeChar(html, i)) || _lastCodeChar(html, i) === "")) {
-      // regex literal: skip to the unescaped closing '/', stepping over [...] classes
       i++;
       let inClass = false;
       for (; i < html.length; i++) {
@@ -55,12 +56,13 @@ function extractHtmlFn(name) {
       while (i + 1 < html.length && /[a-z]/.test(html[i + 1])) i++; // flags
       continue;
     }
-    if (c === "'" || c === '"' || c === "`") { stack.push(c); continue; }
-    if (c === "{") depth++;
-    else if (c === "}") {
-      if (stack.length > 1) { stack.pop(); continue; }
-      depth--;
-      if (depth === 0) return html.slice(start, i + 1);
+    if (c === "'" || c === '"' || c === "`") { stack.push({ mode: c }); continue; }
+    if (c === "{") { top().depth++; continue; }
+    if (c === "}") {
+      if (top().depth > 0) { top().depth--; continue; }
+      // depth 0 in this frame: this "}" closes the frame itself
+      if (stack.length > 1) { stack.pop(); continue; }   // closes a ${...} interpolation
+      return html.slice(start, i + 1);                    // closes the function body
     }
   }
   throw new Error("unbalanced braces extracting: " + name);

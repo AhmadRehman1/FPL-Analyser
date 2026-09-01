@@ -1,0 +1,72 @@
+name: Register a Web Push device (app gap 1)
+
+# The PWA can't write the SECRET subscriptions gist itself (that would mean shipping a PAT in
+# the client). So the "enable notifications" flow opens a pre-filled `[push-subscribe]` GitHub
+# Issue -- the same "issue as request queue" pattern on_demand_report.yml uses for "add my
+# team" -- and this workflow parses the subscription JSON out of it and appends it to the gist.
+#
+# One-time setup (repo owner) -- see docs/PUSH_SETUP.md:
+#   - create a SECRET gist containing `subscriptions.json` = []
+#   - add repo secrets:  PUSH_SUBSCRIPTIONS_GIST (the gist id),  GIST_PAT (a PAT with `gist`)
+# Without those secrets this workflow comments on the issue explaining setup isn't done and
+# closes it -- it never fails a run.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: push-subscribe
+  cancel-in-progress: false
+
+jobs:
+  register:
+    # Cheap guard before spinning a runner: only the app's own pre-filled issues.
+    if: startsWith(github.event.issue.title, '[push-subscribe]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v9
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          GIST_ID: ${{ secrets.PUSH_SUBSCRIPTIONS_GIST }}
+          GIST_PAT: ${{ secrets.GIST_PAT }}
+        with:
+          script: |
+            const issue = { owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number };
+            const close = async (body) => {
+              await github.rest.issues.createComment({ ...issue, body });
+              await github.rest.issues.update({ ...issue, state: 'closed' });
+            };
+
+            const { GIST_ID, GIST_PAT, ISSUE_BODY } = process.env;
+            if (!GIST_ID || !GIST_PAT) {
+              return close("Push notifications aren't finished being set up on this repo yet (no subscriptions gist). See `docs/PUSH_SETUP.md`. Nothing was stored.");
+            }
+
+            // Pull the ```json ... ``` block the app wrote.
+            const m = (ISSUE_BODY || "").match(/```json\s*([\s\S]*?)```/);
+            let sub;
+            try { sub = JSON.parse(m[1].trim()); } catch (e) {
+              return close("Couldn't read a subscription from this issue. Nothing was stored.");
+            }
+            if (!sub || typeof sub.endpoint !== "string" || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+              return close("That doesn't look like a Web Push subscription (missing `endpoint` / `keys`). Nothing was stored.");
+            }
+            // Keep only the fields pywebpush needs -- never anything else from the issue body.
+            const clean = { endpoint: sub.endpoint, expirationTime: sub.expirationTime ?? null, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } };
+
+            const gh = { headers: { Authorization: `Bearer ${GIST_PAT}`, Accept: "application/vnd.github+json" } };
+            const cur = await fetch(`https://api.github.com/gists/${GIST_ID}`, gh).then(r => r.json());
+            let list = [];
+            try { list = JSON.parse(cur.files["subscriptions.json"].content || "[]"); } catch (e) { list = []; }
+            if (!list.some(s => s.endpoint === clean.endpoint)) list.push(clean);
+
+            const put = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+              method: "PATCH", headers: { ...gh.headers, "Content-Type": "application/json" },
+              body: JSON.stringify({ files: { "subscriptions.json": { content: JSON.stringify(list, null, 2) } } }),
+            });
+            if (!put.ok) return close(`Couldn't store the subscription (gist API ${put.status}). Try again later.`);
+            return close(`Device registered for push alerts (${list.length} total). You can delete this issue.`);

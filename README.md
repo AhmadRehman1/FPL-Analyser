@@ -516,8 +516,41 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   - `tests/_extract_html_fn.js` (new): the 4 Node test files that pull DOM-free renderers out
     of `index.html` shared three near-identical brace-matchers, one of which silently relied on
     coincidental rebalancing and broke when this gap added code near it. Consolidated into one
-    helper that also steps over `/regex/` literals (the codebase uses `.replace(/"/g, ...)`
-    everywhere). 97 Node tests green.
+    helper that also steps over `/regex/` literals and `${...}` template interpolations (the
+    codebase uses both everywhere). 101 Node tests green.
+- **App gap 1 -- real Web Push, not a UI-only bell.** The bell + `toggleNotifications()`
+  existed but only did LOCAL notifications (fired while the app is alive); the code comment
+  itself called closed-app push "a deliberate future gap".
+  - `sw.js`: real `push` + `notificationclick` handlers (CACHE_NAME v5 -> v6).
+  - `index.html`: `toggleNotifications()` now completes the permission + `pushManager.subscribe`
+    round-trip; the subscription is handed to the pipeline via a pre-filled `[push-subscribe]`
+    GitHub issue (the same "issue as request queue" path `openAddTeamSheet()` uses -- the
+    client can't write the secret store itself). The bell has a distinct third state (gold)
+    once a device is push-linked, not just "notifications on". `VAPID_PUBLIC_KEY` is an empty
+    string until the owner pastes theirs in -- while empty the app degrades to local-only
+    notifications, nothing breaks.
+  - `.github/workflows/push_subscribe.yml` (new): `on: issues`, parses a `[push-subscribe]`
+    issue's `json` block, appends it to a **secret gist** (via `GIST_PAT` /
+    `PUSH_SUBSCRIPTIONS_GIST` secrets), closes the issue with a confirmation. No secrets =>
+    comments "not set up yet" and closes; never fails.
+  - `src/fpl_quant/push_alerts.py` (new): pure logic -- `compute_alerts()` (captain/vice
+    flagged doubtful, a price move on a squad player, and -- within `PUSH_ALERT_LEAD_HOURS`
+    (default 3) of the deadline -- an unconfirmed pending transfer/chip rec) + `build_push_payload()`
+    (collapse to one notification, highest priority first).
+  - `scripts/check_deadline_alerts.py`: keeps the original model-report -> GitHub Issue channel
+    unchanged; ADDS the held-player push channel, computed off the tracked accounts'
+    `data/dashboard/*.json`, emitted to `GITHUB_OUTPUT` as `push_payload`.
+  - `scripts/push_notify.py` (new): reads the gist + VAPID secrets, sends via `pywebpush`
+    (installed just-in-time in the workflow step, not in `requirements.lock`), prunes
+    404/410 (expired) subscriptions. NO-OPS cleanly (exit 0) whenever anything is missing.
+  - `scheduled_pipeline.yml`: a `continue-on-error` "Send Web Push" step after the issue step.
+  - `docs/PUSH_SETUP.md` (new): the exact one-time owner steps (VAPID keygen, secret gist,
+    3 repo secrets, paste the public key). **iOS: Web Push needs the PWA Added to Home Screen.**
+  - Tests: `test_push_alerts.py` (12 -- alert-worthy vs not, payload construction),
+    `test_push_notify.py` (4 -- every no-op path, malformed-payload is loud),
+    `test_check_deadline_alerts.py` (+6 -- next-deadline resolution, the injured-captain path,
+    empty-dashboard survival), `push_client.test.js` (4 -- base64 decode, `pushConfigured`,
+    the issue URL, the 3-state bell). Client helpers verified in a real browser.
 
 ## Quick start
 

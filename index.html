@@ -258,6 +258,8 @@
 .icon-btn[hidden]{display:none;}
 .icon-btn:hover{color:var(--ink);border-color:var(--ink-dim);}
 .icon-btn[aria-pressed="true"]{background:var(--green);color:#fff;border-color:var(--green);}
+/* app gap 1: closed-app push linked -> gold accent, distinct from plain notifications-on */
+.icon-btn.is-push{background:var(--gold,#e8b93b);border-color:var(--gold,#e8b93b);color:#2a1e00;}
 .icon-btn svg{width:16px;height:16px;}
 .lmc{display:flex;flex-direction:column;gap:8px;}
 .lmc-fixtures{display:flex;flex-wrap:wrap;gap:6px;}
@@ -1823,10 +1825,78 @@ const BELL_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 function renderNotifBell() {
   const btn = document.getElementById("notif-bell");
   if (!btn) return;
-  const on = !!notifPrefs().enabled;
+  const prefs = notifPrefs();
+  const on = !!prefs.enabled;
+  const pushed = on && !!prefs.pushRegistered;
   btn.innerHTML = on ? BELL_ON : BELL_OFF;
   btn.setAttribute("aria-pressed", on ? "true" : "false");
-  btn.title = on ? "Live point notifications on" : "Turn on live point notifications";
+  // Distinct third state (app gap 1): the bell fills/accents once closed-app push is linked,
+  // not just when local notifications are toggled on.
+  btn.classList.toggle("is-push", pushed);
+  btn.title = pushed
+    ? "Closed-app push alerts on"
+    : on ? "Notifications on (app open only)" : "Turn on notifications";
+}
+
+// ---- Web Push (app gap 1) --------------------------------------------------
+// VAPID public key: safe to ship in the client (it IS public). Empty until the repo owner
+// generates a keypair and pastes the public key here (see docs/PUSH_SETUP.md). While empty the
+// app still does LOCAL notifications (fired while it's open/backgrounded) -- it just can't do
+// closed-app push.
+const VAPID_PUBLIC_KEY = "";
+const PUSH_SUB_KEY = "fq_push_sub";
+
+function pushConfigured() { return typeof VAPID_PUBLIC_KEY === "string" && VAPID_PUBLIC_KEY.length > 20; }
+function loadPushSub() { try { return JSON.parse(localStorage.getItem(PUSH_SUB_KEY) || "null"); } catch { return null; } }
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+// [push-subscribe] GitHub issue -- the same "issue as request queue" path openAddTeamSheet()
+// already uses; push_subscribe.yml parses it into the secret subscriptions gist.
+function pushSubscribeIssueUrl(sub) {
+  const title = "[push-subscribe]";
+  const body = "```json\n" + JSON.stringify(sub) + "\n```\n\n(Opened from the FPL Quant app to register this device for deadline / injury push alerts. A workflow processes this automatically.)";
+  return `https://github.com/${REPO_SLUG}/issues/new?${new URLSearchParams({ title, body }).toString()}`;
+}
+
+// Best-effort: returns "pushed" once a subscription exists, "local" if push isn't configured or
+// the browser can't do it, and never throws (a failure here must not break the plain toggle).
+async function registerPushSubscription() {
+  if (!pushConfigured() || !("serviceWorker" in navigator) || !("PushManager" in window)) return "local";
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const json = sub.toJSON();
+    localStorage.setItem(PUSH_SUB_KEY, JSON.stringify(json));
+    // The client can't write the secret gist itself -- hand the subscription to the workflow
+    // via a pre-filled issue, once per new endpoint.
+    if (!loadPushSub() || loadPushSub().endpoint !== json.endpoint || !notifPrefs().pushRegistered) {
+      window.open(pushSubscribeIssueUrl(json), "_blank", "noopener");
+      const p = notifPrefs(); p.pushRegistered = true; setNotifPrefs(p);
+    }
+    return "pushed";
+  } catch (e) { return "local"; }
+}
+
+async function unregisterPushSubscription() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+  } catch {}
+  localStorage.removeItem(PUSH_SUB_KEY);
+  const p = notifPrefs(); p.pushRegistered = false; setNotifPrefs(p);
 }
 
 async function toggleNotifications() {
@@ -1837,9 +1907,16 @@ async function toggleNotifications() {
     if (perm !== "granted") perm = await Notification.requestPermission();
     if (perm !== "granted") return; // denied or dismissed -- leave the toggle off
     p.enabled = true; setNotifPrefs(p);
-    await showNotification("FPL Quant notifications on", "I'll let you know when your live points move during a match.");
+    const mode = await registerPushSubscription();
+    await showNotification(
+      mode === "pushed" ? "Push alerts on" : "Notifications on",
+      mode === "pushed"
+        ? "You'll get deadline, injury and price alerts even when the app is closed. Submit the GitHub issue that just opened to finish linking this device."
+        : "I'll notify you while the app is open. Closed-app push isn't set up on this build.",
+    );
   } else {
-    p.enabled = false; setNotifPrefs(p);
+    p.enabled = false; p.pushRegistered = false; setNotifPrefs(p);
+    await unregisterPushSubscription();
   }
   renderNotifBell();
 }
