@@ -551,6 +551,13 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     `test_check_deadline_alerts.py` (+6 -- next-deadline resolution, the injured-captain path,
     empty-dashboard survival), `push_client.test.js` (4 -- base64 decode, `pushConfigured`,
     the issue URL, the 3-state bell). Client helpers verified in a real browser.
+- **App gap 7 -- origin-aware data URL (`docs/BUSINESS_PLAN.md` 2.5).** `index.html`'s
+  `resolveDataBase()` keeps the canonical site on `RAW_FALLBACK` (the add-team SLA depends on
+  it) and localhost on same-origin, exactly as before -- but a staging fork can now opt into
+  serving data from its own origin via `<meta name="fq-data-base" content="">` /
+  `window.FQ_DATA_BASE`, with `deploy_pages.yml` bundling `data/dashboard/` into the Pages
+  artifact when the repo variable `FQ_STAGING=1`. Nothing about the canonical deployment
+  changes. `tests/data_base.test.js` (6) is the regression guard on the core data-loading path.
 
 ## Quick start
 

@@ -1066,16 +1066,29 @@
 </div>
 
 <script>
-// Origin-aware data source (Plan Phase D-1, docs/plans/2026-08_roadmap_plan.md): GitHub Pages
-// stages this shell only (see deploy_pages.yml) -- data/ is never deployed there, so a same-origin
-// fetch on the live site would always 404. isLocalDev is false on the deployed hostname, so
-// DATA_BASE still resolves to RAW_FALLBACK there -- production behavior (and the add-team SLA:
-// raw.githubusercontent.com reflects a new commit within seconds, vs. waiting on a Pages
-// redeploy) is unchanged. Relative fetches only ever happen on localhost/127.0.0.1, where data/
-// exists on disk alongside this file. Same pattern already proven in track-record.html.
+// Origin-aware data source (docs/BUSINESS_PLAN.md 2.5 / app gap 7): GitHub Pages stages this
+// shell only (see deploy_pages.yml) -- data/ is never deployed to the CANONICAL site, so
+// production must fetch from raw.githubusercontent.com (which also reflects a new commit within
+// seconds -- the add-team SLA depends on that, vs. waiting on a Pages redeploy).
+//
+// A safe STAGING copy (a personal fork/branch that also deploys data/ and wants to experiment
+// without touching the raw feed the real live-followed teams read) opts in explicitly, one of:
+//   * <meta name="fq-data-base" content="">                  (same-origin) or content="/sub"
+//   * window.FQ_DATA_BASE = "";  before this script
+// Anything else -> localhost/127.0.0.1 uses the on-disk data/ next to this file; every other
+// host uses RAW_FALLBACK. Nothing about the canonical deployment changes.
 const RAW_FALLBACK = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
 const isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-const DATA_BASE = (location.protocol === "file:" || !isLocalDev) ? RAW_FALLBACK : "";
+
+function resolveDataBase() {
+  const meta = document.querySelector('meta[name="fq-data-base"]');
+  const override = (typeof window.FQ_DATA_BASE === "string") ? window.FQ_DATA_BASE
+    : (meta ? meta.getAttribute("content") : null);
+  if (override !== null && override !== undefined) return override.replace(/\/$/, ""); // "" == same-origin
+  if (location.protocol === "file:") return RAW_FALLBACK;
+  return isLocalDev ? "" : RAW_FALLBACK;
+}
+const DATA_BASE = resolveDataBase();
 
 const ACCOUNTS = [
   { id: 7139944, label: "ChatGPT template team" },

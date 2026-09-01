@@ -50,6 +50,17 @@ jobs:
           # would make GitHub Pages try to configure it as this site's live custom domain, which
           # could affect the already-working github.io URL before DNS is ever set up for real.
           if [ -f CNAME ]; then cp CNAME site/; fi
+          # App gap 7 / docs/BUSINESS_PLAN.md 2.5: a STAGING fork can set the repo variable
+          # FQ_STAGING=1 to also deploy data/dashboard/ + committed data/ alongside the shell,
+          # then point index.html at same-origin via <meta name="fq-data-base" content="">. The
+          # canonical repo leaves FQ_STAGING unset, so this is a no-op there and the raw-URL /
+          # add-team-SLA split is untouched.
+          if [ "${{ vars.FQ_STAGING }}" = "1" ]; then
+            mkdir -p site/data
+            cp -r data/dashboard site/data/ 2>/dev/null || true
+            [ -f data/elite_managers.json ] && cp data/elite_managers.json site/data/ || true
+            echo "FQ_STAGING: bundled data/dashboard into the Pages artifact"
+          fi
 
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
