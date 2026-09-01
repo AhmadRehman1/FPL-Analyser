@@ -241,9 +241,19 @@ def calibrate(
     # (matched to today's teams via the same team_uid identity fetch_current_elo already
     # resolves through) is a reasonable, disclosed proxy -- not a fabricated value -- for
     # exactly as long as this season's own Elo hasn't been published upstream yet.
+    #
+    # The fallback walks the PRIOR fit_seasons newest-first, never fit_seasons[-1] blindly:
+    # backtest.fit_seasons_for("2026-2027") now returns ("2024-2025","2025-2026","2026-2027"),
+    # so fit_seasons[-1] IS the target season whose Elo is the blank column this fallback
+    # exists to route around -- using it would leave elo_by_team empty and crash every real
+    # 2026-2027 calibration (chip_timing_analysis.yml run 33453667681, forward_season_sim.yml
+    # run 33432100674, both dead on "fit_elo_regression ... got 0").
     elo_by_team = fetch_current_elo(con, target_season)
-    if not elo_by_team and fit_seasons:
-        elo_by_team = fetch_current_elo(con, fit_seasons[-1])
+    if not elo_by_team:
+        for prior_season in reversed([s for s in fit_seasons if s != target_season]):
+            elo_by_team = fetch_current_elo(con, prior_season)
+            if elo_by_team:
+                break
     a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, eligible_teams)
 
     model_version = con.execute(

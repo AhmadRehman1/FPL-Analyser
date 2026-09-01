@@ -230,6 +230,19 @@ def test_calibrate_falls_back_to_prior_season_elo_when_target_season_elo_all_bla
     ).fetchone()[0]
     assert n_teams == 3
 
+    # backtest.fit_seasons_for("2026-2027") appends the target season itself, so fit_seasons[-1]
+    # IS "2026-2027" -- the blank-Elo season this fallback exists to skip. The fallback must
+    # still find a prior season's Elo, not stop at fit_seasons[-1] and crash (the failure that
+    # killed chip_timing_analysis.yml run 33453667681 and forward_season_sim.yml run
+    # 33432100674 against a freshly-ingested CI DB).
+    model_version_3s = ts.calibrate(
+        con, date(2026, 8, 10), xi_params_version=1, rho_params_version=1,
+        target_season="2026-2027", fit_seasons=("2024-2025", "2025-2026", "2026-2027"),
+    )
+    assert con.execute(
+        "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [model_version_3s]
+    ).fetchone()[0] == 3
+
 
 def test_calibrate_uses_league_average_when_team_has_no_mle_and_no_elo(con, monkeypatch, capsys):
     """The real root cause this project actually hit: a club spelled differently across seasons
