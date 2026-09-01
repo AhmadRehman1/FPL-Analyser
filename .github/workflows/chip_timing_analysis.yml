@@ -65,21 +65,16 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.lock
 
-      - name: Restore the most recent ingested DB
-        id: cache
-        uses: actions/cache/restore@v6
-        with:
-          path: db/fpl_quant_v2.duckdb
-          key: duckdb-restore-only-no-such-exact-key
-          restore-keys: |
-            duckdb-
-
-      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
-        if: steps.cache.outputs.cache-matched-key == ''
+      # A full M0-M6 ingestion, NOT a restore of the `duckdb-` cache. scheduled_pipeline.yml's
+      # ~42 MB cached DB is a narrower Priority-8a/8b ingestion -- it lacks the multi-season Elo
+      # / team-alias data team_strength.calibrate() needs for the three-season 2026-2027 fit,
+      # and every sweep arm crashes in fit_elo_regression ("need >=2 eligible teams ... got 0",
+      # run 33453187924). run_ingestion.py is ~4 min and produces the real thing, so prepare
+      # just always builds it once and hands it to all arms via chip-timing-db-<run_id>.
+      - name: Fetch FPL-Core-Insights (public dataset)
         run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
 
-      - name: Materialize evidence workbooks [cache miss fallback]
-        if: steps.cache.outputs.cache-matched-key == ''
+      - name: Materialize evidence workbooks
         run: |
           mkdir -p data/external
           fetch_drive_file() {
@@ -93,9 +88,22 @@ jobs:
           fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
           fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
-      - name: Run ingestion (M0-M6) [cache miss fallback]
-        if: steps.cache.outputs.cache-matched-key == ''
+      - name: Run ingestion (M0-M6)
         run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Sanity-check the DB can calibrate for the sweep
+        run: |
+          PYTHONPATH=src python - <<'EOF'
+          from datetime import date
+          from fpl_quant import backtest as bt, db, team_strength
+          con = db.connect()
+          with bt.asof_scope(con, "2026-2027", 3, schedule_horizon_gameweeks=5) as deadline:
+              ts = team_strength.calibrate(
+                  con, deadline.date(), 2, 1, target_season="2026-2027",
+                  fit_seasons=bt.fit_seasons_for("2026-2027"),
+              )
+          print(f"team_strength.calibrate OK for 2026-2027 GW3 -> model_version {ts}")
+          EOF
 
       - name: Save one shared DB cache for every sweep arm
         uses: actions/cache/save@v6
