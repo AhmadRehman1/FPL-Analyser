@@ -1817,7 +1817,7 @@ async function loadShared() {
     document.getElementById("updated-at").textContent = "Development data — not a real run";
     return;
   }
-  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence] = await Promise.all([
+  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence, modelTeam] = await Promise.all([
     fetchJSON("data/dashboard/app_players.json"),
     fetchJSON("data/dashboard/app_fixtures.json"),
     fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
@@ -1831,6 +1831,9 @@ async function loadShared() {
     fetchJSON("data/dashboard/projections_latest.json").catch(() => null),
     fetchJSON("data/dashboard/leaderboard_latest.json").catch(() => null),
     fetchJSON("data/dashboard/elite_divergence_latest.json").catch(() => null),
+    // The model-managed team's live scoreboard (scripts/run_model_team.py). .catch(() => null):
+    // absent until the first pipeline run since this shipped has seeded it.
+    fetchJSON("data/dashboard/app_model_team.json").catch(() => null),
   ]);
   state.players = playersPayload.players;
   state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
@@ -1841,6 +1844,7 @@ async function loadShared() {
   state.projections = projections;
   state.leaderboard = leaderboard;
   state.eliteDivergence = eliteDivergence;
+  state.modelTeam = modelTeam;
   document.getElementById("updated-at").textContent = `Last run: ${fmtTime(playersPayload.generated_at)}`;
 }
 
@@ -5240,9 +5244,27 @@ function leaderboardBlock() {
     </p>`;
 }
 
+function modelTeamBlock() {
+  const mt = state.modelTeam;
+  if (!mt || !mt.ready) return "";
+  const sign = n => (n == null ? "—" : (n >= 0 ? "+" : "") + n);
+  const vsField = mt.total_vs_field;
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>The model's own team</span></div>
+    <div class="stat-list" style="margin-bottom:8px;">
+      <div class="sl-row"><div class="sl-label">Total points &middot; GW${mt.current_gameweek}</div><div class="sl-value">${mt.total_realized_points}</div></div>
+      <div class="sl-row"><div class="sl-label">vs the average manager</div><div class="sl-value" style="color:${vsField > 0 ? "var(--pos,#1a7f37)" : vsField < 0 ? "var(--neg,#cf222e)" : "inherit"};">${sign(vsField)}</div></div>
+      <div class="sl-row"><div class="sl-label">Gameweeks scored</div><div class="sl-value">${mt.n_gameweeks_scored} <span style="color:var(--ink-dim2);font-weight:500;">(${mt.n_gameweeks_simulated} simulated)</span></div></div>
+      ${mt.chips_used && mt.chips_used.length ? `<div class="sl-row"><div class="sl-label">Chips played</div><div class="sl-value">${mt.chips_used.join(", ")}</div></div>` : ""}
+    </div>
+    <p style="font-size:11px;line-height:1.6;color:var(--on-dark-dim);margin:0 0 16px;">
+      The model builds its own squad and makes its own weekly calls &mdash; no human in the loop. GW1&ndash;2 backfilled by simulation with a per-gameweek data cutoff; live and committed pre-deadline since. <a href="track-record.html" style="color:var(--on-dark);">Full record &rsaquo;</a>
+    </p>`;
+}
+
 function trackRecordBlock() {
   const tr = state.trackRecord;
-  if (!tr) return "";
+  if (!tr) return modelTeamBlock() || "";
   // Priority 8d: the per-gameweek snapshot timeline + provenance from the public transparency
   // log (built by reporting.build_transparency_log() and shipped alongside the backtest
   // summary in the same app_track_record.json). Shown inline here, and linked out to the
@@ -5252,8 +5274,9 @@ function trackRecordBlock() {
   const prov = log.provenance || {};
   const snapRows = snaps.slice(0, 3).map(s => `
     <div class="sl-row"><div class="sl-label">GW${s.gameweek} &middot; ${s.season}</div><div class="sl-value">${s.captain_name || "&mdash;"} &middot; ${s.total_projected_ep != null ? Number(s.total_projected_ep).toFixed(1) + " EP" : "&mdash;"}</div></div>`).join("");
+  const mtHtml = modelTeamBlock();
   if (tr.backtest_run_id == null) {
-    return `
+    return mtHtml + `
       <div class="section-title" style="color:var(--on-dark);"><span>Model track record</span></div>
       <p class="empty-state" style="margin-bottom:12px;">No walk-forward backtest has been run yet &mdash; here's the dated recommendation history and data provenance instead.</p>
       ${snaps.length ? `<div class="stat-list" style="margin-bottom:12px;">${snapRows}</div>` : ""}
@@ -5262,7 +5285,7 @@ function trackRecordBlock() {
   }
   const metricRows = tr.metrics.map(m => `
     <div class="sl-row"><div class="sl-label">${m.metric_name.replace(/_/g, " ")}</div><div class="sl-value">${m.mean_value} <span style="color:var(--ink-dim2);font-weight:500;">(${m.n_observations} obs)</span></div></div>`).join("");
-  return `
+  return mtHtml + `
     <div class="section-title" style="color:var(--on-dark);"><span>Model track record</span></div>
     <div class="stat-list" style="margin-bottom:16px;">
       <div class="sl-row"><div class="sl-label">Backtested gameweeks</div><div class="sl-value">${tr.n_gameweek_steps} across ${tr.seasons_covered.join(", ")}</div></div>
