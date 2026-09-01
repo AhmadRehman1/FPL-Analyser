@@ -88,14 +88,19 @@ divergence" sections. Do this only after confirming each script's inputs are sta
 is cheap/safe — wiring a script that can fail into scheduled CI expands the failure surface for
 every scheduled run. (Left as a follow-up, intentionally not in this PR.)
 
-### 2.5 Fork-friendliness / decoupling the data URL (P2 — future)
-`index.html` hardcodes `REPO_RAW = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master"`.
-That is correct for this repo but couples the app to a specific owner and branch. A future,
-low-risk improvement: make the data base origin-aware (use same-origin relative paths when the app
-is served from a host that also serves `data/`, fall back to the raw URL otherwise). **Not done in
-this PR** — it touches the core data-loading path and the current raw-URL design is intentional
-and better for the add-team SLA. Noted here so it is a deliberate, documented decision rather than
-an oversight.
+### 2.5 Fork-friendliness / decoupling the data URL (P2 — done, app gap 7)
+`index.html` used to unconditionally use `RAW_FALLBACK` on every deployed host. Now
+`resolveDataBase()` is origin-aware **without changing the canonical deployment**:
+
+- **Canonical site** (`ahmadrehman1.github.io/FPL-Analyser/`) — still `RAW_FALLBACK`. The
+  add-team SLA (raw reflects a commit in seconds; Pages' CDN cadence is too coarse for the
+  per-request data path) is untouched, and `deploy_pages.yml` still stages the shell only.
+- **localhost / 127.0.0.1** — same-origin `data/` on disk, as before.
+- **A staging fork** that wants to experiment against its *own* data without touching the raw
+  feed the real live-followed teams read: set the repo variable `FQ_STAGING=1` (so
+  `deploy_pages.yml` also bundles `data/dashboard/` into the Pages artifact) and add
+  `<meta name="fq-data-base" content="">` to `index.html` (or set `window.FQ_DATA_BASE`).
+  `resolveDataBase()` then serves data same-origin from the fork's own Pages site.
 
 ### 2.6 Analytics & engagement (P2 — privacy decision required)
 There is currently no measurement of which recommendations users act on, retention, or funnel

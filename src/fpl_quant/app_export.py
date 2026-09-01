@@ -550,3 +550,13 @@ def current_event(bootstrap: dict) -> int | None:
         if ev.get("is_current"):
             return ev["id"]
     return None
+
+
+def last_finished_event(bootstrap: dict) -> int | None:
+    """The highest gameweek FPL itself marks fully finished (bootstrap-static's own
+    events[].finished) -- None before any gameweek has completed. This is the last gameweek a
+    walk-forward season simulation (scripts/export_leaderboard.py) has real, settled results to
+    score against; current_event() above is the one still in progress, which has no final
+    points yet."""
+    finished = [ev["id"] for ev in bootstrap.get("events", []) if ev.get("finished")]
+    return max(finished) if finished else None

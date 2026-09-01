@@ -51,7 +51,15 @@ def main() -> None:
 
     elite_managers = et.load_elite_managers(ELITE_MANAGERS_PATH)
     if not elite_managers:
-        print(f"[track_elite] no elite managers configured in {ELITE_MANAGERS_PATH} -- nothing to track")
+        # Still write the feed, with an explicit status, so the PWA can tell "this feature is
+        # switched off (no maintainer-configured elite list)" apart from "the feed failed to
+        # load this run" -- a silently-absent file conflates the two.
+        data_asof = date.today().isoformat()
+        payload = {"data_asof": data_asof, "status": "not_configured", "gw": None, "managers": []}
+        DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+        (DASHBOARD_DIR / f"elite_divergence_{data_asof}.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
+        (DASHBOARD_DIR / "elite_divergence_latest.json").write_text(json.dumps(payload, indent=2, sort_keys=True))
+        print(f"[track_elite] no elite managers configured in {ELITE_MANAGERS_PATH} -- wrote not_configured payload")
         con.close()
         return
     PARAM_VERSIONS = _param_versions(backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR))
@@ -79,7 +87,7 @@ def main() -> None:
     )
 
     data_asof = calibration_asof_date.isoformat()
-    payload = {"data_asof": data_asof, "gw": current_event, "managers": divergences}
+    payload = {"data_asof": data_asof, "status": "ok", "gw": current_event, "managers": divergences}
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     out_path = DASHBOARD_DIR / f"elite_divergence_{data_asof}.json"
