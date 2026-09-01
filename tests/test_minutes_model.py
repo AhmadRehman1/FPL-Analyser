@@ -134,6 +134,91 @@ def test_nailed_on_starter_has_low_p0_fringe_player_has_high_p0(con):
     assert mm.weight_own_by_player(con, model_version, ["p1"]) == {"p1": weight_own_by_uid["p1"]}
 
 
+def _seed_two_same_position_starters(con, seasons=("2024-2025", "2025-2026")):
+    """Team A with two Midfielders who BOTH start every game, but p_full always plays 90 and
+    p_early is always hooked at 45. The position-wide P(60+ | started) is ~0.5; a per-player
+    conditional rate must keep p_full near 1.0 and p_early near 0.0."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p_full', 'Full Ninety', 'Midfielder')")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p_early', 'Early Hook', 'Midfielder')")
+    now = datetime.now(timezone.utc)
+    match_i = 0
+    for season in seasons:
+        _seed_raw_teams_csv(con, season, [("1", "A"), ("2", "B")])
+        for name, uid in (("A", "team_a"), ("B", "team_b")):
+            con.execute(
+                "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES (?, ?, ?, 't')",
+                [name, season, uid],
+            )
+        for name, norm, uid in (("Full Ninety", "full ninety", "p_full"), ("Early Hook", "early hook", "p_early")):
+            con.execute(
+                "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+                "VALUES (?, ?, '1', ?, ?)", [name, norm, season, uid],
+            )
+        for _ in range(12):
+            match_id = f"m{match_i}"
+            match_i += 1
+            con.execute(
+                "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, finished, "
+                "competition, kickoff_time, _ingested_at) VALUES (?, ?, 'team_a', 'team_b', TRUE, "
+                "'Premier League', ?, ?)",
+                [match_id, season, datetime(2025, 1, 1) if season == "2024-2025" else datetime(2026, 1, 1), now],
+            )
+            con.execute(
+                "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, "
+                "finish_min, minutes_played, _ingested_at) VALUES ('p_full', ?, ?, 0, 90, 90, ?)",
+                [match_id, season, now],
+            )
+            con.execute(
+                "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, "
+                "finish_min, minutes_played, _ingested_at) VALUES ('p_early', ?, ?, 0, 45, 45, ?)",
+                [match_id, season, now],
+            )
+
+
+def test_nailed_full_90_starter_keeps_high_p60_despite_low_position_average(con):
+    """Regression: P(60+ | started) was a single position-wide average (~0.71 for forwards,
+    ~0.75 for midfielders) applied to every starter, so a nailed 90-minute player inherited a
+    rotation-dragged rate and got an inflated p_1_59 / deflated p_60plus. It must now track the
+    player's own history."""
+    _seed_two_same_position_starters(con)
+    params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+    params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
+
+    model_version = mm.run(
+        con, date(2026, 8, 10), "2025-2026",
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+        lookback_seasons=("2024-2025", "2025-2026"),
+    )
+    rows = con.execute(
+        "SELECT player_uid, p_0min, p_1_59min, p_60plus_min FROM minutes_model_outputs WHERE model_version = ?",
+        [model_version],
+    ).fetchdf().set_index("player_uid")
+
+    # position average P(60+|started) here is ~0.5 (one always-90, one always-45 starter)
+    assert rows.loc["p_full", "p_60plus_min"] > 0.85
+    assert rows.loc["p_full", "p_1_59min"] < 0.15
+    assert rows.loc["p_early", "p_60plus_min"] < 0.15
+    # both are near-certain to feature -- the split is 1-59 vs 60+, not 0
+    assert rows.loc["p_early", "p_1_59min"] > 0.7
+    assert (rows.p_0min + rows.p_1_59min + rows.p_60plus_min).sub(1.0).abs().max() < 1e-9
+
+
+def test_player_conditional_minutes_rates_shrinks_small_samples_to_position_average(con):
+    _seed_two_same_position_starters(con)
+    pos = mm.compute_conditional_minutes_rates(con)
+    per_player = mm.compute_player_conditional_minutes_rates(con)
+    pos_avg = float(pos.loc["Midfielder", "p_60plus_given_started"])
+    # large own sample (24 starts) with threshold 10 -> essentially the own rate
+    big = mm._shrunk_conditional_rate(per_player, "p_full", "n_started", "n_started_60plus", pos_avg, 10.0)
+    assert big == pytest.approx(1.0, abs=1e-9)
+    # a player with no history at all -> pure position average
+    fallback = mm._shrunk_conditional_rate(per_player, "unknown_uid", "n_started", "n_started_60plus", pos_avg, 10.0)
+    assert fallback == pytest.approx(pos_avg)
+
+
 def test_zero_history_player_gets_pure_position_average(con):
     con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
     con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
