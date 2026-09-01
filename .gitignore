@@ -5,6 +5,11 @@ __pycache__/
 db/*.duckdb
 db/*.duckdb.wal
 data/external/
+# ...except the small, hand/Perplexity-built research-pull workbook -- version-controlling it
+# means the repo records exactly what evidence the model had each week, and updates go through
+# a diff. Rebuild it with scripts/build_evidence_pull_workbook.py; the workflows use this
+# committed copy and only fall back to Google Drive if it is missing.
+!data/external/FPL_Evidence_Claims_Research_Pull.xlsx
 .pytest_cache/
 .mypy_cache/
 *.egg-info/

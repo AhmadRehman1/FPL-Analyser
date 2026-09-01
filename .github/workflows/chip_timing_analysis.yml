@@ -85,7 +85,7 @@ jobs:
             if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
             if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
           }
-          fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
           fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
       - name: Run ingestion (M0-M6)
