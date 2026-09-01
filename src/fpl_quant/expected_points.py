@@ -485,9 +485,20 @@ def compute_player_fixture_components(
         ep_goals_conceded = -1.0 * e_floor_half_conceded
 
     # ---- DefCon (count-distribution, thresholded, gated by minutes) ----
+    # FPL's Defensive Contribution rule counts a different action set per position (verified
+    # against the 2026/27 rules): a DEFENDER needs 10+ CBIT -- clearances, blocks,
+    # interceptions, tackles -- and ball recoveries do NOT count toward it; a MIDFIELDER or
+    # FORWARD needs 12+ of CBIT *plus* ball recoveries. Adding recoveries to a defender's rate
+    # (as this originally did, unconditionally) roughly doubled the modelled action rate for
+    # high-recovery centre-backs and full-backs, making almost every nailed starting defender
+    # a near-certain +2 every week -- the single biggest reason defenders outranked premium
+    # forwards for captaincy.
     ep_defcon = 0.0
     if position in ("Defender", "Midfielder", "Forward"):
-        defcon_rate = (def_rates["cbi_per_90"] + def_rates["recoveries_per_90"]) * e_min_played / 90.0
+        defcon_actions_per_90 = def_rates["cbi_per_90"]
+        if position in ("Midfielder", "Forward"):
+            defcon_actions_per_90 += def_rates["recoveries_per_90"]
+        defcon_rate = defcon_actions_per_90 * e_min_played / 90.0
         threshold = _sm(con, "defcon_threshold", scoring_params_version, position)
         p_over_threshold = 1.0 - poisson.cdf(threshold - 1, max(defcon_rate, 1e-9)) if defcon_rate > 0 else 0.0
         ep_defcon = p_over_threshold * p_played * _sm(con, "defcon_points", scoring_params_version)
@@ -653,8 +664,8 @@ NON_DOUBLE_COUNTING_AUDIT = [
      "intentional_dual_use": True, "note": "clean sheet, goals-conceded points, and goals-conceded BPS are three separate real FPL mechanisms off the same underlying goal count"},
     {"raw_stat": "CBI (tackles+clearances+interceptions+blocks)", "feeds": ["ep_defcon", "expected_bps (cbi_per_point)"],
      "intentional_dual_use": True, "note": "the exact example named in M3's own spec -- DefCon and BPS are separate real FPL scoring mechanisms"},
-    {"raw_stat": "recoveries", "feeds": ["ep_defcon", "expected_bps (recoveries_per_point)"],
-     "intentional_dual_use": True, "note": "same reasoning as CBI above"},
+    {"raw_stat": "recoveries", "feeds": ["ep_defcon (Midfielder/Forward only)", "expected_bps (recoveries_per_point)"],
+     "intentional_dual_use": True, "note": "same reasoning as CBI above; recoveries only count toward DefCon for MID/FWD, never for a Defender (whose DefCon threshold is CBIT-only per FPL rules)"},
     {"raw_stat": "saves_per_90", "feeds": ["ep_saves", "expected_bps (save_inside_box)"],
      "intentional_dual_use": True, "note": "save points and save BPS are separate real FPL mechanisms"},
     {"raw_stat": "ep_bonus (Plackett-Luce over expected_bps)", "feeds": ["ep_total"],

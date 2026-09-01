@@ -145,6 +145,48 @@ def compute_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.Data
     ).fetchdf().set_index("position")
 
 
+def compute_player_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Per-player raw counts behind P(60+ | started) and P(60+ | subbed on), so each player's
+    own conditional rate can be blended toward the position average by sample size.
+
+    The position-wide average from compute_conditional_minutes_rates() is dragged down by
+    rotation and cameo starters (forwards sit ~0.71, midfielders ~0.75) and, applied
+    uniformly, badly understated the 60+ probability for exactly the nailed 90-minute
+    starters that captaincy and premium-transfer decisions care about -- which then
+    propagated into an understated p_60plus, e_min_played (via expected_points) and p_played.
+    Same shrink-own-toward-position-average idea, and the same sample-size threshold param,
+    as p_start_historical_final above. Reads fact_player_match_stats by bare name so it
+    inherits any active backtest.asof_scope() shadow, exactly like the position version."""
+    return con.execute(
+        """
+        SELECT pmst.player_uid,
+            sum(CASE WHEN pmst.start_min = 0 THEN 1 ELSE 0 END) AS n_started,
+            sum(CASE WHEN pmst.start_min = 0 AND pmst.minutes_played >= 60 THEN 1 ELSE 0 END) AS n_started_60plus,
+            sum(CASE WHEN pmst.start_min > 0 AND pmst.minutes_played > 0 THEN 1 ELSE 0 END) AS n_subbed_on,
+            sum(CASE WHEN pmst.start_min > 0 AND pmst.minutes_played >= 60 THEN 1 ELSE 0 END) AS n_subbed_on_60plus
+        FROM fact_player_match_stats pmst
+        GROUP BY pmst.player_uid
+        """
+    ).fetchdf().set_index("player_uid")
+
+
+def _shrunk_conditional_rate(
+    player_conditional: pd.DataFrame, player_uid: str, n_col: str, hit_col: str,
+    position_avg: float, sample_threshold: float,
+) -> float:
+    """own_rate = hits / trials, weighted against position_avg by min(1, trials/threshold).
+    Falls back to the position average with no own trials (or an unknown player)."""
+    if player_uid not in player_conditional.index:
+        return position_avg
+    row = player_conditional.loc[player_uid]
+    trials = float(row[n_col] or 0.0)
+    if trials <= 0:
+        return position_avg
+    own_rate = float(row[hit_col] or 0.0) / trials
+    weight_own = min(1.0, trials / sample_threshold) if sample_threshold > 0 else 1.0
+    return weight_own * own_rate + (1.0 - weight_own) * position_avg
+
+
 # --------------------------------------------------------- evidence adjustment ----
 
 _SHIFT_CLAIM_TYPES = ("injury_status", "manager_tendency", "transfer_likelihood")
@@ -420,6 +462,7 @@ def run(
     per_player = compute_player_historical_components(con, lookback_seasons, calibration_asof_date, xi)
     position_rates = compute_position_rates(con, per_player)  # merges position internally
     conditional_rates = compute_conditional_minutes_rates(con)
+    player_conditional = compute_player_conditional_minutes_rates(con)
 
     target_players = con.execute(
         """
@@ -468,8 +511,19 @@ def run(
         p_start_final = sigmoid(logit(p_start_hist_final) + adjustment)
 
         cond = conditional_rates.loc[position] if position in conditional_rates.index else None
-        p_60_started = float(cond["p_60plus_given_started"]) if cond is not None and not pd.isna(cond["p_60plus_given_started"]) else 0.7
-        p_60_subbed = float(cond["p_60plus_given_subbed_on"]) if cond is not None and not pd.isna(cond["p_60plus_given_subbed_on"]) else 0.1
+        pos_p60_started = float(cond["p_60plus_given_started"]) if cond is not None and not pd.isna(cond["p_60plus_given_started"]) else 0.7
+        pos_p60_subbed = float(cond["p_60plus_given_subbed_on"]) if cond is not None and not pd.isna(cond["p_60plus_given_subbed_on"]) else 0.1
+
+        # Blend the player's own P(60+ | started) / P(60+ | subbed on) toward the position
+        # average, weighted by how many starts / sub appearances they actually have. A nailed
+        # 90-minute starter (Haaland's real P(60+|started) ~ 0.94) should not inherit the
+        # rotation-dragged forward average of ~0.71 -- see compute_player_conditional_minutes_rates.
+        p_60_started = _shrunk_conditional_rate(
+            player_conditional, player_uid, "n_started", "n_started_60plus", pos_p60_started, threshold
+        )
+        p_60_subbed = _shrunk_conditional_rate(
+            player_conditional, player_uid, "n_subbed_on", "n_subbed_on_60plus", pos_p60_subbed, threshold
+        )
 
         p_0 = (1 - p_start_final) * (1 - p_sub_used)
         p_60plus = p_start_final * p_60_started + (1 - p_start_final) * p_sub_used * p_60_subbed

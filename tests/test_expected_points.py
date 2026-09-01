@@ -288,3 +288,100 @@ def test_compute_player_fixture_components_applies_uplift_when_opted_in(con):
     )
     assert with_uplift["ep_goals"] == pytest.approx(without_uplift["ep_goals"] * 1.15)
     assert with_uplift["expected_bps"] > without_uplift["expected_bps"]
+
+
+# ============================================================
+# DefCon action set is position-specific: a DEFENDER's threshold counts CBIT only (clearances,
+# blocks, interceptions, tackles); a MIDFIELDER/FORWARD's counts CBIT + ball recoveries. This
+# regression covers the bug where recoveries were added to every position's rate, roughly
+# doubling defenders' modelled DefCon rate and making almost every nailed starter a near-certain
+# +2 -- the main reason defenders outranked premium forwards for captaincy.
+# ============================================================
+
+def _seed_fixture_and_strength(con, gw=2):
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1', '2026-2027', ?, 'team_a', 'team_b', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)", [gw],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    for team_uid, attack, defence in (("team_a", 0.2, 0.1), ("team_b", 0.0, 0.0)):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)",
+            [ts_mv, team_uid, attack, defence],
+        )
+    return ts_mv
+
+
+def _seed_defensive_actions(con, player_uid, position, *, cbit_per_match, recoveries_per_match, n_matches=20):
+    """n_matches identical rows of 90 minutes each, so per-90 rates are exactly the per-match
+    counts and the sample is large enough that shrinkage toward the position average is minimal."""
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+        [player_uid, player_uid, position],
+    )
+    tackles = cbit_per_match  # all CBIT loaded onto one column -- the model sums the four
+    for i in range(n_matches):
+        match_id = f"hist_{player_uid}_{i}"
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, '2025-2026', ?, 'team_a', 'team_b', TRUE, "
+            "'Premier League', '2026-01-01', current_timestamp)", [match_id, i + 1],
+        )
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+            "minutes_played, tackles, clearances, interceptions, blocks, recoveries, _ingested_at) "
+            "VALUES (?, ?, '2025-2026', 0, 90, 90, ?, 0, 0, 0, ?, current_timestamp)",
+            [player_uid, match_id, tackles, recoveries_per_match],
+        )
+
+
+def test_defcon_excludes_recoveries_for_a_defender(con):
+    ep.seed_v1_params(con)
+    ts_mv = _seed_fixture_and_strength(con)
+    # 7 CBIT/match (below the 10 threshold) but 8 recoveries/match -- old code thresholded on
+    # 15, new code thresholds a defender on 7 alone.
+    _seed_defensive_actions(con, "def1", "Defender", cbit_per_match=7, recoveries_per_match=8)
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+        "minutes, _ingested_at) VALUES ('def1', '2025-2026', 38, 0.0, 0.0, 1800, current_timestamp)"
+    )
+    mean_minutes = {"mean_1_59": 30.0, "mean_60plus": 85.0}
+    comp = ep.compute_player_fixture_components(
+        con, "def1", "Defender", "team_a", "m1", 0.02, 0.05, 0.93, ts_mv, 1, 1,
+        ["2025-2026"], mean_minutes,
+    )
+    e_min = ep.expected_minutes_given_played(0.05, 0.93, mean_minutes)
+    p_played = 0.98
+    cbit_only_rate = 7.0 * e_min / 90.0
+    cbit_plus_rec_rate = 15.0 * e_min / 90.0
+    expected_new = (1.0 - poisson.cdf(9, cbit_only_rate)) * p_played * 2.0
+    would_have_been_old = (1.0 - poisson.cdf(9, cbit_plus_rec_rate)) * p_played * 2.0
+    assert comp["ep_defcon"] == pytest.approx(expected_new, rel=1e-3)
+    assert comp["ep_defcon"] < would_have_been_old * 0.5  # the bug roughly doubled it
+
+
+def test_defcon_still_includes_recoveries_for_a_midfielder(con):
+    ep.seed_v1_params(con)
+    ts_mv = _seed_fixture_and_strength(con)
+    _seed_defensive_actions(con, "mid1", "Midfielder", cbit_per_match=7, recoveries_per_match=8)
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+        "minutes, _ingested_at) VALUES ('mid1', '2025-2026', 38, 0.0, 0.0, 1800, current_timestamp)"
+    )
+    mean_minutes = {"mean_1_59": 30.0, "mean_60plus": 85.0}
+    comp = ep.compute_player_fixture_components(
+        con, "mid1", "Midfielder", "team_a", "m1", 0.02, 0.05, 0.93, ts_mv, 1, 1,
+        ["2025-2026"], mean_minutes,
+    )
+    e_min = ep.expected_minutes_given_played(0.05, 0.93, mean_minutes)
+    p_played = 0.98
+    cbit_plus_rec_rate = 15.0 * e_min / 90.0  # MID threshold is 12, over CBIT + recoveries
+    expected = (1.0 - poisson.cdf(11, cbit_plus_rec_rate)) * p_played * 2.0
+    assert comp["ep_defcon"] == pytest.approx(expected, rel=1e-3)
