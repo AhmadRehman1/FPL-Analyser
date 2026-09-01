@@ -382,16 +382,25 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/report_history/ data/dashboard/ data/decision_log/ data/model_team/
+          git add data/report_history/ data/dashboard/ data/decision_log/
+          # data/model_team/ only exists once run_model_team.py has succeeded at least once --
+          # `git add` on a missing pathspec is fatal under `bash -e`, which would sink the
+          # whole commit (report + decision logs included) over an optional new feature.
+          [ -d data/model_team ] && git add data/model_team/ || true
           git diff --cached --quiet && exit 0
           git commit -m "chore: update report_history snapshot [skip ci]"
           for attempt in 1 2 3 4 5; do
             if git push; then
               exit 0
             fi
-            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
+            echo "push rejected (attempt $attempt/5) -- merging the new master, our generated output wins"
             git fetch origin master
-            git rebase origin/master
+            # `merge -X ours` (not rebase): resolves any content conflict in our favour AND
+            # keeps our side of a modify/delete (a stale report_history/ file this run deleted
+            # that a concurrent [skip ci] commit re-touched -- the exact failure of run
+            # 33444584526). This run's generated data is the freshest; a merge commit in the
+            # snapshot history is a fine price for a push that always lands.
+            git merge -X ours --no-edit origin/master || { git merge --abort; sleep 5; }
           done
-          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
+          echo "::error::git push kept failing after 5 merge-and-retry attempts"
           exit 1

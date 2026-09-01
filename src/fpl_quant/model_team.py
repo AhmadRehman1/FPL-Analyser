@@ -87,6 +87,43 @@ def seed_squad(con: duckdb.DuckDBPyConnection, season: str = SEASON) -> list[dic
     ]
 
 
+def _resolve(con: duckdb.DuckDBPyConnection, names: list[str]) -> dict[str, str]:
+    """canonical_name -> player_uid for the seed squad (names come straight from dim_player)."""
+    if not names:
+        return {}
+    ph = ",".join("?" * len(names))
+    return dict(con.execute(f"SELECT canonical_name, player_uid FROM dim_player WHERE canonical_name IN ({ph})", names).fetchall())
+
+
+def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: str, current_event: int) -> dict:
+    by_name = _resolve(con, [p["player_name"] for p in seed])
+    squad_uids, xi_uids, captain_uid = [], [], None
+    for p in seed:
+        uid = by_name.get(p["player_name"])
+        if not uid:
+            continue
+        squad_uids.append(uid)
+        if p["in_xi"]:
+            xi_uids.append(uid)
+        if p["is_captain"]:
+            captain_uid = uid
+    played = con.execute(
+        "SELECT count(*) FROM fact_player_season_stats WHERE season = ? AND gw = 1 AND event_points IS NOT NULL",
+        [season],
+    ).fetchone()[0]
+    realized = (
+        round(bt._realized_xi_points(con, season, 1, frozenset(xi_uids), captain_uid), 1) if played else None
+    )
+    return {
+        "gameweek": 1, "entry_label": "FPL Quant Model Team", "simulated": 1 < current_event,
+        "action": "seed", "action_detail": "from-scratch GW1 optimal squad", "projected_points": None,
+        "band_low": None, "band_high": None, "wildcard_gain": None, "wildcard_recommended": False,
+        "free_hit_gain": None, "free_hit_recommended": False, "current_squad_horizon_value": None,
+        "chips_used": [], "squad_uids": sorted(squad_uids), "xi_uids": sorted(xi_uids),
+        "captain_uid": captain_uid, "realized_points": realized,
+    }
+
+
 def _squad_from_ledger_row(con: duckdb.DuckDBPyConnection, row: dict) -> list[dict]:
     """Reconstruct the bootstrap-shaped squad from a ledger row's stored uids."""
     names = _names(con, row["squad_uids"])
@@ -113,17 +150,29 @@ def advance(
     season: str = SEASON,
 ) -> dict:
     """Advance the model team's ledger to `current_event`. On the first call, seeds the GW1
-    squad and backfills GW1..current_event by simulation. On later calls, walks exactly the
-    new gameweek(s) from the stored squad. Returns the updated state (also saved to disk)."""
+    squad, scores GW1 directly, and walks GW2..current_event. On later calls, walks exactly
+    the new gameweek(s) from the stored squad. Returns the updated state (also saved to disk).
+
+    GW1 is scored directly rather than walked: a walk starting at GW1 would re-solve the
+    candidate pool inside `asof_scope(season, 1)`, whose price cut-off (before any 2026-27
+    match) leaves `fetch_candidate_pool` empty. The GW1 squad is the model's real from-scratch
+    solve from ingestion; there is no transfer decision to make for the opening squad anyway."""
     state = load_state(state_dir)
     if state is None:
         state = {"season": season, "current_gameweek": 0, "ledger": [], "chips_used_set1": [], "chips_used_set2": []}
 
-    from_gw = state["current_gameweek"] + 1
-    if from_gw > current_event:
-        return state  # already current
+    if not state["ledger"]:
+        seed = seed_squad(con, season)
+        state["ledger"].append(_gw1_ledger_row(con, seed, season, current_event))
+        state["current_gameweek"] = 1
 
-    bootstrap = seed_squad(con, season) if not state["ledger"] else _squad_from_ledger_row(con, state["ledger"][-1])
+    from_gw = max(state["current_gameweek"] + 1, 2)
+    if from_gw > current_event:
+        state["current_gameweek"] = current_event
+        save_state(state_dir, state)
+        return state
+
+    bootstrap = _squad_from_ledger_row(con, state["ledger"][-1])
 
     result = fss.run_forward_season_sim(
         con,
