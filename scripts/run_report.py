@@ -25,6 +25,38 @@ TARGET_SEASON = "2026-2027"
 REPORT_HISTORY_DIR = REPO_ROOT / "data" / "report_history"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
+DECISION_LOG_DIR = REPO_ROOT / "data" / "decision_log"
+TRACKED_ENTRY_IDS = [7139944, 1305242]
+
+
+def _resolve_report_run_id(con, current_event: int | None) -> int | None:
+    """The from-scratch M5 solve this report should describe -- the model's optimal squad for
+    the CURRENT gameweek. Not `max(target_gameweek)`: print_chip_timing_roadmap.py runs an
+    evaluate_wildcard() (-> a real is_manager_snapshot=FALSE squad_optimizer_runs row) at
+    fixture-swing gameweeks 10-19 BEFORE this script runs, so ordering by target_gameweek DESC
+    snapshotted GW12/GW14 "reports" for a squad the model never recommended for now -- junk in
+    report_history/ that then polluted the public Track Record timeline. Constrain to the real
+    current gameweek instead."""
+    if current_event is not None:
+        row = con.execute(
+            "SELECT run_id FROM squad_optimizer_runs WHERE target_season = ? AND is_manager_snapshot = FALSE "
+            "AND target_gameweek <= ? ORDER BY target_gameweek DESC, run_id DESC LIMIT 1",
+            [TARGET_SEASON, current_event],
+        ).fetchone()
+        if row:
+            return row[0]
+    # No event passed (a bare local run): the real-squad planner always solves at the true
+    # current gameweek and its manager-snapshot runs are never future-dated by a roadmap
+    # horizon solve -- use the newest one's gameweek as the ceiling.
+    ceiling = con.execute(
+        "SELECT max(target_gameweek) FROM squad_optimizer_runs WHERE target_season = ? AND is_manager_snapshot = TRUE",
+        [TARGET_SEASON],
+    ).fetchone()[0]
+    q = ("SELECT run_id FROM squad_optimizer_runs WHERE target_season = ? AND is_manager_snapshot = FALSE "
+         + ("AND target_gameweek <= ? " if ceiling is not None else "")
+         + "ORDER BY target_gameweek DESC, run_id DESC LIMIT 1")
+    row = con.execute(q, [TARGET_SEASON, ceiling] if ceiling is not None else [TARGET_SEASON]).fetchone()
+    return row[0] if row else None
 
 # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): this feeds
 # reporting.transparency_panel() (via build_report()'s active_param_versions=), whose whole
@@ -72,21 +104,14 @@ def _would_regress_track_record(new_track_record: dict, existing_track_record: d
 
 
 def main() -> None:
+    current_event = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else None
     con = db.connect()
     _ACTIVE = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
     ACTIVE_PARAM_VERSIONS = _active_param_versions(_ACTIVE)
 
-    # Latest real (non-manager-snapshot) run for the season, not hardcoded to GW1 -- Priority
-    # 8c's week-over-week diff is only useful across an advancing season, and a scheduled
-    # weekly run (Priority 8a) needs this to naturally pick up each new gameweek's run.
-    real_run_id = con.execute(
-        "SELECT run_id FROM squad_optimizer_runs WHERE target_season = ? AND is_manager_snapshot = FALSE "
-        "ORDER BY target_gameweek DESC LIMIT 1",
-        [TARGET_SEASON],
-    ).fetchone()
+    real_run_id = _resolve_report_run_id(con, current_event)
     if not real_run_id:
         raise SystemExit(f"no real squad_optimizer_runs row for {TARGET_SEASON} -- run scripts/run_ingestion.py first")
-    real_run_id = real_run_id[0]
 
     backtest_run_id = con.execute("SELECT max(backtest_run_id) FROM backtest_runs").fetchone()[0]
     transfer_plan_run_id = con.execute("SELECT max(run_id) FROM transfer_plan_runs").fetchone()[0]
@@ -145,6 +170,14 @@ def main() -> None:
     # (real backtest data already captured) rather than regress it; still write fresh when this
     # run has its own real backtest_run_id, or when nothing's been committed yet.
     track_record = reporting.build_track_record_summary(con, report, backtest_run_id)
+    # Phase C-3, moved onto the DAILY path (was export_track_record.py in weekly_backtest.yml,
+    # which never lands -- its full run_backtest.py exceeds the 6h Actions cap). This half of the
+    # track record needs no backtest: it reads the committed data/decision_log/ entries
+    # realize_decision_log_outcomes.py fills in each gameweek, so it refreshes every day and
+    # accumulates in the open from the first realized gameweek.
+    track_record["planner_decision_accuracy"] = reporting.build_planner_decision_summary(
+        DECISION_LOG_DIR, TRACKED_ENTRY_IDS, TARGET_SEASON,
+    )
     track_record["generated_at"] = datetime.now().isoformat()
     # Priority 8d: the full public Track Record page payload -- backtest status + the dated
     # snapshot timeline + the latest week-over-week diff + data provenance, all assembled from
@@ -163,11 +196,19 @@ def main() -> None:
         except (json.JSONDecodeError, OSError):
             existing_track_record = None
     if _would_regress_track_record(track_record, existing_track_record):
+        # Keep the committed file's real backtest data -- but still refresh the daily-cadence
+        # halves (planner_decision_accuracy from the decision logs, the snapshot timeline, the
+        # diff, provenance) onto it, so a real backtest landing once doesn't freeze the forward
+        # track record until the next one does.
+        merged = dict(existing_track_record)
+        merged["planner_decision_accuracy"] = track_record["planner_decision_accuracy"]
+        merged["transparency_log"] = track_record["transparency_log"]
+        merged["generated_at"] = track_record["generated_at"]
+        track_record_path.write_text(json.dumps(merged, indent=2))
         print(
-            f"\n[dashboard] app_track_record.json NOT overwritten -- this run has no real "
-            f"backtest_run_id, but the committed file already has one "
-            f"({existing_track_record['backtest_run_id']}) from a real scripts/run_backtest.py "
-            f"run. Keeping it."
+            f"\n[dashboard] app_track_record.json: kept committed backtest_run_id "
+            f"{existing_track_record['backtest_run_id']}, refreshed planner_decision_accuracy + "
+            f"timeline + provenance."
         )
     else:
         track_record_path.write_text(json.dumps(track_record, indent=2))

@@ -950,37 +950,64 @@ def build_planner_decision_summary(
     """Phase C-3 (Track C, docs/plans/2026-08_roadmap_plan.md [A4]): aggregates every REALIZED
     data/decision_log/ entry (Phase C-2's own output -- both realized_points_actual and
     realized_points_if_recommendation_followed present; a wildcard/free_hit recommendation Phase
-    C-2 couldn't honestly counterfactual-price is excluded, not counted as a loss) across the
-    given tracked entry_ids into one honest summary.
+    C-2 couldn't honestly counterfactual-price is excluded from the scored set, and counted
+    separately as `n_uncounterfactualable_weeks`) across the given tracked entry_ids.
 
-    Below min_gameweeks realized entries, 'ready' is False and every other field is omitted --
-    an aggregate over 1-2 gameweeks would overstate what's actually known this early (see [A4]'s
-    own basis: no real week-to-week variance data exists yet to say what a meaningful sample
-    size is, so this default should be revisited once some does).
+    `ready` is True only once there are `min_gameweeks` scored entries -- an aggregate over 1-2
+    gameweeks does not yet mean anything ([A4]'s own basis). But the running numbers are now
+    always returned (with `preliminary: True` below the bar) rather than hidden: the app's
+    Track Record page frames them as "preliminary -- N gameweeks so far, not yet a meaningful
+    sample" so a visitor can see the model IS being scored, week by week, in the open, from the
+    first realized gameweek -- which is the whole point of a public track record.
     """
     log_dir = Path(log_dir)
-    rows = []
+    rows, n_uncounterfactualable = [], 0
     if log_dir.is_dir():
         for entry_id in entry_ids:
             for path in sorted(log_dir.glob(f"{entry_id}_{season}_gw*.json")):
                 row = json.loads(path.read_text())
-                if row.get("realized_points_actual") is not None and row.get("realized_points_if_recommendation_followed") is not None:
-                    rows.append(row)
+                if row.get("realized_points_actual") is None:
+                    continue  # gameweek not finished / not realized yet
+                if row.get("realized_points_if_recommendation_followed") is None:
+                    n_uncounterfactualable += 1  # a wildcard/free-hit week -- played, but no priceable counterfactual
+                    continue
+                rows.append(row)
 
     n_realized = len(rows)
-    if n_realized < min_gameweeks:
-        return {"ready": False, "n_realized": n_realized, "min_gameweeks": min_gameweeks}
-
-    deltas = [r["realized_points_if_recommendation_followed"] - r["realized_points_actual"] for r in rows]
-    return {
-        "ready": True,
+    base = {
+        "ready": n_realized >= min_gameweeks,
         "n_realized": n_realized,
         "min_gameweeks": min_gameweeks,
+        "n_uncounterfactualable_weeks": n_uncounterfactualable,
+    }
+    if n_realized == 0:
+        return base
+
+    deltas = [r["realized_points_if_recommendation_followed"] - r["realized_points_actual"] for r in rows]
+    if not base["ready"]:
+        base["preliminary"] = True
+    base.update({
         "mean_point_delta_if_followed": round(sum(deltas) / n_realized, 2),
+        "total_point_delta_if_followed": sum(deltas),
         "n_recommendation_would_have_scored_more": sum(1 for d in deltas if d > 0),
         "n_actual_scored_more": sum(1 for d in deltas if d < 0),
         "n_tied": sum(1 for d in deltas if d == 0),
-    }
+        "by_gameweek": sorted(
+            (
+                {
+                    "gameweek": r["target_gameweek"],
+                    "entry_id": r.get("entry_id"),
+                    "recommended_action": r.get("recommended_action"),
+                    "actual": r["realized_points_actual"],
+                    "if_followed": r["realized_points_if_recommendation_followed"],
+                    "delta": r["realized_points_if_recommendation_followed"] - r["realized_points_actual"],
+                }
+                for r in rows
+            ),
+            key=lambda d: (d["gameweek"], d["entry_id"] or 0),
+        ),
+    })
+    return base
 
 
 def diff_reports(previous_snapshot: dict | None, current_report: dict) -> dict:

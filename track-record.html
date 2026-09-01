@@ -267,14 +267,21 @@ function render(data) {
     <section class="card">
       <h2>Planner decision accuracy</h2>
       <p class="sub">Real, realized outcomes for the two live tracked accounts: what they actually scored each gameweek vs. what they would have scored had they followed the model's logged recommendation instead. Wildcard/free hit gameweeks are excluded (the replacement squad isn't logged, so it can't be honestly reconstructed) — never counted as a loss or a win.</p>
-      ${pda.ready ? `
+      ${(pda.n_realized ?? 0) > 0 ? `
+      ${!pda.ready ? `<div class="banner" style="background:var(--card-2);"><div class="ico">&#9888;</div><div class="txt"><strong>Preliminary — ${pda.n_realized} of ${pda.min_gameweeks ?? 8} gameweeks.</strong> Shown in the open from the first realized gameweek, but too small a sample to draw a conclusion from yet.</div></div>` : ""}
       <div class="kpis">
-        <div class="kpi"><div class="v">${pda.mean_point_delta_if_followed >= 0 ? "+" : ""}${pda.mean_point_delta_if_followed}</div><div class="l">Mean point delta if followed</div></div>
-        <div class="kpi"><div class="v">${pda.n_recommendation_would_have_scored_more}</div><div class="l">GWs recommendation scored more</div></div>
-        <div class="kpi"><div class="v">${pda.n_actual_scored_more}</div><div class="l">GWs actual scored more</div></div>
+        <div class="kpi"><div class="v">${pda.mean_point_delta_if_followed >= 0 ? "+" : ""}${pda.mean_point_delta_if_followed}</div><div class="l">Mean pts/GW if followed</div></div>
+        <div class="kpi"><div class="v">${pda.n_recommendation_would_have_scored_more}&ndash;${pda.n_actual_scored_more}&ndash;${pda.n_tied}</div><div class="l">Model W&ndash;L&ndash;T</div></div>
+        <div class="kpi"><div class="v">${pda.total_point_delta_if_followed >= 0 ? "+" : ""}${pda.total_point_delta_if_followed}</div><div class="l">Total pts vs following</div></div>
       </div>
-      <p class="empty-note">${pda.n_realized} realized gameweeks (${pda.n_tied} tied) across the tracked accounts.</p>
-      ` : `<p class="empty-note">Not enough realized decisions yet (${pda.n_realized ?? 0}/${pda.min_gameweeks ?? 8} gameweeks) — this section will populate once the two tracked accounts have that many realized gameweeks logged between them (wildcard/free hit weeks excluded, since the replacement squad isn't logged). No accuracy figure is shown until then.</p>`}
+      ${(pda.by_gameweek || []).length ? `<div class="timeline">${pda.by_gameweek.map(g => `
+        <div class="snap">
+          <div class="gw">GW${g.gameweek}<small>${g.entry_id ?? ""}</small></div>
+          <div class="meta">rec: <strong>${esc(g.recommended_action ?? "—")}</strong><br><span class="cap">actual ${g.actual} · if followed ${g.if_followed}</span></div>
+          <div class="ep" style="color:${g.delta > 0 ? "var(--good,#2ecc71)" : g.delta < 0 ? "var(--bad,#e74c3c)" : "var(--ink-dim)"}">${g.delta >= 0 ? "+" : ""}${g.delta}<small>delta</small></div>
+        </div>`).join("")}</div>` : ""}
+      ${pda.n_uncounterfactualable_weeks ? `<p class="empty-note">${pda.n_uncounterfactualable_weeks} realized gameweek(s) excluded — the model recommended a wildcard/free hit those weeks, and the replacement squad wasn't logged, so there's no honest counterfactual to score.</p>` : ""}
+      ` : `<p class="empty-note">No realized decisions to score yet (${pda.n_realized ?? 0}/${pda.min_gameweeks ?? 8} gameweeks)${pda.n_uncounterfactualable_weeks ? `, plus ${pda.n_uncounterfactualable_weeks} wildcard/free-hit week(s) that can't be counterfactual-scored` : ""}. This section fills in gameweek by gameweek as results come in — nothing is retrofitted.</p>`}
     </section>
 
     <section class="card">

@@ -682,18 +682,28 @@ def test_compute_counterfactual_points_missing_live_points_default_to_zero():
 
 def _realized_row(gw, actual, if_followed):
     return {
-        "target_gameweek": gw, "recommended_action": "hold",
+        "target_gameweek": gw, "entry_id": 7139944, "recommended_action": "hold",
         "realized_points_actual": actual, "realized_points_if_recommendation_followed": if_followed,
     }
 
 
-def test_build_planner_decision_summary_not_ready_below_the_minimum(tmp_path):
+def test_build_planner_decision_summary_preliminary_below_the_minimum(tmp_path):
     for gw in range(2, 5):  # only 3 realized gameweeks, default minimum is 8
         reporting.save_decision_log_entry(7139944, "2026-2027", gw, _realized_row(gw, 50, 55), tmp_path)
 
     summary = reporting.build_planner_decision_summary(tmp_path, [7139944, 1305242], "2026-2027")
 
-    assert summary == {"ready": False, "n_realized": 3, "min_gameweeks": 8}
+    assert summary["ready"] is False
+    assert summary["preliminary"] is True
+    assert summary["n_realized"] == 3
+    assert summary["mean_point_delta_if_followed"] == 5.0     # numbers ARE shown now, just flagged
+    assert summary["total_point_delta_if_followed"] == 15
+    assert len(summary["by_gameweek"]) == 3
+
+
+def test_build_planner_decision_summary_zero_realized_has_no_numbers(tmp_path):
+    summary = reporting.build_planner_decision_summary(tmp_path, [7139944], "2026-2027")
+    assert summary == {"ready": False, "n_realized": 0, "min_gameweeks": 8, "n_uncounterfactualable_weeks": 0}
 
 
 def test_build_planner_decision_summary_ready_once_the_minimum_is_reached(tmp_path):
@@ -705,6 +715,7 @@ def test_build_planner_decision_summary_ready_once_the_minimum_is_reached(tmp_pa
     summary = reporting.build_planner_decision_summary(tmp_path, [7139944, 1305242], "2026-2027", min_gameweeks=8)
 
     assert summary["ready"] is True
+    assert "preliminary" not in summary
     assert summary["n_realized"] == 8
     assert summary["mean_point_delta_if_followed"] == 2.5  # (4*5 + 4*0) / 8
     assert summary["n_recommendation_would_have_scored_more"] == 4
@@ -731,7 +742,7 @@ def test_build_planner_decision_summary_excludes_unrealized_and_uncounterfactual
 
 def test_build_planner_decision_summary_not_ready_when_log_dir_missing(tmp_path):
     summary = reporting.build_planner_decision_summary(tmp_path / "does_not_exist", [7139944], "2026-2027")
-    assert summary == {"ready": False, "n_realized": 0, "min_gameweeks": 8}
+    assert summary == {"ready": False, "n_realized": 0, "min_gameweeks": 8, "n_uncounterfactualable_weeks": 0}
 
 
 # ============================================================

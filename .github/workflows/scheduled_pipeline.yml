@@ -337,7 +337,9 @@ jobs:
             "1305242:$EVENT:Main account"
 
       - name: Build report + diff
-        run: PYTHONPATH=src python scripts/run_report.py
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: PYTHONPATH=src python scripts/run_report.py "$EVENT"
 
       - name: Check for deadline alerts
         id: alerts
