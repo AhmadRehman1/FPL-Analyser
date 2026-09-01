@@ -144,9 +144,18 @@ def main() -> None:
     print(f"[evidence_claims] {time.time() - t0:.1f}s -> {json.dumps(workbook_results)}")
 
     if RESEARCH_PULL_XLSX_PATH.exists():
+        # A manually-authored / Perplexity-built workbook -- never let one malformed research
+        # row take down the whole M0-M6 pipeline (and with it prepare + every downstream
+        # workflow). ingest_research_pull already skips bad rows internally; this is the
+        # belt-and-braces for a truly corrupt file / a load error.
         t0 = time.time()
-        research_pull_results = ingest_research_pull.ingest_all(con, str(RESEARCH_PULL_XLSX_PATH), source_tier_params_version=1)
-        print(f"[research_pull] {time.time() - t0:.1f}s -> {json.dumps(research_pull_results)}")
+        try:
+            research_pull_results = ingest_research_pull.ingest_all(
+                con, str(RESEARCH_PULL_XLSX_PATH), source_tier_params_version=1
+            )
+            print(f"[research_pull] {time.time() - t0:.1f}s -> {json.dumps(research_pull_results)}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"::warning::research-pull ingestion failed, continuing without it: {exc}")
 
     # Priority 7a: informational only (see ingest_understat.py's own module docstring) --
     # never blocks the real M1-M6 modeling pipeline below on a network hiccup. This
