@@ -399,6 +399,36 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   matrix (one job per entry x arm x bundle, ~36-72 jobs) and an `aggregate` job does Steps 2-6.
   20 new unit/integration tests. See the "chip timing sweep" Design note below for the
   recalibration-state correction and the two tracked entries' verified GW2 2026-27 state.
+- **App gap 2 -- the three optional dashboard `_latest` feeds no longer silently 404**
+  (`docs/BUSINESS_PLAN.md` 2.4; the app-feature-gaps prompt's "confirmed gap 2"). Verified
+  current state first, since the gap analysis was stale: `projections_latest.json` was already
+  wired into `scheduled_pipeline.yml` and live (no change needed). The other two:
+  - `export_leaderboard.py` was wired only as the LAST step of `weekly_backtest.yml`, after a
+    `run_backtest.py` step that real runs have had cancelled at the 5h cap -- so the leaderboard
+    step never started and `leaderboard_latest.json` was never produced. Fixed by making it its
+    own job in that workflow, parallel to (not gated behind) the backtest. It also hardcoded
+    `END_GAMEWEEK=6`; now resolves the end from `app_export.last_finished_event()` (new) and,
+    below `MIN_GAMEWEEK_SPAN` completed gameweeks, writes an explicit
+    `{"status": "insufficient_data"}` payload and exits 0 rather than raising or writing
+    nothing -- so `continue-on-error` could be dropped.
+  - `track_elite.py` no-op'd (wrote nothing) when `data/elite_managers.json` is empty (the
+    default). Now it always writes `elite_divergence_latest.json` with an explicit `status`
+    (`not_configured` vs `ok`), so `index.html` can tell "this maintainer feature is switched
+    off" apart from "the feed failed this run".
+  - `scripts/verify_dashboard_feeds.py` (new) + a step in `scheduled_pipeline.yml`: fails the
+    run LOUDLY (non-zero + `::error::`) if `projections_latest.json` /
+    `elite_divergence_latest.json` is missing, unparseable, or stale -- the "CI check that
+    fails loudly" the prompt asked for. Not `continue-on-error`; leaderboard is excluded (it's
+    on the separate weekly cadence and would be legitimately stale here).
+  - `index.html`: `leaderboardBlock()` renders an explicit unavailable / insufficient-data note
+    instead of returning `""`; `eliteDivergenceBlock()` treats `not_configured` as correctly-off
+    (still hidden -- an end user can't switch it on, so a note would be noise). Bootstrap
+    `leaderboard_latest.json` / `elite_divergence_latest.json` committed so the live app shows
+    the real states immediately. `NOT` wiring `export_leaderboard.py` into
+    `scheduled_pipeline.yml`'s twice-daily cadence is deliberate (a real MIQP+MC season sim per
+    completed gameweek is not cheap/safe for every run -- the prompt's own constraint).
+  15 new tests (`test_verify_dashboard_feeds.py`, `test_export_leaderboard.py`,
+  `test_track_elite_script.py`, `test_app_export.py`).
 
 ## Quick start
 
