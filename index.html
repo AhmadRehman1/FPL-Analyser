@@ -258,6 +258,8 @@
 .icon-btn[hidden]{display:none;}
 .icon-btn:hover{color:var(--ink);border-color:var(--ink-dim);}
 .icon-btn[aria-pressed="true"]{background:var(--green);color:#fff;border-color:var(--green);}
+/* app gap 1: closed-app push linked -> gold accent, distinct from plain notifications-on */
+.icon-btn.is-push{background:var(--gold,#e8b93b);border-color:var(--gold,#e8b93b);color:#2a1e00;}
 .icon-btn svg{width:16px;height:16px;}
 .lmc{display:flex;flex-direction:column;gap:8px;}
 .lmc-fixtures{display:flex;flex-wrap:wrap;gap:6px;}
@@ -623,6 +625,12 @@
   .plan-horizon-switch{display:flex;align-items:center;gap:8px;background:var(--card-2);border-radius:100px;padding:4px 4px;margin:0 0 12px;width:fit-content;}
   .plan-horizon-switch button{padding:12px 15px;border-radius:100px;font-size:11px;font-weight:700;color:var(--ink-dim);min-height:44px;min-width:44px;}
   .plan-horizon-switch button.active{background:var(--card);color:var(--ink);box-shadow:0 1px 4px oklch(0.2 0.05 150/0.15);}
+  /* Risk-posture segmented toggle (app gap 6) */
+  .risk-seg{display:flex;gap:4px;background:var(--card-2);border-radius:100px;padding:4px;width:100%;}
+  .risk-seg button{flex:1;padding:11px 10px;border-radius:100px;font-size:11.5px;font-weight:700;color:var(--ink-dim);border:none;cursor:pointer;font-family:inherit;min-height:44px;transition:background var(--transition-interactive),color var(--transition-interactive);}
+  .risk-seg button.active{background:var(--green);color:white;}
+  .risk-seg button:disabled{opacity:0.4;cursor:not-allowed;}
+  .risk-seg button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
   @media (min-width:700px){
     .timeline-scroll{overflow-x:visible;flex-wrap:wrap;}
     .tl-cell{flex:1;min-width:120px;}
@@ -656,6 +664,15 @@
   @media (hover:hover){
     .local-btn:not(:disabled):hover{box-shadow:0 4px 14px oklch(0.14 0.05 150/0.25);}
   }
+  /* Decision-log three-way control inside an expanded recommendation row (app gap 4) */
+  .dlog-control{margin-top:10px;padding-top:10px;border-top:1px solid var(--divider);}
+  .dlog-q{font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:7px;}
+  .dlog-q span{font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-dim2);}
+  .dlog-btns{display:flex;gap:6px;flex-wrap:wrap;}
+  .dlog-btn{flex:1;min-width:84px;background:var(--card-2);color:var(--ink-dim);border:1.5px solid transparent;font-size:10.5px;font-weight:700;padding:8px 6px;border-radius:100px;cursor:pointer;font-family:inherit;transition:transform var(--transition-interactive),background var(--transition-interactive),border-color var(--transition-interactive);}
+  .dlog-btn:active{transform:scale(0.95);}
+  .dlog-btn.active{background:var(--green);color:white;border-color:var(--green);}
+  .dlog-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
   /* One-line toast for share/install feedback */
   .fq-toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0) + 14px);left:50%;transform:translateX(-50%) translateY(20px);background:oklch(0.2 0.06 152);color:oklch(0.98 0.005 90);font-size:12.5px;font-weight:600;padding:11px 18px;border-radius:999px;z-index:1000;opacity:0;transition:opacity 0.18s ease,transform 0.18s ease;max-width:88vw;overflow-wrap:anywhere;box-shadow:0 8px 24px oklch(0.2 0.02 90 / 0.3);}
 
@@ -1049,16 +1066,29 @@
 </div>
 
 <script>
-// Origin-aware data source (Plan Phase D-1, docs/plans/2026-08_roadmap_plan.md): GitHub Pages
-// stages this shell only (see deploy_pages.yml) -- data/ is never deployed there, so a same-origin
-// fetch on the live site would always 404. isLocalDev is false on the deployed hostname, so
-// DATA_BASE still resolves to RAW_FALLBACK there -- production behavior (and the add-team SLA:
-// raw.githubusercontent.com reflects a new commit within seconds, vs. waiting on a Pages
-// redeploy) is unchanged. Relative fetches only ever happen on localhost/127.0.0.1, where data/
-// exists on disk alongside this file. Same pattern already proven in track-record.html.
+// Origin-aware data source (docs/BUSINESS_PLAN.md 2.5 / app gap 7): GitHub Pages stages this
+// shell only (see deploy_pages.yml) -- data/ is never deployed to the CANONICAL site, so
+// production must fetch from raw.githubusercontent.com (which also reflects a new commit within
+// seconds -- the add-team SLA depends on that, vs. waiting on a Pages redeploy).
+//
+// A safe STAGING copy (a personal fork/branch that also deploys data/ and wants to experiment
+// without touching the raw feed the real live-followed teams read) opts in explicitly, one of:
+//   * <meta name="fq-data-base" content="">                  (same-origin) or content="/sub"
+//   * window.FQ_DATA_BASE = "";  before this script
+// Anything else -> localhost/127.0.0.1 uses the on-disk data/ next to this file; every other
+// host uses RAW_FALLBACK. Nothing about the canonical deployment changes.
 const RAW_FALLBACK = "https://raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master";
 const isLocalDev = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-const DATA_BASE = (location.protocol === "file:" || !isLocalDev) ? RAW_FALLBACK : "";
+
+function resolveDataBase() {
+  const meta = document.querySelector('meta[name="fq-data-base"]');
+  const override = (typeof window.FQ_DATA_BASE === "string") ? window.FQ_DATA_BASE
+    : (meta ? meta.getAttribute("content") : null);
+  if (override !== null && override !== undefined) return override.replace(/\/$/, ""); // "" == same-origin
+  if (location.protocol === "file:") return RAW_FALLBACK;
+  return isLocalDev ? "" : RAW_FALLBACK;
+}
+const DATA_BASE = resolveDataBase();
 
 const ACCOUNTS = [
   { id: 7139944, label: "ChatGPT template team" },
@@ -1386,6 +1416,126 @@ function saveConfirmedTransfer(record) {
 }
 
 // ============================================================
+// Decision log (app gap 4 / docs/BUSINESS_PLAN.md 2.6) -- a privacy-first, LOCAL-ONLY record
+// of whether the user actually followed each weekly model recommendation (transfer / captain /
+// chip), so they can self-audit their own adherence. Never transmitted anywhere: this static
+// PWA has no client->server write path by design, and adding a third-party tracker is
+// explicitly ruled out. This is separate from, and complementary to, the SERVER-side
+// data/decision_log/ counterfactual (the "if followed" points delta on the Track Record page),
+// which is objective but only exists for the two tracked accounts.
+// Shape: { [accountId]: { [gameweek]: { transfer|captain|chip: { choice, rec, ts } } } }
+// choice is one of "followed" | "modified" | "skipped".
+// ============================================================
+
+const DECISION_LOG_KEY = "fq_decision_log_v1";
+const DECISION_CHOICES = ["followed", "modified", "skipped"];
+const DECISION_CHOICE_LABELS = { followed: "Followed", modified: "Did my own thing", skipped: "Skipped it" };
+
+function loadDecisionLogAll() {
+  try { return JSON.parse(localStorage.getItem(DECISION_LOG_KEY)) || {}; } catch { return {}; }
+}
+function loadDecisionLog(accountId) {
+  return loadDecisionLogAll()[accountId] || {};
+}
+function decisionChoiceFor(kind, gw) {
+  const wk = loadDecisionLog(state.accountId)[gw];
+  return wk && wk[kind] ? wk[kind].choice : null;
+}
+// explicit=true is a deliberate user tap and always wins; explicit=false is a soft auto-fill
+// (e.g. confirming a transfer that exactly matches the rec) that never overwrites a real choice.
+function logDecision(kind, choice, gw, recSummary, explicit = true) {
+  if (!state.accountId || gw == null || !DECISION_CHOICES.includes(choice)) return;
+  const all = loadDecisionLogAll();
+  const acct = all[state.accountId] || (all[state.accountId] = {});
+  const wk = acct[gw] || (acct[gw] = {});
+  if (!explicit && wk[kind]) return;
+  wk[kind] = { choice, rec: recSummary || (wk[kind] && wk[kind].rec) || null, ts: Date.now() };
+  try { localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(all)); } catch {}
+  if (explicit) { hapticTick(); renderCurrentTab(); }
+}
+
+// The three-way control rendered inside each expanded recommendation row.
+function decisionLogControl(kind, gw, recSummary) {
+  if (gw == null) return "";
+  const sel = decisionChoiceFor(kind, gw);
+  const safeRec = JSON.stringify(recSummary || "").replace(/"/g, "&quot;");
+  return `
+    <div class="dlog-control">
+      <div class="dlog-q">Did you act on this? <span>(private, this device only)</span></div>
+      <div class="dlog-btns">
+        ${DECISION_CHOICES.map(c => `<button class="dlog-btn${sel === c ? " active" : ""}" onclick="event.stopPropagation();logDecision('${kind}','${c}',${gw},${safeRec})">${DECISION_CHOICE_LABELS[c]}</button>`).join("")}
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// Risk posture (app gap 6 / docs/BUSINESS_PLAN.md) -- a per-team choice between the model's
+// default calibration ("Balanced") and a pre-validated, more aggressive parameter set
+// ("Attack rank": lower squad-concentration penalty + higher captaincy-variance tolerance).
+// Persisted per account. The pipeline produces a separate real_squad_<id>_attack.json for the
+// attack posture; activeRealSquad() picks which plan the rec-showing surfaces read.
+// ============================================================
+
+const RISK_POSTURE_KEY = "fq_risk_posture";
+const RISK_POSTURES = {
+  balanced: { label: "Balanced", blurb: "The model's default calibration." },
+  attack: { label: "Attack rank", blurb: "Lets the squad concentrate more (lower diversification penalty) and tolerates a higher-variance captain — more upside, more downside." },
+};
+
+function riskPosture() {
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(RISK_POSTURE_KEY)) || {}; } catch {}
+  const p = all[state.accountId];
+  return RISK_POSTURES[p] ? p : "balanced";
+}
+function setRiskPosture(p) {
+  if (!RISK_POSTURES[p]) return;
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(RISK_POSTURE_KEY)) || {}; } catch {}
+  all[state.accountId] = p;
+  try { localStorage.setItem(RISK_POSTURE_KEY, JSON.stringify(all)); } catch {}
+  hapticTick();
+  renderCurrentTab();
+}
+// True only when the user has picked "attack" AND that variant plan actually loaded.
+function attackPostureActive() {
+  return riskPosture() === "attack" && !!state.realSquadAttack;
+}
+// The plan the rec-showing surfaces (Home "Your moves", Transfers, chip sheet) should read.
+function activeRealSquad() {
+  return attackPostureActive() ? state.realSquadAttack : state.realSquad;
+}
+
+// The Plan-tab control. A 2-position segmented toggle (a "Protect rank" third position is
+// gated on a backtested higher-lambda version -- see src/fpl_quant/risk_posture.py). Shows
+// what the setting actually changes, and -- when Attack is on -- the attack plan's own captain
+// + chip call inline, so the effect is visible right here, not just implied.
+function riskPostureCard() {
+  const cur = riskPosture();
+  const haveAttack = !!state.realSquadAttack;
+  const attackRs = state.realSquadAttack;
+  const balRs = state.realSquad;
+  const chipRec = rs => rs && rs.chip_evaluations && rs.chip_evaluations.find(c => c.recommended);
+  return `
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-title" style="margin-bottom:2px;">Risk posture &middot; this team</div>
+      <p style="font-size:10.5px;color:var(--ink-dim2);margin:0 0 10px;">Applies to the captain pick, chip-squad previews and from-scratch (Wildcard/Free&nbsp;Hit) builds shown across the app for this account.</p>
+      <div class="risk-seg" role="group" aria-label="Risk posture">
+        <button class="${cur === "balanced" ? "active" : ""}" aria-pressed="${cur === "balanced"}" onclick="setRiskPosture('balanced')">Balanced</button>
+        <button class="${cur === "attack" ? "active" : ""}" aria-pressed="${cur === "attack"}" onclick="setRiskPosture('attack')" ${haveAttack ? "" : "disabled title='Not published yet — the pipeline will produce it on the next scheduled run'"}>Attack rank</button>
+      </div>
+      <p class="explain-line" style="margin:10px 0 0;">${RISK_POSTURES[cur].blurb}</p>
+      ${cur === "attack" && !haveAttack ? `<p class="explain-line" style="margin:6px 0 0;color:var(--amber);">The Attack-rank plan hasn't been published yet — showing Balanced until the next scheduled run.</p>` : ""}
+      ${cur === "attack" && haveAttack ? `
+        <div class="stat-list" style="margin-top:10px;">
+          <div class="sl-row"><div class="sl-label">Captain</div><div class="sl-value">${attackRs.captain_recommendation ? escapeHtml(attackRs.captain_recommendation.recommended_name) : "&mdash;"}${balRs && balRs.captain_recommendation && attackRs.captain_recommendation && balRs.captain_recommendation.recommended_name !== attackRs.captain_recommendation.recommended_name ? ` <span style="color:var(--ink-dim2);font-weight:500;">(vs ${escapeHtml(balRs.captain_recommendation.recommended_name)})</span>` : ""}</div></div>
+          <div class="sl-row"><div class="sl-label">Chip</div><div class="sl-value">${chipRec(attackRs) ? CHIP_LABELS[chipRec(attackRs).chip_type] || chipRec(attackRs).chip_type : "None this week"}</div></div>
+          <div class="sl-row"><div class="sl-label">Top transfer</div><div class="sl-value" style="font-size:11px;">${attackRs.transfer_recommendations && attackRs.transfer_recommendations[0] ? escapeHtml(attackRs.transfer_recommendations[0].player_out + " → " + attackRs.transfer_recommendations[0].player_in) : "Hold"}</div></div>
+        </div>` : ""}
+    </div>`;
+}
+
+// ============================================================
 // development data mode -- an explicit, isolated switch. When on, every screen renders from a
 // fixed, clearly-labeled mock payload instead of any network fetch; the two are never merged in
 // the same session. Toggle via the Profile sheet, or by loading the app with ?dev=1 once.
@@ -1688,10 +1838,78 @@ const BELL_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 function renderNotifBell() {
   const btn = document.getElementById("notif-bell");
   if (!btn) return;
-  const on = !!notifPrefs().enabled;
+  const prefs = notifPrefs();
+  const on = !!prefs.enabled;
+  const pushed = on && !!prefs.pushRegistered;
   btn.innerHTML = on ? BELL_ON : BELL_OFF;
   btn.setAttribute("aria-pressed", on ? "true" : "false");
-  btn.title = on ? "Live point notifications on" : "Turn on live point notifications";
+  // Distinct third state (app gap 1): the bell fills/accents once closed-app push is linked,
+  // not just when local notifications are toggled on.
+  btn.classList.toggle("is-push", pushed);
+  btn.title = pushed
+    ? "Closed-app push alerts on"
+    : on ? "Notifications on (app open only)" : "Turn on notifications";
+}
+
+// ---- Web Push (app gap 1) --------------------------------------------------
+// VAPID public key: safe to ship in the client (it IS public). Empty until the repo owner
+// generates a keypair and pastes the public key here (see docs/PUSH_SETUP.md). While empty the
+// app still does LOCAL notifications (fired while it's open/backgrounded) -- it just can't do
+// closed-app push.
+const VAPID_PUBLIC_KEY = "";
+const PUSH_SUB_KEY = "fq_push_sub";
+
+function pushConfigured() { return typeof VAPID_PUBLIC_KEY === "string" && VAPID_PUBLIC_KEY.length > 20; }
+function loadPushSub() { try { return JSON.parse(localStorage.getItem(PUSH_SUB_KEY) || "null"); } catch { return null; } }
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+// [push-subscribe] GitHub issue -- the same "issue as request queue" path openAddTeamSheet()
+// already uses; push_subscribe.yml parses it into the secret subscriptions gist.
+function pushSubscribeIssueUrl(sub) {
+  const title = "[push-subscribe]";
+  const body = "```json\n" + JSON.stringify(sub) + "\n```\n\n(Opened from the FPL Quant app to register this device for deadline / injury push alerts. A workflow processes this automatically.)";
+  return `https://github.com/${REPO_SLUG}/issues/new?${new URLSearchParams({ title, body }).toString()}`;
+}
+
+// Best-effort: returns "pushed" once a subscription exists, "local" if push isn't configured or
+// the browser can't do it, and never throws (a failure here must not break the plain toggle).
+async function registerPushSubscription() {
+  if (!pushConfigured() || !("serviceWorker" in navigator) || !("PushManager" in window)) return "local";
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const json = sub.toJSON();
+    localStorage.setItem(PUSH_SUB_KEY, JSON.stringify(json));
+    // The client can't write the secret gist itself -- hand the subscription to the workflow
+    // via a pre-filled issue, once per new endpoint.
+    if (!loadPushSub() || loadPushSub().endpoint !== json.endpoint || !notifPrefs().pushRegistered) {
+      window.open(pushSubscribeIssueUrl(json), "_blank", "noopener");
+      const p = notifPrefs(); p.pushRegistered = true; setNotifPrefs(p);
+    }
+    return "pushed";
+  } catch (e) { return "local"; }
+}
+
+async function unregisterPushSubscription() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+  } catch {}
+  localStorage.removeItem(PUSH_SUB_KEY);
+  const p = notifPrefs(); p.pushRegistered = false; setNotifPrefs(p);
 }
 
 async function toggleNotifications() {
@@ -1702,9 +1920,16 @@ async function toggleNotifications() {
     if (perm !== "granted") perm = await Notification.requestPermission();
     if (perm !== "granted") return; // denied or dismissed -- leave the toggle off
     p.enabled = true; setNotifPrefs(p);
-    await showNotification("FPL Quant notifications on", "I'll let you know when your live points move during a match.");
+    const mode = await registerPushSubscription();
+    await showNotification(
+      mode === "pushed" ? "Push alerts on" : "Notifications on",
+      mode === "pushed"
+        ? "You'll get deadline, injury and price alerts even when the app is closed. Submit the GitHub issue that just opened to finish linking this device."
+        : "I'll notify you while the app is open. Closed-app push isn't set up on this build.",
+    );
   } else {
-    p.enabled = false; setNotifPrefs(p);
+    p.enabled = false; p.pushRegistered = false; setNotifPrefs(p);
+    await unregisterPushSubscription();
   }
   renderNotifBell();
 }
@@ -1855,7 +2080,7 @@ async function loadAccount(id) {
     document.getElementById("avatar-btn").textContent = "DEV";
     return;
   }
-  const [team, profile, leagues, realSquad, squadGrade, decision, scenarios] = await Promise.all([
+  const [team, profile, leagues, realSquad, squadGrade, decision, scenarios, realSquadAttack] = await Promise.all([
     fetchJSON(`data/dashboard/app_team_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_profile_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_leagues_${id}.json`).catch(() => null),
@@ -1866,9 +2091,14 @@ async function loadAccount(id) {
     fetchJSON(`data/dashboard/squad_grade_${id}_latest.json`).catch(() => null),
     fetchJSON(`data/dashboard/decision_${id}_latest.json`).catch(() => null),
     fetchJSON(`data/dashboard/scenarios_${id}_latest.json`).catch(() => null),
+    // App gap 6: the "Attack rank" risk-posture variant plan. Optional -- absent until the
+    // scheduled pipeline's opt-in variant step has run at least once. .catch(() => null) so a
+    // missing file just means the toggle offers Balanced only.
+    fetchJSON(`data/dashboard/real_squad_${id}_attack.json`).catch(() => null),
   ]);
   state.team = team; state.profile = profile; state.leagues = leagues; state.realSquad = realSquad;
   state.squadGrade = squadGrade; state.decision = decision; state.scenarios = scenarios;
+  state.realSquadAttack = realSquadAttack;
   document.getElementById("avatar-btn").textContent = initials(profile ? profile.manager_name : team ? team.team_name : "");
 
   // Roadmap Feature 6: live_rank_<id>_<gw>.json is gameweek-scoped, not dated -- the PWA
@@ -2124,7 +2354,7 @@ function chipRowBlock(chips) {
 }
 
 function openChipSheet(chipType) {
-  const rs = state.realSquad;
+  const rs = activeRealSquad();
   const names = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };
   const chip = rs && rs.chip_evaluations && rs.chip_evaluations.find(c => c.chip_type === chipType);
   const detail = rs && rs.explain && rs.explain.chips && rs.explain.chips[chipType] && rs.explain.chips[chipType].detail;
@@ -2145,6 +2375,10 @@ function openChipSheet(chipType) {
     <div class="stat-list">
       ${renderDetailBullets(detail) || `<div class="sl-row"><div class="sl-label">Detailed rationale not available in this snapshot yet.</div></div>`}
     </div>
+    ${state.decision && state.decision.action === chipType ? whatWouldChangeBlock() : ""}
+    ${state.decision && state.decision.action === chipType && state.decision.downside_ci
+      ? `<div class="stat-list" style="margin-bottom:12px;"><div class="sl-row"><div class="sl-label">Squad downside if you play it (5th&ndash;95th)</div><div class="sl-value">[${(+state.decision.downside_ci[0]).toFixed(1)}, ${(+state.decision.downside_ci[1]).toFixed(1)}]</div></div></div>`
+      : ""}
     ${chipPreviewSquadBlock(chipType, chip.preview_squad)}
     <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;">
       This app never activates a chip for you &mdash; it only tells you what the model thinks.
@@ -2290,6 +2524,7 @@ function renderTransferReviewBody() {
           <div class="sl-row"><div class="sl-label">Net value</div><div class="sl-value">+${rec.net.toFixed(1)}</div></div>
         ` : `<div class="sl-row"><div class="sl-label">This exact pairing isn't one of the model's current top recommendations, so no projected-points gain is shown &mdash; only real, available stats above.</div></div>`}
       </div>
+      ${rec ? `<button class="local-btn active" style="margin-bottom:12px;" onclick="explainTransfer(${JSON.stringify(rec.player_in).replace(/"/g, "&quot;")}, ${JSON.stringify(rec.player_out).replace(/"/g, "&quot;")})">Explain this pick</button>` : ""}
       ${riskForPlayerName(inPlayer.web_name) ? `<div class="badges" style="margin-bottom:12px;">${riskBadge(riskForPlayerName(inPlayer.web_name))}</div>` : ""}
       <button class="confirm-btn ${alreadyConfirmed ? "success" : ""}" onclick="confirmTransferReview(${outPlayer.id}, ${inPlayer.id})">
         ${alreadyConfirmed ? "Confirmed locally ✓" : "Confirm locally"}
@@ -2307,6 +2542,15 @@ function confirmTransferReview(outId, inId) {
   const outPlayer = state.playersById[outId], inPlayer = state.playersById[inId];
   if (!outPlayer || !inPlayer) return;
   saveConfirmedTransfer({ outId, inId, outName: outPlayer.web_name, inName: inPlayer.web_name });
+  // Soft decision-log fill: if the pair the user just confirmed is exactly the model's own #1
+  // transfer, record it as "followed" for this gameweek (never overwrites an explicit choice).
+  const rs = state.realSquad;
+  const top = rs && rs.transfer_recommendations && rs.transfer_recommendations[0];
+  if (top && rs.plan_for_gameweek != null) {
+    const matchesRec = playerIdByName(top.player_out) === outId && playerIdByName(top.player_in) === inId;
+    logDecision("transfer", matchesRec ? "followed" : "modified", rs.plan_for_gameweek,
+      matchesRec ? `${top.player_out} → ${top.player_in}` : `${outPlayer.web_name} → ${inPlayer.web_name} (own pick)`, false);
+  }
   hapticTick();
   renderTransferReviewBody();
 }
@@ -2535,6 +2779,115 @@ function explainLinesFallback() {
   return `<div class="explain-line">Detailed rationale not available in this snapshot yet &mdash; a future scheduled run will include it.</div>`;
 }
 
+// ============================================================
+// "EXPLAIN THIS" -- one tap from a model recommendation (Transfers + Plan) to the M9
+// breakdown, reusing the existing .sheet dialog. No new export script: the per-player
+// category split and risk range come from real_squad_<id>.json's own `explain` block, which
+// run_transfer_planner_for_real_squad.py now fills with expected_points.explain_player_ep()
+// / uncertainty.explain_player_risk() for the captain pick and the top transfer(s), computed
+// for the exact gameweek being planned. The swap reason, "what would change my mind" and
+// squad downside come from decision_<id>_latest.json (state.decision).
+// ============================================================
+
+const EP_CATEGORY_LABELS = {
+  appearance: "Appearance (60+ mins)", goals: "Goals", assists: "Assists",
+  clean_sheet: "Clean sheet", goals_conceded: "Goals conceded", defcon: "Defensive contribution",
+  bonus: "Bonus", saves: "Saves", penalty_save: "Penalty saves", cards: "Cards", own_goal: "Own goals",
+};
+
+function realSquadExplain() {
+  return (state.realSquad && state.realSquad.explain) || null;
+}
+
+// expected_points.explain_player_ep() output -> a "where the points come from" list, biggest
+// contributor first, near-zero categories dropped (honest: a striker's clean-sheet EP really
+// is ~0). Returns "" when the run didn't carry a breakdown for this player.
+function epBreakdownBlock(epExplain) {
+  if (!epExplain || !epExplain.categories) return "";
+  const cats = Object.entries(epExplain.categories)
+    .map(([k, v]) => [k, Number(v) || 0])
+    .filter(([, v]) => Math.abs(v) >= 0.05)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  if (!cats.length) return "";
+  return `
+    <div class="stat-list" style="margin-bottom:12px;">
+      ${cats.map(([k, v]) => `<div class="sl-row"><div class="sl-label">${EP_CATEGORY_LABELS[k] || humanizeKey(k)}</div><div class="sl-value">${v >= 0 ? "+" : ""}${v.toFixed(2)}</div></div>`).join("")}
+      <div class="sl-row" style="border-top:1px solid var(--divider);"><div class="sl-label" style="font-weight:700;color:var(--ink);">Expected total</div><div class="sl-value" style="font-weight:700;">${Number(epExplain.total).toFixed(2)}</div></div>
+    </div>`;
+}
+
+// uncertainty.explain_player_risk() output -> the Cornish-Fisher outcome range M4 already
+// surfaces elsewhere. Floor/ceiling is the honest "one bad week vs one haul" spread.
+function riskRangeBlock(riskExplain) {
+  if (!riskExplain || riskExplain.floor == null) return "";
+  return `<div class="stat-list" style="margin-bottom:12px;">
+    <div class="sl-row"><div class="sl-label">Floor &middot; ceiling (5th&ndash;95th pct)</div><div class="sl-value">${(+riskExplain.floor).toFixed(1)} &ndash; ${(+riskExplain.ceiling).toFixed(1)}</div></div>
+    <div class="sl-row"><div class="sl-label">Middle half (25th&ndash;75th)</div><div class="sl-value">${(+riskExplain.q25).toFixed(1)} &ndash; ${(+riskExplain.q75).toFixed(1)}</div></div>
+  </div>`;
+}
+
+function playerBreakdownSection(heading, pb) {
+  if (!pb || (!pb.ep && !pb.risk)) return "";
+  return `<div class="section-title" style="color:var(--on-dark);"><span>${heading}</span></div>`
+    + epBreakdownBlock(pb.ep) + riskRangeBlock(pb.risk);
+}
+
+// decision_engine's own sensitivity list ("what would change my mind") -- only meaningful for
+// the ONE move that IS the model's current top recommendation, so callers gate on that.
+function whatWouldChangeBlock() {
+  const d = state.decision;
+  if (!d || !d.sensitivity || !d.sensitivity.length) return "";
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>What would change the model's mind</span></div>
+    <div style="margin-bottom:12px;">${d.sensitivity.map(s => `<div class="rec"><span class="move" style="flex-wrap:wrap;">If <b style="margin:0 3px;color:var(--ink);">${escapeHtml(s.if_condition_display || s.if_condition)}</b> &rarr; ${escapeHtml(s.then_action_display || s.then_action)}</span><span class="net">${(+s.delta_ep) >= 0 ? "+" : ""}${(+s.delta_ep).toFixed(1)}</span></div>`).join("")}</div>`;
+}
+
+function openExplainSheet(title, subtitle, bodyHtml) {
+  document.getElementById("sheet-content").innerHTML = `
+    <div class="player-hero" style="padding-bottom:10px;">
+      <div class="name" style="font-size:19px;">${title}</div>
+      ${subtitle ? `<div class="sub" style="max-width:280px;text-align:center;">${subtitle}</div>` : ""}
+    </div>
+    ${bodyHtml || `<p class="empty-state">The detailed model breakdown isn't in the latest run yet &mdash; check back after the next scheduled run.</p>`}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin-top:14px;">
+      Model output, shown for your own eye-check &mdash; this app never makes the move for you.
+    </p>`;
+  openSheet();
+}
+
+// in/outName are the display names from transfer_recommendations (canonical_name), the same
+// spelling _player_explain() writes into explain.transfer_breakdowns -- so an exact match.
+function explainTransfer(inName, outName) {
+  const ex = realSquadExplain();
+  const tb = ex && (ex.transfer_breakdowns || []).find(t =>
+    t.player_in && t.player_out && t.player_in.name === inName && t.player_out.name === outName);
+  const d = state.decision;
+  const swap = d && d.swaps && d.swaps[0];
+  const reason = swap && (!swap.in_name || swap.in_name === inName) ? swap.reason : null;
+  let body = "";
+  if (reason) body += `<p class="explain-line" style="margin:0 0 14px;">${escapeHtml(reason)}</p>`;
+  if (tb) {
+    body += playerBreakdownSection(`In &middot; ${escapeHtml(inName)}`, tb.player_in);
+    body += playerBreakdownSection(`Out &middot; ${escapeHtml(outName)}`, tb.player_out);
+  }
+  body += whatWouldChangeBlock();
+  if (d && d.downside_ci) body += `<div class="stat-list" style="margin-top:4px;"><div class="sl-row"><div class="sl-label">Squad downside if you make it (5th&ndash;95th)</div><div class="sl-value">[${(+d.downside_ci[0]).toFixed(1)}, ${(+d.downside_ci[1]).toFixed(1)}]</div></div></div>`;
+  if (!body.trim() && !reason) body = `<p class="explain-line">Projected to add points over the planning horizon; the per-player model breakdown will appear here after the next scheduled run.</p>`;
+  openExplainSheet(`${escapeHtml(outName)} &rarr; ${escapeHtml(inName)}`, "Why the model rates this transfer", body);
+}
+
+function explainCaptain(cr) {
+  if (!cr) return;
+  const cb = (realSquadExplain() || {}).captain_breakdown;
+  let body = `<p class="explain-line" style="margin:0 0 14px;">${cr.matches_current
+    ? `The model's own top captain pick this week is also <b style="color:var(--ink);">${escapeHtml(cr.recommended_name)}</b> &mdash; your armband already matches, at ${cr.recommended_expected_points} projected points.`
+    : `<b style="color:var(--ink);">${escapeHtml(cr.recommended_name)}</b> projects ${cr.recommended_expected_points} points vs ${cr.current_expected_points ?? "&mdash;"} for ${escapeHtml(cr.current_name || "your current pick")}. Captained, that gap roughly doubles to about +${(cr.potential_gain * 2).toFixed(1)}.`}</p>`;
+  if (cb && cb.recommended) body += playerBreakdownSection(escapeHtml(cr.recommended_name), cb.recommended);
+  if (cb && cb.current && !cr.matches_current) body += playerBreakdownSection(`${escapeHtml(cr.current_name)} &middot; current`, cb.current);
+  if (state.decision && state.decision.action === "triple_captain") body += whatWouldChangeBlock();
+  openExplainSheet(cr.matches_current ? `Keep ${escapeHtml(cr.recommended_name)}` : `Captain ${escapeHtml(cr.recommended_name)}`, "Why the model rates this captain", body);
+}
+
 // ---- "Your moves this week" action list -- one directive each for transfer/captain/chip,
 // each pointing at the real official FPL screen where it's actually made. This app never
 // submits anything on the manager's behalf (no stored FPL login) -- it only tells you what
@@ -2548,28 +2901,34 @@ function transferDirective(hold, topRec) {
       sub: `Holding (${hold.hold_value.toFixed(1)}) beats using a transfer now (${hold.transfer_now_value.toFixed(1)}).`,
       cta: "Review transfers", confidence: estimateConfidence(gap, 6, 2), risk: null,
       explainHtml: `<div class="explain-line">Over the horizon this plan looks at, holding your free transfer projects to more total points than using it right now &mdash; the gap is ${gap.toFixed(1)} points.</div>` + explainLinesFallback(),
+      logKind: "transfer", logRec: "Hold (no transfer)",
     };
   }
   if (!topRec) {
-    return { title: "Use a transfer this week", sub: "Model favors transferring now over holding.", cta: "Make transfer", confidence: estimateConfidence(gap, 6, 2), risk: null, explainHtml: explainLinesFallback() };
+    return { title: "Use a transfer this week", sub: "Model favors transferring now over holding.", cta: "Make transfer", confidence: estimateConfidence(gap, 6, 2), risk: null, explainHtml: explainLinesFallback(), logKind: "transfer", logRec: "Use a transfer" };
   }
   return {
     title: `${topRec.player_out} &rarr; ${topRec.player_in}`,
     sub: `Net gain +${topRec.net.toFixed(1)} over holding this transfer.`,
     cta: "Review transfer", confidence: estimateConfidence(topRec.net, 8, 3), risk: riskForPlayerName(topRec.player_in),
-    explainHtml: `<div class="explain-line">Projected gain of <b>${topRec.gain.toFixed(1)}</b> points over the planning horizon, at a cost of <b>${topRec.cost}</b> for a net of <b>+${topRec.net.toFixed(1)}</b>.</div>` + explainLinesFallback(),
+    explainHtml: `<div class="explain-line">Projected gain of <b>${topRec.gain.toFixed(1)}</b> points over the planning horizon, at a cost of <b>${topRec.cost}</b> for a net of <b>+${topRec.net.toFixed(1)}</b>.</div>`,
+    explain: `explainTransfer(${JSON.stringify(topRec.player_in)}, ${JSON.stringify(topRec.player_out)})`,
     reviewRec: topRec,
+    logKind: "transfer", logRec: `${topRec.player_out} → ${topRec.player_in}`,
   };
 }
 
 function captainDirective(cr) {
   if (!cr) return null;
+  const explain = `explainCaptain(${JSON.stringify(cr)})`;
   if (cr.matches_current) {
     return {
       title: `Keep the armband on ${cr.recommended_name}`,
       sub: `Model's own top captain pick this week too &mdash; ${cr.recommended_expected_points} expected points.`,
       cta: "Confirm captain", confidence: "high", risk: riskForPlayerName(cr.recommended_name),
       explainHtml: `<div class="explain-line">${cr.recommended_name} projects the highest expected points among your squad this gameweek, so the model's captain pick and your current armband already agree.</div>`,
+      explain,
+      logKind: "captain", logRec: `Keep ${cr.recommended_name} (C)`,
     };
   }
   return {
@@ -2579,7 +2938,9 @@ function captainDirective(cr) {
       : `${cr.recommended_expected_points} expected points this week.`,
     cta: "Set captain", confidence: estimateConfidence(cr.potential_gain, 1.0, 0.3), risk: riskForPlayerName(cr.recommended_name),
     explainHtml: `<div class="explain-line">${cr.recommended_name}'s expected points (${cr.recommended_expected_points}) edge out ${cr.current_name || "your current captain"}${cr.current_expected_points != null ? ` (${cr.current_expected_points})` : ""} by ${cr.potential_gain.toFixed(2)} &mdash; captained, that difference is doubled.</div>`,
+    explain,
     playerId: playerIdByName(cr.recommended_name),
+    logKind: "captain", logRec: `Switch (C) to ${cr.recommended_name}`,
   };
 }
 
@@ -2587,13 +2948,14 @@ function chipDirective(chips) {
   if (!chips || !chips.length) return null;
   const short = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };
   const rec = chips.find(c => c.recommended);
-  if (!rec) return { title: "No chip recommended this week", sub: "Model says save your chips for a better window.", cta: "Review chips", confidence: "medium", risk: null, explainHtml: `<div class="explain-line">None of Wildcard, Free Hit, Triple Captain or Bench Boost currently clear the model's own recommendation threshold this week.</div>` };
+  if (!rec) return { title: "No chip recommended this week", sub: "Model says save your chips for a better window.", cta: "Review chips", confidence: "medium", risk: null, explainHtml: `<div class="explain-line">None of Wildcard, Free Hit, Triple Captain or Bench Boost currently clear the model's own recommendation threshold this week.</div>`, logKind: "chip", logRec: "Hold all chips" };
   return {
     title: `Play ${short[rec.chip_type] || rec.chip_type} this week`,
     sub: rec.score != null ? `Model edge: +${rec.score.toFixed(1)}.` : "",
     cta: "Play chip", confidence: estimateConfidence(rec.score, 15, 5), risk: null,
     explainHtml: `<div class="explain-line">Tap through to see the full ${short[rec.chip_type] || rec.chip_type} breakdown.</div>`,
     chipType: rec.chip_type,
+    logKind: "chip", logRec: `Play ${short[rec.chip_type] || rec.chip_type}`,
   };
 }
 
@@ -2601,7 +2963,7 @@ function chipDirective(chips) {
 // "why", and the projected-impact numbers only reveal on tap (chevron rotates, height animates,
 // aria-expanded kept in sync for screen readers). The external CTA still always points at the
 // real official FPL screen -- expanding never substitutes for or auto-triggers that action.
-function actionRow(id, directive, url) {
+function actionRow(id, directive, url, gw) {
   if (!directive) return "";
   const expanded = state.expandedRows.has(id);
   return `
@@ -2617,10 +2979,12 @@ function actionRow(id, directive, url) {
     <div class="action-detail ${expanded ? "open" : ""}" id="detail-${id}">
       <div class="action-detail-inner"><div class="action-detail-body">
         ${directive.explainHtml || ""}
+        ${directive.explain ? `<button class="local-btn" onclick="event.stopPropagation();${directive.explain.replace(/"/g, "&quot;")}">Explain this</button>` : ""}
         ${directive.reviewRec ? `<button class="local-btn active" onclick="event.stopPropagation();goToTransferReview(${JSON.stringify(directive.reviewRec).replace(/"/g, "&quot;")})">Review this transfer</button>` : ""}
         ${directive.chipType ? `<button class="local-btn active" onclick="event.stopPropagation();location.hash='chip-${directive.chipType}'">See chip detail</button>` : ""}
-        ${directive.playerId != null ? `<button class="local-btn" onclick="event.stopPropagation();setLocalCaptain(${directive.playerId})">Set captain (local)</button>` : ""}
+        ${directive.playerId != null ? `<button class="local-btn" onclick="event.stopPropagation();setLocalCaptain(${directive.playerId});logDecision('captain','followed',${gw ?? "null"},'Set model captain (local)',false)">Set captain (local)</button>` : ""}
       </div></div>
+      ${directive.logKind ? decisionLogControl(directive.logKind, gw, directive.logRec) : ""}
       <a class="action-cta" style="display:inline-block;margin-top:4px;" href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation();hapticTick();">${directive.cta} on FPL &rsaquo;</a>
     </div>`;
 }
@@ -2639,22 +3003,27 @@ function toggleActionRow(id) {
 const TRANSFER_SUPERSEDING_CHIPS = { wildcard: "Wildcard", free_hit: "Free Hit" };
 
 function movesThisWeekCard() {
-  const rs = state.realSquad;
+  const rs = activeRealSquad();
   if (!rs) return "";
+  const postureBanner = attackPostureActive()
+    ? `<div class="flag-banner" style="margin-bottom:10px;">Showing the <b>Attack rank</b> plan for this team &mdash; change it in the Plan tab.</div>`
+    : "";
   const transferDir = transferDirective(rs.hold_vs_transfer_now, rs.transfer_recommendations && rs.transfer_recommendations[0]);
   const recommendedChip = rs.chip_evaluations && rs.chip_evaluations.find(c => c.recommended);
   const supersedingChipLabel = recommendedChip && TRANSFER_SUPERSEDING_CHIPS[recommendedChip.chip_type];
   if (transferDir && supersedingChipLabel) {
     transferDir.superseded = `Only weighs a single transfer &mdash; this week's ${supersedingChipLabel} recommendation below replaces that decision entirely, not just adds to it.`;
   }
+  const gw = rs.plan_for_gameweek;
   const rows = [
-    actionRow("transfer", transferDir, FPL_TRANSFERS_URL),
-    actionRow("captain", captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL),
-    actionRow("chip", chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL),
+    actionRow("transfer", transferDir, FPL_TRANSFERS_URL, gw),
+    actionRow("captain", captainDirective(rs.captain_recommendation), FPL_MY_TEAM_URL, gw),
+    actionRow("chip", chipDirective(rs.chip_evaluations), FPL_TRANSFERS_URL, gw),
   ].filter(Boolean).join("");
   if (!rows) return "";
   return `
     <div class="card-title">Your moves this week</div>
+    ${postureBanner}
     ${rows}
     <p style="font-size:10.5px;color:var(--ink-dim2);margin:12px 0 0;line-height:1.5;">
       These are the model's directives, not automatic &mdash; nothing is ever submitted for you.
@@ -3600,14 +3969,14 @@ function announceTransferFilterChange() {
 }
 function renderTransfers() {
   const el = document.getElementById("transfers-content");
-  const recs = state.realSquad;
+  const recs = activeRealSquad();
   el.innerHTML = `
     <div class="section anim-in">
       <div class="card">
         <div class="card-title">Model recommendation</div>
         ${verdictBlock(recs && recs.hold_vs_transfer_now)}
         ${recListBlock(recs && recs.transfer_recommendations, 5)}
-        ${actionRow("transfer-screen", transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL)}
+        ${actionRow("transfer-screen", transferDirective(recs && recs.hold_vs_transfer_now, recs && recs.transfer_recommendations && recs.transfer_recommendations[0]), FPL_TRANSFERS_URL, recs && recs.plan_for_gameweek)}
         <button class="local-btn active" style="margin-top:10px;" onclick="goToTransferReview(null)">Start a manual transfer review</button>
       </div>
     </div>
@@ -4596,7 +4965,10 @@ function planSummaryCard(computed, projByElement, rows) {
             <div style="font-size:10px;margin-top:2px;">${escapeHtml(cmp.best.outName)} &rarr; ${escapeHtml(cmp.best.inName)} (${cmp.best.net >= 0 ? "+" : ""}${cmp.best.net.toFixed(1)})</div>
           </div>
         </div>
-        <button class="local-btn" onclick="planSelectSuggestion(${cmp.best.outId}, ${cmp.best.inId})">Review this suggestion</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="local-btn" onclick="planSelectSuggestion(${cmp.best.outId}, ${cmp.best.inId})">Review this suggestion</button>
+          <button class="local-btn" onclick="explainTransfer(${JSON.stringify(cmp.best.inName).replace(/"/g, "&quot;")}, ${JSON.stringify(cmp.best.outName).replace(/"/g, "&quot;")})">Explain this</button>
+        </div>
       ` : `<p style="font-size:11px;color:var(--ink-dim2);margin:4px 0 0;">${PlannerSolver.hasProjections(projByElement) ? "No net-positive single transfer found for this squad right now." : "Projections not published yet, so no comparison to show."}</p>`}
       <p style="font-size:10.5px;color:var(--ink-dim2);margin:10px 0 0;line-height:1.5;">Key assumptions: projected points use published per-gameweek xPts for each starting XI slot (captain doubled), a hit costs 4pts per transfer beyond your free transfers, and bench points only count while Bench Boost is active.</p>
     </div>`;
@@ -4633,6 +5005,7 @@ function renderPlan() {
 
   el.innerHTML = `
     <div class="section-title" style="margin-bottom:10px;"><span>Transfer planner</span><span class="link-sm" onclick="location.hash='plan-compare'">Compare drafts &rsaquo;</span></div>
+    ${riskPostureCard()}
     ${planDraftPickerBlock()}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
       <input class="review-select" style="width:auto;flex:1;padding:9px 12px;font-size:12.5px;" value="${escapeHtml(state.planDraft.name)}" onchange="planRenameDraft(this.value)">
@@ -4871,7 +5244,11 @@ function ownershipBlock(ownership) {
 // empty by default) or the tracker hasn't run yet -- never a fabricated "no elites tracked" row.
 function eliteDivergenceBlock() {
   const ed = state.eliteDivergence;
-  if (!ed || !ed.managers || !ed.managers.length) return "";
+  // track_elite.py always writes this feed now, with a status: "not_configured" (no maintainer
+  // has populated data/elite_managers.json -- the default) or "ok". Unlike the leaderboard,
+  // this is a maintainer-only feature an end user can't switch on, so "off" is correctly shown
+  // as nothing at all, not an "unavailable" note.
+  if (!ed || ed.status === "not_configured" || !ed.managers || !ed.managers.length) return "";
   return `
     <div class="section" style="margin-top:16px;">
       <div class="section-title"><span>What the elites did &middot; GW${ed.gw}</span></div>
@@ -5216,12 +5593,26 @@ function playerSheetLocalActions(p) {
 // gameweek it can't legally fill a squad for), so model_beats_baseline_by is the real,
 // already-computed comparison over just the gameweeks that baseline actually has data for,
 // not a naive total-points subtraction across mismatched windows.
+// Gap 2 (docs/BUSINESS_PLAN.md 2.4): never silently omit this section -- a reader should be
+// able to tell "the model-vs-baselines proof isn't built" apart from "it failed to load / hasn't
+// run this cycle". leaderboard_latest.json is written by the weekly weekly_backtest.yml job;
+// early in a season it legitimately carries {"status": "insufficient_data"}.
+function leaderboardUnavailable(note) {
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Model vs baselines</span></div>
+    <p class="empty-state" style="margin-bottom:16px;">${note}</p>`;
+}
+
 function leaderboardBlock() {
   const lb = state.leaderboard;
-  if (!lb || !lb.rows || !lb.rows.length) return "";
+  if (!lb) return leaderboardUnavailable("Hasn't been published yet &mdash; the model-vs-baselines season simulation runs in the weekly deep-backtest job. Check back after Sunday's run.");
+  if (lb.status === "insufficient_data") {
+    return leaderboardUnavailable(`Not enough completed gameweeks this season yet for a season-long simulation (GW${lb.start_gameweek ?? 2}&ndash;${lb.end_gameweek ?? "?"}, needs ${lb.min_gameweeks ?? 3}). Fills in as the season progresses.`);
+  }
+  if (!lb.rows || !lb.rows.length) return leaderboardUnavailable("Couldn't load the model-vs-baselines comparison this time. It refreshes weekly.");
   const modelRow = lb.rows.find(r => !r.is_baseline);
   const baselineRows = lb.rows.filter(r => r.is_baseline);
-  if (!modelRow) return "";
+  if (!modelRow) return leaderboardUnavailable("Couldn't load the model-vs-baselines comparison this time. It refreshes weekly.");
   return `
     <div class="section-title" style="color:var(--on-dark);"><span>Model vs baselines</span></div>
     <div class="stat-list" style="margin-bottom:10px;">
@@ -5501,6 +5892,57 @@ function seasonTrendBlock() {
     </div>`;
 }
 
+// app gap 4: the in-app self-audit view over the LOCAL decision log (see loadDecisionLog()).
+// Distinct from trackRecordBlock()'s model track record above it -- this is the user's own
+// "am I actually following the calls" record, on this device only.
+function decisionLogBlock() {
+  const log = loadDecisionLog(state.accountId);
+  const gws = Object.keys(log).map(Number).filter(n => !Number.isNaN(n)).sort((a, b) => a - b);
+  const KINDS = ["transfer", "captain", "chip"];
+  const entries = [];
+  for (const gw of gws) for (const kind of KINDS) if (log[gw][kind]) entries.push({ gw, kind, ...log[gw][kind] });
+  if (!entries.length) {
+    return `
+      <div class="section-title" style="color:var(--on-dark);"><span>Your decisions</span></div>
+      <p class="empty-state" style="margin-bottom:16px;">Nothing logged yet. On the Home or Transfers tab, expand a recommendation and tap <b>Followed / Did my own thing / Skipped</b> &mdash; then this tracks, week by week, whether you're actually following the model or quietly overriding it. Stored on this device only, never sent anywhere.</p>`;
+  }
+  const n = c => entries.filter(e => e.choice === c).length;
+  const followed = n("followed"), modified = n("modified"), skipped = n("skipped");
+  const followRate = Math.round((followed / entries.length) * 100);
+  const capOverrides = entries.filter(e => e.kind === "captain" && e.choice === "modified").length;
+  const perGw = gws.map(gw => {
+    const parts = KINDS.filter(k => log[gw][k]).map(k => `${k}: ${DECISION_CHOICE_LABELS[log[gw][k].choice].toLowerCase()}`);
+    return `<div class="sl-row"><div class="sl-label">GW${gw}</div><div class="sl-value" style="font-size:10.5px;text-align:right;max-width:62%;">${escapeHtml(parts.join(" · "))}</div></div>`;
+  }).join("");
+  return `
+    <div class="section-title" style="color:var(--on-dark);"><span>Your decisions</span></div>
+    <div class="stat-grid4" style="grid-template-columns:repeat(3,1fr);margin-bottom:10px;">
+      <div class="g-tile"><div class="g-label">Followed</div><div class="g-value">${followed}</div></div>
+      <div class="g-tile"><div class="g-label">Own call</div><div class="g-value">${modified}</div></div>
+      <div class="g-tile"><div class="g-label">Skipped</div><div class="g-value">${skipped}</div></div>
+    </div>
+    <p class="explain-line" style="margin:0 0 12px;">You've gone with the model on <b>${followRate}%</b> of the ${entries.length} call${entries.length === 1 ? "" : "s"} you've logged${capOverrides ? `, and taken your own captain ${capOverrides} time${capOverrides === 1 ? "" : "s"}` : ""}.</p>
+    <div class="stat-list" style="margin-bottom:12px;">${perGw}</div>
+    <div style="display:flex;gap:8px;">
+      <button class="local-btn" onclick="copyDecisionLog()">Copy log</button>
+      <button class="local-btn" onclick="clearDecisionLog()">Clear</button>
+    </div>
+    <p style="font-size:10px;color:var(--on-dark-dim);line-height:1.6;margin:8px 0 16px;">Logged only on this device &mdash; never transmitted. This is your own adherence record, separate from the model's Track Record above.</p>`;
+}
+
+function copyDecisionLog() {
+  const txt = JSON.stringify(loadDecisionLog(state.accountId), null, 2);
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => flashToast("Decision log copied.")).catch(() => flashToast("Couldn't copy."));
+  else flashToast("Clipboard not available.");
+}
+function clearDecisionLog() {
+  const all = loadDecisionLogAll();
+  delete all[state.accountId];
+  try { localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(all)); } catch {}
+  flashToast("Decision log cleared.");
+  openProfileSheet();
+}
+
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
@@ -5527,6 +5969,7 @@ function openProfileSheet() {
       </div>
       ${seasonTrendBlock()}
       ${trackRecordBlock()}
+      ${decisionLogBlock()}
       ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       <a class="profile-menu-link" href="https://github.com/AhmadRehman1/FPL-Analyser" target="_blank" rel="noopener">About this app (GitHub) &rsaquo;</a>

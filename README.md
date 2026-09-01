@@ -399,6 +399,165 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   matrix (one job per entry x arm x bundle, ~36-72 jobs) and an `aggregate` job does Steps 2-6.
   20 new unit/integration tests. See the "chip timing sweep" Design note below for the
   recalibration-state correction and the two tracked entries' verified GW2 2026-27 state.
+- **App gap 2 -- the three optional dashboard `_latest` feeds no longer silently 404**
+  (`docs/BUSINESS_PLAN.md` 2.4; the app-feature-gaps prompt's "confirmed gap 2"). Verified
+  current state first, since the gap analysis was stale: `projections_latest.json` was already
+  wired into `scheduled_pipeline.yml` and live (no change needed). The other two:
+  - `export_leaderboard.py` was wired only as the LAST step of `weekly_backtest.yml`, after a
+    `run_backtest.py` step that real runs have had cancelled at the 5h cap -- so the leaderboard
+    step never started and `leaderboard_latest.json` was never produced. Fixed by making it its
+    own job in that workflow, parallel to (not gated behind) the backtest. It also hardcoded
+    `END_GAMEWEEK=6`; now resolves the end from `app_export.last_finished_event()` (new) and,
+    below `MIN_GAMEWEEK_SPAN` completed gameweeks, writes an explicit
+    `{"status": "insufficient_data"}` payload and exits 0 rather than raising or writing
+    nothing -- so `continue-on-error` could be dropped.
+  - `track_elite.py` no-op'd (wrote nothing) when `data/elite_managers.json` is empty (the
+    default). Now it always writes `elite_divergence_latest.json` with an explicit `status`
+    (`not_configured` vs `ok`), so `index.html` can tell "this maintainer feature is switched
+    off" apart from "the feed failed this run".
+  - `scripts/verify_dashboard_feeds.py` (new) + a step in `scheduled_pipeline.yml`: fails the
+    run LOUDLY (non-zero + `::error::`) if `projections_latest.json` /
+    `elite_divergence_latest.json` is missing, unparseable, or stale -- the "CI check that
+    fails loudly" the prompt asked for. Not `continue-on-error`; leaderboard is excluded (it's
+    on the separate weekly cadence and would be legitimately stale here).
+  - `index.html`: `leaderboardBlock()` renders an explicit unavailable / insufficient-data note
+    instead of returning `""`; `eliteDivergenceBlock()` treats `not_configured` as correctly-off
+    (still hidden -- an end user can't switch it on, so a note would be noise). Bootstrap
+    `leaderboard_latest.json` / `elite_divergence_latest.json` committed so the live app shows
+    the real states immediately. `NOT` wiring `export_leaderboard.py` into
+    `scheduled_pipeline.yml`'s twice-daily cadence is deliberate (a real MIQP+MC season sim per
+    completed gameweek is not cheap/safe for every run -- the prompt's own constraint).
+  15 new tests (`test_verify_dashboard_feeds.py`, `test_export_leaderboard.py`,
+  `test_track_elite_script.py`, `test_app_export.py`).
+- **App gap 5 -- "Explain this" inline from every model recommendation (Transfers + Plan).**
+  The M9 explain adapters (`expected_points.explain_player_ep`, `uncertainty.explain_player_risk`,
+  `transfer_planner.explain_plan`, `decision_engine`'s sensitivity list) all existed but only
+  the single headline move on the Home tab (`explainMoveCard()`, from `decision_<id>_latest.json`)
+  ever rendered the rich version; the transfer/captain rows and the Plan tab got a one-line
+  `explainLinesFallback()` "not available in this snapshot yet".
+  - `run_transfer_planner_for_real_squad.py` now attaches `explain.captain_breakdown` and
+    `explain.transfer_breakdowns[]` to `real_squad_<id>.json` -- each is
+    `explain_player_ep()` + `explain_player_risk()` for the recommended (and current) captain
+    and the top transfer's in/out players, **computed for `plan_for_gameweek`** using
+    `transfer_plan_runs.ep_model_versions[0]` (NOT `projections_latest.json`'s `gameweeks[0]`,
+    which starts at the current event and is one gameweek early for a decision -- a real
+    off-by-one that a first cut of this feature hit).
+  - `index.html`: a reusable `openExplainSheet()` over the existing `.sheet` primitive, plus
+    `epBreakdownBlock()` ("where the points come from", biggest category first, near-zero
+    dropped), `riskRangeBlock()` (floor/ceiling), and `whatWouldChangeBlock()` (the decision's
+    own sensitivity list, only for the move that IS the current top recommendation). An
+    "Explain this" button on the transfer + captain rows of "Your moves this week", in the
+    Transfer Review sheet, and on the Plan tab's "model suggests" card; the chip sheet's "Why"
+    section gains the sensitivity + downside when that chip is the recommended action.
+  - `tests.yml` gains a `node` job -- `npm test` (planner/*.js + the new
+    `tests/explain_sheet.test.js`, which extracts the DOM-free renderers from `index.html`
+    and checks them against the real feed shapes) was never in CI before. `package.json`'s
+    test glob widened to `tests/*.test.js`.
+  - New: `tests/explain_sheet.test.js` (8 tests), `tests/test_explain_adapters.py` (4 --
+    the first direct coverage of `explain_player_ep` / `explain_player_risk`, as a contract
+    against the frontend's consumed keys).
+  Plan-tab caveat: the Plan tab's "model suggests" is the client solver's read of published
+  projections, not `real_squad`'s own rec, so its "Explain this" shows the swap reason +
+  downside + sensitivity when the two agree on the #1 move (common) and a bounded fallback
+  otherwise -- full per-player Plan-tab breakdowns are a follow-up.
+- **App gap 4 -- local decision log + in-app self-audit view** (`docs/BUSINESS_PLAN.md` 2.6).
+  Verify-first finding: a *server-side* decision log already exists (`data/decision_log/`,
+  `realize_decision_log_outcomes.py`, the "Planner decision accuracy" panel on
+  `track-record.html`) -- objective, from real FPL data, but only for the two tracked accounts
+  and only "did the squad end up matching the rec". The prompt's ask -- capturing whether the
+  *user* accepted / modified / ignored each recommendation *in the app* -- was missing, and so
+  was any in-app self-audit surface.
+  - Client capture is **`localStorage` only** (`fq_decision_log_v1`, namespaced by account then
+    gameweek then kind). This static PWA has no client->server write path by design and a
+    third-party tracker is explicitly ruled out, so a device-local log is the honest maximum --
+    stated as such, not stubbed.
+  - Every expanded transfer / captain / chip row in "Your moves this week" (Home + Transfers)
+    gets a three-way **"Did you act on this?"** control -> `followed` / `modified` / `skipped`,
+    re-selectable, `hapticTick` + re-render on tap. `confirmTransferReview()` and the captain
+    row's "Set captain (local)" button *soft-fill* the log (never overwriting an explicit tap).
+  - Profile sheet gains a **"Your decisions"** section (`decisionLogBlock()`): followed /
+    own-call / skipped tallies, a "you've gone with the model on N%" line, captain-override
+    count, a per-gameweek list, and Copy / Clear. Sits between the model's Track Record and the
+    baselines leaderboard, explicitly framed as "your own adherence record, this device only".
+  - `tests/decision_log.test.js` (8) -- storage round-trips, per-account namespacing,
+    explicit-wins-over-soft, the control's active state, and the summary rendering. Verified
+    end-to-end in-browser (control renders on all three rows, tap persists to `localStorage`
+    and lights the button, Profile summary shows "50% of 2 calls").
+  - `tests.yml` `node` job bumped `node-version` 20 -> 22 (the v20 deprecation warning from
+    gap 5's new job).
+- **App gap 6 -- user-facing risk-tolerance control (Plan tab).** A per-team 2-position
+  segmented toggle (`Balanced` / `Attack rank`) that maps to a FIXED, tested pair of
+  `lambda_value` / `kappa_tc` parameter versions -- never a raw slider over uncalibrated
+  internals (the prompt's own constraint).
+  - `src/fpl_quant/risk_posture.py` (new): `balanced` -> lambda v1 (0.15) + kappa_tc v1 (0.15),
+    identical to what every pipeline path already resolves, so it's a true no-op; `attack` ->
+    lambda v2 (0.05) + kappa_tc v2 (0.5), both `confirmed` recalibration proposals from
+    `backtest_run_id=1` (walk-forward realized Sharpe: lambda 0.15->0.05 was 3.52->4.27) --
+    a pre-validated alternative, not a guess. `resolve_versions()` seeds the versions
+    idempotently and returns exactly what `transfer_planner.run()` receives.
+  - A third `protect` posture (higher lambda for rank protection) is deliberately NOT shipped:
+    no such version has been backtested. Gated on the lambda-sensitivity study (lambda in
+    {0.05..0.30}) already flagged as pending. The toggle's `Attack rank` button also stays
+    disabled until the pipeline has actually published the variant plan once.
+  - `run_transfer_planner_for_real_squad.py` takes an optional 4th arg (`attack`) -> full
+    second planner solve per account, written to `real_squad_<id>_attack.json`. The committed
+    `planner_decision_log` stays balanced-only (the model's one official call). Wired into
+    `scheduled_pipeline.yml` as a `continue-on-error` opt-in step after the balanced runs.
+  - `index.html`: `riskPostureCard()` on the Plan tab (toggle + what-it-changes + the attack
+    plan's own captain/chip/transfer inline); `activeRealSquad()` routes the Home "Your moves",
+    Transfers tab and chip sheet to the chosen variant; a banner on "Your moves this week" when
+    Attack is active. Posture persisted per account (`fq_risk_posture`).
+  - New tests: `tests/test_risk_posture.py` (8 -- the version mapping, idempotency, the
+    unknown-posture guard, and a wiring guard that the planner script feeds `resolve_versions()`
+    into `tp.run()`), `tests/risk_posture.test.js` (5 -- per-account persistence, stale-value
+    fallback, `attackPostureActive()` gating, `activeRealSquad()` selection, card rendering).
+    Verified end-to-end in-browser (toggle switches the captain across the app, Home banner
+    appears, per-account persistence).
+  - `tests/_extract_html_fn.js` (new): the 4 Node test files that pull DOM-free renderers out
+    of `index.html` shared three near-identical brace-matchers, one of which silently relied on
+    coincidental rebalancing and broke when this gap added code near it. Consolidated into one
+    helper that also steps over `/regex/` literals and `${...}` template interpolations (the
+    codebase uses both everywhere). 101 Node tests green.
+- **App gap 1 -- real Web Push, not a UI-only bell.** The bell + `toggleNotifications()`
+  existed but only did LOCAL notifications (fired while the app is alive); the code comment
+  itself called closed-app push "a deliberate future gap".
+  - `sw.js`: real `push` + `notificationclick` handlers (CACHE_NAME v5 -> v6).
+  - `index.html`: `toggleNotifications()` now completes the permission + `pushManager.subscribe`
+    round-trip; the subscription is handed to the pipeline via a pre-filled `[push-subscribe]`
+    GitHub issue (the same "issue as request queue" path `openAddTeamSheet()` uses -- the
+    client can't write the secret store itself). The bell has a distinct third state (gold)
+    once a device is push-linked, not just "notifications on". `VAPID_PUBLIC_KEY` is an empty
+    string until the owner pastes theirs in -- while empty the app degrades to local-only
+    notifications, nothing breaks.
+  - `.github/workflows/push_subscribe.yml` (new): `on: issues`, parses a `[push-subscribe]`
+    issue's `json` block, appends it to a **secret gist** (via `GIST_PAT` /
+    `PUSH_SUBSCRIPTIONS_GIST` secrets), closes the issue with a confirmation. No secrets =>
+    comments "not set up yet" and closes; never fails.
+  - `src/fpl_quant/push_alerts.py` (new): pure logic -- `compute_alerts()` (captain/vice
+    flagged doubtful, a price move on a squad player, and -- within `PUSH_ALERT_LEAD_HOURS`
+    (default 3) of the deadline -- an unconfirmed pending transfer/chip rec) + `build_push_payload()`
+    (collapse to one notification, highest priority first).
+  - `scripts/check_deadline_alerts.py`: keeps the original model-report -> GitHub Issue channel
+    unchanged; ADDS the held-player push channel, computed off the tracked accounts'
+    `data/dashboard/*.json`, emitted to `GITHUB_OUTPUT` as `push_payload`.
+  - `scripts/push_notify.py` (new): reads the gist + VAPID secrets, sends via `pywebpush`
+    (installed just-in-time in the workflow step, not in `requirements.lock`), prunes
+    404/410 (expired) subscriptions. NO-OPS cleanly (exit 0) whenever anything is missing.
+  - `scheduled_pipeline.yml`: a `continue-on-error` "Send Web Push" step after the issue step.
+  - `docs/PUSH_SETUP.md` (new): the exact one-time owner steps (VAPID keygen, secret gist,
+    3 repo secrets, paste the public key). **iOS: Web Push needs the PWA Added to Home Screen.**
+  - Tests: `test_push_alerts.py` (12 -- alert-worthy vs not, payload construction),
+    `test_push_notify.py` (4 -- every no-op path, malformed-payload is loud),
+    `test_check_deadline_alerts.py` (+6 -- next-deadline resolution, the injured-captain path,
+    empty-dashboard survival), `push_client.test.js` (4 -- base64 decode, `pushConfigured`,
+    the issue URL, the 3-state bell). Client helpers verified in a real browser.
+- **App gap 7 -- origin-aware data URL (`docs/BUSINESS_PLAN.md` 2.5).** `index.html`'s
+  `resolveDataBase()` keeps the canonical site on `RAW_FALLBACK` (the add-team SLA depends on
+  it) and localhost on same-origin, exactly as before -- but a staging fork can now opt into
+  serving data from its own origin via `<meta name="fq-data-base" content="">` /
+  `window.FQ_DATA_BASE`, with `deploy_pages.yml` bundling `data/dashboard/` into the Pages
+  artifact when the repo variable `FQ_STAGING=1`. Nothing about the canonical deployment
+  changes. `tests/data_base.test.js` (6) is the regression guard on the core data-loading path.
 
 ## Quick start
 

@@ -223,6 +223,20 @@ jobs:
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team"
           PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Main account"
 
+      # App gap 6: the "Attack rank" risk posture -- a full second planner run per account with
+      # lambda_value/kappa_tc set to the confirmed-but-not-active v2 values (see
+      # src/fpl_quant/risk_posture.py). Writes real_squad_<id>_attack.json, which the frontend
+      # loads ONLY when the user flips the Plan-tab toggle. continue-on-error: this is an
+      # opt-in what-if, not the recommendation of record -- a failure here must not block the
+      # balanced snapshot, decision log, report, or commit for the real accounts.
+      - name: Plan transfers -- Attack-rank risk posture (opt-in variant)
+        continue-on-error: true
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team" attack
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Main account" attack
+
       # Real bug fixed here: Feature 2 ("Rate My Team") and Feature 3 ("Explain My Move", the
       # README's own "strategic centerpiece") were both fully built, tested, and wired into
       # index.html's fetch calls (squad_grade_<id>_latest.json / decision_<id>_latest.json,
@@ -275,13 +289,22 @@ jobs:
 
       # Roadmap P2 item: track_elite.py (Feature 9, elite-manager divergence) was written and
       # tested but never invoked anywhere -- same "built but never invoked" gap as the projections
-      # export above. It already no-ops safely when data/elite_managers.json's `managers` list is
-      # empty (its own default), so wiring it in now is inert until an operator populates real
-      # entry IDs there -- this step just removes the "nothing ever runs it" gap.
+      # export above. When data/elite_managers.json's `managers` list is empty (its own default)
+      # it now writes an explicit {"status": "not_configured"} feed rather than nothing, so the
+      # PWA can tell "switched off" apart from "failed to load" -- wiring it in is still inert
+      # for end users until an operator populates real entry IDs there.
       - name: Track elite-manager divergence
         env:
           EVENT: ${{ steps.gw.outputs.event }}
         run: PYTHONPATH=src python scripts/track_elite.py "$EVENT"
+
+      # Gap 2 (docs/BUSINESS_PLAN.md 2.4): fail the run LOUDLY if either of the two optional
+      # dashboard feeds this job writes every run is missing, unparseable, or stale. Before this,
+      # a generator that errored mid-run degraded silently -- index.html's `.catch(() => null)`
+      # on those fetches made a real regression look identical to "feature not built". Runs after
+      # both export steps above; does NOT check leaderboard_latest.json (separate weekly job).
+      - name: Verify dashboard feeds are present and fresh
+        run: PYTHONPATH=src python scripts/verify_dashboard_feeds.py
 
       # Ad-hoc: real_squad_entry_id workflow_dispatch input still works for a THIRD account (or
       # a one-off re-check) without needing a code change -- the two real accounts above always
@@ -369,6 +392,29 @@ jobs:
               body: `${{ steps.alerts.outputs.alert_body }}`,
               labels: ["deadline-alert"],
             });
+
+      # App gap 1: send the held-player alert (captain doubt / price move / unconfirmed pending
+      # rec near the deadline) as a REAL Web Push to every subscribed device -- not only a
+      # GitHub Issue. push_notify.py no-ops cleanly (exit 0) when the VAPID / gist secrets
+      # aren't set yet (see docs/PUSH_SETUP.md), so this step is inert until push is configured
+      # and never fails the run. continue-on-error as a second belt: a push-service hiccup must
+      # not undo the commit below.
+      - name: Send Web Push for held-player alerts
+        if: steps.alerts.outputs.push_payload != ''
+        continue-on-error: true
+        env:
+          PUSH_PAYLOAD_JSON: ${{ steps.alerts.outputs.push_payload }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          PUSH_SUBSCRIPTIONS_GIST: ${{ secrets.PUSH_SUBSCRIPTIONS_GIST }}
+          GIST_PAT: ${{ secrets.GIST_PAT }}
+        run: |
+          # pywebpush is only needed for the actual send -- installed here, not in
+          # requirements.lock, to keep the pinned pipeline install (SCIP/DuckDB-sensitive)
+          # untouched. push_notify.py already no-ops if it's somehow still missing.
+          pip install --quiet pywebpush
+          PYTHONPATH=src python scripts/push_notify.py
 
       # Priority 8c's snapshots (+ the real-squad dashboard snapshots above) are the point of
       # persisting anything here -- everything else (the DuckDB file itself) is gitignored and

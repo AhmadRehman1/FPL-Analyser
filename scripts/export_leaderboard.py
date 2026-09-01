@@ -14,10 +14,17 @@ question (see that function's own docstring).
 Usage (from repo root):
     PYTHONPATH=src python scripts/export_leaderboard.py [start_gameweek] [end_gameweek]
 
+With no end_gameweek, walks GW2 -> the last gameweek FPL itself marks finished (a season
+simulation can only score gameweeks with real, settled results). Early in a season that window
+is too short to be meaningful: below MIN_GAMEWEEK_SPAN completed gameweeks the script writes an
+explicit {"status": "insufficient_data", ...} payload and exits 0 -- a real "not enough season
+yet" state the PWA surfaces as such, NOT a silent empty section and NOT a hard failure.
+
 Real MIQP solve + Monte Carlo simulation per gameweek in the window -- a real time cost, same as
-scripts/run_season_simulation.py's own steps, not free. Deliberately NOT wired into the
-automatic scheduled pipeline for that reason; run manually/periodically, same cadence as
-run_season_simulation.py itself.
+scripts/run_season_simulation.py's own steps, not free. Deliberately NOT wired into
+scheduled_pipeline.yml's twice-daily cadence for that reason; runs as its own decoupled job in
+.github/workflows/weekly_backtest.yml (parallel to the multi-hour M7 backtest, not gated behind
+it, so a backtest timeout can't starve this feed -- the failure mode before this).
 """
 
 import json
@@ -28,13 +35,46 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from fpl_quant import app_export as ax  # noqa: E402
 from fpl_quant import backtest, db  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 START_GAMEWEEK = 2
-END_GAMEWEEK = 6
+# Fallback only, used when the live bootstrap-static fetch to resolve the last finished
+# gameweek fails (e.g. the Claude Code sandbox's network policy blocks fantasy.premierleague.com
+# -- same caveat as every other real-fetch script here). A real CI run resolves this live.
+END_GAMEWEEK_FALLBACK = 2
+# A season-long simulation over fewer than this many completed gameweeks isn't a meaningful
+# "model vs baselines" comparison yet -- below it, write an explicit insufficient_data payload
+# rather than a thin/noisy leaderboard or a hard error.
+MIN_GAMEWEEK_SPAN = 3
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
+
+
+def _resolve_end_gameweek() -> int:
+    try:
+        resolved = ax.last_finished_event(ax.fetch_bootstrap_static())
+    except Exception as e:  # noqa: BLE001 -- best-effort; an explicit CLI arg always overrides this
+        print(f"::warning::export_leaderboard: last-finished-gameweek fetch failed ({e}) -- "
+              f"defaulting end_gameweek to GW{END_GAMEWEEK_FALLBACK}.")
+        return END_GAMEWEEK_FALLBACK
+    if resolved is None:
+        print(f"::warning::export_leaderboard: bootstrap-static reports no finished gameweek -- "
+              f"defaulting end_gameweek to GW{END_GAMEWEEK_FALLBACK}.")
+        return END_GAMEWEEK_FALLBACK
+    return resolved
+
+
+def _write(payload: dict, data_asof: str) -> Path:
+    DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = DASHBOARD_DIR / f"leaderboard_{data_asof}.json"
+    out_path.write_text(json.dumps(payload, indent=2))
+    # Stable-named copy, same "PWA needs a fixed, predictable path" convention as
+    # app_team_<id>.json -- a static site can't discover today's date-embedded filename on its
+    # own. The dated file stays too, as the historical/audit record.
+    (DASHBOARD_DIR / "leaderboard_latest.json").write_text(json.dumps(payload, indent=2))
+    return out_path
 
 
 # Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md): recalibratable families
@@ -73,7 +113,21 @@ _BASELINE_DISPLAY_NAMES = {
 
 def main() -> None:
     start_gw = int(sys.argv[1]) if len(sys.argv) > 1 else START_GAMEWEEK
-    end_gw = int(sys.argv[2]) if len(sys.argv) > 2 else END_GAMEWEEK
+    end_gw = int(sys.argv[2]) if len(sys.argv) > 2 else _resolve_end_gameweek()
+    data_asof = date.today().isoformat()
+
+    completed_span = end_gw - start_gw + 1
+    if completed_span < MIN_GAMEWEEK_SPAN:
+        payload = {
+            "data_asof": data_asof, "season": TARGET_SEASON, "status": "insufficient_data",
+            "start_gameweek": start_gw, "end_gameweek": end_gw, "walked_gameweeks": 0,
+            "completed_gameweeks": max(completed_span, 0), "min_gameweeks": MIN_GAMEWEEK_SPAN,
+            "rows": [], "honest_losses": [],
+        }
+        out_path = _write(payload, data_asof)
+        print(f"[export_leaderboard] only {max(completed_span, 0)} completed gameweek(s) in "
+              f"GW{start_gw}-{end_gw} (need {MIN_GAMEWEEK_SPAN}) -- wrote insufficient_data payload to {out_path}")
+        return
 
     con = db.connect()
     active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
@@ -109,19 +163,13 @@ def main() -> None:
         _BASELINE_DISPLAY_NAMES[key] for key in _BASELINE_DISPLAY_NAMES if beats[key]["model_beats_baseline_by"] < 0
     ]
 
-    data_asof = date.today().isoformat()
     payload = {
-        "data_asof": data_asof, "season": TARGET_SEASON, "start_gameweek": start_gw, "end_gameweek": end_gw,
+        "data_asof": data_asof, "season": TARGET_SEASON, "status": "ok",
+        "start_gameweek": start_gw, "end_gameweek": end_gw,
         "walked_gameweeks": model_n, "rows": rows, "honest_losses": honest_losses,
     }
 
-    DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = DASHBOARD_DIR / f"leaderboard_{data_asof}.json"
-    out_path.write_text(json.dumps(payload, indent=2))
-    # Stable-named copy, same "PWA needs a fixed, predictable path" convention as
-    # app_team_<id>.json -- a static site can't discover today's date-embedded filename on its
-    # own. The dated file stays too, as the historical/audit record.
-    (DASHBOARD_DIR / "leaderboard_latest.json").write_text(json.dumps(payload, indent=2))
+    out_path = _write(payload, data_asof)
     print(f"[export_leaderboard] wrote {out_path}")
     for row in rows:
         print(f"  {row['name']}: total_points={row['total_points']:.1f} over {row['n_gameweeks']} gameweeks")

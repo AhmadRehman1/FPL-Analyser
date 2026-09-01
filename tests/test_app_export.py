@@ -346,6 +346,19 @@ def test_current_event_none_when_nothing_flagged_current():
     assert ax.current_event({"events": []}) is None
 
 
+def test_last_finished_event_returns_the_highest_finished_gameweek():
+    bootstrap = {"events": [
+        {"id": 1, "finished": True}, {"id": 2, "finished": True},
+        {"id": 3, "finished": False, "is_current": True}, {"id": 4, "finished": False},
+    ]}
+    assert ax.last_finished_event(bootstrap) == 2
+
+
+def test_last_finished_event_none_before_any_gameweek_completes():
+    assert ax.last_finished_event({"events": [{"id": 1, "finished": False}]}) is None
+    assert ax.last_finished_event({"events": []}) is None
+
+
 def test_build_leagues_attaches_ownership_when_provided():
     entry_summary = {"id": 1, "leagues": {"classic": [{"id": 99, "name": "Mates & Rivals"}]}}
     standings_by_league = {99: {"standings": {"results": []}}}
