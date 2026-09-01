@@ -1,0 +1,120 @@
+{
+  "ready": true,
+  "season": "2026-2027",
+  "current_gameweek": 2,
+  "n_gameweeks_scored": 2,
+  "n_gameweeks_simulated": 1,
+  "total_realized_points": 93.0,
+  "total_vs_field": 43.0,
+  "chips_used": [],
+  "weeks": [
+    {
+      "gameweek": 1,
+      "simulated": true,
+      "action": "seed",
+      "action_detail": "from-scratch GW1 optimal squad",
+      "projected_points": null,
+      "realized_points": 42.0,
+      "field_average": 50,
+      "delta_vs_field": -8.0,
+      "cumulative_points": 42.0,
+      "cumulative_vs_field": -8.0
+    },
+    {
+      "gameweek": 2,
+      "simulated": false,
+      "action": "transfer",
+      "action_detail": "player_maxence_lacroix -> player_pascal_struijk (net +3.72)",
+      "projected_points": 43.55,
+      "realized_points": 51.0,
+      "field_average": null,
+      "delta_vs_field": null,
+      "cumulative_points": 93.0,
+      "cumulative_vs_field": 43.0
+    }
+  ],
+  "current_squad": [
+    {
+      "name": "Bart Verbruggen",
+      "in_xi": false,
+      "is_captain": false
+    },
+    {
+      "name": "Bernd Leno",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Bruno Borges Fernandes",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Cody Gakpo",
+      "in_xi": false,
+      "is_captain": false
+    },
+    {
+      "name": "Dara O'Shea",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Declan Rice",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Elliot Anderson",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Ethan Ampadu",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Igor Jesus Maciel da Cruz",
+      "in_xi": false,
+      "is_captain": false
+    },
+    {
+      "name": "James Tarkowski",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Marcos Senesi Bar\u00f3n",
+      "in_xi": true,
+      "is_captain": true
+    },
+    {
+      "name": "Morgan Rogers",
+      "in_xi": false,
+      "is_captain": false
+    },
+    {
+      "name": "Nathan Collins",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Ollie Watkins",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Pascal Struijk",
+      "in_xi": true,
+      "is_captain": false
+    }
+  ],
+  "next_decision": {
+    "gameweek": 2,
+    "action": "transfer",
+    "detail": "player_maxence_lacroix -> player_pascal_struijk (net +3.72)"
+  },
+  "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark.",
+  "generated_at": "2026-09-01T10:34:02.853328+00:00"
+}
