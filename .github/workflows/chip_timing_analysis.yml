@@ -141,7 +141,7 @@ jobs:
     # One walk over ~20 gameweeks is ~2-2.5h of MIQP on this runner; a forced arm adds its own
     # Step 2/4 (~5m). 240 leaves margin under GitHub's 360 cap. An arm that times out just drops
     # from the sweep (fail-fast: false) -- aggregate still produces a report from what landed.
-    timeout-minutes: 240
+    timeout-minutes: 320
     strategy:
       fail-fast: false
       max-parallel: 20
