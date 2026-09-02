@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -6,6 +7,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from run_transfer_planner_for_real_squad import (  # noqa: E402
     _build_chip_preview_squad, _order_chip_evaluations, _resolve_decision_log_row,
+    attach_recommendation_breakdowns,
 )
 
 
@@ -157,3 +159,116 @@ def test_resolve_decision_log_row_captain_matching_current_is_not_logged_as_a_ch
     captain_recommendation = {"recommended_name": "Erling Haaland", "matches_current": True}
     row = _resolve_decision_log_row(("hold", 1.0, 2.0), recs_out=[], chips_out=[], captain_recommendation=captain_recommendation)
     assert row["recommended_captain"] is None
+
+
+# ============================================================
+# attach_recommendation_breakdowns (Gap 5) -- transfer_plan_runs.ep_model_versions is a JSON
+# OBJECT keyed by str(gameweek), NOT a list. The first cut of this did json.loads(...)[0] and
+# the scheduled pipeline crashed with KeyError: 0 on every real run for ~12h. These tests pin
+# the real shape and the best-effort fallback.
+# ============================================================
+
+def _seed_breakdown_scenario(con, *, gw=3, players=("player_cap", "player_in", "player_out")):
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('t_h','H'),('t_a','A') ON CONFLICT DO NOTHING")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m1','2026-2027',?,'t_h','t_a',FALSE,"
+        "'Premier League','2026-08-24', current_timestamp)", [gw],
+    )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 't_h')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv = con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10','2026-2027', ?, ?, 1, 1, 1) RETURNING model_version", [ts_mv, mm_mv],
+    ).fetchone()[0]
+    un_mv = con.execute(
+        "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+        "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1) "
+        "RETURNING model_version", [ep_mv, mm_mv, ts_mv],
+    ).fetchone()[0]
+    for i, uid in enumerate(players):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward') ON CONFLICT DO NOTHING",
+                    [uid, uid.replace("player_", "").title()])
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+            "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+            "ep_total, expected_bps) VALUES (?, ?, 'm1', 0.9, ?, 0.3, 0.1, -0.1, 0.0, 0.5, 0, 0, -0.02, 0, ?, 20.0)",
+            [ep_mv, uid, 2.0 + i, 3.68 + i],
+        )
+        con.execute(
+            "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, var_goals, "
+            "var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, var_total, skew, "
+            "excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+            "VALUES (?, ?, 'm1', 0,0,0,0,0,0,0,0, 10.0, 0.4, 0.2, 0.5, 2.0, 6.0, 12.0)",
+            [un_mv, uid],
+        )
+    state_version = con.execute(
+        "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available) "
+        "VALUES ('2026-2027', ?, 1) RETURNING state_version", [gw],
+    ).fetchone()[0]
+    return ep_mv, un_mv, state_version
+
+
+def _make_plan_run(con, state_version, ep_mv, un_mv, *, gw=3, mv_json=None):
+    ep_json = mv_json if mv_json is not None else json.dumps({str(gw): ep_mv})
+    un_json = mv_json if mv_json is not None else json.dumps({str(gw): un_mv})
+    return con.execute(
+        "INSERT INTO transfer_plan_runs (calibration_asof_date, target_season, target_gameweek, input_state_version, "
+        "horizon_params_version, transfer_cost_params_version, ep_model_versions, uncertainty_model_versions) "
+        "VALUES ('2026-08-24','2026-2027', ?, ?, 1, 1, ?, ?) RETURNING run_id",
+        [gw, state_version, ep_json, un_json],
+    ).fetchone()[0]
+
+
+def test_attach_breakdowns_reads_the_json_object_shape_and_fills_captain_and_transfers(con):
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con)
+    run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3)
+    explain = {}
+    recs = [(1, "player_out", "player_in", 5.0, 0.0, 5.0)]
+    out = attach_recommendation_breakdowns(
+        con, explain, run_id, 3,
+        tc_detail={"captain_candidate": "player_cap"}, actual_captain_uid="player_out",
+        recs=recs, name_by_uid={"player_cap": "Cap Player"},
+    )
+    assert out["captain_breakdown"]["recommended"]["name"] == "Cap Player"
+    assert out["captain_breakdown"]["recommended"]["ep"]["categories"]["goals"] == 2.0
+    assert out["captain_breakdown"]["recommended"]["risk"]["ceiling"] == 12.0
+    assert out["captain_breakdown"]["current"]["player_uid"] == "player_out"
+    assert len(out["transfer_breakdowns"]) == 1
+    assert out["transfer_breakdowns"][0]["player_in"]["name"] == "In"       # dim_player fallback
+    assert out["transfer_breakdowns"][0]["player_out"]["ep"]["total"] is not None
+
+
+def test_attach_breakdowns_omits_rather_than_crashes_when_target_gameweek_missing(con):
+    # The exact regression: ep_model_versions '{}' -> no key for GW3 -> must NOT raise.
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con)
+    run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3, mv_json="{}")
+    explain = {"top_transfers": []}
+    out = attach_recommendation_breakdowns(
+        con, explain, run_id, 3, tc_detail={"captain_candidate": "player_cap"},
+        actual_captain_uid=None, recs=[(1, "player_out", "player_in", 5.0, 0.0, 5.0)], name_by_uid={},
+    )
+    assert "captain_breakdown" not in out
+    assert out["transfer_breakdowns"] == []
+
+
+def test_attach_breakdowns_no_captain_candidate_still_does_transfers(con):
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con)
+    run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3)
+    out = attach_recommendation_breakdowns(
+        con, {}, run_id, 3, tc_detail=None, actual_captain_uid=None,
+        recs=[(1, "player_out", "player_in", 5.0, 0.0, 5.0), (2, "player_cap", "player_in", 1.0, 0.0, 1.0)],
+        name_by_uid={},
+    )
+    assert "captain_breakdown" not in out
+    assert len(out["transfer_breakdowns"]) == 2
