@@ -2,10 +2,19 @@
 
 Usage (from repo root):
     .venv/Scripts/python scripts/run_ingestion.py
+
+A/B evidence-strength experiment (ab_evidence_strength.yml only -- NEVER set on a real run):
+  FPL_AB_TIER_WEIGHT_MULT   multiplies every source_tier_weights.tier_weight before seeding,
+                            so evidence_claims.source_reliability_score scales with it.
+  FPL_AB_PREDICTED_XI_PULL  overrides the predicted_xi minutes_adjustment_params magnitude
+                            (default 0.8) -- the pull_strength on "this player is a nailed
+                            starter" evidence.
+Both leave a ::warning:: in the log; a DB built with either is a variant, not a baseline.
 """
 
 import json
 import math
+import os
 import sys
 import time
 from datetime import date, datetime
@@ -57,10 +66,13 @@ def main() -> None:
         statuses[r["status"]] = statuses.get(r["status"], 0) + 1
     print(f"[fact_raw] {len(csv_results)} files in {time.time() - t0:.1f}s -> {statuses}")
 
+    tier_weight_mult = float(os.getenv("FPL_AB_TIER_WEIGHT_MULT", "1") or "1")
+    if tier_weight_mult != 1.0:
+        print(f"::warning::run_ingestion: FPL_AB_TIER_WEIGHT_MULT={tier_weight_mult} -- A/B variant DB, NOT a baseline.")
     for source_type, weight in SOURCE_TIER_WEIGHTS_V1:
         params.write_param(
             con, "source_tier_weights", 1, "2026-08-10", "tier_weight",
-            value_numeric=weight, dimensions={"source_type": source_type},
+            value_numeric=weight * tier_weight_mult, dimensions={"source_type": source_type},
         )
     # M1b: invented v1 default (spec names the mechanism but not a value) -- a modest 20%
     # boost for FACT-tagged claims from official/journalist-tier sources. Flagged for M7
@@ -81,8 +93,11 @@ def main() -> None:
             con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude", value_numeric=magnitude,
             dimensions={"claim_type": "injury_status", "category": category},
         )
+    predicted_xi_pull = float(os.getenv("FPL_AB_PREDICTED_XI_PULL", "0.8") or "0.8")
+    if predicted_xi_pull != 0.8:
+        print(f"::warning::run_ingestion: FPL_AB_PREDICTED_XI_PULL={predicted_xi_pull} -- A/B variant DB, NOT a baseline.")
     params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
-                        value_numeric=0.8, dimensions={"claim_type": "predicted_xi"})
+                        value_numeric=predicted_xi_pull, dimensions={"claim_type": "predicted_xi"})
     params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",
                         value_numeric=1.0, dimensions={"claim_type": "manager_tendency"})
     params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude",

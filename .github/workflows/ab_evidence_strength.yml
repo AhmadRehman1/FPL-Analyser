@@ -1,0 +1,124 @@
+name: A/B -- evidence channel strength
+
+# Manual experiment (docs/BUSINESS_PLAN.md improvement A). The evidence-pull channel is weak:
+# base_reliability_score = tier_weight * log(1+citations)/log(1+max_citations), and the
+# Perplexity pull sources carry ~1 citation, so official-tier evidence caps at ~0.17 no matter
+# what -- a fresh "nailed starter" claim is only a gentle nudge (Isak needed the roster data
+# fix, not the evidence, to be priced right; Elliot Anderson stays 0.94 nailed at a new club).
+#
+# Raising the pull is a recalibration-class change: it could genuinely improve the model, or it
+# could overfit to noisy claims. This runs a walk-forward A/B -- baseline params vs a variant
+# with a stronger predicted_xi pull and/or scaled tier weights -- and diffs the scored metrics
+# into the run summary. It COMMITS NOTHING and changes no default; a human reads the table and
+# decides whether to open a real params PR.
+#
+# Two arms in parallel (~3.5h each, both under the 6h job cap) rather than 2x sequentially in
+# one job (which would blow it).
+
+on:
+  workflow_dispatch:
+    inputs:
+      predicted_xi_pull_strength:
+        description: "variant predicted_xi pull_strength (baseline is 0.8)"
+        required: false
+        default: "1.5"
+        type: string
+      tier_weight_multiplier:
+        description: "variant multiplier on every source tier weight (baseline is 1.0)"
+        required: false
+        default: "2.0"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ab-evidence-strength
+  cancel-in-progress: false
+
+jobs:
+  walkforward:
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [baseline, variant]
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size
+            size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then
+              echo "::error::${out_path} downloaded too small (${size} bytes)"
+              exit 1
+            fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then
+              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook"
+              exit 1
+            fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Ingest (M0-M6) -- ${{ matrix.arm }}
+        env:
+          FPL_AB_PREDICTED_XI_PULL: ${{ matrix.arm == 'variant' && inputs.predicted_xi_pull_strength || '0.8' }}
+          FPL_AB_TIER_WEIGHT_MULT: ${{ matrix.arm == 'variant' && inputs.tier_weight_multiplier || '1' }}
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Walk-forward backtest (M7) -- ${{ matrix.arm }}
+        run: PYTHONPATH=src python scripts/run_walkforward.py
+
+      - name: Dump scored metrics
+        run: PYTHONPATH=src python scripts/dump_backtest_metrics.py "metrics-${{ matrix.arm }}.json" "${{ matrix.arm }}"
+
+      - name: Upload metrics artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ab-metrics-${{ matrix.arm }}
+          path: metrics-${{ matrix.arm }}.json
+          retention-days: 30
+
+  compare:
+    needs: walkforward
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Download baseline metrics
+        uses: actions/download-artifact@v8
+        with:
+          name: ab-metrics-baseline
+      - name: Download variant metrics
+        uses: actions/download-artifact@v8
+        with:
+          name: ab-metrics-variant
+      - name: Compare
+        run: python scripts/compare_backtest_metrics.py metrics-baseline.json metrics-variant.json
