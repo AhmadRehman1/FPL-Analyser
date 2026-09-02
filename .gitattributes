@@ -1,0 +1,4 @@
+# Shell scripts must stay LF -- they run on the Linux GitHub Actions runners; a CRLF line
+# ending makes bash choke on `\r` (a Windows checkout with core.autocrlf=true would otherwise
+# rewrite them).
+*.sh text eol=lf
