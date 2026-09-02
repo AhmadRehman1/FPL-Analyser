@@ -7,7 +7,7 @@ const { test, beforeEach } = require("node:test");
 const assert = require("node:assert");
 const { extractHtmlFn: extractFn, extractHtmlConst: extractConst } = require("./_extract_html_fn");
 
-const FN_NAMES = ["riskPosture", "setRiskPosture", "attackPostureActive", "activeRealSquad", "riskPostureCard"];
+const FN_NAMES = ["riskPosture", "setRiskPosture", "activePosture", "attackPostureActive", "activeRealSquad", "riskPostureCard"];
 
 function loadHarness() {
   const store = new Map();
@@ -16,7 +16,7 @@ function loadHarness() {
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
   };
-  const consts = [extractConst("RISK_POSTURES")].join("\n") + '\nconst RISK_POSTURE_KEY = "fq_risk_posture";\nconst CHIP_LABELS = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };\n';
+  const consts = [extractConst("RISK_POSTURES"), extractConst("POSTURE_VARIANT")].join("\n") + '\nconst RISK_POSTURE_KEY = "fq_risk_posture";\nconst CHIP_LABELS = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };\n';
   const src = consts + FN_NAMES.map(extractFn).join("\n\n");
   const state = { accountId: "7139944" };
   const sandbox = {
@@ -68,9 +68,20 @@ test("activeRealSquad() returns the attack plan when active, else the balanced p
   assert.strictEqual(H.api.activeRealSquad().tag, "attack");
 });
 
-test("riskPostureCard renders both segments; Attack is disabled until the variant is published", () => {
+test("ML shadow lane: activePosture / activeRealSquad select real_squad_<id>_ml when published", () => {
+  H.state.realSquad = { tag: "balanced" };
+  H.state.realSquadMl = { tag: "ml" };
+  H.api.setRiskPosture("ml");
+  assert.strictEqual(H.api.activePosture(), "ml");
+  assert.strictEqual(H.api.activeRealSquad().tag, "ml");
+  assert.strictEqual(H.api.attackPostureActive(), false, "ml is not attack");
+  delete H.state.realSquadMl;
+  assert.strictEqual(H.api.activePosture(), "balanced", "falls back when the ml plan isn't loaded");
+});
+
+test("riskPostureCard renders all three segments; a variant is disabled until published", () => {
   const card = H.api.riskPostureCard();
-  assert.ok(card.includes(">Balanced<") && card.includes(">Attack rank<"));
+  assert.ok(card.includes(">Balanced<") && card.includes(">Attack rank<") && card.includes(">ML shadow<"));
   assert.ok(/Attack rank<\/button>/.test(card));
   assert.ok(card.includes("disabled"), "Attack disabled with no variant loaded");
 
@@ -82,7 +93,9 @@ test("riskPostureCard renders both segments; Attack is disabled until the varian
   };
   H.api.setRiskPosture("attack");
   const card2 = H.api.riskPostureCard();
-  assert.ok(!/disabled/.test(card2), "Attack enabled once the variant is loaded");
+  // the Attack button is now enabled (ML shadow, still unpublished, stays disabled)
+  assert.ok(!/setRiskPosture\('attack'\)" disabled/.test(card2), "Attack enabled once the variant is loaded");
+  assert.ok(/setRiskPosture\('ml'\)" disabled/.test(card2), "ML shadow still disabled");
   assert.ok(card2.includes("Salah") && card2.includes("Haaland"), "shows attack captain vs balanced captain");
   assert.ok(card2.includes("Wildcard"));
 });

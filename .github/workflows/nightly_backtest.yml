@@ -1,0 +1,156 @@
+name: Nightly walk-forward backtest (track record)
+
+# Why this exists, separate from weekly_backtest.yml:
+#
+# weekly_backtest.yml's `backtest` job runs scripts/run_backtest.py -- backtest.run() AND
+# backtest.recalibrate(). The recalibration tail (the lambda-grid SCIP re-solves) alone
+# exceeds GitHub Actions' 6h hard cap: real dispatches on 2026-08-25 and 2026-08-30 were both
+# cancelled at ~5h having never reached export_track_record.py. Net effect: app_track_record.json
+# -- the app's "proof the model works" panel, docs/BUSINESS_PLAN.md's P0 blocker -- has sat
+# with backtest_run_id=null / metrics=[] the whole time, because the one job that populates it
+# never finishes.
+#
+# This job runs scripts/run_walkforward.py instead: backtest.run() ONLY, no recalibration.
+# That's the ~2-3h half that comfortably fits one Actions job (run_walkforward.py's own
+# docstring; ml_experiment.yml has run it green since PR #73). It then exports the real track
+# record. It does NOT propose or promote any recalibrated parameter -- recalibration stays a
+# weekly, human-gated concern in weekly_backtest.yml / scripts/review_recalibration.py.
+#
+# Nightly (not weekly) because the walk-forward's numbers only move when the M1-M6 model code
+# changes -- and this repo changes it often (#93, #105, #111, #113, ...). A nightly re-run means
+# a model fix merged during the day is re-measured against the historical outcomes by morning,
+# instead of carrying stale headline metrics until the next Sunday.
+#
+# run_report.py's own _would_regress_track_record() guard is the other half: the twice-daily
+# scheduled_pipeline.yml run, starting from a backtest-less DB, will NOT overwrite the
+# app_track_record.json this job commits (it only refreshes the planner_decision_accuracy
+# sub-object in place).
+
+on:
+  schedule:
+    - cron: "0 2 * * *"    # 02:00 UTC daily -- off-peak, clear of the 06:00/18:00 pipeline and Sunday's weekly jobs
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-backtest
+  cancel-in-progress: false
+
+jobs:
+  walkforward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330  # walk-forward is ~2-3h; matches ml_experiment.yml's budget for the same run
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # Pinned lockfile, not requirements.txt -- SCIP tie-breaking and DuckDB constraint
+      # behavior are version-sensitive here (see requirements.lock's own header).
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      # research/ml/ deps (lightgbm etc.) -- only this job's ML-shadow step needs them; the
+      # production pipeline never installs these. Best-effort: a resolution failure must not
+      # abort the walk-forward, which is this job's primary output.
+      - name: Install research deps (ML shadow)
+        continue-on-error: true
+        run: pip install -r requirements-research.txt
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      # Cache-miss fallback -- identical to weekly_backtest.yml / on_demand_report.yml. Only
+      # ever executes on the very first run, before any scheduled_pipeline.yml run has cached a DB.
+      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size
+            size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then
+              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page, not the real workbook"
+              exit 1
+            fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then
+              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook (Google Drive virus-scan interstitial?)"
+              exit 1
+            fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Run walk-forward backtest (M7) -- backtest.run() only, no recalibration
+        run: PYTHONPATH=src python scripts/run_walkforward.py
+
+      - name: Export the real track record for the app
+        run: PYTHONPATH=src python scripts/export_track_record.py
+
+      # The DB now carries BOTH the walk-forward (training) and the live pipeline's own
+      # ep_outputs (inference target). Fit Huber δ=4 on the whole walk-forward, predict
+      # ep_total_ml for the upcoming gameweek -> data/dashboard/ml_shadow.json. Shadow only,
+      # feeds no recommendation (research/ml/forward_test/FROZEN_CONFIG.md). Best-effort: a
+      # missing lightgbm / thin history writes a placeholder, never fails the job.
+      - name: Compute the ML shadow view
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/compute_ml_shadow.py
+
+      - name: Determine current gameweek
+        id: gw
+        continue-on-error: true
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+          sys.path.insert(0, "src")
+          from fpl_quant import app_export as ax
+          event = ax.current_event(ax.fetch_bootstrap_static())
+          if event is not None:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"event={event}\n")
+          PYEOF
+
+      # D-full: the ML-shadow PLANNER lane -- run_transfer_planner_for_real_squad.py in 'ml'
+      # mode swaps the multi-gameweek EP horizon for the residual model's ep_total_ml, then
+      # solves the same transfer/captain/chip problem -> real_squad_<id>_ml.json, a lane the
+      # app shows next to Balanced/Attack. Shadow: it writes no planner_decision_log entry.
+      - name: Plan the ML-shadow lane for both real managers
+        if: steps.gw.outputs.event != ''
+        continue-on-error: true
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team" ml
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Matippy toes" ml
+
+      - name: Commit the real track record + ML shadow + ML planner lane
+        run: |
+          bash scripts/ci_commit_generated.sh \
+            "chore: nightly walk-forward backtest -- track record + ML shadow + ML lane [skip ci]" \
+            data/dashboard/app_track_record.json data/dashboard/ml_shadow.json \
+            data/dashboard/real_squad_7139944_ml.json data/dashboard/real_squad_1305242_ml.json
