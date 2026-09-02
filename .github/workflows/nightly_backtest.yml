@@ -56,6 +56,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.lock
 
+      # research/ml/ deps (lightgbm etc.) -- only this job's ML-shadow step needs them; the
+      # production pipeline never installs these. Best-effort: a resolution failure must not
+      # abort the walk-forward, which is this job's primary output.
+      - name: Install research deps (ML shadow)
+        continue-on-error: true
+        run: pip install -r requirements-research.txt
+
       - name: Restore the most recent ingested DB
         id: cache
         uses: actions/cache/restore@v6
@@ -105,8 +112,17 @@ jobs:
       - name: Export the real track record for the app
         run: PYTHONPATH=src python scripts/export_track_record.py
 
-      - name: Commit the real track record
+      # The DB now carries BOTH the walk-forward (training) and the live pipeline's own
+      # ep_outputs (inference target). Fit Huber δ=4 on the whole walk-forward, predict
+      # ep_total_ml for the upcoming gameweek -> data/dashboard/ml_shadow.json. Shadow only,
+      # feeds no recommendation (research/ml/forward_test/FROZEN_CONFIG.md). Best-effort: a
+      # missing lightgbm / thin history writes a placeholder, never fails the job.
+      - name: Compute the ML shadow view
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/compute_ml_shadow.py
+
+      - name: Commit the real track record + ML shadow
         run: |
           bash scripts/ci_commit_generated.sh \
-            "chore: nightly walk-forward backtest -- real track record [skip ci]" \
-            data/dashboard/app_track_record.json
+            "chore: nightly walk-forward backtest -- real track record + ML shadow [skip ci]" \
+            data/dashboard/app_track_record.json data/dashboard/ml_shadow.json

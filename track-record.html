@@ -340,15 +340,35 @@ function renderModelTeam(mt) {
     </section>`;
 }
 
+function renderMlShadow(ml) {
+  if (!ml || ml.status !== "ok" || !(ml.players || []).length) return "";
+  const topN = (arr, n) => (arr || []).slice(0, n);
+  const line = r => `<div class="snap">
+      <div class="gw">${esc(r.name)}</div>
+      <div class="meta">quant <strong>${r.ep_quant?.toFixed(2)}</strong> &rarr; ML <strong>${r.ep_ml?.toFixed(2)}</strong></div>
+      <div class="ep" style="color:${r.ml_residual > 0 ? "var(--good,#2ecc71)" : "var(--bad,#e74c3c)"}">${r.ml_residual >= 0 ? "+" : ""}${r.ml_residual?.toFixed(2)}<small>ML delta</small></div>
+    </div>`;
+  return `
+    <section class="card" style="border:1px dashed var(--ink-dim,#888);">
+      <h2>ML shadow view <span style="font-size:12px;font-weight:500;color:var(--ink-dim);">GW${ml.target_gameweek}</span></h2>
+      <p class="sub">${esc(ml.disclaimer || "")} Huber δ=4 residual model, retrained nightly on the walk-forward history (${(ml.train_seasons || []).join(" & ")}, ${ml.n_train_rows ?? "—"} rows). <b>Not a recommendation</b> — a research model's second opinion on the same gameweek.</p>
+      ${topN(ml.ml_boosts, 4).length ? `<div style="font-size:12px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">ML is higher than quant on</div><div class="timeline">${topN(ml.ml_boosts, 4).map(line).join("")}</div>` : ""}
+      ${topN(ml.ml_fades, 4).length ? `<div style="font-size:12px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.05em;margin:12px 0 6px;">ML is lower than quant on</div><div class="timeline">${topN(ml.ml_fades, 4).map(line).join("")}</div>` : ""}
+    </section>`;
+}
+
 async function load() {
   renderStatus(document.getElementById("status-row"), null);
   const el = document.getElementById("content");
   el.innerHTML = `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
   const modelTeam = await fetchJSON("data/dashboard/app_model_team.json").catch(() => null);
+  const mlShadow = await fetchJSON("data/dashboard/ml_shadow.json").catch(() => null);
   try {
     const data = await fetchJSON("data/dashboard/app_track_record.json");
     renderStatus(document.getElementById("status-row"), data.generated_at);
     render(data);
+    const mlHtml = renderMlShadow(mlShadow);
+    if (mlHtml) el.insertAdjacentHTML("beforeend", mlHtml);
     const mtHtml = renderModelTeam(modelTeam);
     if (mtHtml) el.insertAdjacentHTML("afterbegin", mtHtml);
   } catch (err) {
