@@ -2042,7 +2042,7 @@ async function loadShared() {
     document.getElementById("updated-at").textContent = "Development data — not a real run";
     return;
   }
-  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence, modelTeam] = await Promise.all([
+  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence, modelTeam, chipTiming] = await Promise.all([
     fetchJSON("data/dashboard/app_players.json"),
     fetchJSON("data/dashboard/app_fixtures.json"),
     fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
@@ -2059,6 +2059,10 @@ async function loadShared() {
     // The model-managed team's live scoreboard (scripts/run_model_team.py). .catch(() => null):
     // absent until the first pipeline run since this shipped has seeded it.
     fetchJSON("data/dashboard/app_model_team.json").catch(() => null),
+    // Two-team chip-timing sweep (chip_timing_analysis.yml -- a real forced-Wildcard sweep
+    // over GW4-19, ~36 MIQP walks, run periodically not daily). Lives under data/chip_timing/
+    // not data/dashboard/. .catch(() => null): the sweep may not have run recently.
+    fetchJSON("data/chip_timing/chip_timing_latest.json").catch(() => null),
   ]);
   state.players = playersPayload.players;
   state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
@@ -2070,6 +2074,7 @@ async function loadShared() {
   state.leaderboard = leaderboard;
   state.eliteDivergence = eliteDivergence;
   state.modelTeam = modelTeam;
+  state.chipTiming = chipTiming;
   document.getElementById("updated-at").textContent = `Last run: ${fmtTime(playersPayload.generated_at)}`;
 }
 
@@ -3118,6 +3123,86 @@ function explainMoveCard() {
     </div>`;
 }
 
+// ---- Chip timing: the full forced-Wildcard sweep (chip_timing_analysis.yml), which does a
+// real MIQP season walk per candidate Wildcard gameweek -- a proper "when to play it" answer,
+// unlike movesThisWeekCard()'s chip directive which only ever says "this week" because a
+// grade-D squad's Wildcard always clears its threshold. Absent (no card) until the sweep has
+// run; reads data/chip_timing/chip_timing_latest.json (state.chipTiming).
+function chipTimingReportForAccount() {
+  const ct = state.chipTiming;
+  const team = ct && ct.teams && ct.teams.find(t => t.entry_id === state.accountId);
+  return team && team.report ? team.report : null;
+}
+
+function chipTimingCard() {
+  const r = chipTimingReportForAccount();
+  if (!r || !r.comparison) return "";
+  const c = r.comparison;
+  const swept = (c.swept_table || []).slice().sort((a, b) => b.delta_vs_hold - a.delta_vs_hold)[0];
+  const bestGw = c.swept_best_gameweek ?? (swept && swept.gameweek);
+  if (bestGw == null) return "";
+  const bestDelta = swept ? swept.delta_vs_hold : null;
+  const fh = (r.free_hit_scan || []).slice().sort((a, b) => b.free_hit_gain - a.free_hit_gain)[0];
+  const nextGw = (state.realSquad && state.realSquad.plan_for_gameweek) ?? state.team.gameweek;
+  const holdNow = bestGw > nextGw;
+  const partialWindow = c.sweep_gameweeks && (Math.min(...c.sweep_gameweeks) > 4 || Math.max(...c.sweep_gameweeks) < 19);
+  return `
+    <div class="section">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+          <span class="card-title" style="margin:0;">Chip timing</span>
+          <span style="font-size:10px;color:var(--ink-dim2);font-weight:600;">full-season sweep${c.eval_end_gameweek ? ` &middot; scored to GW${c.eval_end_gameweek}` : ""}</span>
+        </div>
+        <div class="verdict" style="background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));margin-bottom:10px;">
+          <span class="action" style="color:oklch(0.38 0.15 30);">Wildcard &middot; GW${bestGw}</span>
+          ${bestDelta != null ? `<span class="nums" style="color:oklch(0.42 0.1 30);">+${bestDelta.toFixed(0)}&nbsp;pts vs holding</span>` : ""}
+        </div>
+        <p style="font-size:12px;color:var(--ink-dim);line-height:1.6;margin:0 0 10px;">
+          ${holdNow
+            ? `<b style="color:var(--ink);">Hold your Wildcard</b> &mdash; the full-horizon sweep projects GW${bestGw} as the best week to rebuild, worth about +${bestDelta != null ? bestDelta.toFixed(0) : "?"} points over holding through GW${c.eval_end_gameweek}. The weekly card says "play it now" only because it can see just 5 gameweeks ahead${c.greedy_gameweek != null ? ` (it picks GW${c.greedy_gameweek})` : ""}.`
+            : `The sweep's best Wildcard week is <b style="color:var(--ink);">GW${bestGw}</b> &mdash; that's now or imminent, so playing it is live.`}
+        </p>
+        ${fh ? `<div class="stat-list" style="margin-bottom:10px;">
+          <div class="sl-row"><div class="sl-label">Best Free Hit week</div><div class="sl-value">GW${fh.gameweek} <span style="color:var(--ink-dim2);font-weight:500;">(+${fh.free_hit_gain.toFixed(1)})</span></div></div>
+          ${r.bench_boost_window && r.bench_boost_window.length ? `<div class="sl-row"><div class="sl-label">Bench Boost window</div><div class="sl-value">GW${r.bench_boost_window[0].gameweek ?? r.bench_boost_window[0]}</div></div>` : ""}
+          <div class="sl-row"><div class="sl-label">Wildcard stable across param sets</div><div class="sl-value">${r.sensitivity && r.sensitivity.wildcard_stable ? "yes" : "no"}</div></div>
+        </div>` : ""}
+        ${partialWindow ? `<p style="font-size:10.5px;color:oklch(0.5 0.15 60);background:oklch(0.95 0.05 60);border-radius:8px;padding:6px 9px;margin:0 0 8px;">Sweep so far covers GW${Math.min(...c.sweep_gameweeks)}&ndash;${Math.max(...c.sweep_gameweeks)} only &mdash; the best week could sit outside it until the full GW4&ndash;19 run lands.</p>` : ""}
+        <button class="local-btn" onclick="openChipTimingSheet()">See the full sweep</button>
+        ${provenanceLine({ data_asof: (r.generated_at || "").slice(0, 10), model_version: r.active_param_bundle })}
+      </div>
+    </div>`;
+}
+
+function openChipTimingSheet() {
+  const r = chipTimingReportForAccount();
+  if (!r) return;
+  const c = r.comparison || {};
+  const wcRows = (c.swept_table || []).map(row => `
+    <div class="sl-row"><div class="sl-label">GW${row.gameweek}${row.gameweek === c.swept_best_gameweek ? " &middot; best" : ""}</div>
+      <div class="sl-value">${row.total_projected_points.toFixed(0)} pts <span style="color:var(--ink-dim2);font-weight:500;">(+${row.delta_vs_hold.toFixed(1)})</span></div></div>`).join("");
+  const traj = (c.trajectory || []).map(t => `
+    <div class="sl-row"><div class="sl-label">GW${t.gameweek}</div><div class="sl-value">${t.wildcard_gain >= 0 ? "+" : ""}${t.wildcard_gain.toFixed(1)} EP now</div></div>`).join("");
+  const fhRows = (r.free_hit_scan || []).map(f => `
+    <div class="sl-row"><div class="sl-label">GW${f.gameweek}</div><div class="sl-value">+${f.free_hit_gain.toFixed(1)}${f.recommended ? "" : " (below threshold)"}</div></div>`).join("");
+  const flags = (r.data_flags || []).map(f => `<li style="margin-bottom:4px;">${escapeHtml(f)}</li>`).join("");
+  document.getElementById("sheet-content").innerHTML = `
+    <div class="player-hero" style="padding-bottom:10px;">
+      <div class="name" style="font-size:19px;">Chip timing &middot; ${escapeHtml(r.entry_label || "")}</div>
+      <div class="sub" style="max-width:290px;text-align:center;">A real season walk (MIQP each gameweek) run once per candidate Wildcard week, scored on projected points + an 80% band.</div>
+    </div>
+    <div class="section-title" style="color:var(--on-dark);"><span>Forced-Wildcard sweep</span></div>
+    <div class="stat-list" style="margin-bottom:12px;">${wcRows || `<div class="sl-row"><div class="sl-label">No sweep rows yet.</div></div>`}</div>
+    ${c.greedy_gameweek != null ? `<p style="font-size:11px;color:var(--on-dark-dim);margin:-6px 0 14px;line-height:1.6;">The weekly planner's own (5-gameweek-visible) pick is GW${c.greedy_gameweek}. The sweep prefers GW${c.swept_best_gameweek} once the whole horizon is visible.</p>` : ""}
+    <div class="section-title" style="color:var(--on-dark);"><span>Wildcard gain if played that week</span></div>
+    <div class="stat-list" style="margin-bottom:12px;">${traj || "&mdash;"}</div>
+    <div class="section-title" style="color:var(--on-dark);"><span>Free Hit scan</span></div>
+    <div class="stat-list" style="margin-bottom:12px;">${fhRows || "&mdash;"}</div>
+    ${flags ? `<div class="section-title" style="color:var(--on-dark);"><span>Data caveats</span></div><ul style="font-size:11px;color:var(--on-dark-dim);line-height:1.5;margin:0 0 12px;padding-left:18px;">${flags}</ul>` : ""}
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;">${escapeHtml((r.sensitivity && r.sensitivity.note) || "")} Projected points, not realised. This app never plays a chip for you.</p>`;
+  openSheet();
+}
+
 // Live Match Center: fixture scores + who-scored feed from the same app_live payload
 // pollLiveData already fetches. Goal/assist events are GW-accumulated (FPL's live payload
 // doesn't publish per-minute event times), so the feed is "scorers this gameweek" and the
@@ -3244,6 +3329,7 @@ function renderHome() {
     </div>
 
     ${explainMoveCard()}
+    ${chipTimingCard()}
 
     <div class="stat-row">
       <div class="stat-tile"><div class="k">GW Points</div><div class="v g">${state.team.gameweek_points ?? "&mdash;"}</div></div>
