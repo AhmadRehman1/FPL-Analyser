@@ -212,18 +212,34 @@ function render(data) {
   const notYet = steps === null || steps === undefined;
   const paramsBacktested = bt.parameters_backtested ?? 0;
   const paramsTotal = bt.parameters_total ?? 0;
+  const hl = bt.headline;
 
   const metricsHtml = (bt.metrics || []).map(m =>
     `<div class="pkg"><span class="n">${esc(m.metric_name)}</span><span class="ver">${m.mean_value != null ? m.mean_value : "—"} (n=${m.n_observations ?? 0})</span></div>`).join("");
 
+  const fmtSigned = n => n == null ? "—" : (n >= 0 ? "+" : "") + Number(n).toFixed(2);
+  const headlineSection = hl ? `
+    <section class="card" style="border:1px solid var(--good,#2ecc71);">
+      <h2>Does the model beat the average manager?</h2>
+      <p class="sub">The one number the walk-forward actually measures: over ${hl.n_scored_gameweeks} scored gameweek-steps across ${esc((bt.seasons_covered || []).join(" & ") || "prior seasons")}, the model's own optimised squad's realised FPL points minus the average FPL manager's score that week. Everything below is a component check, never rolled into this.</p>
+      <div class="kpis">
+        <div class="kpi"><div class="v" style="color:${hl.beats_avg_manager_by_points_per_gw >= 0 ? "var(--good,#2ecc71)" : "var(--bad,#e74c3c)"};">${fmtSigned(hl.beats_avg_manager_by_points_per_gw)}</div><div class="l">Points per GW vs the average manager</div></div>
+        <div class="kpi"><div class="v">${hl.model_squad_points_per_gw != null ? Number(hl.model_squad_points_per_gw).toFixed(1) : "—"}</div><div class="l">Model squad pts/GW</div></div>
+        <div class="kpi"><div class="v">${hl.avg_manager_points_per_gw != null ? Number(hl.avg_manager_points_per_gw).toFixed(1) : "—"}</div><div class="l">Average manager pts/GW</div></div>
+      </div>
+      ${hl.minutes_brier != null ? `<p class="empty-note">Minutes-model calibration: Brier ${Number(hl.minutes_brier).toFixed(3)}, log score ${hl.minutes_log_score != null ? Number(hl.minutes_log_score).toFixed(3) : "—"} (lower is better).</p>` : ""}
+    </section>` : "";
+
   el.innerHTML = `
     <div class="banner">
       <div class="ico">&#9432;</div>
-      <div class="txt"><strong>${notYet ? "No realized-accuracy backtest yet." : `Backtest run: ${steps} gameweek steps.`}</strong>
+      <div class="txt"><strong>${notYet ? "No realized-accuracy backtest yet." : `Walk-forward backtest: ${steps} gameweek steps, re-run nightly.`}</strong>
       ${notYet
         ? "This page shows the model's real, dated recommendation history and data provenance instead — the honest substitute for an accuracy figure until the walk-forward backtest is run and scored. Nothing here is retrofitted."
-        : "Per-metric averages from the walk-forward backtest are listed below."}</div>
+        : "The headline below is the model squad's realised-points margin over the average manager across those steps."}</div>
     </div>
+
+    ${headlineSection}
 
     <div class="kpis">
       <div class="kpi"><div class="v">${snaps.length}</div><div class="l">Gameweek snapshots</div></div>
@@ -233,8 +249,8 @@ function render(data) {
 
     ${bt.metrics && bt.metrics.length ? `
     <section class="card">
-      <h2>Backtest metrics</h2>
-      <p class="sub">Real per-metric averages recorded by the M7 walk-forward backtest — kept as separate scores, never collapsed into a single "accuracy %".</p>
+      <h2>Component scores</h2>
+      <p class="sub">Real per-metric averages recorded by the M7 walk-forward — kept as separate scores, never collapsed into a single "accuracy %".</p>
       <div class="pkg-grid">${metricsHtml}</div>
     </section>` : ""}
 
