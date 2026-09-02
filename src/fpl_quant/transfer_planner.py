@@ -283,6 +283,7 @@ def compute_horizon_ep(
     tau_params_version: int,
     rho_residual_params_version: int,
     corr_params_version: int,
+    set_piece_params_version: int | None = 1,
 ) -> dict[int, tuple[int, int]]:
     """One ep.run() + uncertainty.run() pair per gameweek in [start_gameweek,
     start_gameweek+horizon_gameweeks), reusing the same ts_model_version/mm_model_version
@@ -290,6 +291,9 @@ def compute_horizon_ep(
     dependency in either). Returns {gameweek: (ep_model_version, uncertainty_model_version)}.
     A gameweek with no fixtures for either side (ep.run() raises on zero fixtures) is skipped,
     not fatal -- a real blank gameweek is a legitimate, if currently unscheduled, outcome.
+
+    set_piece_params_version defaults to 1 so the planner's EP horizon matches ep.run()'s own
+    new default (the confirmed-penalty-taker uplift) -- see expected_points.run().
     """
     out = {}
     for gw in range(start_gameweek, start_gameweek + horizon_gameweeks):
@@ -297,6 +301,7 @@ def compute_horizon_ep(
             ep_mv = ep.run(
                 con, calibration_asof_date, target_season, gw, ts_model_version, mm_model_version,
                 scoring_params_version, bps_params_version, tau_params_version,
+                set_piece_params_version=set_piece_params_version,
             )
         except ValueError:
             continue
