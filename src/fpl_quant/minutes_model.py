@@ -80,12 +80,25 @@ def _team_match_weights(con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...]
 
 
 def compute_player_historical_components(
-    con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...], asof_date: date, xi: float
+    con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...], asof_date: date, xi: float,
+    exclude_player_seasons: set[tuple[str, str]] | None = None,
 ) -> pd.DataFrame:
     """Per player: weighted_total/weighted_starts (recency-weighted, for P_start_historical_own
     and the position-pooled average), plus raw (unweighted) counts for the
-    conditional-on-not-starting sub-usage rate, which the spec doesn't ask to be time-decayed."""
+    conditional-on-not-starting sub-usage rate, which the spec doesn't ask to be time-decayed.
+
+    exclude_player_seasons: (player_uid, season) pairs to drop from the fit entirely -- used
+    for players whose source roster was retroactively rewritten onto a club they transferred
+    to later (reconcile.suspect_transfer_player_seasons), where measuring their start rate
+    against that club's fixtures is meaningless. A dropped player-season contributes nothing
+    to weighted_total/weighted_starts/competitive_matches, so run() shrinks such a player
+    toward the position average by the reduced sample size, exactly as for any thin history.
+    """
     _build_player_season_team_map(con, seasons)
+    for player_uid, season in exclude_player_seasons or ():
+        con.execute(
+            "DELETE FROM _player_season_team WHERE player_uid = ? AND season = ?", [player_uid, season]
+        )
     weights_df = _team_match_weights(con, seasons, asof_date, xi)
     con.register("_team_match_weights_df", weights_df)
     try:
@@ -459,7 +472,11 @@ def run(
     # 09:34 on the asof date itself is legitimately knowable "as of" that date).
     asof = datetime.combine(calibration_asof_date, datetime.max.time(), tzinfo=timezone.utc)
 
-    per_player = compute_player_historical_components(con, lookback_seasons, calibration_asof_date, xi)
+    suspect_player_seasons = reconcile_mod.suspect_transfer_player_seasons(con, target_season)
+    per_player = compute_player_historical_components(
+        con, lookback_seasons, calibration_asof_date, xi,
+        exclude_player_seasons=suspect_player_seasons,
+    )
     position_rates = compute_position_rates(con, per_player)  # merges position internally
     conditional_rates = compute_conditional_minutes_rates(con)
     player_conditional = compute_player_conditional_minutes_rates(con)

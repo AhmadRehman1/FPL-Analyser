@@ -181,6 +181,94 @@ def build_dim_player(con: duckdb.DuckDBPyConnection) -> None:
             )
 
 
+# ------------------------------------------ retro-rewritten transfer rosters ----
+
+_GAMEWEEK_IN_RELPATH_RE = re.compile(r"/GW(\d+)/")
+
+
+def _earliest_gameweek_roster_table(con: duckdb.DuckDBPyConnection, season: str) -> str | None:
+    """The raw table for the lowest-numbered `By Gameweek/GW{n}/players.csv` this season has
+    -- the point-in-time roster snapshot closest to the season's start. None for a season
+    whose source layout has no per-gameweek roster files at all (2024-2025)."""
+    best: tuple[int, str] | None = None
+    for relpath, table in _tables_matching(con, season, "By Gameweek/GW%/players.csv"):
+        m = _GAMEWEEK_IN_RELPATH_RE.search(relpath)
+        if not m:
+            continue
+        gw = int(m.group(1))
+        if best is None or gw < best[0]:
+            best = (gw, table)
+    return best[1] if best else None
+
+
+def suspect_transfer_player_seasons(
+    con: duckdb.DuckDBPyConnection, target_season: str
+) -> set[tuple[str, str]]:
+    """`{(player_uid, season)}` for PRIOR seasons where the season-root `players.csv` assigns
+    a player_code to a different club than that season's earliest by-gameweek snapshot does.
+
+    The source provider periodically regenerates a historical season's root `players.csv`
+    (and its later per-gameweek copies, and -- critically -- the `playermatchstats.csv` match
+    attribution) from a *current* FPL bootstrap. A player who has since transferred is then
+    retroactively written onto their new club for a season they never played there: 2025-2026's
+    root now lists Isak, Wissa, Eze, Garnacho, ... at their 2026-27 clubs. GW1/GW2 snapshots
+    predate the rewrite. `minutes_model._build_player_season_team_map()` reads the root, so it
+    measures a transferred player's recency-weighted start rate against the *wrong* club's
+    fixture list -- and their (equally-relabeled) match stats don't join back to it -- silently
+    collapsing `p_start_historical_own` toward zero for exactly the just-transferred players the
+    app most needs priced correctly. compute_player_historical_components() drops these
+    (player, season) pairs so the model falls back to the position-average prior + evidence.
+
+    Scope / caveats:
+    - Prior seasons only. For target_season the root IS the freshest correct roster; an
+      early-gameweek snapshot would be the stale one.
+    - A genuine mid-season (January-window) transfer also trips this. That is acceptable: a
+      player who changed clubs part-way through a season has a split, low-signal history at
+      both, and leaning on the position prior + current evidence is the same conservative
+      handling we want for any recent mover. Every excluded player is named in the ::warning::.
+    - 2024-2025's layout has no per-gameweek roster files, so its root cannot be cross-checked
+      here (observed unrewritten as of 2026-09; revisit if that changes).
+    """
+    _ensure_id_macro(con)
+    suspect: set[tuple[str, str]] = set()
+    conflicts: list[str] = []
+    for season in SEASONS:
+        if season == target_season:
+            continue
+        root = _season_root_table(con, season, "players.csv")
+        gw1_table = _earliest_gameweek_roster_table(con, season)
+        if not root or not gw1_table:
+            continue
+        _relpath, root_table = root
+        rows = con.execute(
+            f"""
+            SELECT r.player_code, any_value(r.web_name),
+                   any_value(norm_id(g.team_code)), any_value(norm_id(r.team_code))
+            FROM "{root_table}" r
+            JOIN "{gw1_table}" g ON g.player_code = r.player_code
+            WHERE norm_id(g.team_code) IS NOT NULL AND norm_id(r.team_code) IS NOT NULL
+              AND norm_id(g.team_code) <> norm_id(r.team_code)
+            GROUP BY r.player_code
+            """
+        ).fetchall()
+        for player_code, web_name, early_team, root_team in rows:
+            uid_row = con.execute(
+                "SELECT DISTINCT player_uid FROM player_alias WHERE source_player_id = ? AND season = ?",
+                [str(player_code), season],
+            ).fetchone()
+            if not uid_row:
+                continue
+            suspect.add((uid_row[0], season))
+            conflicts.append(f"{web_name} [{season}] early_club={early_team} root_club={root_team}")
+    if conflicts:
+        print(
+            f"::warning::reconcile.suspect_transfer_player_seasons: {len(conflicts)} player-season(s) "
+            f"excluded from the historical minutes fit -- source roster retroactively rewritten "
+            f"post-transfer: " + "; ".join(sorted(conflicts))
+        )
+    return suspect
+
+
 # --------------------------------------------------------------- matches ----
 
 _COMPETITION_RE = re.compile(r"By Tournament/([^/]+)/GW\d+/")
