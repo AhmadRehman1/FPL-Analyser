@@ -74,3 +74,91 @@ def test_normalize_decision_row_names_does_not_mutate_the_original():
     row = {"recommended_transfer_out": "Aarón Anselmino"}
     _normalize_decision_row_names(row)
     assert row["recommended_transfer_out"] == "Aarón Anselmino"
+
+
+# ============================================================
+# Catch-up sweep: realize EVERY finished logged gameweek before current_event, not just
+# current_event - 1 (FPL's is_current lags a full cycle -- see the module docstring).
+# ============================================================
+
+import json  # noqa: E402
+
+import realize_decision_log_outcomes as rdlo  # noqa: E402
+
+
+def _write_log(dir_, entry_id, gw, realized=False):
+    (dir_ / f"{entry_id}_2026-2027_gw{gw}.json").write_text(json.dumps({
+        "entry_id": entry_id, "target_season": "2026-2027", "target_gameweek": gw,
+        "recommended_action": "hold", "recommended_chip": None,
+        "realized_points_actual": 55 if realized else None,
+    }))
+
+
+def test_logged_gameweeks_enumerates_committed_entries(tmp_path, monkeypatch):
+    monkeypatch.setattr(rdlo, "DECISION_LOG_DIR", tmp_path)
+    _write_log(tmp_path, 7139944, 2)
+    _write_log(tmp_path, 1305242, 2)
+    _write_log(tmp_path, 7139944, 3)
+    _write_log(tmp_path, 7139944, 4)
+    assert rdlo._logged_gameweeks("2026-2027") == [2, 3, 4]
+
+
+def test_main_realizes_the_just_finished_gameweek_while_is_current_still_lags(tmp_path, monkeypatch):
+    # The real "now": GW2 finished + data_checked, but FPL's is_current is still 2 (GW3's
+    # deadline hasn't passed) -> current_event == 2. The old "current_event - 1" logic targeted
+    # GW1 (nothing logged) and GW2 stayed unrealized for a week. The sweep realizes GW2 now
+    # because bootstrap says it's final; GW3 (== current_event, in progress) is skipped.
+    monkeypatch.setattr(rdlo, "DECISION_LOG_DIR", tmp_path)
+    _write_log(tmp_path, 7139944, 2)
+    _write_log(tmp_path, 7139944, 3)
+    monkeypatch.setattr(rdlo.ax, "fetch_bootstrap_static", lambda: {"events": [
+        {"id": 2, "finished": True, "data_checked": True},
+        {"id": 3, "finished": False, "data_checked": False},  # in progress
+    ]})
+    realized = []
+    monkeypatch.setattr(rdlo, "realize_gameweek", lambda eid, gw: realized.append((eid, gw)))
+    monkeypatch.setattr(rdlo, "TRACKED_ACCOUNTS", [{"entry_id": 7139944, "label": "x"}])
+    monkeypatch.setattr(sys, "argv", ["realize_decision_log_outcomes.py", "2"])
+    rdlo.main()
+    assert realized == [(7139944, 2)]
+
+
+def test_main_catches_up_multiple_stragglers_in_one_pass(tmp_path, monkeypatch):
+    monkeypatch.setattr(rdlo, "DECISION_LOG_DIR", tmp_path)
+    for gw in (2, 3, 4):
+        _write_log(tmp_path, 7139944, gw)
+    monkeypatch.setattr(rdlo.ax, "fetch_bootstrap_static", lambda: {"events": [
+        {"id": 2, "finished": True, "data_checked": True},
+        {"id": 3, "finished": True, "data_checked": True},
+        {"id": 4, "finished": True, "data_checked": True},
+    ]})
+    realized = []
+    monkeypatch.setattr(rdlo, "realize_gameweek", lambda eid, gw: realized.append((eid, gw)))
+    monkeypatch.setattr(rdlo, "TRACKED_ACCOUNTS", [{"entry_id": 7139944, "label": "x"}])
+    monkeypatch.setattr(sys, "argv", ["realize_decision_log_outcomes.py", "4"])
+    rdlo.main()
+    assert realized == [(7139944, 2), (7139944, 3), (7139944, 4)]
+
+
+def test_main_skips_a_logged_gameweek_that_is_not_yet_data_checked(tmp_path, monkeypatch):
+    monkeypatch.setattr(rdlo, "DECISION_LOG_DIR", tmp_path)
+    _write_log(tmp_path, 7139944, 2)
+    _write_log(tmp_path, 7139944, 3)
+    monkeypatch.setattr(rdlo.ax, "fetch_bootstrap_static", lambda: {"events": [
+        {"id": 2, "finished": True, "data_checked": True},
+        {"id": 3, "finished": True, "data_checked": False},  # bonus not final
+    ]})
+    realized = []
+    monkeypatch.setattr(rdlo, "realize_gameweek", lambda eid, gw: realized.append((eid, gw)))
+    monkeypatch.setattr(rdlo, "TRACKED_ACCOUNTS", [{"entry_id": 7139944, "label": "x"}])
+    monkeypatch.setattr(sys, "argv", ["realize_decision_log_outcomes.py", "4"])
+    rdlo.main()
+    assert realized == [(7139944, 2)]
+
+
+def test_main_no_op_when_nothing_logged_at_or_before_current_event(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(rdlo, "DECISION_LOG_DIR", tmp_path)
+    _write_log(tmp_path, 7139944, 5)  # logged, but > current_event
+    monkeypatch.setattr(sys, "argv", ["realize_decision_log_outcomes.py", "3"])
+    rdlo.main()
+    assert "no logged gameweek at or before GW3" in capsys.readouterr().out

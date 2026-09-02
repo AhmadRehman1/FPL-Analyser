@@ -7,16 +7,21 @@ Usage (from repo root, same job as scripts/run_ingestion.py, right after it):
     PYTHONPATH=src python scripts/realize_decision_log_outcomes.py <event>
 
 <event> is the SAME current-gameweek value scheduled_pipeline.yml's own "Determine current
-gameweek" step already computes and threads through to every other real-squad step. This script
-realizes the PRIOR gameweek (<event> - 1) -- the one a Phase C-1 run, one scheduled_pipeline.yml
-run ago, logged a recommendation for -- but only once bootstrap-static itself reports that
-gameweek finished (events[].finished), so a still-in-progress gameweek is never realized with a
-partial score. Not yet finished, or nothing was ever logged for it (e.g. before Phase C-1
-shipped) -> skipped, not an error.
+gameweek" step already computes and threads through to every other real-squad step.
+
+Realizes EVERY logged gameweek that is finished + data_checked per bootstrap-static and not
+already realized -- not just <event> - 1. FPL's events[].is_current lags a full gameweek
+cycle (it stays on GW N for the whole GW N -> GW N+1 window, only flipping to N+1 at N+1's
+deadline), so a "prior gameweek only" pass left GW2's real outcome unrecorded from the moment
+GW2 finished until GW3's deadline a week later -- the track-record accuracy panel showing a
+gameweek behind reality the whole time. realize_gameweek() is idempotent (skips once
+realized_points_actual is set), so a catch-up sweep over the committed decision_log/ files is
+safe. Not yet finished / not data_checked / nothing logged -> skipped, not an error.
 
 Same network-blocked-in-sandbox caveat as every other real-squad script in this project.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -119,30 +124,57 @@ def realize_gameweek(entry_id: int, gameweek: int) -> dict | None:
     return decision_row
 
 
-def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit(f"usage: {sys.argv[0]} <event>")
-    current_event = int(sys.argv[1])
-    gameweek_to_realize = current_event - 1
-    if gameweek_to_realize < 1:
-        print(f"[realize] GW{gameweek_to_realize} doesn't exist -- nothing to realize yet this season")
-        return
+_LOG_GW_RE = re.compile(r"_(\d{4}-\d{4})_gw(\d+)\.json$")
 
-    bootstrap = ax.fetch_bootstrap_static()
-    event_row = next((ev for ev in bootstrap.get("events", []) if ev.get("id") == gameweek_to_realize), None)
+
+def _logged_gameweeks(season: str) -> list[int]:
+    """Every gameweek that has at least one committed decision_log entry for this season,
+    ascending. The catch-up sweep realizes any of these that are finished + not yet realized."""
+    gws = set()
+    for path in DECISION_LOG_DIR.glob(f"*_{season}_gw*.json"):
+        m = _LOG_GW_RE.search(path.name)
+        if m and m.group(1) == season:
+            gws.add(int(m.group(2)))
+    return sorted(gws)
+
+
+def _gameweek_is_scorable(bootstrap: dict, gameweek: int) -> bool:
+    event_row = next((ev for ev in bootstrap.get("events", []) if ev.get("id") == gameweek), None)
     if event_row is None or not event_row.get("finished"):
-        print(f"[realize] GW{gameweek_to_realize} not yet finished per bootstrap-static -- skipping until it is")
-        return
+        print(f"[realize] GW{gameweek} not yet finished per bootstrap-static -- skipping until it is")
+        return False
     # `finished` alone can flip true before bonus points (BPS) are fully confirmed --
     # `data_checked` is FPL's own stricter flag for that, and this step is idempotent-on-success
     # only (realize_gameweek() skips forever once realized_points_actual is set), so realizing on
     # a not-yet-data_checked gameweek would lock in a wrong number permanently, not just briefly.
     if not event_row.get("data_checked"):
-        print(f"[realize] GW{gameweek_to_realize} finished but not yet data_checked (bonus points not final) -- skipping until it is")
+        print(f"[realize] GW{gameweek} finished but not yet data_checked (bonus points not final) -- skipping until it is")
+        return False
+    return True
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit(f"usage: {sys.argv[0]} <event>")
+    current_event = int(sys.argv[1])
+
+    # Every logged gameweek up to and including the current one is a realization candidate;
+    # bootstrap-static's own finished + data_checked flags (checked in _gameweek_is_scorable)
+    # are the real "results are final" gate. `current_event - 1` alone would leave the
+    # just-finished gameweek unrealized for up to a week, because FPL's is_current stays on
+    # GW N for the whole GW N -> GW N+1 window (see the module docstring). `<= current_event`
+    # bounds the search safely -- a gameweek past the current one cannot be finished.
+    candidates = [gw for gw in _logged_gameweeks(TARGET_SEASON) if gw <= current_event]
+    if not candidates:
+        print(f"[realize] no logged gameweek at or before GW{current_event} to realize yet this season")
         return
 
-    for account in TRACKED_ACCOUNTS:
-        realize_gameweek(account["entry_id"], gameweek_to_realize)
+    bootstrap = ax.fetch_bootstrap_static()
+    for gameweek in candidates:
+        if not _gameweek_is_scorable(bootstrap, gameweek):
+            continue
+        for account in TRACKED_ACCOUNTS:
+            realize_gameweek(account["entry_id"], gameweek)
 
 
 if __name__ == "__main__":
