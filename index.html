@@ -2358,6 +2358,20 @@ function chipRowBlock(chips) {
     </button>`).join("") + `</div>`;
 }
 
+function chipTimingLine(chip) {
+  // The forward-horizon chip-timing sweep's verdict for this chip (run_transfer_planner_for_
+  // real_squad.reconcile_chips_with_timing_sweep). The per-week chip_evaluations.recommended
+  // flag alone said "play everything, every week"; this is the "which single week is actually
+  // best over the first half" answer.
+  const t = chip && chip.timing;
+  if (!t || !t.available) return "";
+  if (t.is_best_week_now) return `<b style="color:var(--good);">The sweep rates this the best week to play it.</b>`;
+  if (chip.detail_timing) return escapeHtml(chip.detail_timing);
+  if (t.best_gameweek) return `The sweep's best week for this chip is <b style="color:var(--ink);">GW${t.best_gameweek}</b>.`;
+  if (t.note) return escapeHtml(t.note);
+  return "";
+}
+
 function openChipSheet(chipType) {
   const rs = activeRealSquad();
   const names = { wildcard: "Wildcard", free_hit: "Free Hit", triple_captain: "Triple Captain", bench_boost: "Bench Boost" };
@@ -2370,6 +2384,7 @@ function openChipSheet(chipType) {
     <div class="player-hero" style="padding-bottom:10px;">
       <div class="name" style="font-size:19px;">${names[chipType] || chipType}</div>
       <div class="sub">${chip.recommended ? "Recommended this week" : "Not recommended this week"}</div>
+      ${chipTimingLine(chip) ? `<div class="sub" style="margin-top:4px;">${chipTimingLine(chip)}</div>` : ""}
     </div>
     <div class="stat-grid4" style="grid-template-columns:repeat(2,1fr);">
       <div class="g-tile"><div class="g-label">Model edge</div><div class="g-value">${chip.score != null ? chip.score.toFixed(2) : "&mdash;"}</div></div>
