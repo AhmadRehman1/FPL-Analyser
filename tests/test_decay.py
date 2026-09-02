@@ -56,22 +56,27 @@ def test_seed_v1_params_covers_every_real_claim_type(con):
         assert half_life > 0
 
 
-def test_seed_v1_params_makes_predicted_xi_decay_faster_than_manager_tendency(con):
-    """The direct Priority 7c ask: same-day team news must decay much faster than a durable
-    season-long tactical pattern."""
+def test_seed_v1_params_orders_role_claims_by_how_fast_the_role_turns_over(con):
+    """A starting-role read (predicted_xi) turns over faster than a set-piece rota, which turns
+    over faster than a manager's season-long tendency -- so their half-lives are strictly
+    increasing in that order."""
     decay.seed_v1_params(con)
-    asof = date(2026, 1, 15)
-    observed = date(2026, 1, 8)  # one week old
-    xi_decay = decay.decay_for_claim_type(con, "predicted_xi", observed, asof, params_version=1)
-    tendency_decay = decay.decay_for_claim_type(con, "manager_tendency", observed, asof, params_version=1)
-    assert xi_decay < tendency_decay
+    asof, observed = date(2026, 1, 15), date(2026, 1, 8)  # one week old
+
+    def d(claim_type):
+        return decay.decay_for_claim_type(con, claim_type, observed, asof, params_version=1)
+
+    assert d("predicted_xi") < d("set_piece_order_override") < d("manager_tendency")
 
 
-def test_seed_v1_params_predicted_xi_is_heavily_stale_after_a_week(con):
-    """Same-day team news (predicted_xi) at its configured half_life of 1.5 days: a claim from
-    a week ago should be down to a small fraction of its original weight, matching the
-    roadmap's own 'faster-decay for late team news' ask -- a week-old lineup prediction is
-    close to worthless by the next deadline."""
+def test_seed_v1_params_predicted_xi_survives_a_weekly_pull_cycle(con):
+    """predicted_xi claims come from the *weekly* manual evidence pull and predict a season
+    starting role, not a same-day lineup. A claim must still carry most of its weight a week
+    later (one pull cycle) and roughly half its weight after three weeks -- the old 1.5-day
+    half-life instead zeroed the whole channel (~1e-3 weight after a week), defeating the
+    evidence-pull feature minutes_model.compute_logit_adjustment() reads it for."""
     decay.seed_v1_params(con)
-    d = decay.decay_for_claim_type(con, "predicted_xi", date(2026, 1, 1), date(2026, 1, 8), params_version=1)
-    assert d < 0.05
+    after_1w = decay.decay_for_claim_type(con, "predicted_xi", date(2026, 1, 1), date(2026, 1, 8), params_version=1)
+    after_3w = decay.decay_for_claim_type(con, "predicted_xi", date(2026, 1, 1), date(2026, 1, 22), params_version=1)
+    assert after_1w > 0.75
+    assert 0.45 < after_3w < 0.55
