@@ -1,36 +1,15 @@
-name: Weekly heavy jobs (M7 backtest + leaderboard)
+name: Weekly leaderboard
 
-# Two independent jobs that share one real constraint: both are genuinely too expensive for
-# scheduled_pipeline.yml's twice-daily cadence, and both were, until this workflow existed,
-# never scheduled ANYWHERE -- two separate instances of this project's own recurring bug class
-# (a fully-built, tested feature whose export script nothing ever actually invokes, so its panel
-# silently renders nothing forever).
+# scripts/export_leaderboard.py: a real MIQP solve + Monte Carlo simulation per completed
+# gameweek of the current season (GW2 -> last finished GW), feeding the profile sheet's "Model
+# vs baselines" panel. Early in a season it writes an explicit {"status": "insufficient_data"}
+# payload and exits 0 (see the script's own docstring). Restores the most recent
+# scheduled_pipeline.yml run's cached DB rather than re-ingesting.
 #
-# `backtest` job -- scripts/run_backtest.py: a real ~1-2 hour job (full M1-M6 pipeline re-run
-# against every historical 2024-25/2025-26 gameweek, plus recalibration). The ONLY thing that
-# ever populates a real backtest_runs row: without it the app's Track Record screen stays stuck
-# at "no walk-forward backtest has been run yet".
-#
-# `leaderboard` job -- scripts/export_leaderboard.py: a real MIQP solve + Monte Carlo simulation
-# per completed gameweek of the current season (GW2 -> last finished GW), feeding the profile
-# sheet's "Model vs baselines" panel. It is a SEPARATE JOB, not a step in `backtest`, on purpose:
-# it used to be the last step of the backtest job, `continue-on-error: true`, AFTER the ~1-2h
-# (in practice, up to the 5h cancel cap) run_backtest.py step -- so a backtest that ran long got
-# cancelled before the leaderboard step ever started, and leaderboard_latest.json was never
-# produced. Its own run_season_simulation() is fully self-contained (not a read of
-# run_backtest.py's output), so there is no reason to gate it behind that step. Early in a
-# season it writes an explicit {"status": "insufficient_data"} payload and exits 0 (see the
-# script's own docstring) -- a real "not enough season yet" state, not a failure -- so it no
-# longer needs continue-on-error.
-#
-# Neither job's numbers meaningfully change gameweek to gameweek, so weekly instead of
-# twice-daily loses nothing real.
-#
-# Both jobs restore the most recent scheduled_pipeline.yml run's cached DB (same `duckdb-`
-# prefix restore-key match on_demand_report.yml already uses) rather than re-running the full
-# M0-M6 ingestion. The cache-miss fallback (clone + workbooks + ingest) is duplicated across
-# both jobs but only ever executes on the very first run before any scheduled run has cached a
-# DB -- in steady state both jobs just restore.
+# The former `backtest` job here (run_backtest.py = walk-forward + every refit + auto-promote
+# in one job) was REMOVED: it was cancelled at the 6h Actions cap on every real dispatch. Its
+# two halves now run separately and reliably -- nightly_backtest.yml (walk-forward -> the Track
+# Record panel) and recalibrate.yml (the chunked refit techniques -> proposals).
 
 on:
   schedule:
@@ -40,91 +19,13 @@ on:
 permissions:
   contents: write
 
-# One workflow run at a time -- queue rather than overlap a manual dispatch with the weekly one.
-# The two jobs inside a run push different files (backtest: app_track_record.json + recalibration/;
-# leaderboard: leaderboard_*.json) and each has its own fetch-and-rebase retry loop for the
-# benign case where they race each other's push.
 concurrency:
-  group: weekly-backtest
+  group: weekly-leaderboard
   cancel-in-progress: false
 
 jobs:
-  backtest:
-    runs-on: ubuntu-latest
-    timeout-minutes: 300  # real run is ~1-2h; generous headroom under GitHub's own 360m job cap
-    steps:
-      - name: Checkout FPL-Analyser
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-
-      # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
-      # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here).
-      - name: Install dependencies
-        run: pip install -r requirements.lock
-
-      - name: Restore the most recent ingested DB
-        id: cache
-        uses: actions/cache/restore@v6
-        with:
-          path: db/fpl_quant_v2.duckdb
-          key: duckdb-restore-only-no-such-exact-key
-          restore-keys: |
-            duckdb-
-
-      # Same cache-miss fallback as on_demand_report.yml's own steps of the same name -- only
-      # hit on the very first run ever, before any scheduled_pipeline.yml run has cached a DB.
-      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
-            data/external/FPL-Core-Insights-main
-
-      - name: Materialize evidence workbooks [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p data/external
-          fetch_drive_file() {
-            local file_id="$1" out_path="$2"
-            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
-              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
-            local size
-            size=$(stat -c%s "${out_path}")
-            if [ "${size}" -lt 1024 ]; then
-              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page, not the real workbook"
-              exit 1
-            fi
-            if head -c 256 "${out_path}" | grep -qi "<html"; then
-              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook (Google Drive virus-scan interstitial?)"
-              exit 1
-            fi
-          }
-          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
-          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
-
-      - name: Run ingestion (M0-M6) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: PYTHONPATH=src python scripts/run_ingestion.py
-
-      - name: Run walk-forward backtest (M7) -- real ~1-2 hour job
-        run: PYTHONPATH=src python scripts/run_backtest.py
-
-      - name: Export the real track record for the app
-        run: PYTHONPATH=src python scripts/export_track_record.py
-
-      - name: Commit the real track record + recalibration seeds
-        run: |
-          bash scripts/ci_commit_generated.sh \
-            "chore: weekly walk-forward backtest -- real track record [skip ci]" \
-            data/dashboard/app_track_record.json data/recalibration/
-
-  # Decoupled from `backtest` above so a long/cancelled backtest can never starve this feed --
-  # see the header comment. Its own run_season_simulation() over the completed gameweeks of the
-  # current season is ~minutes early on, growing to ~1h by late season; 120m is comfortable
-  # headroom.
+  # run_season_simulation() over the completed gameweeks of the current season is ~minutes
+  # early on, growing to ~1h by late season; 120m is comfortable headroom.
   leaderboard:
     runs-on: ubuntu-latest
     timeout-minutes: 120
