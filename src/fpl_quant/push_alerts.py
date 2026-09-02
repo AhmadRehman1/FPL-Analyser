@@ -104,7 +104,10 @@ def compute_alerts(
     if within_lead:
         h = round(hours_to_deadline)
         hold = (real_squad or {}).get("hold_vs_transfer_now") or {}
-        if hold.get("recommended_action") == "transfer":
+        # hold_recommendations.recommended_action is one of 'hold' | 'transfer_now' |
+        # 'no_action_available' (schema CHECK + transfer_planner.evaluate_hold_vs_transfer);
+        # 'transfer_now' is the only one that means "the model wants a transfer this week".
+        if hold.get("recommended_action") == "transfer_now":
             recs = (real_squad or {}).get("transfer_recommendations") or []
             top = recs[0] if recs else None
             body = (
