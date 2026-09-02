@@ -385,3 +385,44 @@ def test_defcon_still_includes_recoveries_for_a_midfielder(con):
     cbit_plus_rec_rate = 15.0 * e_min / 90.0  # MID threshold is 12, over CBIT + recoveries
     expected = (1.0 - poisson.cdf(11, cbit_plus_rec_rate)) * p_played * 2.0
     assert comp["ep_defcon"] == pytest.approx(expected, rel=1e-3)
+
+
+# ============================================================
+# _position_average_rates() -- the shrinkage anchor for goals/assists/saves -- must be
+# minutes-weighted off each player's LATEST cumulative row per season, not an unweighted
+# avg() over every per-gameweek snapshot. The old version pulled the anchor toward 0 (fringe
+# players and noisy early-season snapshots counted at full weight), and _shrink_rate() then
+# compressed everyone toward it -- the same failure mode as the DefCon / minutes fixes.
+# ============================================================
+
+def _fps(con, uid, season, gw, xg, xa, saves_p90, minutes):
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+        "expected_goals_per_90, expected_assists_per_90, saves_per_90, minutes, _ingested_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)",
+        [uid, season, gw, xg, xa, (xg / minutes * 90) if minutes else 0, (xa / minutes * 90) if minutes else 0, saves_p90, minutes],
+    )
+
+
+def test_position_average_rates_is_minutes_weighted_not_per_player(con):
+    for uid in ("reg", "fringe"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward')", [uid, uid])
+    # A 3000-minute regular at 0.60 xG/90 and a 200-minute fringe player at 0.05 xG/90.
+    _fps(con, "reg", "2025-2026", 38, xg=20.0, xa=0.0, saves_p90=0, minutes=3000)
+    _fps(con, "fringe", "2025-2026", 12, xg=0.111, xa=0.0, saves_p90=0, minutes=200)
+    avg = ep._position_average_rates(con, "Forward", ["2025-2026"])
+    # minutes-weighted: (20.0 + 0.111) / (3000 + 200) * 90 ~= 0.566, i.e. dominated by the regular.
+    assert avg["expected_goals_per_90"] == pytest.approx((20.0 + 0.111) / 3200 * 90, rel=1e-6)
+    # an unweighted per-player mean would be ~(0.60 + 0.05) / 2 = 0.325 -- far lower.
+    assert avg["expected_goals_per_90"] > 0.5
+
+
+def test_position_average_rates_uses_only_the_latest_cumulative_row_per_season(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p', 'p', 'Forward')")
+    # Noisy early snapshots (GW1: 1.0 xG in 90 min) then a settled GW38 cumulative row.
+    _fps(con, "p", "2025-2026", 1, xg=1.0, xa=0.0, saves_p90=0, minutes=90)
+    _fps(con, "p", "2025-2026", 2, xg=1.1, xa=0.0, saves_p90=0, minutes=180)
+    _fps(con, "p", "2025-2026", 38, xg=15.0, xa=0.0, saves_p90=0, minutes=3200)
+    avg = ep._position_average_rates(con, "Forward", ["2025-2026"])
+    # only the GW38 row: 15.0 / 3200 * 90
+    assert avg["expected_goals_per_90"] == pytest.approx(15.0 / 3200 * 90, rel=1e-6)

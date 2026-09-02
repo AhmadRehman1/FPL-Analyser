@@ -89,7 +89,9 @@ def test_price_change_only_fires_for_a_player_actually_in_the_squad():
 # ---- pending recommendation near the deadline -----------------------------
 
 def test_pending_transfer_only_alerts_inside_the_lead_window():
-    rs = {"hold_vs_transfer_now": {"recommended_action": "transfer"},
+    # 'transfer_now' is the real hold_recommendations.recommended_action value for "make a
+    # transfer" (schema CHECK: hold | transfer_now | no_action_available).
+    rs = {"hold_vs_transfer_now": {"recommended_action": "transfer_now"},
           "transfer_recommendations": [{"player_out": "Kinsky", "player_in": "Leno", "net": 8.9}]}
     far = pa.compute_alerts(real_squad=rs, team=_team(), players_by_id=_players(), price_watch={},
                             next_deadline_utc=NOW + timedelta(hours=10), now_utc=NOW)
@@ -98,6 +100,13 @@ def test_pending_transfer_only_alerts_inside_the_lead_window():
                              next_deadline_utc=NOW + timedelta(hours=2), now_utc=NOW, lead_hours=3)
     assert [a["kind"] for a in near] == ["pending_transfer"]
     assert "Kinsky → Leno" in near[0]["body"]
+
+
+def test_pending_transfer_ignores_no_action_available():
+    rs = {"hold_vs_transfer_now": {"recommended_action": "no_action_available"}, "transfer_recommendations": []}
+    alerts = pa.compute_alerts(real_squad=rs, team=_team(), players_by_id=_players(), price_watch={},
+                               next_deadline_utc=NOW + timedelta(hours=1), now_utc=NOW)
+    assert alerts == []
 
 
 def test_pending_transfer_not_alerted_when_the_model_says_hold():
@@ -117,7 +126,7 @@ def test_recommended_chip_near_deadline_is_alerted():
 
 
 def test_deadline_already_passed_is_not_within_lead():
-    rs = {"hold_vs_transfer_now": {"recommended_action": "transfer"}, "transfer_recommendations": []}
+    rs = {"hold_vs_transfer_now": {"recommended_action": "transfer_now"}, "transfer_recommendations": []}
     alerts = pa.compute_alerts(real_squad=rs, team=_team(), players_by_id=_players(), price_watch={},
                                next_deadline_utc=NOW - timedelta(hours=1), now_utc=NOW)
     assert alerts == []

@@ -171,7 +171,7 @@ jobs:
         run: PYTHONPATH=src python scripts/run_chip_timing_arm.py
 
       - name: Upload this arm's artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: arm-${{ matrix.entry }}-${{ matrix.tag }}-${{ matrix.bundle }}
           path: data/chip_timing/arms/arm_${{ matrix.entry }}_${{ matrix.tag }}_${{ matrix.bundle }}.json
@@ -198,7 +198,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Download every sweep arm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: arm-*
           path: _arms

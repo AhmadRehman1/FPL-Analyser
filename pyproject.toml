@@ -12,7 +12,7 @@ select = ["E", "F", "W"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 ignore_missing_imports = true
 # Advisory only (see .github/workflows/tests.yml: the typecheck job runs this but doesn't
 # gate CI). A first real run against this codebase found 94 errors, nearly all the same

@@ -6,14 +6,17 @@ team_strength_model_version/minutes_model_version it left behind, the same "game
 snapshot" ts/mm pair transfer_planner.compute_horizon_ep() reuses across the whole horizon).
 
 Usage (from repo root):
-    PYTHONPATH=src python scripts/export_projections.py [start_gameweek] [n_gameweeks]
+    PYTHONPATH=src python scripts/export_projections.py [current_event] [n_gameweeks]
 
-Defaults to a PLANNER_HORIZON_GAMEWEEKS-wide table starting at bootstrap-static's own current
-gameweek if no arguments are given -- wide enough for the PWA's own future-gameweek planner
-(see index.html's Planner sheet) to have real data to navigate, matching the ~5-8 gameweek
-forward window real FPL chip-timing strategy guidance itself uses (a wildcard's payoff is
-judged over "the next five to eight gameweeks," not a single week -- see the roadmap's own
-chip-timing notes).
+arg 1 is the CURRENT gameweek (bootstrap-static's events[].is_current -- the same value
+scheduled_pipeline.yml threads through every other real-squad step); the projections table
+STARTS at current_event + 1, the first gameweek a transfer/captain decision made now can
+actually affect. This matches run_transfer_planner_for_real_squad.py / explain_my_move.py
+(plan_for_gameweek = current_event + 1) -- before this, the table started AT current_event,
+so once a gameweek's matches finished (is_current stays put until the next deadline) the app's
+"Top captain picks this week" and the Planner sheet were showing an already-played gameweek
+for the whole pre-deadline window. PLANNER_HORIZON_GAMEWEEKS wide, matching the ~5-8 gameweek
+forward window real FPL chip-timing strategy guidance uses.
 
 Also resolves each player's real FPL bootstrap-static element id (a live fetch, see
 _resolve_element_ids()'s own docstring for why) -- projections.py's own player_uid is this
@@ -62,17 +65,26 @@ def _fetch_element_names() -> dict[int, str]:
         return {}
 
 
+def resolve_start_gameweek(argv: list[str]) -> int:
+    """The first gameweek the projections table covers = current_event + 1 -- the first one a
+    transfer/captain decision made now can still affect (see module docstring). argv[1], when
+    given, is the current gameweek (bootstrap-static events[].is_current, threaded through by
+    scheduled_pipeline.yml); otherwise it's fetched live, falling back to TARGET_GAMEWEEK."""
+    if len(argv) > 1:
+        current_event = int(argv[1])
+    else:
+        try:
+            current_event = ax.current_event(ax.fetch_bootstrap_static()) or TARGET_GAMEWEEK
+        except Exception as e:  # noqa: BLE001 -- best-effort default; an explicit CLI arg always overrides this
+            print(f"::warning::export_projections: could not determine the current gameweek live ({e}) -- defaulting to GW{TARGET_GAMEWEEK}.")
+            current_event = TARGET_GAMEWEEK
+    return current_event + 1
+
+
 def main() -> None:
     con = db.connect()
 
-    if len(sys.argv) > 1:
-        start_gw = int(sys.argv[1])
-    else:
-        try:
-            start_gw = ax.current_event(ax.fetch_bootstrap_static()) or TARGET_GAMEWEEK
-        except Exception as e:  # noqa: BLE001 -- best-effort default; an explicit CLI arg always overrides this
-            print(f"::warning::export_projections: could not determine the current gameweek live ({e}) -- defaulting to GW{TARGET_GAMEWEEK}.")
-            start_gw = TARGET_GAMEWEEK
+    start_gw = resolve_start_gameweek(sys.argv)
     n_gameweeks = int(sys.argv[2]) if len(sys.argv) > 2 else PLANNER_HORIZON_GAMEWEEKS
     gameweeks = list(range(start_gw, start_gw + n_gameweeks))
 

@@ -40,15 +40,28 @@ def decay_for_claim_type(con, claim_type: str, observed_date: date, asof_date: d
 # Every value below is an invented v1 default (no claim-type-specific decay literature to
 # cite, same status as every other unpinned constant in this project), flagged for M7
 # recalibration once real evidence-outcome data exists to fit against. The ordering itself is
-# the deliberate part: same-day team news (predicted_xi) decays fastest -- a lineup
-# prediction from a week ago is close to worthless by kickoff, which is exactly the roadmap's
-# "faster-decay for late team news" ask -- while a season-long tactical pattern
-# (manager_tendency) is genuinely durable and should barely decay across a normal gameweek
-# gap.
+# the deliberate part: a starting-role read (predicted_xi) turns over faster than a set-piece
+# rota (set_piece_order_override), which turns over faster than a manager's season-long
+# tactical tendency (manager_tendency), which should barely decay across a normal gameweek gap.
+#
+# predicted_xi half-life history: this was 1.5 days originally, on the mental model of a
+# "same-day team-news leak worthless by kickoff." That is not what a predicted_xi claim is in
+# this project -- they come from the *weekly* manual evidence pull (data/external/evidence_pull_
+# sources/ + the workbook, ingested by run_ingestion.py's [evidence_claims]/[research_pull]
+# steps) and predict a player's SEASON starting ROLE ("nailed starter", "rotation risk"), with
+# observed_date routinely 1-4 weeks stale because the pull doesn't re-touch every player every
+# week. A 1.5-day half-life drove every such claim to ~1e-3..1e-6 weight before
+# minutes_model.compute_logit_adjustment() ever saw it, silently zeroing the entire predicted_xi
+# channel (100+ claims) that evidence-pull-v2 exists to feed -- e.g. a confirmed nailed striker
+# whose own start history is depressed by a past injury or transfer holdout got no correction at
+# all. 21.0 (= transfer_likelihood: both track "the current state of a situation that evolves
+# over weeks, not hours") keeps ~80% weight after one pull cycle, ~50% after three. A genuinely
+# same-day claim still gets full weight regardless -- the half-life governs only how a claim
+# AGES, not its initial strength.
 # ============================================================
 
 CLAIM_TYPE_DECAY_HALF_LIFE_DAYS_V1 = {
-    "predicted_xi": 1.5,
+    "predicted_xi": 21.0,
     "injury_status": 3.0,
     "set_piece_order_override": 45.0,
     "community_sentiment": 10.0,
