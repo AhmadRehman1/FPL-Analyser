@@ -116,6 +116,65 @@ def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
     ]
 
 
+def attach_recommendation_breakdowns(
+    con, explain: dict, run_id: int, plan_for_gameweek: int,
+    tc_detail: dict | None, actual_captain_uid: str | None,
+    recs: list[tuple], name_by_uid: dict[str, str],
+) -> dict:
+    """Gap 5 (inline explainability): adds `captain_breakdown` + `transfer_breakdowns` to the
+    exported `explain` dict -- expected_points.explain_player_ep() + uncertainty.explain_player_risk()
+    for the captain pick and the top transfer(s), so the app's "Explain this" sheet shows a real
+    category-level EP split instead of one blended number, with no new export script.
+
+    `recs` are transfer_recommendations rows as (rank, player_out_uid, player_in_uid, ...).
+
+    Best-effort: transfer_plan_runs.ep_model_versions/uncertainty_model_versions is a JSON OBJECT
+    keyed by str(gameweek) (see transfer_planner.run()'s own INSERT -- NOT a list, despite an old
+    schema comment). If this run's target gameweek isn't in it (or the row is missing), the
+    breakdowns are simply omitted rather than crashing the whole per-account export -- the same
+    "a secondary panel may fail independently" philosophy the chip preview_squad step already uses.
+    """
+    mv_row = con.execute(
+        "SELECT ep_model_versions, uncertainty_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id],
+    ).fetchone()
+    key = str(plan_for_gameweek)
+    target_ep_mv = json.loads(mv_row[0]).get(key) if mv_row and mv_row[0] else None
+    target_un_mv = json.loads(mv_row[1]).get(key) if mv_row and mv_row[1] else None
+    explain["transfer_breakdowns"] = []
+    if target_ep_mv is None or target_un_mv is None:
+        print(f"::warning::attach_recommendation_breakdowns: no ep/un model version for GW{plan_for_gameweek} "
+              f"in transfer_plan_runs (run_id={run_id}) -- 'Explain this' breakdowns omitted this run.")
+        return explain
+
+    def _player_explain(uid: str) -> dict:
+        name = name_by_uid.get(uid)
+        if not name:
+            row = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [uid]).fetchone()
+            name = row[0] if row else uid
+        return {
+            "player_uid": uid, "name": name,
+            "ep": ep_mod.explain_player_ep(con, target_ep_mv, uid),
+            "risk": un_mod.explain_player_risk(con, target_un_mv, uid),
+        }
+
+    rec_cap_uid = (tc_detail or {}).get("captain_candidate")
+    if rec_cap_uid:
+        explain["captain_breakdown"] = {
+            "gameweek": plan_for_gameweek,
+            "recommended": _player_explain(rec_cap_uid),
+            "current": (
+                _player_explain(actual_captain_uid)
+                if actual_captain_uid and actual_captain_uid != rec_cap_uid else None
+            ),
+        }
+    explain["transfer_breakdowns"] = [
+        {"rank": rank, "gameweek": plan_for_gameweek,
+         "player_in": _player_explain(in_uid), "player_out": _player_explain(out_uid)}
+        for rank, out_uid, in_uid, *_rest in recs[:2]
+    ]
+    return explain
+
+
 def main() -> None:
     if len(sys.argv) not in (3, 4, 5):
         raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label] [risk_posture]")
@@ -317,48 +376,9 @@ def main() -> None:
     explain = tp.explain_plan(con, run_id, top_n=5)
     print(f"\n[explain] attached transfer_planner.explain_plan() output (gw19_urgent={explain['gw19_deadline']})")
 
-    # Gap 5 (inline explainability): attach the M9 per-player EP + risk breakdown for the two
-    # recommendations the app surfaces most -- the captain pick and the top transfer(s) -- so
-    # the "Explain this" sheet can show a real category-level "where the points come from"
-    # split instead of one blended number, without the frontend inventing any text or a new
-    # export script. Reuses expected_points.explain_player_ep() / uncertainty.explain_player_risk()
-    # unchanged; the ep/un model versions are transfer_plan_runs' own per-horizon-gameweek JSON
-    # lists (index 0 == plan_for_gameweek, the gameweek this run actually plans for -- NOT
-    # projections_latest.json's gameweeks[0], which starts at the CURRENT event and is one
-    # gameweek early for a decision).
-    mv_row = con.execute(
-        "SELECT ep_model_versions, uncertainty_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id],
-    ).fetchone()
-    target_ep_mv, target_un_mv = json.loads(mv_row[0])[0], json.loads(mv_row[1])[0]
-
-    def _player_explain(uid: str, name: str | None) -> dict:
-        if not name:
-            row = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [uid]).fetchone()
-            name = row[0] if row else uid
-        return {
-            "player_uid": uid, "name": name,
-            "ep": ep_mod.explain_player_ep(con, target_ep_mv, uid),
-            "risk": un_mod.explain_player_risk(con, target_un_mv, uid),
-        }
-
-    rec_cap_uid = (tc_detail or {}).get("captain_candidate")
-    if rec_cap_uid:
-        explain["captain_breakdown"] = {
-            "gameweek": plan_for_gameweek,
-            "recommended": _player_explain(rec_cap_uid, player_name_by_uid.get(rec_cap_uid)),
-            "current": (
-                _player_explain(actual_captain_uid, player_name_by_uid.get(actual_captain_uid))
-                if actual_captain_uid and actual_captain_uid != rec_cap_uid else None
-            ),
-        }
-    explain["transfer_breakdowns"] = [
-        {
-            "rank": rank, "gameweek": plan_for_gameweek,
-            "player_in": _player_explain(in_uid, None),
-            "player_out": _player_explain(out_uid, None),
-        }
-        for rank, out_uid, in_uid, *_rest in recs[:2]
-    ]
+    attach_recommendation_breakdowns(
+        con, explain, run_id, plan_for_gameweek, tc_detail, actual_captain_uid, recs, player_name_by_uid,
+    )
     print(f"[explain] +captain_breakdown={bool(explain.get('captain_breakdown'))}, "
           f"transfer_breakdowns={len(explain['transfer_breakdowns'])} (GW{plan_for_gameweek})")
 

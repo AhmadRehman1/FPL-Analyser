@@ -40,9 +40,11 @@ CREATE TABLE IF NOT EXISTS manager_squad_holdings (
     PRIMARY KEY (state_version, player_uid)
 );
 
--- One row per planning invocation. ep_model_versions/uncertainty_model_versions are JSON lists
--- (one entry per horizon gameweek) rather than a fixed-column shape, since horizon_gameweeks
--- is itself a versioned parameter, not a schema-time constant.
+-- One row per planning invocation. ep_model_versions/uncertainty_model_versions are JSON
+-- OBJECTS keyed by str(gameweek) (one entry per horizon gameweek -- see transfer_planner.run()'s
+-- own INSERT: json.dumps({str(gw): v for ...})) rather than a fixed-column shape, since
+-- horizon_gameweeks is itself a versioned parameter, not a schema-time constant. Read them with
+-- json.loads(...).get(str(target_gameweek)), the way decision_engine.py does.
 CREATE SEQUENCE IF NOT EXISTS seq_transfer_plan_run START 1;
 
 CREATE TABLE IF NOT EXISTS transfer_plan_runs (
@@ -53,7 +55,7 @@ CREATE TABLE IF NOT EXISTS transfer_plan_runs (
     input_state_version              INTEGER NOT NULL REFERENCES manager_state_versions (state_version),
     horizon_params_version           INTEGER NOT NULL,
     transfer_cost_params_version     INTEGER NOT NULL,
-    ep_model_versions                VARCHAR NOT NULL,   -- JSON list, one per horizon gameweek
+    ep_model_versions                VARCHAR NOT NULL,   -- JSON object {str(gameweek): ep_model_version}
     uncertainty_model_versions       VARCHAR NOT NULL,
     created_at                       TIMESTAMP NOT NULL DEFAULT current_timestamp
 );
