@@ -54,6 +54,8 @@ concurrency:
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
+    outputs:
+      event: ${{ steps.gw.outputs.event }}
     steps:
       - name: Checkout FPL-Analyser
         uses: actions/checkout@v7
@@ -188,16 +190,16 @@ jobs:
         run: PYTHONPATH=src python scripts/realize_decision_log_outcomes.py "$EVENT"
 
       # Real perf fix, not a new feature (see scripts/compute_shared_horizon.py's own module
-      # docstring for the full account): grade_squad.py, explain_my_move.py, and
-      # run_scenarios.py each independently recomputed the SAME account-agnostic multi-
-      # gameweek EP+uncertainty horizon for both real managers -- a real, measured root cause
-      # (not a hypothesis) behind this pipeline's actual wall-clock time badly exceeding this
-      # workflow's own ~20-25-minute estimate above (a real run: "Grade squad + explain best
-      # move" took 44 minutes and "Run bench what-if scenarios" took 3h42m). Computed ONCE
-      # here and exported via $GITHUB_ENV so every later step in this same job picks it up
-      # automatically; those three scripts fall back to their own original per-call
-      # computation whenever this step (or the env var) is absent, so this is a pure opt-in,
-      # not a new hard dependency. run_transfer_planner_for_real_squad.py deliberately does
+      # docstring for the full account): grade_squad.py and explain_my_move.py each independently
+      # recomputed the SAME account-agnostic multi-gameweek EP+uncertainty horizon for both real
+      # managers -- a real, measured root cause (not a hypothesis) behind this pipeline's actual
+      # wall-clock time badly exceeding this workflow's own ~20-25-minute estimate above (a real
+      # run: "Grade squad + explain best move" took 44 minutes). Computed ONCE here and exported
+      # via $GITHUB_ENV so every later step in this same job picks it up automatically; those
+      # scripts fall back to their own original per-call computation whenever this step (or the
+      # env var) is absent, so this is a pure opt-in, not a new hard dependency. run_scenarios.py
+      # -- by far the biggest consumer, ~99-155 min -- now runs in its own `scenarios` job below
+      # (which re-does this computation for itself off the same cached DB). run_transfer_planner_for_real_squad.py deliberately does
       # NOT consume this -- it runs tp.run() with a hardcoded rho_residual_params_version=1,
       # not the active recalibration-seed version every other real-squad script (and this
       # shared-horizon computation) resolves, a real pre-existing discrepancy this fix does
@@ -253,17 +255,15 @@ jobs:
           PYTHONPATH=src python scripts/explain_my_move.py 7139944 "$EVENT"
           PYTHONPATH=src python scripts/explain_my_move.py 1305242 "$EVENT"
 
-      # Feature 4 ("what-if" scenarios), same gap and same fix as the step above: built and
-      # tested (src/fpl_quant/scenario.py) but never actually run by anything before this.
-      # See run_scenarios.py's own module docstring for its real, disclosed v1 scope (bench
-      # lineup_change what-ifs only, not the full interactive layer scenario.py's docstring
-      # describes -- this static PWA has no request-handling backend to be interactive with).
-      - name: Run bench what-if scenarios for both real managers
-        env:
-          EVENT: ${{ steps.gw.outputs.event }}
-        run: |
-          PYTHONPATH=src python scripts/run_scenarios.py 7139944 "$EVENT"
-          PYTHONPATH=src python scripts/run_scenarios.py 1305242 "$EVENT"
+      # Feature 4 ("what-if" scenarios) is NOT run here -- it moved to its own `scenarios` job
+      # below. It is ~6 full decision_engine.recommend_best_move() passes per account (4 bench
+      # lineup_change + captain + vice injury) and measured at 99-155 minutes -- 50-55% of a
+      # whole scheduled run (real runs 33500803112 / 33393156145: 189 / 286 min total). Gating
+      # the critical output (fresh real_squad / decision / report / commit + the deadline
+      # alerts) behind a ~2h SECONDARY panel, twice a day, is what pushed some runs near the 6h
+      # job cap. The scenarios job restores this same run's freshly-ingested DB cache and
+      # commits scenarios_*.json separately -- the panel is then ~2h behind the rest, which is
+      # fine for an approximate "would starting my bench GK change the plan" what-if.
 
       # Real, computed (not invented) fixture-swing signal for both accounts' current squads,
       # covering GW3-19 -- see the script's own docstring for what "swing" means and its real
@@ -446,6 +446,93 @@ jobs:
             # that a concurrent [skip ci] commit re-touched -- the exact failure of run
             # 33444584526). This run's generated data is the freshest; a merge commit in the
             # snapshot history is a fine price for a push that always lands.
+            git merge -X ours --no-edit origin/master || { git merge --abort; sleep 5; }
+          done
+          echo "::error::git push kept failing after 5 merge-and-retry attempts"
+          exit 1
+
+  # Feature 4 what-if scenarios, split out of run-pipeline (see the comment where the step used
+  # to be). ~99-155 min of MIQP solving for a secondary panel -- decoupled so it can't hold up
+  # the twice-daily critical output or push a run near the 6h cap.
+  scenarios:
+    # Default `needs:` semantics are exactly right here: run only if run-pipeline succeeded
+    # (its continue-on-error steps don't fail the job), skip otherwise -- there's no fresh
+    # recommendation to build what-ifs around if the main job failed.
+    needs: run-pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      # run-pipeline saves db/fpl_quant_v2.duckdb under `duckdb-<run_id>` right after ingestion
+      # (see its "Cache the freshly-ingested DB" step). Restore that exact key; the `duckdb-`
+      # restore-key is a fallback only for the first run after this workflow changed.
+      - name: Restore this run's freshly-ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-${{ github.run_id }}
+          restore-keys: |
+            duckdb-
+
+      # Cache-miss fallback -- only the very first run after this split ships, before run-pipeline
+      # has saved a cache under a key this job can see. Mirrors run-pipeline's own provisioning.
+      - name: Fetch FPL-Core-Insights + evidence workbooks + ingest [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+          mkdir -p data/external
+          fetch_drive_file() {
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=$1" -o "$2"
+            [ "$(stat -c%s "$2")" -ge 1024 ] || { echo "::error::$2 too small"; exit 1; }
+            head -c 256 "$2" | grep -qi "<html" && { echo "::error::$2 is HTML not xlsx"; exit 1; } || true
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+          PYTHONPATH=src python scripts/run_ingestion.py
+
+      # Same perf fix run-pipeline applies: compute the shared multi-gameweek EP horizon ONCE
+      # (run_scenarios.py's ~6 recommend_best_move() calls each recompute it otherwise -- the
+      # documented root cause of this step's wall-clock time).
+      - name: Compute shared multi-gameweek horizon once
+        env:
+          EVENT: ${{ needs.run-pipeline.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/compute_shared_horizon.py "$EVENT" /tmp/fpl_shared_horizon_ep_versions.json
+          echo "FPL_SHARED_HORIZON_FILE=/tmp/fpl_shared_horizon_ep_versions.json" >> "$GITHUB_ENV"
+
+      - name: Run bench what-if scenarios for both real managers
+        env:
+          EVENT: ${{ needs.run-pipeline.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/run_scenarios.py 7139944 "$EVENT"
+          PYTHONPATH=src python scripts/run_scenarios.py 1305242 "$EVENT"
+
+      - name: Commit scenario snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/dashboard/scenarios_*.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update what-if scenario snapshots [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "push rejected (attempt $attempt/5) -- merging origin/master, our generated output wins"
+            git fetch origin master
             git merge -X ours --no-edit origin/master || { git merge --abort; sleep 5; }
           done
           echo "::error::git push kept failing after 5 merge-and-retry attempts"
