@@ -53,6 +53,29 @@ def _order_chip_evaluations(chips_out: list[dict]) -> list[dict]:
     return sorted(chips_out, key=lambda c: order.get(c["chip_type"], len(order)))
 
 
+def build_ml_horizon_ep_versions(con, plan_for_gameweek: int, rho_residual_params_version: int):
+    """D-full ML lane: compute the quant multi-gameweek EP horizon, then a shadow copy of each
+    gameweek's ep_outputs scaled to the Huber δ=4 residual model's ep_total_ml. Returns the
+    {gw: (ml_ep_model_version, un_model_version)} map for tp.run(horizon_ep_versions=...), or
+    None if the model can't be fit (no walk-forward history yet, or lightgbm absent) -- in
+    which case main() skips the _ml lane rather than silently falling back to quant."""
+    sys.path.insert(0, str(REPO_ROOT))  # so `from research.ml import forward` resolves
+    try:
+        from research.ml import forward
+    except Exception as e:  # noqa: BLE001
+        print(f"::warning::build_ml_horizon_ep_versions: research.ml unavailable ({e})")
+        return None
+    horizon_gameweeks, _ = tp.params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", 1)
+    quant_horizon = tp.compute_horizon_ep(
+        con, date.today(), TARGET_SEASON, plan_for_gameweek, ts_model_version=1, mm_model_version=1,
+        horizon_gameweeks=int(horizon_gameweeks), scoring_params_version=1, bps_params_version=1,
+        tau_params_version=1, rho_residual_params_version=rho_residual_params_version, corr_params_version=1,
+    )
+    if not quant_horizon:
+        return None
+    return forward.write_ml_horizon_ep_versions(con, TARGET_SEASON, quant_horizon, mm_model_version=1)
+
+
 def _load_timing_sweep(entry_id: int) -> dict | None:
     """This entry's `report` block from data/chip_timing/chip_timing_latest.json, or None if
     the sweep hasn't run, doesn't cover this entry, or the file is unreadable -- a missing
@@ -278,7 +301,7 @@ def attach_recommendation_breakdowns(
 
 def main() -> None:
     if len(sys.argv) not in (3, 4, 5):
-        raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label] [risk_posture]")
+        raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label] [balanced|attack|ml]")
     entry_id, current_event = int(sys.argv[1]), int(sys.argv[2])
     # Same signal this project already uses to distinguish the two accounts scheduled_pipeline.yml
     # runs twice daily (always passed a label) from the ad-hoc, workflow_dispatch-only, one-off
@@ -291,8 +314,15 @@ def main() -> None:
     # balanced, which resolves the exact same lambda/kappa_tc versions this script always used,
     # so the default invocation is unchanged. The 'attack' variant is written to a separate
     # real_squad_<id>_attack.json the frontend loads only when the user flips the Plan-tab toggle.
-    posture = risk_posture.normalize(sys.argv[4] if len(sys.argv) == 5 else None)
-    posture_suffix = "" if posture == risk_posture.DEFAULT_POSTURE else f"_{posture}"
+    #
+    # D-full: a third mode, 'ml' -- balanced params, but the multi-gameweek EP horizon is the
+    # Huber δ=4 residual model's ep_total_ml instead of the quant ep_total (research/ml/forward.
+    # write_ml_horizon_ep_versions). Written to real_squad_<id>_ml.json, a shadow lane the
+    # frontend shows next to quant/attack. Feeds no committed decision-log row.
+    mode_arg = sys.argv[4] if len(sys.argv) == 5 else None
+    ml_mode = mode_arg == "ml"
+    posture = risk_posture.DEFAULT_POSTURE if ml_mode else risk_posture.normalize(mode_arg)
+    posture_suffix = "_ml" if ml_mode else ("" if posture == risk_posture.DEFAULT_POSTURE else f"_{posture}")
     plan_for_gameweek = current_event + 1
 
     con = db.connect()
@@ -325,6 +355,17 @@ def main() -> None:
     )
     print(f"[bootstrap] state_version={state_version} from real entry_id={entry_id}")
 
+    ml_horizon_versions = None
+    if ml_mode:
+        ml_horizon_versions = build_ml_horizon_ep_versions(
+            con, plan_for_gameweek, active["rho_residual_params_version"],
+        )
+        if ml_horizon_versions is None:
+            print("::warning::run_transfer_planner_for_real_squad: ML horizon unavailable "
+                  "(no walk-forward history / lightgbm) -- skipping the _ml lane this run.")
+            con.close()
+            return
+
     t0 = time.time()
     run_id = tp.run(
         con,
@@ -350,6 +391,7 @@ def main() -> None:
         # recommendation, so it's worth the extra solve time here (unlike the default GW1->GW2
         # run_transfer_planner.py, which leaves this off).
         multi_transfer_pool_limit_per_position=10,
+        horizon_ep_versions=ml_horizon_versions,  # None => tp.run computes the quant horizon itself
     )
     print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")
 
@@ -457,9 +499,9 @@ def main() -> None:
     # dashboard snapshot below is (_order_chip_evaluations, not the raw DB-insertion order) so
     # the two outputs of this same run can never disagree about which chip was recommended.
     # The committed planner_decision_log is the model's ONE official weekly call -- always the
-    # balanced (default) posture. The attack variant is a what-if the user opts into, not the
-    # recommendation of record, so it never writes a decision-log entry.
-    if is_tracked_account and posture == risk_posture.DEFAULT_POSTURE:
+    # balanced (default) posture, quant EP. The attack variant and the ml lane are both what-ifs
+    # the user opts into, not the recommendation of record, so neither writes a decision-log entry.
+    if is_tracked_account and posture == risk_posture.DEFAULT_POSTURE and not ml_mode:
         decision_row = _resolve_decision_log_row(
             hold_rec, recs_out, _order_chip_evaluations(chips_out), captain_recommendation,
         )

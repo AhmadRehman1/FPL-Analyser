@@ -57,15 +57,12 @@ def _forward_inference_frame(
     return quant
 
 
-def predict_forward(
-    con: duckdb.DuckDBPyConnection, target_season: str, target_gameweek: int,
-    ep_model_version: int, mm_model_version: int | None,
-    *, min_train_rows: int | None = None, random_state: int = 42,
-) -> pd.DataFrame | None:
-    """Fit Huber δ=4 on the whole walk-forward history and predict `ep_total_ml` for
-    `target_gameweek`. Returns a frame [player_uid, ep_quant, predicted_residual, ep_total_ml],
-    or None when it cannot run: no `backtest_gameweek_steps` yet, too few training rows, no
-    live `ep_outputs` for the target gameweek, or lightgbm not installed."""
+def fit_residual_model(
+    con: duckdb.DuckDBPyConnection, *, min_train_rows: int | None = None, random_state: int = 42,
+):
+    """Fit the shipped Huber δ=4 residual model on the whole walk-forward history. Returns
+    (model, preprocessor, meta) or None when it can't fit: no `backtest_gameweek_steps` yet,
+    too few training rows, or lightgbm not installed. `meta` = {n_train_rows, train_seasons}."""
     try:
         train = dataset_builder.build_minimal_dataset(con)
     except RuntimeError:
@@ -75,8 +72,7 @@ def predict_forward(
     if len(train) < (MIN_TRAIN_ROWS if min_train_rows is None else min_train_rows):
         return None
 
-    feat_cols = feature_engineering.feature_columns()
-    pp = Preprocessor().fit(train, feat_cols)
+    pp = Preprocessor().fit(train, feature_engineering.feature_columns())
     x_tr, _ = pp.transform(train)
     y_tr = train[C.COL_RESIDUAL].to_numpy(dtype=float)
     try:
@@ -85,20 +81,151 @@ def predict_forward(
         ).fit(x_tr, y_tr)
     except ResidualModelUnavailableError:
         return None
+    meta = {
+        "n_train_rows": len(train),
+        "train_seasons": train[C.COL_SEASON].drop_duplicates().tolist(),
+    }
+    return model, pp, meta
 
-    fwd = _forward_inference_frame(con, target_season, target_gameweek, ep_model_version, mm_model_version)
+
+def _predict_one(con, model, pp, target_season, gameweek, ep_model_version, mm_model_version):
+    """ep_total_ml for one gameweek's players. None if there is no live ep_outputs for it."""
+    fwd = _forward_inference_frame(con, target_season, gameweek, ep_model_version, mm_model_version)
     if fwd is None or fwd.empty:
         return None
     fwd = feature_engineering.add_features(con, fwd)
     x_fwd, _ = pp.transform(fwd)
     resid = model.predict(x_fwd)
-
     out = pd.DataFrame({
         "player_uid": fwd["player_uid"].to_numpy(),
+        "gameweek": int(gameweek),
         "ep_quant": fwd[C.COL_QUANT_PRED].to_numpy(dtype=float),
         "predicted_residual": resid,
     })
     out["ep_total_ml"] = out["ep_quant"] + out["predicted_residual"]
-    out.attrs["n_train_rows"] = len(train)
-    out.attrs["train_seasons"] = train[C.COL_SEASON].drop_duplicates().tolist()
+    return out
+
+
+def predict_forward(
+    con: duckdb.DuckDBPyConnection, target_season: str, target_gameweek: int,
+    ep_model_version: int, mm_model_version: int | None,
+    *, min_train_rows: int | None = None, random_state: int = 42,
+) -> pd.DataFrame | None:
+    """Fit and predict `ep_total_ml` for a single upcoming gameweek. Returns a frame
+    [player_uid, ep_quant, predicted_residual, ep_total_ml] (+ .attrs), or None -- see
+    fit_residual_model / _predict_one for the reasons."""
+    fit = fit_residual_model(con, min_train_rows=min_train_rows, random_state=random_state)
+    if fit is None:
+        return None
+    model, pp, meta = fit
+    out = _predict_one(con, model, pp, target_season, target_gameweek, ep_model_version, mm_model_version)
+    if out is None:
+        return None
+    out = out.drop(columns=["gameweek"])
+    out.attrs.update(meta)
+    return out
+
+
+def write_ml_horizon_ep_versions(
+    con: duckdb.DuckDBPyConnection, target_season: str,
+    horizon_ep_versions: dict[int, tuple[int, int]], mm_model_version: int | None,
+    *, min_train_rows: int | None = None,
+) -> dict[int, tuple[int, int]] | None:
+    """For each horizon gameweek, write a shadow copy of that gameweek's `ep_outputs` with
+    every point-contributing column scaled by `ep_total_ml / ep_total` per player, under a new
+    `ep_model_version`. Returns `{gw: (ml_ep_model_version, un_model_version)}` -- the
+    uncertainty version is REUSED from the quant horizon (the residual model corrects the mean,
+    not the variance) -- ready to hand to `transfer_planner.run(horizon_ep_versions=...)`.
+    None if the model can't be fit.
+
+    This is the only place `research/ml/` writes to the production `ep_*` tables, and it writes
+    NEW versions only -- it never touches the quant rows. `scripts/run_ml_shadow_planner.py`
+    is the sole caller; the shipped balanced recommendation is unaffected.
+    """
+    preds = predict_forward_horizon(
+        con, target_season, horizon_ep_versions, mm_model_version, min_train_rows=min_train_rows
+    )
+    if preds is None:
+        return None
+
+    ml_versions: dict[int, tuple[int, int]] = {}
+    for gw, (quant_ep_mv, un_mv) in horizon_ep_versions.items():
+        gw_pred = preds[preds["gameweek"] == gw]
+        if gw_pred.empty:
+            continue
+        ml_ep_mv = con.execute(
+            """
+            INSERT INTO ep_model_versions
+                (calibration_asof_date, target_season, team_strength_model_version,
+                 minutes_model_version, scoring_matrix_params_version, bps_params_version,
+                 bps_tau_params_version)
+            SELECT calibration_asof_date, target_season, team_strength_model_version,
+                   minutes_model_version, scoring_matrix_params_version, bps_params_version,
+                   bps_tau_params_version
+            FROM ep_model_versions WHERE model_version = ?
+            RETURNING model_version
+            """,
+            [quant_ep_mv],
+        ).fetchone()[0]
+
+        scale = gw_pred[["player_uid", "ep_quant", "ep_total_ml"]].copy()
+        scale["s"] = scale["ep_total_ml"] / scale["ep_quant"].where(scale["ep_quant"].abs() > 1e-9, other=pd.NA)
+        con.register("_ml_scale_df", scale[["player_uid", "s", "ep_total_ml"]])
+        try:
+            # scale the point-contributing components so explain_player_ep stays internally
+            # consistent; ep_total is set to the ML value directly (the planner reads only this).
+            # A player the ML model didn't cover (no scale row) keeps the quant row unchanged.
+            con.execute(
+                """
+                INSERT INTO ep_outputs
+                SELECT ?, o.player_uid, o.fixture_match_id,
+                       o.ep_appearance * coalesce(sc.s, 1.0),
+                       o.ep_goals * coalesce(sc.s, 1.0),
+                       o.ep_assists * coalesce(sc.s, 1.0),
+                       o.ep_clean_sheet * coalesce(sc.s, 1.0),
+                       o.ep_goals_conceded,
+                       o.ep_defcon * coalesce(sc.s, 1.0),
+                       o.ep_bonus * coalesce(sc.s, 1.0),
+                       o.ep_saves * coalesce(sc.s, 1.0),
+                       o.ep_penalty_save,
+                       o.ep_cards,
+                       o.ep_own_goal,
+                       coalesce(sc.ep_total_ml, o.ep_total),
+                       o.expected_bps
+                FROM ep_outputs o
+                LEFT JOIN _ml_scale_df sc ON sc.player_uid = o.player_uid
+                WHERE o.model_version = ?
+                """,
+                [ml_ep_mv, quant_ep_mv],
+            )
+        finally:
+            con.unregister("_ml_scale_df")
+        ml_versions[gw] = (ml_ep_mv, un_mv)
+
+    return ml_versions or None
+
+
+def predict_forward_horizon(
+    con: duckdb.DuckDBPyConnection, target_season: str,
+    horizon_ep_versions: dict[int, tuple[int, int]], mm_model_version: int | None,
+    *, min_train_rows: int | None = None, random_state: int = 42,
+) -> pd.DataFrame | None:
+    """One model fit, then predict `ep_total_ml` for every gameweek in `horizon_ep_versions`
+    (the {gw: (ep_model_version, un_model_version)} map transfer_planner.compute_horizon_ep
+    returns). Returns a long frame [player_uid, gameweek, ep_quant, predicted_residual,
+    ep_total_ml] (+ .attrs), or None if the model can't be fit. A horizon gameweek with no
+    live ep_outputs is simply absent from the result, not fatal."""
+    fit = fit_residual_model(con, min_train_rows=min_train_rows, random_state=random_state)
+    if fit is None:
+        return None
+    model, pp, meta = fit
+    parts = []
+    for gw, (ep_mv, _un_mv) in sorted(horizon_ep_versions.items()):
+        one = _predict_one(con, model, pp, target_season, gw, ep_mv, mm_model_version)
+        if one is not None and not one.empty:
+            parts.append(one)
+    if not parts:
+        return None
+    out = pd.concat(parts, ignore_index=True)
+    out.attrs.update(meta)
     return out
