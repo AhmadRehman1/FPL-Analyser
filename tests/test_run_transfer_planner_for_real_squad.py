@@ -7,8 +7,67 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from run_transfer_planner_for_real_squad import (  # noqa: E402
     _build_chip_preview_squad, _order_chip_evaluations, _resolve_decision_log_row,
-    attach_recommendation_breakdowns,
+    attach_recommendation_breakdowns, reconcile_chips_with_timing_sweep,
 )
+
+
+def _sweep_report():
+    return {
+        "comparison": {
+            "eval_end_gameweek": 19, "swept_best_gameweek": 12, "swept_best_points": 660.0,
+            "greedy_gameweek": 3, "greedy_total_points": 642.0,
+            "swept_table": [{"gameweek": g, "total_projected_points": p}
+                            for g, p in [(9, 656), (10, 659), (11, 658), (12, 660)]],
+        },
+        "sensitivity": {"wildcard_week_by_bundle": {"active": 12}, "wildcard_stable": True},
+        "free_hit_scan": [
+            {"gameweek": 3, "free_hit_gain": 17.0, "clears_threshold": True},
+            {"gameweek": 8, "free_hit_gain": 22.0, "clears_threshold": True},
+        ],
+        "bench_boost_window": [
+            {"gameweek": 12, "recommended_combo": False},
+            {"gameweek": 13, "recommended_combo": True},
+        ],
+    }
+
+
+def _chips_all_recommended():
+    return [
+        {"chip_type": "wildcard", "recommended": True, "score": 30.0},
+        {"chip_type": "free_hit", "recommended": True, "score": 17.0},
+        {"chip_type": "bench_boost", "recommended": True, "score": 5.0},
+        {"chip_type": "triple_captain", "recommended": True, "score": 4.0},
+    ]
+
+
+def test_timing_sweep_downgrades_chips_that_are_not_at_their_best_week():
+    chips = reconcile_chips_with_timing_sweep(_chips_all_recommended(), plan_for_gameweek=3, sweep_report=_sweep_report())
+    by = {c["chip_type"]: c for c in chips}
+    assert by["wildcard"]["recommended"] is False and by["wildcard"]["timing"]["best_gameweek"] == 12
+    assert "GW12" in by["wildcard"]["detail_timing"]
+    assert by["free_hit"]["recommended"] is False and by["free_hit"]["timing"]["best_gameweek"] == 8
+    assert by["bench_boost"]["recommended"] is False  # best BB week is 13, not 3
+    assert by["triple_captain"]["recommended"] is True  # never touched
+
+
+def test_timing_sweep_keeps_the_chip_recommended_in_its_best_week():
+    chips = reconcile_chips_with_timing_sweep(_chips_all_recommended(), plan_for_gameweek=12, sweep_report=_sweep_report())
+    by = {c["chip_type"]: c for c in chips}
+    assert by["wildcard"]["recommended"] is True and by["wildcard"]["timing"]["is_best_week_now"] is True
+
+
+def test_timing_sweep_never_promotes_a_chip_the_planner_declined():
+    chips = _chips_all_recommended()
+    chips[0]["recommended"] = False  # planner said no to wildcard
+    out = reconcile_chips_with_timing_sweep(chips, plan_for_gameweek=12, sweep_report=_sweep_report())
+    assert out[0]["recommended"] is False  # still no -- sweep only ever downgrades
+
+
+def test_missing_or_non_covering_sweep_leaves_flags_untouched():
+    for report in (None, {"comparison": {"eval_end_gameweek": 8}}):
+        chips = reconcile_chips_with_timing_sweep(_chips_all_recommended(), plan_for_gameweek=12, sweep_report=report)
+        assert all(c["recommended"] for c in chips)
+        assert all(c["timing"]["available"] is False for c in chips)
 
 
 def test_order_chip_evaluations_matches_chip_priority_even_when_db_order_disagrees():
