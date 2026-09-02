@@ -131,6 +131,22 @@ def test_set_piece_goal_uplift_applies_for_confirmed_primary_penalty_taker(con):
     assert multiplier == pytest.approx(1.15)
 
 
+def test_ep_run_applies_the_set_piece_uplift_by_default():
+    """The uplift was fully built (Priority 7b) but no live entrypoint ever passed
+    set_piece_params_version, so it was dormant. run() / compute_horizon_ep() / backtest.run()
+    now default it to 1 -- an accidental revert to None silently turns off the penalty-taker
+    goal boost for ~26 real players again."""
+    import inspect
+
+    from fpl_quant import backtest as bt
+    from fpl_quant import transfer_planner as tp
+
+    assert inspect.signature(ep.run).parameters["set_piece_params_version"].default == 1
+    assert inspect.signature(tp.compute_horizon_ep).parameters["set_piece_params_version"].default == 1
+    assert inspect.signature(bt.run).parameters["set_piece_params_version"].default == 1
+    assert inspect.signature(bt.run_gameweek_step).parameters["set_piece_params_version"].default == 1
+
+
 def test_set_piece_goal_uplift_no_op_for_secondary_penalty_taker(con):
     ep.seed_v1_params(con)
     _seed_source_and_claim(con, "p1", duty="Penalties", order="secondary")

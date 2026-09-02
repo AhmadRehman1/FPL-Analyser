@@ -109,6 +109,15 @@ jobs:
       - name: Run walk-forward backtest (M7) -- backtest.run() only, no recalibration
         run: PYTHONPATH=src python scripts/run_walkforward.py
 
+      # Cache the post-walk-forward DB so recalibrate.yml (Sundays) and ml_experiment.yml can
+      # restore it instead of spending ~3h re-running the walk-forward. Same key those two use.
+      - name: Cache the walk-forward DB
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-${{ github.run_id }}
+
       - name: Export the real track record for the app
         run: PYTHONPATH=src python scripts/export_track_record.py
 
