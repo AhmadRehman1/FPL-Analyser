@@ -74,7 +74,21 @@ def build_dim_team(con: duckdb.DuckDBPyConnection) -> None:
         _relpath, table = found
         data = con.execute(f'SELECT code, id, name, short_name FROM "{table}"').fetchall()
         for code, local_id, name, short_name in data:
-            uid = er.team_uid_for(name)
+            # FPL's team `code` is the stable cross-season club identity. The same club can be
+            # spelled differently across seasons' teams.csv -- FPL-Core-Insights has "Ipswich"
+            # in 2024-25 but "Ipswich Town" in 2026-27 -- and keyed by name alone those split
+            # into two team_uids, so the older season's real history never attaches to the
+            # current-season team_uid and team_strength.calibrate() falls back to a
+            # league-average forecast for a club it genuinely has (weak) data for. Reuse the
+            # team_uid already registered for this code in an earlier season (SEASONS is
+            # oldest-first); a genuinely new club (promoted, never seen) still gets a fresh uid
+            # and a real Elo prior. This is the code-level floor for the specific variants in
+            # the public dataset; the private evidence workbook's "26_Club Name Map" tab
+            # (apply_club_name_map, below) remains the general mechanism for anything else.
+            prior = con.execute(
+                "SELECT team_uid FROM _team_code_map WHERE code = ? ORDER BY season LIMIT 1", [str(code)]
+            ).fetchone()
+            uid = prior[0] if prior else er.team_uid_for(name)
             # ON CONFLICT targets team_uid (the actual PK), not canonical_name: two literally
             # different name spellings can normalize to the same uid (see dim_player below for
             # a real example of this happening), and that's the collision that must be caught.
