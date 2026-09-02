@@ -35,6 +35,7 @@ TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 DECISION_LOG_DIR = REPO_ROOT / "data" / "decision_log"
 RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
+CHIP_TIMING_DIR = REPO_ROOT / "data" / "chip_timing"
 
 
 # More than one chip can legitimately clear its own recommendation threshold in the same
@@ -50,6 +51,106 @@ RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 def _order_chip_evaluations(chips_out: list[dict]) -> list[dict]:
     order = {chip_type: i for i, chip_type in enumerate(bt.CHIP_PRIORITY)}
     return sorted(chips_out, key=lambda c: order.get(c["chip_type"], len(order)))
+
+
+def _load_timing_sweep(entry_id: int) -> dict | None:
+    """This entry's `report` block from data/chip_timing/chip_timing_latest.json, or None if
+    the sweep hasn't run, doesn't cover this entry, or the file is unreadable -- a missing
+    sweep must degrade to the old per-week behaviour, never break the export."""
+    path = CHIP_TIMING_DIR / "chip_timing_latest.json"
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    for team in payload.get("teams", []):
+        if team.get("entry_id") == entry_id and isinstance(team.get("report"), dict):
+            return team["report"]
+    return None
+
+
+def reconcile_chips_with_timing_sweep(
+    chips_out: list[dict], plan_for_gameweek: int, sweep_report: dict | None
+) -> list[dict]:
+    """Mutates `chips_out` in place (and returns it): for wildcard / free_hit / bench_boost,
+    `recommended` becomes `(planner said yes) AND (the sweep's best week for this chip is
+    plan_for_gameweek)`, and every chip gets a `timing` block carrying the sweep's verdict for
+    the app to render ("best week GW12, +18 pts vs now"). triple_captain is left untouched --
+    it is a genuine week-by-week call (captain a favourable home fixture), not a
+    play-once-optimally chip. A None / stale / non-covering sweep leaves every flag as-is and
+    only stamps `timing = {"available": false, ...}`.
+    """
+    comparison = (sweep_report or {}).get("comparison") or {}
+    sensitivity = (sweep_report or {}).get("sensitivity") or {}
+    eval_end = comparison.get("eval_end_gameweek")
+    covers = sweep_report is not None and isinstance(eval_end, int) and plan_for_gameweek <= eval_end
+
+    def _first_bundle_value(d: dict):
+        return next(iter(d.values()), None) if isinstance(d, dict) else None
+
+    for entry in chips_out:
+        chip = entry["chip_type"]
+        if chip == "triple_captain":
+            entry["timing"] = {"available": False, "reason": "per-week call, not swept"}
+            continue
+        if not covers:
+            entry["timing"] = {
+                "available": False,
+                "reason": "no chip-timing sweep covering this gameweek yet" if sweep_report is None
+                else f"sweep only evaluated through GW{eval_end}",
+            }
+            continue
+
+        if chip == "wildcard":
+            best_gw = sensitivity.get("wildcard_week_by_bundle")
+            best_gw = _first_bundle_value(best_gw) if isinstance(best_gw, dict) else comparison.get("swept_best_gameweek")
+            swept = {r["gameweek"]: r for r in comparison.get("swept_table", []) if isinstance(r, dict)}
+            best_pts = comparison.get("swept_best_points")
+            now_pts = swept.get(plan_for_gameweek, {}).get("total_projected_points")
+            if now_pts is None and comparison.get("greedy_gameweek") == plan_for_gameweek:
+                now_pts = comparison.get("greedy_total_points")
+            delta = round(best_pts - now_pts, 1) if (best_pts is not None and now_pts is not None) else None
+            is_best = best_gw == plan_for_gameweek
+            entry["timing"] = {
+                "available": True, "best_gameweek": best_gw, "best_projected_points": best_pts,
+                "is_best_week_now": is_best, "delta_vs_now": delta,
+                "stable_across_bundles": bool(sensitivity.get("wildcard_stable")),
+            }
+        elif chip == "free_hit":
+            scan = [r for r in (sweep_report or {}).get("free_hit_scan", []) if isinstance(r, dict) and r.get("free_hit_gain") is not None]
+            best = max(scan, key=lambda r: r["free_hit_gain"], default=None)
+            best_gw = best["gameweek"] if best else None
+            this_week = next((r for r in scan if r.get("gameweek") == plan_for_gameweek), None)
+            is_best = best_gw == plan_for_gameweek and bool(best and best.get("clears_threshold", True))
+            entry["timing"] = {
+                "available": bool(scan), "best_gameweek": best_gw,
+                "best_gain": round(best["free_hit_gain"], 1) if best else None,
+                "this_week_gain": round(this_week["free_hit_gain"], 1) if this_week else None,
+                "is_best_week_now": is_best,
+            }
+        elif chip == "bench_boost":
+            window = [r for r in (sweep_report or {}).get("bench_boost_window", []) if isinstance(r, dict)]
+            good = [r["gameweek"] for r in window if r.get("recommended_combo")]
+            is_best = plan_for_gameweek in good
+            entry["timing"] = {
+                "available": True, "recommended_gameweeks": good, "is_best_week_now": is_best,
+                "note": "no positive bench-boost week in the sweep horizon" if not good else None,
+            }
+        else:
+            entry["timing"] = {"available": False, "reason": "chip not swept"}
+            continue
+
+        timing = entry["timing"]
+        if timing.get("available") and not timing.get("is_best_week_now") and entry.get("recommended"):
+            entry["recommended"] = False
+            bw = timing.get("best_gameweek")
+            if bw:
+                extra = f" (+{timing['delta_vs_now']:.0f} projected pts vs playing now)" if timing.get("delta_vs_now") else ""
+                entry["detail_timing"] = f"Hold -- the chip-timing sweep's best {chip.replace('_', ' ')} week is GW{bw}{extra}."
+            else:
+                entry["detail_timing"] = f"Hold -- the chip-timing sweep found no clearly-best {chip.replace('_', ' ')} week in its horizon."
+    return chips_out
 
 
 def _build_chip_preview_squad(
@@ -321,6 +422,14 @@ def main() -> None:
         chips_out.append(entry)
         if chip_type == "triple_captain" and detail:
             tc_detail = json.loads(detail)
+
+    # Overlay the forward-horizon chip-timing sweep (data/chip_timing/, chip_timing_analysis.yml):
+    # transfer_planner only ever asks "is this chip worth more THAN holding one more week", which
+    # said yes to every chip every week (a fresh optimal squad always beats a mid-table one). The
+    # sweep asks the real question -- which single week over the first half maximizes projected
+    # points -- so a chip is only surfaced as "recommended" now if the sweep's best week for it
+    # IS this week.
+    reconcile_chips_with_timing_sweep(chips_out, plan_for_gameweek, _load_timing_sweep(entry_id))
 
     # A real "who should you captain" directive -- reuses the triple_captain evaluator's own
     # already-computed ranking (see reporting.build_captain_recommendation()'s own docstring),

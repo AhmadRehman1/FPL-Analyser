@@ -202,7 +202,15 @@ def main() -> None:
         # track record until the next one does.
         merged = dict(existing_track_record)
         merged["planner_decision_accuracy"] = track_record["planner_decision_accuracy"]
-        merged["transparency_log"] = track_record["transparency_log"]
+        # Refresh the daily-cadence halves of the transparency log (snapshot timeline, diff,
+        # provenance) but KEEP the committed backtest sub-object -- metrics / headline / step
+        # count are written only by the walk-forward job, and this daily run's DB has no
+        # backtest, so transparency_log.backtest would otherwise be blanked back to []/None.
+        refreshed_tlog = dict(track_record["transparency_log"])
+        committed_bt = (existing_track_record.get("transparency_log") or {}).get("backtest")
+        if committed_bt:
+            refreshed_tlog["backtest"] = committed_bt
+        merged["transparency_log"] = refreshed_tlog
         merged["generated_at"] = track_record["generated_at"]
         track_record_path.write_text(json.dumps(merged, indent=2))
         print(

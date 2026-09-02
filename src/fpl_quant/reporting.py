@@ -554,6 +554,9 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
                 "WHERE backtest_run_id = ? GROUP BY metric_name ORDER BY metric_name",
                 [backtest_run_id],
             ).fetchall()
+            # ":"-suffixed rows are per-ownership/price/position SEGMENT breakdowns that only
+            # recalibrate() consumes -- keep the app-facing list to the whole-population metrics.
+            if ":" not in name
         ]
 
     transparency = report.get("parameter_transparency") or []
@@ -563,10 +566,32 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
         "backtest_run_id": backtest_run_id,
         "n_gameweek_steps": n_steps,
         "seasons_covered": seasons,
+        "headline": _backtest_headline(metrics),
         "metrics": metrics,
         "parameters_total": len(transparency),
         "parameters_backtested": n_backtested,
         "parameters_still_invented": len(transparency) - n_backtested,
+    }
+
+
+def _backtest_headline(metrics: list[dict]) -> dict | None:
+    """The one lay-legible claim the walk-forward actually measures, for the Track Record
+    headline: `beats_crowd_points_delta` = model_squad_realized_points - avg_manager_
+    benchmark_points, averaged over every scored gameweek-step (backtest.score_gameweek).
+    None until the backtest has been run and scored -- "no result yet" stays distinct from
+    "a measured zero". Everything else M7 scores (Brier, log score, Poisson calibration) is a
+    component check and stays in `metrics` for the detail view, never collapsed into this."""
+    by_name = {m["metric_name"]: m["mean_value"] for m in metrics}
+    n_by_name = {m["metric_name"]: m["n_observations"] for m in metrics}
+    if "beats_crowd_points_delta" not in by_name:
+        return None
+    return {
+        "beats_avg_manager_by_points_per_gw": by_name["beats_crowd_points_delta"],
+        "n_scored_gameweeks": n_by_name["beats_crowd_points_delta"],
+        "model_squad_points_per_gw": by_name.get("model_squad_realized_points"),
+        "avg_manager_points_per_gw": by_name.get("avg_manager_benchmark_points"),
+        "minutes_brier": by_name.get("brier_minutes_mean"),
+        "minutes_log_score": by_name.get("log_score_minutes_mean"),
     }
 
 
@@ -640,6 +665,7 @@ def build_transparency_log(track_record: dict, history_dir: Path | str, diff: di
         "backtest": {
             "n_gameweek_steps": tr.get("n_gameweek_steps"),
             "seasons_covered": tr.get("seasons_covered", []),
+            "headline": tr.get("headline"),
             "metrics": tr.get("metrics", []),
             "parameters_total": tr.get("parameters_total"),
             "parameters_backtested": tr.get("parameters_backtested"),

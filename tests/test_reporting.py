@@ -818,8 +818,8 @@ def test_build_track_record_summary_none_when_no_backtest_run_yet():
     # con is never touched when backtest_run_id is None -- passing None for it here is the point.
     summary = reporting.build_track_record_summary(None, {"parameter_transparency": []}, None)
     assert summary == {
-        "backtest_run_id": None, "n_gameweek_steps": None, "seasons_covered": [], "metrics": [],
-        "parameters_total": 0, "parameters_backtested": 0, "parameters_still_invented": 0,
+        "backtest_run_id": None, "n_gameweek_steps": None, "seasons_covered": [], "headline": None,
+        "metrics": [], "parameters_total": 0, "parameters_backtested": 0, "parameters_still_invented": 0,
     }
 
 
@@ -843,9 +843,34 @@ def test_build_track_record_summary_real_steps_and_metrics(con):
     assert summary["n_gameweek_steps"] == 3
     assert summary["seasons_covered"] == ["2025-2026", "2026-2027"]
     assert summary["metrics"] == [{"metric_name": "brier_appearance", "mean_value": pytest.approx(0.2), "n_observations": 3}]
+    assert summary["headline"] is None  # no beats_crowd_points_delta metric seeded
     assert summary["parameters_total"] == 1
     assert summary["parameters_backtested"] == 0  # no recalibration_proposals row for this family yet
     assert summary["parameters_still_invented"] == 1
+
+
+def test_build_track_record_summary_headline_when_crowd_delta_scored(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+    backtest_run_id = _seed_backtest_run(
+        con,
+        steps=[("2025-2026", 10, "warm"), ("2025-2026", 11, "warm")],
+        metrics=[
+            ("2025-2026", 10, "warm", "beats_crowd_points_delta", 4.0),
+            ("2025-2026", 11, "warm", "beats_crowd_points_delta", 6.0),
+            ("2025-2026", 10, "warm", "model_squad_realized_points", 54.0),
+            ("2025-2026", 11, "warm", "avg_manager_benchmark_points", 49.0),
+            ("2025-2026", 10, "warm", "brier_minutes_mean", 0.13),
+            # a SEGMENT row must never reach the app-facing list
+            ("2025-2026", 10, "warm", "brier_minutes_mean:ownership_20plus", 0.4),
+        ],
+    )
+    summary = reporting.build_track_record_summary(con, report, backtest_run_id)
+    assert summary["headline"]["beats_avg_manager_by_points_per_gw"] == pytest.approx(5.0)
+    assert summary["headline"]["n_scored_gameweeks"] == 2
+    assert summary["headline"]["minutes_brier"] == pytest.approx(0.13)
+    assert all(":" not in m["metric_name"] for m in summary["metrics"])
 
 
 def test_build_track_record_summary_flags_backtested_params(con):
