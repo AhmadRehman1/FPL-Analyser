@@ -117,21 +117,9 @@ jobs:
 
       - name: Commit the real track record + recalibration seeds
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/dashboard/app_track_record.json data/recalibration/
-          git diff --cached --quiet && exit 0
-          git commit -m "chore: weekly walk-forward backtest -- real track record [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              exit 0
-            fi
-            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
-            git fetch origin master
-            git rebase origin/master
-          done
-          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
-          exit 1
+          bash scripts/ci_commit_generated.sh \
+            "chore: weekly walk-forward backtest -- real track record [skip ci]" \
+            data/dashboard/app_track_record.json data/recalibration/
 
   # Decoupled from `backtest` above so a long/cancelled backtest can never starve this feed --
   # see the header comment. Its own run_season_simulation() over the completed gameweeks of the
@@ -201,20 +189,9 @@ jobs:
 
       - name: Commit the leaderboard snapshot
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           # leaderboard_<date>.json (not just _latest.json) on purpose -- export_leaderboard.py's
           # own comment keeps the dated file as "the historical/audit record".
-          git add data/dashboard/leaderboard_latest.json data/dashboard/leaderboard_*.json
-          git diff --cached --quiet && exit 0
-          git commit -m "chore: weekly model-vs-baselines leaderboard [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              exit 0
-            fi
-            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
-            git fetch origin master
-            git rebase origin/master
-          done
-          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
-          exit 1
+          shopt -s nullglob
+          bash scripts/ci_commit_generated.sh \
+            "chore: weekly model-vs-baselines leaderboard [skip ci]" \
+            data/dashboard/leaderboard_latest.json data/dashboard/leaderboard_*.json

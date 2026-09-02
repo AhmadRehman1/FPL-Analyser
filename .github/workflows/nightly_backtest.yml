@@ -107,18 +107,6 @@ jobs:
 
       - name: Commit the real track record
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/dashboard/app_track_record.json
-          git diff --cached --quiet && { echo "no track-record change"; exit 0; }
-          git commit -m "chore: nightly walk-forward backtest -- real track record [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              exit 0
-            fi
-            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
-            git fetch origin master
-            git rebase origin/master
-          done
-          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
-          exit 1
+          bash scripts/ci_commit_generated.sh \
+            "chore: nightly walk-forward backtest -- real track record [skip ci]" \
+            data/dashboard/app_track_record.json
