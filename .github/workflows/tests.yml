@@ -26,10 +26,14 @@ jobs:
       - name: Checkout FPL-Analyser
         uses: actions/checkout@v7
 
+      # 3.12 (was 3.11): requirements.txt now floors numpy>=2.5.2 / scipy>=1.18.1, which
+      # publish no 3.11 wheels, so the typecheck job's `pip install -r requirements.txt`
+      # could not resolve. Local dev already runs 3.12; the pinned pipeline workflows stay
+      # on 3.11 + requirements.lock (numpy 2.4.6) until that lock is regenerated.
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: "pip"
 
       # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
@@ -76,7 +80,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: "pip"
 
       - name: Install ruff
@@ -96,7 +100,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: "pip"
 
       - name: Install dependencies
