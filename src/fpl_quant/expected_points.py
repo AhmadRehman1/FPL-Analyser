@@ -160,13 +160,30 @@ def _player_rate_pool(con: duckdb.DuckDBPyConnection, player_uid: str, season_pr
 
 
 def _position_average_rates(con: duckdb.DuckDBPyConnection, position: str, season_priority: list[str]) -> dict:
+    """The shrinkage anchor for goals/assists/saves. Minutes-weighted from each player's
+    LATEST (most complete cumulative) row per season -- the exact construction _player_rate_pool()
+    uses for a player's own rate, and _defensive_action_rates_per_90() uses for the CBI/recoveries
+    anchor right below. The previous version did an unweighted avg() over every per-gameweek
+    cumulative snapshot (fact_player_season_stats is one row per (player, season, gw)), which
+    (a) counted a 200-minute fringe player the same as a 3000-minute regular and (b) folded in
+    the very noisy early-season snapshots at full weight -- both pull the anchor toward zero,
+    and _shrink_rate() then compresses every player's rate toward that too-low anchor (the same
+    EP-compression failure mode as the DefCon/minutes fixes)."""
     placeholders = ",".join(["?"] * len(season_priority))
     row = con.execute(
         f"""
-        SELECT avg(expected_goals_per_90), avg(expected_assists_per_90), avg(saves_per_90)
-        FROM fact_player_season_stats fps
-        JOIN dim_player dp ON dp.player_uid = fps.player_uid
-        WHERE dp.position = ? AND fps.season IN ({placeholders}) AND fps.minutes > 0
+        WITH latest AS (
+            SELECT fps.expected_goals, fps.expected_assists, fps.saves_per_90, fps.minutes
+            FROM fact_player_season_stats fps
+            JOIN dim_player dp ON dp.player_uid = fps.player_uid
+            WHERE dp.position = ? AND fps.season IN ({placeholders}) AND fps.minutes > 0
+            QUALIFY row_number() OVER (PARTITION BY fps.player_uid, fps.season ORDER BY fps.gw DESC) = 1
+        )
+        SELECT
+            sum(coalesce(expected_goals, 0)) / nullif(sum(minutes), 0) * 90,
+            sum(coalesce(expected_assists, 0)) / nullif(sum(minutes), 0) * 90,
+            sum(coalesce(saves_per_90, 0) * minutes) / nullif(sum(minutes), 0)
+        FROM latest
         """,
         [position, *season_priority],
     ).fetchone()
