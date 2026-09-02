@@ -3873,10 +3873,11 @@ function priceWatchBlock(opts) {
 function captainRankingBlock() {
   const proj = state.projections;
   if (!proj || !proj.captain_ranking || !proj.captain_ranking.length) return "";
+  const gw = proj.gameweeks && proj.gameweeks[0];
   return `
     <div class="section">
       <div class="card">
-        <div class="card-title">Top captain picks this week</div>
+        <div class="card-title">Top captain picks${gw ? ` &middot; GW${gw}` : ""}</div>
         ${proj.captain_ranking.slice(0, 5).map(c => `
           <div class="rec">
             <span class="move"><span style="font-family:'Anton',sans-serif;font-size:13px;color:var(--ink-dim2);width:18px;display:inline-block;">${c.rank}</span>${escapeHtml(c.name)} <span style="color:var(--ink-dim2);font-weight:500;">(${escapeHtml(c.team)})</span></span>
