@@ -1480,6 +1480,11 @@ const RISK_POSTURE_KEY = "fq_risk_posture";
 const RISK_POSTURES = {
   balanced: { label: "Balanced", blurb: "The model's default calibration." },
   attack: { label: "Attack rank", blurb: "Lets the squad concentrate more (lower diversification penalty) and tolerates a higher-variance captain — more upside, more downside." },
+  ml: { label: "ML shadow", blurb: "Same risk stance as Balanced, but the multi-gameweek points horizon is the Huber δ=4 machine-learning model's ep_ml instead of the quant ep_total. A research shadow — shown for comparison, not the model's official call." },
+};
+const POSTURE_VARIANT = {
+  attack: "realSquadAttack",
+  ml: "realSquadMl",
 };
 
 function riskPosture() {
@@ -1497,13 +1502,18 @@ function setRiskPosture(p) {
   hapticTick();
   renderCurrentTab();
 }
-// True only when the user has picked "attack" AND that variant plan actually loaded.
-function attackPostureActive() {
-  return riskPosture() === "attack" && !!state.realSquadAttack;
+// The effective posture: the user's pick if its variant plan actually loaded, else "balanced".
+function activePosture() {
+  const p = riskPosture();
+  if (p === "balanced") return "balanced";
+  return state[POSTURE_VARIANT[p]] ? p : "balanced";
 }
+// Back-compat alias -- several surfaces still ask specifically "is the attack plan showing".
+function attackPostureActive() { return activePosture() === "attack"; }
 // The plan the rec-showing surfaces (Home "Your moves", Transfers, chip sheet) should read.
 function activeRealSquad() {
-  return attackPostureActive() ? state.realSquadAttack : state.realSquad;
+  const p = activePosture();
+  return p === "balanced" ? state.realSquad : state[POSTURE_VARIANT[p]];
 }
 
 // The Plan-tab control. A 2-position segmented toggle (a "Protect rank" third position is
@@ -1512,25 +1522,27 @@ function activeRealSquad() {
 // + chip call inline, so the effect is visible right here, not just implied.
 function riskPostureCard() {
   const cur = riskPosture();
-  const haveAttack = !!state.realSquadAttack;
-  const attackRs = state.realSquadAttack;
   const balRs = state.realSquad;
   const chipRec = rs => rs && rs.chip_evaluations && rs.chip_evaluations.find(c => c.recommended);
+  const seg = (key, label) => {
+    const have = key === "balanced" || !!state[POSTURE_VARIANT[key]];
+    return `<button class="${cur === key ? "active" : ""}" aria-pressed="${cur === key}" onclick="setRiskPosture('${key}')" ${have ? "" : "disabled title='Not published yet — the pipeline will produce it on the next scheduled run'"}>${label}</button>`;
+  };
+  const varRs = cur !== "balanced" ? state[POSTURE_VARIANT[cur]] : null;
   return `
     <div class="card" style="margin-bottom:14px;">
-      <div class="card-title" style="margin-bottom:2px;">Risk posture &middot; this team</div>
-      <p style="font-size:10.5px;color:var(--ink-dim2);margin:0 0 10px;">Applies to the captain pick, chip-squad previews and from-scratch (Wildcard/Free&nbsp;Hit) builds shown across the app for this account.</p>
-      <div class="risk-seg" role="group" aria-label="Risk posture">
-        <button class="${cur === "balanced" ? "active" : ""}" aria-pressed="${cur === "balanced"}" onclick="setRiskPosture('balanced')">Balanced</button>
-        <button class="${cur === "attack" ? "active" : ""}" aria-pressed="${cur === "attack"}" onclick="setRiskPosture('attack')" ${haveAttack ? "" : "disabled title='Not published yet — the pipeline will produce it on the next scheduled run'"}>Attack rank</button>
+      <div class="card-title" style="margin-bottom:2px;">Points model &amp; risk &middot; this team</div>
+      <p style="font-size:10.5px;color:var(--ink-dim2);margin:0 0 10px;">Applies to the captain pick, transfer plan, chip-squad previews and from-scratch builds shown across the app for this account.</p>
+      <div class="risk-seg" role="group" aria-label="Points model and risk posture">
+        ${seg("balanced", "Balanced")}${seg("attack", "Attack rank")}${seg("ml", "ML shadow")}
       </div>
       <p class="explain-line" style="margin:10px 0 0;">${RISK_POSTURES[cur].blurb}</p>
-      ${cur === "attack" && !haveAttack ? `<p class="explain-line" style="margin:6px 0 0;color:var(--amber);">The Attack-rank plan hasn't been published yet — showing Balanced until the next scheduled run.</p>` : ""}
-      ${cur === "attack" && haveAttack ? `
+      ${cur !== "balanced" && !varRs ? `<p class="explain-line" style="margin:6px 0 0;color:var(--amber);">The ${RISK_POSTURES[cur].label} plan hasn't been published yet — showing Balanced until the next scheduled run.</p>` : ""}
+      ${cur !== "balanced" && varRs ? `
         <div class="stat-list" style="margin-top:10px;">
-          <div class="sl-row"><div class="sl-label">Captain</div><div class="sl-value">${attackRs.captain_recommendation ? escapeHtml(attackRs.captain_recommendation.recommended_name) : "&mdash;"}${balRs && balRs.captain_recommendation && attackRs.captain_recommendation && balRs.captain_recommendation.recommended_name !== attackRs.captain_recommendation.recommended_name ? ` <span style="color:var(--ink-dim2);font-weight:500;">(vs ${escapeHtml(balRs.captain_recommendation.recommended_name)})</span>` : ""}</div></div>
-          <div class="sl-row"><div class="sl-label">Chip</div><div class="sl-value">${chipRec(attackRs) ? CHIP_LABELS[chipRec(attackRs).chip_type] || chipRec(attackRs).chip_type : "None this week"}</div></div>
-          <div class="sl-row"><div class="sl-label">Top transfer</div><div class="sl-value" style="font-size:11px;">${attackRs.transfer_recommendations && attackRs.transfer_recommendations[0] ? escapeHtml(attackRs.transfer_recommendations[0].player_out + " → " + attackRs.transfer_recommendations[0].player_in) : "Hold"}</div></div>
+          <div class="sl-row"><div class="sl-label">Captain</div><div class="sl-value">${varRs.captain_recommendation ? escapeHtml(varRs.captain_recommendation.recommended_name) : "&mdash;"}${balRs && balRs.captain_recommendation && varRs.captain_recommendation && balRs.captain_recommendation.recommended_name !== varRs.captain_recommendation.recommended_name ? ` <span style="color:var(--ink-dim2);font-weight:500;">(vs ${escapeHtml(balRs.captain_recommendation.recommended_name)})</span>` : ""}</div></div>
+          <div class="sl-row"><div class="sl-label">Chip</div><div class="sl-value">${chipRec(varRs) ? CHIP_LABELS[chipRec(varRs).chip_type] || chipRec(varRs).chip_type : "None this week"}</div></div>
+          <div class="sl-row"><div class="sl-label">Top transfer</div><div class="sl-value" style="font-size:11px;">${varRs.transfer_recommendations && varRs.transfer_recommendations[0] ? escapeHtml(varRs.transfer_recommendations[0].player_out + " → " + varRs.transfer_recommendations[0].player_in) : "Hold"}</div></div>
         </div>` : ""}
     </div>`;
 }
@@ -2085,7 +2097,7 @@ async function loadAccount(id) {
     document.getElementById("avatar-btn").textContent = "DEV";
     return;
   }
-  const [team, profile, leagues, realSquad, squadGrade, decision, scenarios, realSquadAttack] = await Promise.all([
+  const [team, profile, leagues, realSquad, squadGrade, decision, scenarios, realSquadAttack, realSquadMl] = await Promise.all([
     fetchJSON(`data/dashboard/app_team_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_profile_${id}.json`).catch(() => null),
     fetchJSON(`data/dashboard/app_leagues_${id}.json`).catch(() => null),
@@ -2100,10 +2112,13 @@ async function loadAccount(id) {
     // scheduled pipeline's opt-in variant step has run at least once. .catch(() => null) so a
     // missing file just means the toggle offers Balanced only.
     fetchJSON(`data/dashboard/real_squad_${id}_attack.json`).catch(() => null),
+    // D-full: the ML-shadow lane -- same plan structure, but the EP horizon is the Huber δ=4
+    // residual model's ep_ml. Optional, same treatment as the attack variant.
+    fetchJSON(`data/dashboard/real_squad_${id}_ml.json`).catch(() => null),
   ]);
   state.team = team; state.profile = profile; state.leagues = leagues; state.realSquad = realSquad;
   state.squadGrade = squadGrade; state.decision = decision; state.scenarios = scenarios;
-  state.realSquadAttack = realSquadAttack;
+  state.realSquadAttack = realSquadAttack; state.realSquadMl = realSquadMl;
   document.getElementById("avatar-btn").textContent = initials(profile ? profile.manager_name : team ? team.team_name : "");
 
   // Roadmap Feature 6: live_rank_<id>_<gw>.json is gameweek-scoped, not dated -- the PWA
@@ -3025,8 +3040,9 @@ const TRANSFER_SUPERSEDING_CHIPS = { wildcard: "Wildcard", free_hit: "Free Hit" 
 function movesThisWeekCard() {
   const rs = activeRealSquad();
   if (!rs) return "";
-  const postureBanner = attackPostureActive()
-    ? `<div class="flag-banner" style="margin-bottom:10px;">Showing the <b>Attack rank</b> plan for this team &mdash; change it in the Plan tab.</div>`
+  const _ap = activePosture();
+  const postureBanner = _ap !== "balanced"
+    ? `<div class="flag-banner" style="margin-bottom:10px;">Showing the <b>${RISK_POSTURES[_ap].label}</b> ${_ap === "ml" ? "shadow " : ""}plan for this team &mdash; change it in the Plan tab.</div>`
     : "";
   const transferDir = transferDirective(rs.hold_vs_transfer_now, rs.transfer_recommendations && rs.transfer_recommendations[0]);
   const recommendedChip = rs.chip_evaluations && rs.chip_evaluations.find(c => c.recommended);

@@ -121,8 +121,36 @@ jobs:
         continue-on-error: true
         run: PYTHONPATH=src python scripts/compute_ml_shadow.py
 
-      - name: Commit the real track record + ML shadow
+      - name: Determine current gameweek
+        id: gw
+        continue-on-error: true
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+          sys.path.insert(0, "src")
+          from fpl_quant import app_export as ax
+          event = ax.current_event(ax.fetch_bootstrap_static())
+          if event is not None:
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"event={event}\n")
+          PYEOF
+
+      # D-full: the ML-shadow PLANNER lane -- run_transfer_planner_for_real_squad.py in 'ml'
+      # mode swaps the multi-gameweek EP horizon for the residual model's ep_total_ml, then
+      # solves the same transfer/captain/chip problem -> real_squad_<id>_ml.json, a lane the
+      # app shows next to Balanced/Attack. Shadow: it writes no planner_decision_log entry.
+      - name: Plan the ML-shadow lane for both real managers
+        if: steps.gw.outputs.event != ''
+        continue-on-error: true
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 7139944 "$EVENT" "ChatGPT template team" ml
+          PYTHONPATH=src python scripts/run_transfer_planner_for_real_squad.py 1305242 "$EVENT" "Matippy toes" ml
+
+      - name: Commit the real track record + ML shadow + ML planner lane
         run: |
           bash scripts/ci_commit_generated.sh \
-            "chore: nightly walk-forward backtest -- real track record + ML shadow [skip ci]" \
-            data/dashboard/app_track_record.json data/dashboard/ml_shadow.json
+            "chore: nightly walk-forward backtest -- track record + ML shadow + ML lane [skip ci]" \
+            data/dashboard/app_track_record.json data/dashboard/ml_shadow.json \
+            data/dashboard/real_squad_7139944_ml.json data/dashboard/real_squad_1305242_ml.json
