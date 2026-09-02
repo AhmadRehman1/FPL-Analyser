@@ -66,10 +66,10 @@ def _team_match_weights(con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...]
     placeholders = ",".join(["?"] * len(seasons))
     df = con.execute(
         f"""
-        SELECT home_team_uid AS team_uid, season, match_id, kickoff_time FROM fact_match
+        SELECT home_team_uid AS team_uid, season, match_id, gameweek, kickoff_time FROM fact_match
         WHERE competition = ? AND finished = TRUE AND season IN ({placeholders})
         UNION ALL
-        SELECT away_team_uid AS team_uid, season, match_id, kickoff_time FROM fact_match
+        SELECT away_team_uid AS team_uid, season, match_id, gameweek, kickoff_time FROM fact_match
         WHERE competition = ? AND finished = TRUE AND season IN ({placeholders})
         """,
         [PL, *seasons, PL, *seasons],
@@ -93,6 +93,14 @@ def compute_player_historical_components(
     against that club's fixtures is meaningless. A dropped player-season contributes nothing
     to weighted_total/weighted_starts/competitive_matches, so run() shrinks such a player
     toward the position average by the reduced sample size, exactly as for any thin history.
+
+    Injured/suspended matches are also dropped, per team-match: a team match the player sat
+    out with fact_player_season_stats.status in ('i','s') (and no minutes) is "was unavailable
+    then", not "was fit and not picked". Counting it as a non-start conflated squad role with
+    past fitness and permanently depressed p_start_historical_own for anyone who missed a
+    stretch injured -- e.g. Chris Wood at ~0.43 despite being a nailed starter whenever fit.
+    p_start_historical_own is now a clean "starts-when-available" role signal; forward-looking
+    fitness is applied separately in run() from the live chance_of_playing_next_round flag.
     """
     _build_player_season_team_map(con, seasons)
     for player_uid, season in exclude_player_seasons or ():
@@ -116,6 +124,9 @@ def compute_player_historical_components(
             JOIN _team_match_weights_df tmw ON tmw.team_uid = pst.team_uid AND tmw.season = pst.season
             LEFT JOIN fact_player_match_stats pmst
                 ON pmst.player_uid = pst.player_uid AND pmst.match_id = tmw.match_id
+            LEFT JOIN fact_player_season_stats fpss
+                ON fpss.player_uid = pst.player_uid AND fpss.season = pst.season AND fpss.gw = tmw.gameweek
+            WHERE NOT (coalesce(pmst.minutes_played, 0) = 0 AND coalesce(fpss.status, '') IN ('i', 's'))
             GROUP BY pst.player_uid
             """
         ).fetchdf()
@@ -451,6 +462,43 @@ def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_seas
     return n
 
 
+def live_availability_by_player(con: duckdb.DuckDBPyConnection, target_season: str) -> dict[str, float]:
+    """{player_uid: 0.0-1.0} forward-looking availability, from the FPL bootstrap's own
+    chance_of_playing_next_round / status, taken from each player's latest ingested gameweek
+    row. Only ever < 1.0 -- an explicit "doubtful / out" flag. A player absent from the dict
+    has no flag, and run() applies no gate (availability assumed 1.0).
+
+    chance_of_playing_next_round is the exact percentage the FPL API publishes (0/25/50/75).
+    A null chance with status 'i'/'s' (injured / suspended, no percentage given) -> 0.0; status
+    'd' (doubtful) with a null chance -> 0.5; every other status with a null chance carries no
+    gate ('a' is available; 'u'/'n' are too ambiguous to guess a number for).
+
+    Reads fact_player_season_stats by bare name, so inside backtest.asof_scope() it only ever
+    sees rows from gameweeks before the one being simulated -- the flag as it was actually
+    knowable then, no look-ahead. Before this, the minutes model had NO automatic injury
+    signal at all: a currently-injured player with good history and no hand-entered
+    injury_status evidence claim was projected as a full starter."""
+    rows = con.execute(
+        """
+        SELECT player_uid, chance_of_playing_next_round, status
+        FROM fact_player_season_stats
+        WHERE season = ?
+        QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
+        """,
+        [target_season],
+    ).fetchall()
+    out: dict[str, float] = {}
+    for player_uid, chance, status in rows:
+        if chance is not None:
+            if chance < 100:
+                out[player_uid] = max(0.0, min(1.0, chance / 100.0))
+        elif status in ("i", "s"):
+            out[player_uid] = 0.0
+        elif status == "d":
+            out[player_uid] = 0.5
+    return out
+
+
 # ------------------------------------------------------------------ orchestrator ----
 
 def run(
@@ -480,6 +528,7 @@ def run(
     position_rates = compute_position_rates(con, per_player)  # merges position internally
     conditional_rates = compute_conditional_minutes_rates(con)
     player_conditional = compute_player_conditional_minutes_rates(con)
+    availability = live_availability_by_player(con, target_season)
 
     target_players = con.execute(
         """
@@ -527,6 +576,16 @@ def run(
         )
         p_start_final = sigmoid(logit(p_start_hist_final) + adjustment)
 
+        # Forward-looking fitness gate (B2): p_start_historical_own is now a clean
+        # "starts-when-available" role signal, so the live FPL injury flag is applied here as
+        # a multiplier on BOTH starting and coming off the bench. Only ever scales down; a
+        # player with no flag is untouched. avail == 0.0 (ruled out) => p_0min == 1.
+        avail = availability.get(player_uid)
+        p_sub_used_eff = p_sub_used
+        if avail is not None:
+            p_start_final *= avail
+            p_sub_used_eff *= avail
+
         cond = conditional_rates.loc[position] if position in conditional_rates.index else None
         pos_p60_started = float(cond["p_60plus_given_started"]) if cond is not None and not pd.isna(cond["p_60plus_given_started"]) else 0.7
         pos_p60_subbed = float(cond["p_60plus_given_subbed_on"]) if cond is not None and not pd.isna(cond["p_60plus_given_subbed_on"]) else 0.1
@@ -542,8 +601,8 @@ def run(
             player_conditional, player_uid, "n_subbed_on", "n_subbed_on_60plus", pos_p60_subbed, threshold
         )
 
-        p_0 = (1 - p_start_final) * (1 - p_sub_used)
-        p_60plus = p_start_final * p_60_started + (1 - p_start_final) * p_sub_used * p_60_subbed
+        p_0 = (1 - p_start_final) * (1 - p_sub_used_eff)
+        p_60plus = p_start_final * p_60_started + (1 - p_start_final) * p_sub_used_eff * p_60_subbed
         p_1_59 = 1.0 - p_0 - p_60plus  # by construction, not an independent third empirical estimate
 
         con.execute(
