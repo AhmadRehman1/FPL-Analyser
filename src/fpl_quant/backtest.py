@@ -613,7 +613,11 @@ def score_gameweek(
     Also records an `ep_total_calibration_mean_resid` (signed: realized event_points minus
     predicted ep_total, positive = model under-predicts) and `ep_total_calibration_mae` per
     gameweek -- the direct "is the whole EP model biased, and for whom" measure the
-    per-category log scores above can't give on their own.
+    per-category log scores above can't give on their own -- plus its component decomposition
+    `ep_{goals,assists,appearance,cleansheet,other}_calibration_mean_resid` (all signed
+    realized-minus-predicted, summing back to the ep_total residual; "other" is
+    ep_total - appearance - goals - assists - clean_sheet, i.e. bonus + DefCon + goals-conceded
+    + saves), so a segment's total bias can be attributed to a specific EP component.
 
     Priority 9b (opt-in via compute_segments, default off -- every existing caller/backtest
     run is unaffected): additionally buckets each metric family above by segment. Three
@@ -717,7 +721,8 @@ def score_gameweek(
         ).fetchall()}
 
     ep_rows = con.execute(
-        "SELECT o.player_uid, dp.position, o.fixture_match_id, o.ep_clean_sheet, o.ep_goals, o.ep_assists, o.ep_total "
+        "SELECT o.player_uid, dp.position, o.fixture_match_id, o.ep_clean_sheet, o.ep_goals, o.ep_assists, "
+        "o.ep_total, o.ep_appearance "
         "FROM ep_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid WHERE o.model_version = ?",
         [ep_model_version],
     ).fetchall()
@@ -738,8 +743,20 @@ def score_gameweek(
     # mechanical extension of the same helper, left for whoever needs it.
     ep_resid, ep_abs = [], []
     ep_resid_bp, ep_abs_bp = [], []
-    for player_uid, position, match_id, ep_cs, ep_g, ep_a, ep_total in ep_rows:
+    # Component decomposition of the ep_total residual (all signed realized - predicted, so they
+    # sum back to ep_total_calibration_mean_resid). This is what tells you WHICH part of the EP
+    # model is short for a segment -- e.g. the +0.96 pts/game the walk-forward showed the model
+    # under-predicts £9.0m+ players by: is it goal rate (shrinkage), bonus (Plackett-Luce spread),
+    # or nailed-on minutes? "other" = ep_total - appearance - goals - assists - clean_sheet, i.e.
+    # bonus + DefCon + goals-conceded + saves + cards; for a premium attacker it is almost all bonus.
+    comp_resid: dict[str, list[float]] = {k: [] for k in ("goals", "assists", "appearance", "cleansheet", "other")}
+    comp_resid_bp: dict[str, list[tuple[str, float]]] = {k: [] for k in comp_resid}
+    for player_uid, position, match_id, ep_cs, ep_g, ep_a, ep_total, ep_app in ep_rows:
         outcome = _realized_player_match_outcome(con, player_uid, match_id)
+
+        cs_pts = ep._sm(con, "clean_sheet_points", scoring_params_version, position)
+        goal_pts = ep._sm(con, "goal_points", scoring_params_version, position)
+        assist_pts = ep._sm(con, "assist_points", scoring_params_version)
 
         realized_pts = event_points_of.get(player_uid)
         if realized_pts is not None and ep_total is not None:
@@ -749,7 +766,20 @@ def score_gameweek(
             ep_resid_bp.append((player_uid, resid))
             ep_abs_bp.append((player_uid, abs(resid)))
 
-        cs_pts = ep._sm(con, "clean_sheet_points", scoring_params_version, position)
+            mins = outcome["minutes_played"]
+            r_app = 2.0 if mins >= 60 else (1.0 if mins >= 1 else 0.0)
+            r_goals = outcome["goals"] * (goal_pts or 0.0)
+            r_assists = outcome["assists"] * (assist_pts or 0.0)
+            r_cs = (cs_pts or 0.0) if (outcome["team_goals_conceded"] == 0 and mins >= 60) else 0.0
+            r_other = realized_pts - r_app - r_goals - r_assists - r_cs
+            ep_other = ep_total - ep_app - ep_g - ep_a - ep_cs
+            for key, rv, pv in (
+                ("goals", r_goals, ep_g), ("assists", r_assists, ep_a),
+                ("appearance", r_app, ep_app), ("cleansheet", r_cs, ep_cs), ("other", r_other, ep_other),
+            ):
+                comp_resid[key].append(rv - pv)
+                comp_resid_bp[key].append((player_uid, rv - pv))
+
         if cs_pts:
             p_cs = ep_cs / cs_pts
             realized_cs = outcome["team_goals_conceded"] == 0 and outcome["minutes_played"] >= 60
@@ -759,13 +789,11 @@ def score_gameweek(
             cs_log_bp.append((player_uid, log_val))
             cs_brier_bp.append((player_uid, brier_val))
 
-        goal_pts = ep._sm(con, "goal_points", scoring_params_version, position)
         if goal_pts:
             goals_val = log_score_poisson(ep_g / goal_pts, outcome["goals"])
             goals_log.append(goals_val)
             goals_log_bp.append((player_uid, goals_val))
 
-        assist_pts = ep._sm(con, "assist_points", scoring_params_version)
         if assist_pts:
             assists_val = log_score_poisson(ep_a / assist_pts, outcome["assists"])
             assists_log.append(assists_val)
@@ -781,10 +809,13 @@ def score_gameweek(
                 f"realized_goals_assists:{player_uid}", outcome["goals"] + outcome["assists"],
             )
 
+    comp_metric = [(f"ep_{k}_calibration_mean_resid", v) for k, v in comp_resid.items()]
+    comp_metric_bp = [(f"ep_{k}_calibration_mean_resid", v) for k, v in comp_resid_bp.items()]
     for name, values in (
         ("log_score_clean_sheet_mean", cs_log), ("brier_clean_sheet_mean", cs_brier),
         ("log_score_goals_mean", goals_log), ("log_score_assists_mean", assists_log),
         ("ep_total_calibration_mean_resid", ep_resid), ("ep_total_calibration_mae", ep_abs),
+        *comp_metric,
     ):
         if values:
             _record_metric(con, backtest_run_id, season, gameweek, tier, name, sum(values) / len(values))
@@ -793,6 +824,7 @@ def score_gameweek(
             ("log_score_clean_sheet_mean", cs_log_bp), ("brier_clean_sheet_mean", cs_brier_bp),
             ("log_score_goals_mean", goals_log_bp), ("log_score_assists_mean", assists_log_bp),
             ("ep_total_calibration_mean_resid", ep_resid_bp), ("ep_total_calibration_mae", ep_abs_bp),
+            *comp_metric_bp,
         ):
             _record_segment_metrics(con, backtest_run_id, season, gameweek, tier, name, values_bp, segment_of)
 

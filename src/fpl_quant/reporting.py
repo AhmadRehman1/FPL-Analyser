@@ -560,13 +560,13 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
             if ":" not in name
         ]
         # segment_calibration: the one segment breakdown worth surfacing beyond recalibrate() --
-        # is the EP model biased by position / price band? Grouped {segment: {family: mean}} so
-        # a reviewer (or the Track Record page) can see "under-predicts FWD by +N, over-predicts
-        # cheap DEF by -M" without a SQL query. Only the ep_total_calibration_* families; the
-        # per-category log scores stay recalibrate()-only.
+        # is the EP model biased by position / price band, and (ep_<component>_calibration_*)
+        # which part of the EP is short? Grouped {segment: {family: mean}} so a reviewer (or the
+        # Track Record page) sees "under-predicts £9m+ by +1.0, of which +0.6 is bonus" without a
+        # SQL query. The per-category log scores stay recalibrate()-only.
         for name, mean_value, n in con.execute(
             "SELECT metric_name, avg(metric_value), count(*) FROM backtest_metrics "
-            "WHERE backtest_run_id = ? AND metric_name LIKE 'ep_total_calibration_%:%' "
+            "WHERE backtest_run_id = ? AND metric_name LIKE 'ep\\_%\\_calibration\\_%:%' ESCAPE '\\' "
             "GROUP BY metric_name ORDER BY metric_name",
             [backtest_run_id],
         ).fetchall():
