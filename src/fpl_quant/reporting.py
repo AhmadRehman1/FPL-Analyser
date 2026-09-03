@@ -537,6 +537,7 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
     to keep that distinction explicit rather than collapse it.
     """
     n_steps, seasons, metrics = None, [], []
+    segment_calibration: dict = {}
     if backtest_run_id is not None:
         n_steps = con.execute(
             "SELECT count(*) FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [backtest_run_id],
@@ -558,6 +559,21 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
             # recalibrate() consumes -- keep the app-facing list to the whole-population metrics.
             if ":" not in name
         ]
+        # segment_calibration: the one segment breakdown worth surfacing beyond recalibrate() --
+        # is the EP model biased by position / price band? Grouped {segment: {family: mean}} so
+        # a reviewer (or the Track Record page) can see "under-predicts FWD by +N, over-predicts
+        # cheap DEF by -M" without a SQL query. Only the ep_total_calibration_* families; the
+        # per-category log scores stay recalibrate()-only.
+        for name, mean_value, n in con.execute(
+            "SELECT metric_name, avg(metric_value), count(*) FROM backtest_metrics "
+            "WHERE backtest_run_id = ? AND metric_name LIKE 'ep_total_calibration_%:%' "
+            "GROUP BY metric_name ORDER BY metric_name",
+            [backtest_run_id],
+        ).fetchall():
+            family, segment = name.split(":", 1)
+            segment_calibration.setdefault(segment, {})[family] = {
+                "mean_value": round(mean_value, 4), "n_observations": n,
+            }
 
     transparency = report.get("parameter_transparency") or []
     n_backtested = sum(1 for row in transparency if row["backtested_via_m7"])
@@ -568,6 +584,7 @@ def build_track_record_summary(con: duckdb.DuckDBPyConnection, report: dict, bac
         "seasons_covered": seasons,
         "headline": _backtest_headline(metrics),
         "metrics": metrics,
+        "segment_calibration": segment_calibration,
         "parameters_total": len(transparency),
         "parameters_backtested": n_backtested,
         "parameters_still_invented": len(transparency) - n_backtested,
@@ -592,6 +609,10 @@ def _backtest_headline(metrics: list[dict]) -> dict | None:
         "avg_manager_points_per_gw": by_name.get("avg_manager_benchmark_points"),
         "minutes_brier": by_name.get("brier_minutes_mean"),
         "minutes_log_score": by_name.get("log_score_minutes_mean"),
+        # signed EP bias across every scored player-gameweek: >0 the model under-predicts points
+        # on average, <0 it over-predicts. The per-position/price split is in segment_calibration.
+        "ep_points_bias_per_player": by_name.get("ep_total_calibration_mean_resid"),
+        "ep_points_mae_per_player": by_name.get("ep_total_calibration_mae"),
     }
 
 
