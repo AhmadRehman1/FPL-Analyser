@@ -100,6 +100,12 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "free_kick_taker_goal_rate_multiplier", value_numeric=1.05)
     params_mod.write_param(con, "set_piece_evidence_params", 1, "2026-08-10", "set_piece_deliverer_assist_rate_multiplier", value_numeric=1.20)
 
+    # Fixture-strength scaling of e_goals/e_assists (see _fixture_attack_multiplier). v1 = 1.0
+    # is the full first-order adjustment (multiplier = lambda_for(this fixture) / team's own
+    # season-mean lambda_for); the walk-forward measures whether it wants damping. Invented v1
+    # default, flagged for M7 recalibration -- same status as tau / the set-piece multipliers.
+    params_mod.write_param(con, "fixture_strength_params", 1, "2026-08-10", "attack_sensitivity", value_numeric=1.0)
+
 
 def _sm(con, key, params_version, position=None):
     dims = {"position": position} if position else None
@@ -336,6 +342,78 @@ def expected_minutes_given_played(p_1_59: float, p_60plus: float, mean_minutes: 
 # fixture-level team strength lookup
 # ============================================================
 
+# ============================================================
+# fixture-strength scaling of a player's attacking output.
+#
+# THE BUG this fixes: compute_player_fixture_components() computes lambda_for/lambda_against
+# from M1's Dixon-Coles team strength, but only ever USES lambda_against (clean sheet, goals
+# conceded, the BPS conceded term). A player's e_goals / e_assists were their flat
+# season-average per-90 rate x minutes -- identical against Coventry or Man City. So a premium
+# attacker never got their easy-fixture ceiling, while a defender's clean-sheet points WERE
+# fixture-adjusted (via lambda_against) -- which is exactly why the walk-forward showed the
+# model under-predicts £9m+ players by ~1 pt/game and a defender's good-fixture clean-sheet
+# spike floats up next to premium attackers in the captain ranking.
+#
+# THE FIX: scale e_goals / e_assists by how favourable this fixture is for the player's team
+# relative to a league-average opponent -- lambda_for(this fixture) / lambda_for(this team vs
+# an average defence, half-home). A player's per-90 rate is ~proportional to team goals, so
+# this is the first-order correct adjustment. `attack_sensitivity` (fixture_strength_params,
+# v1 default 1.0 = full) damps it; the multiplier is clipped to [0.4, 2.5] so one extreme
+# projected scoreline can't dominate. Backtest-gated -- flagged for M7 recalibration.
+# ============================================================
+
+_FIXTURE_REF_CACHE: dict = {}
+
+
+def _league_defence_and_home_adv(con: duckdb.DuckDBPyConnection, ts_model_version: int) -> tuple[float, float]:
+    """(mean final_defence across the league, home_advantage) for this snapshot set -- cached.
+    Dixon-Coles centres mean ATTACK at 0 but not mean defence (see team_strength's own design
+    note), so the 'average opponent' a player's flat rate is measured against has defence =
+    this mean, not 0."""
+    cached = _FIXTURE_REF_CACHE.get(ts_model_version)
+    if cached is None:
+        mean_def = con.execute(
+            "SELECT avg(final_defence) FROM team_strength_snapshots WHERE model_version = ?",
+            [ts_model_version],
+        ).fetchone()[0]
+        home_adv = con.execute(
+            "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?",
+            [ts_model_version],
+        ).fetchone()[0]
+        cached = (float(mean_def or 0.0), float(home_adv or 0.0))
+        _FIXTURE_REF_CACHE[ts_model_version] = cached
+    return cached
+
+
+def _fixture_attack_multiplier(
+    con: duckdb.DuckDBPyConnection, team_uid: str, match_id: str, target_season: str,
+    ts_model_version: int, fixture_params_version: int,
+) -> float:
+    """lambda_for(this fixture) / lambda_for(this team vs a league-average opponent, half-home).
+
+    lambda_for = exp(own_attack - opp_defence + adv_own); the reference cancels own_attack, so
+    the ratio is exp(mean_defence - opp_defence + adv_own - home_adv/2) -- i.e. purely how much
+    weaker/stronger THIS opponent's defence is than average, plus the home/away swing. Needs
+    only team-strength params (no fixture history), so it composes cleanly with asof_scope().
+    `target_season` is accepted for signature symmetry / future use."""
+    sensitivity, _ = params_mod.resolve_param(
+        con, "fixture_strength_params", "attack_sensitivity", fixture_params_version,
+    )
+    if sensitivity == 0.0:
+        return 1.0
+    lambda_for, _lambda_against, is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version)
+    mean_def, home_adv = _league_defence_and_home_adv(con, ts_model_version)
+    own_attack = con.execute(
+        "SELECT final_attack FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
+        [ts_model_version, team_uid],
+    ).fetchone()[0]
+    ref_lambda = math.exp(own_attack - mean_def + home_adv / 2.0)
+    if ref_lambda <= 0:
+        return 1.0
+    mult = (lambda_for / ref_lambda) ** sensitivity
+    return max(0.4, min(2.5, mult))
+
+
 def _fixture_lambdas(con: duckdb.DuckDBPyConnection, team_uid: str, match_id: str, ts_model_version: int):
     match = con.execute(
         "SELECT home_team_uid, away_team_uid FROM fact_match WHERE match_id = ?", [match_id]
@@ -528,6 +606,7 @@ def compute_player_fixture_components(
     ts_model_version: int, scoring_params_version: int, bps_params_version: int,
     season_priority: list[str], mean_minutes: dict,
     *, asof: datetime | None = None, set_piece_params_version: int | None = None,
+    fixture_params_version: int | None = 1, target_season: str | None = None,
 ) -> dict:
     rates = player_rates_shrunk(con, player_uid, position, season_priority)
     def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority)
@@ -545,6 +624,16 @@ def compute_player_fixture_components(
     # ---- goals / assists ----
     e_goals = rates["expected_goals_per_90"] * e_min_played / 90.0 * p_played
     e_assists = rates["expected_assists_per_90"] * e_min_played / 90.0 * p_played
+    # fixture-strength scaling: a player's flat season per-90 rate, adjusted for how favourable
+    # THIS opponent is vs the team's average fixture (see _fixture_attack_multiplier). Was the
+    # single biggest gap -- e_goals/e_assists were opponent-blind while clean sheets weren't.
+    if fixture_params_version is not None:
+        fixture_mult = _fixture_attack_multiplier(
+            con, team_uid, match_id, target_season or season_priority[0],
+            ts_model_version, fixture_params_version,
+        )
+        e_goals *= fixture_mult
+        e_assists *= fixture_mult
     if asof is not None and set_piece_params_version is not None:
         e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
         e_assists *= _set_piece_assist_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
@@ -630,6 +719,7 @@ def run(
     tau_params_version: int,
     lookback_seasons: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
     set_piece_params_version: int | None = 1,
+    fixture_params_version: int | None = 1,
 ) -> int:
     # set_piece_params_version defaults to 1 (was None): the confirmed-primary penalty/free-kick
     # taker e_goals/e_assists uplift (_set_piece_goal_uplift_multiplier, built as Priority 7b but
@@ -695,6 +785,7 @@ def run(
                     ts_model_version, scoring_params_version, bps_params_version,
                     list(lookback_seasons), mean_minutes,
                     asof=asof, set_piece_params_version=set_piece_params_version,
+                    fixture_params_version=fixture_params_version, target_season=target_season,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

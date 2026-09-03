@@ -307,6 +307,78 @@ def test_compute_player_fixture_components_applies_uplift_when_opted_in(con):
 
 
 # ============================================================
+# Fixture-strength scaling: e_goals / e_assists were opponent-blind (only lambda_against was
+# ever used -- for clean sheets). _fixture_attack_multiplier scales them by how weak THIS
+# opponent's defence is vs a league-average one.
+# ============================================================
+
+def _seed_fixture_strength_scenario(con):
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('strong', 'S'), ('weak', 'W'), ('mid', 'M')")
+    # strong side at home vs a weak (leaky) defence, and the same strong side away at a strong defence
+    for mid, h, a in (("easy", "strong", "weak"), ("hard", "mid", "strong")):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, '2026-2027', 2, ?, ?, FALSE, "
+            "'Premier League', '2026-08-24', current_timestamp)", [mid, h, a],
+        )
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.25, 1, 1, 'strong')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    # final_defence: HIGHER = better defence (Arsenal ~+0.34, Coventry ~-0.44 in the real fit).
+    # "weak" is the leaky side, "mid"/"strong" defend well.
+    for tu, atk, dfc in (("strong", 0.4, 0.4), ("weak", -0.3, -0.4), ("mid", 0.0, 0.3)):
+        con.execute(
+            "INSERT INTO team_strength_snapshots (model_version, team_uid, final_attack, final_defence, "
+            "seasons_of_topflight_data, weight_own_data) VALUES (?, ?, ?, ?, 2, 1.0)", [ts_mv, tu, atk, dfc],
+        )
+    return ts_mv
+
+
+def test_fixture_attack_multiplier_direction_and_toggle(con):
+    ts_mv = _seed_fixture_strength_scenario(con)
+    easy = ep._fixture_attack_multiplier(con, "strong", "easy", "2026-2027", ts_mv, 1)
+    hard = ep._fixture_attack_multiplier(con, "strong", "hard", "2026-2027", ts_mv, 1)
+    assert easy > 1.15          # strong side, home, vs a leaky defence -> boosted
+    assert hard < 0.9           # strong side, away, vs a good defence -> suppressed
+    assert easy <= 2.5 and hard >= 0.4   # clipped to the sane band
+    # sensitivity 0 (or an unseeded-to-0 version) is an exact no-op
+    from fpl_quant import params as pmod
+    pmod.write_param(con, "fixture_strength_params", 2, "2026-08-10", "attack_sensitivity", value_numeric=0.0)
+    assert ep._fixture_attack_multiplier(con, "strong", "easy", "2026-2027", ts_mv, 2) == 1.0
+
+
+def test_compute_player_fixture_components_scales_goals_by_fixture(con):
+    ts_mv = _seed_fixture_strength_scenario(con)
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('fwd', 'Fwd', 'Forward')"
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+        "minutes, _ingested_at) VALUES ('fwd', '2025-2026', 38, 18.0, 4.0, 3000, current_timestamp)"
+    )
+    mm = {"mean_1_59": 30.0, "mean_60plus": 85.0}
+    easy = ep.compute_player_fixture_components(
+        con, "fwd", "Forward", "strong", "easy", 0.05, 0.1, 0.85, ts_mv, 1, 1,
+        ["2026-2027", "2025-2026"], mm, target_season="2026-2027",
+    )
+    hard = ep.compute_player_fixture_components(
+        con, "fwd", "Forward", "strong", "hard", 0.05, 0.1, 0.85, ts_mv, 1, 1,
+        ["2026-2027", "2025-2026"], mm, target_season="2026-2027",
+    )
+    off = ep.compute_player_fixture_components(
+        con, "fwd", "Forward", "strong", "easy", 0.05, 0.1, 0.85, ts_mv, 1, 1,
+        ["2026-2027", "2025-2026"], mm, target_season="2026-2027", fixture_params_version=None,
+    )
+    # same player, same minutes -- the only difference is the opponent
+    assert easy["ep_goals"] > hard["ep_goals"] * 1.4
+    assert easy["ep_goals"] > off["ep_goals"] and hard["ep_goals"] < off["ep_goals"]
+    assert easy["ep_assists"] > off["ep_assists"]
+
+
+# ============================================================
 # DefCon action set is position-specific: a DEFENDER's threshold counts CBIT only (clearances,
 # blocks, interceptions, tackles); a MIDFIELDER/FORWARD's counts CBIT + ball recoveries. This
 # regression covers the bug where recoveries were added to every position's rate, roughly
