@@ -366,27 +366,24 @@ def expected_minutes_given_played(p_1_59: float, p_60plus: float, mean_minutes: 
 # projected scoreline can't dominate. Backtest-gated -- flagged for M7 recalibration.
 # ============================================================
 
-_FIXTURE_REF_CACHE: dict = {}
-
-
 def _league_defence_and_home_adv(con: duckdb.DuckDBPyConnection, ts_model_version: int) -> tuple[float, float]:
-    """(mean final_defence across the league, home_advantage) for this snapshot set -- cached.
+    """(mean final_defence across the league, home_advantage) for this snapshot set. Two
+    indexed single-row lookups -- deliberately NOT memoised on a module global (a stale
+    per-model_version cache silently returned another run's/test's values; the cost of just
+    re-reading is negligible next to the SCIP solves and Monte Carlo anyway).
+
     Dixon-Coles centres mean ATTACK at 0 but not mean defence (see team_strength's own design
     note), so the 'average opponent' a player's flat rate is measured against has defence =
     this mean, not 0."""
-    cached = _FIXTURE_REF_CACHE.get(ts_model_version)
-    if cached is None:
-        mean_def = con.execute(
-            "SELECT avg(final_defence) FROM team_strength_snapshots WHERE model_version = ?",
-            [ts_model_version],
-        ).fetchone()[0]
-        home_adv = con.execute(
-            "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?",
-            [ts_model_version],
-        ).fetchone()[0]
-        cached = (float(mean_def or 0.0), float(home_adv or 0.0))
-        _FIXTURE_REF_CACHE[ts_model_version] = cached
-    return cached
+    mean_def = con.execute(
+        "SELECT avg(final_defence) FROM team_strength_snapshots WHERE model_version = ?",
+        [ts_model_version],
+    ).fetchone()[0]
+    home_adv = con.execute(
+        "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?",
+        [ts_model_version],
+    ).fetchone()[0]
+    return float(mean_def or 0.0), float(home_adv or 0.0)
 
 
 def _fixture_attack_multiplier(
