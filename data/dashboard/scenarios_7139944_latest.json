@@ -2,18 +2,18 @@
   "armband_what_ifs": [
     {
       "baseline_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
-      "delta_ep": -13.652834966374629,
+      "delta_ep": 67.53087276279103,
       "flipped": true,
-      "perturbed_action": "triple_captain",
+      "perturbed_action": "wildcard",
       "player_name": "Bruno Borges Fernandes",
       "player_uid": "player_bruno_borges_fernandes",
       "role": "vice_captain"
     },
     {
       "baseline_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
-      "delta_ep": 6.0979158826494775,
+      "delta_ep": 82.8937172791224,
       "flipped": true,
-      "perturbed_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
+      "perturbed_action": "wildcard",
       "player_name": "Erling Haaland",
       "player_uid": "player_erling_haaland",
       "role": "captain"
@@ -22,11 +22,19 @@
   "bench_what_ifs": [
     {
       "baseline_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
-      "delta_ep": 4.411937328799972,
+      "delta_ep": 8.706039477752569,
       "flipped": true,
       "perturbed_action": "wildcard",
       "player_name": "Bobby Thomas",
       "player_uid": "player_bobby_thomas"
+    },
+    {
+      "baseline_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
+      "delta_ep": 0.0028409845099766073,
+      "flipped": false,
+      "perturbed_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
+      "player_name": "Martin D\u00fabravka",
+      "player_uid": "player_martin_dubravka"
     },
     {
       "baseline_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
@@ -43,14 +51,6 @@
       "perturbed_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
       "player_name": "Leif Davis",
       "player_uid": "player_leif_davis"
-    },
-    {
-      "baseline_action": "transfer_in:player_antonin_kinsky->player_bart_verbruggen",
-      "delta_ep": -13.61946627466069,
-      "flipped": true,
-      "perturbed_action": "triple_captain",
-      "player_name": "Martin D\u00fabravka",
-      "player_uid": "player_martin_dubravka"
     }
   ],
   "data_asof": "2026-09-03",
