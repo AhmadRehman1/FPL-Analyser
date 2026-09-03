@@ -3,11 +3,11 @@
   "action_display": "Anton\u00edn Kinsky -> Bart Verbruggen",
   "data_asof": "2026-09-03",
   "downside_ci": [
-    -5.6654246972475715,
-    109.9227850708865
+    -5.276275196730643,
+    108.74602898108186
   ],
   "entry_id": 7139944,
-  "ep_lift": 18.055991118643824,
+  "ep_lift": 18.07619888072378,
   "gw": 3,
   "price_hint": {
     "confidence": 1.0,
@@ -28,7 +28,7 @@
       0.0,
       0.0
     ],
-    "ep_lift": 17.874572375870667,
+    "ep_lift": 17.852856652613,
     "provenance": {
       "data_asof": "2026-09-03",
       "model_version": "ep_v2/un_v2/plan_run5"
@@ -37,7 +37,7 @@
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 17.874572375870667,
+        "delta_ep": 17.852856652613,
         "in_name": "Bernd Leno",
         "in_player_uid": "player_bernd_leno",
         "out_name": "Anton\u00edn Kinsky",
@@ -53,16 +53,16 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 6.0979158826494775,
+      "delta_ep": 84.85506267401522,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
-      "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
-      "then_action_display": "Erling Haaland -> Igor Thiago Nascimento Rodrigues"
+      "then_action": "wildcard",
+      "then_action_display": "wildcard"
     }
   ],
   "swaps": [
     {
-      "delta_ep": 18.055991118643824,
+      "delta_ep": 18.07619888072378,
       "in_name": "Bart Verbruggen",
       "in_player_uid": "player_bart_verbruggen",
       "out_name": "Anton\u00edn Kinsky",

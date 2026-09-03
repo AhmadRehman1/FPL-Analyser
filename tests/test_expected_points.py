@@ -378,6 +378,48 @@ def test_compute_player_fixture_components_scales_goals_by_fixture(con):
     assert easy["ep_assists"] > off["ep_assists"]
 
 
+def test_fixture_defensive_multiplier_direction_and_toggle(con):
+    ts_mv = _seed_fixture_strength_scenario(con)
+    # "weak" (leaky) away at "strong" (big attack) -> concede a lot -> multiplier well above 1
+    leaky_vs_strong = ep._fixture_defensive_multiplier(con, "weak", "easy", ts_mv, 1, "save_sensitivity")
+    # "strong" (good defence) at home vs "weak" (poor attack) -> quiet game -> multiplier below 1
+    strong_vs_weak = ep._fixture_defensive_multiplier(con, "strong", "easy", ts_mv, 1, "save_sensitivity")
+    assert leaky_vs_strong > 1.3
+    assert strong_vs_weak < 0.8
+    assert leaky_vs_strong <= 2.5 and strong_vs_weak >= 0.4
+    # defcon_sensitivity (v1 0.5) is a damped version of the same direction
+    dc = ep._fixture_defensive_multiplier(con, "weak", "easy", ts_mv, 1, "defcon_sensitivity")
+    assert 1.0 < dc < leaky_vs_strong
+    from fpl_quant import params as pmod
+    pmod.write_param(con, "fixture_strength_params", 2, "2026-08-10", "save_sensitivity", value_numeric=0.0)
+    assert ep._fixture_defensive_multiplier(con, "weak", "easy", ts_mv, 2, "save_sensitivity") == 1.0
+
+
+def test_compute_player_fixture_components_scales_saves_and_defcon_by_fixture(con):
+    ts_mv = _seed_fixture_strength_scenario(con)
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'TA'), ('team_b', 'TB') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('gk', 'GK', 'Goalkeeper'), ('cb', 'CB', 'Defender')")
+    for uid in ("gk", "cb"):
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+            "saves_per_90, minutes, _ingested_at) VALUES (?, '2025-2026', 38, 0.0, 0.0, 3.0, 3000, current_timestamp)",
+            [uid],
+        )
+    _seed_defensive_actions(con, "cb", "Defender", cbit_per_match=9, recoveries_per_match=4, n_matches=20)
+    mm = {"mean_1_59": 30.0, "mean_60plus": 85.0}
+    kw = dict(target_season="2026-2027")
+    # "weak" keeper away at "strong" faces a barrage; "strong" keeper at home vs "weak" is quiet
+    busy_gk = ep.compute_player_fixture_components(con, "gk", "Goalkeeper", "weak", "easy", 0.02, 0.03, 0.95, ts_mv, 1, 1, ["2026-2027", "2025-2026"], mm, **kw)
+    quiet_gk = ep.compute_player_fixture_components(con, "gk", "Goalkeeper", "strong", "easy", 0.02, 0.03, 0.95, ts_mv, 1, 1, ["2026-2027", "2025-2026"], mm, **kw)
+    off_gk = ep.compute_player_fixture_components(con, "gk", "Goalkeeper", "weak", "easy", 0.02, 0.03, 0.95, ts_mv, 1, 1, ["2026-2027", "2025-2026"], mm, fixture_params_version=None, **kw)
+    assert busy_gk["ep_saves"] > quiet_gk["ep_saves"] * 1.5
+    assert busy_gk["ep_saves"] > off_gk["ep_saves"]
+    # a defender under siege makes more CBIT -> more DefCon (damped)
+    busy_cb = ep.compute_player_fixture_components(con, "cb", "Defender", "weak", "easy", 0.02, 0.03, 0.95, ts_mv, 1, 1, ["2026-2027", "2025-2026"], mm, **kw)
+    quiet_cb = ep.compute_player_fixture_components(con, "cb", "Defender", "strong", "easy", 0.02, 0.03, 0.95, ts_mv, 1, 1, ["2026-2027", "2025-2026"], mm, **kw)
+    assert busy_cb["ep_defcon"] > quiet_cb["ep_defcon"]
+
+
 # ============================================================
 # DefCon action set is position-specific: a DEFENDER's threshold counts CBIT only (clearances,
 # blocks, interceptions, tackles); a MIDFIELDER/FORWARD's counts CBIT + ball recoveries. This
@@ -447,8 +489,9 @@ def test_defcon_excludes_recoveries_for_a_defender(con):
     )
     e_min = ep.expected_minutes_given_played(0.05, 0.93, mean_minutes)
     p_played = 0.98
-    cbit_only_rate = 7.0 * e_min / 90.0
-    cbit_plus_rec_rate = 15.0 * e_min / 90.0
+    fx = ep._fixture_defensive_multiplier(con, "team_a", "m1", ts_mv, 1, "defcon_sensitivity")
+    cbit_only_rate = 7.0 * fx * e_min / 90.0
+    cbit_plus_rec_rate = 15.0 * fx * e_min / 90.0
     expected_new = (1.0 - poisson.cdf(9, cbit_only_rate)) * p_played * 2.0
     would_have_been_old = (1.0 - poisson.cdf(9, cbit_plus_rec_rate)) * p_played * 2.0
     assert comp["ep_defcon"] == pytest.approx(expected_new, rel=1e-3)
@@ -470,7 +513,8 @@ def test_defcon_still_includes_recoveries_for_a_midfielder(con):
     )
     e_min = ep.expected_minutes_given_played(0.05, 0.93, mean_minutes)
     p_played = 0.98
-    cbit_plus_rec_rate = 15.0 * e_min / 90.0  # MID threshold is 12, over CBIT + recoveries
+    fx = ep._fixture_defensive_multiplier(con, "team_a", "m1", ts_mv, 1, "defcon_sensitivity")
+    cbit_plus_rec_rate = 15.0 * fx * e_min / 90.0  # MID threshold is 12, over CBIT + recoveries
     expected = (1.0 - poisson.cdf(11, cbit_plus_rec_rate)) * p_played * 2.0
     assert comp["ep_defcon"] == pytest.approx(expected, rel=1e-3)
 

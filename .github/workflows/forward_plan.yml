@@ -1,0 +1,155 @@
+name: Forward plan to GW18 (model team + both real squads)
+
+# The model's whole forward thinking for each tracked squad -- its planned transfers, captain,
+# chips and Wildcard team from the next unplayed gameweek through GW18, refreshed daily so the
+# app can show the plan evolving, not just this week's call. See src/fpl_quant/forward_plan.py.
+#
+# One model_choice forward walk over ~16 gameweeks is ~1.5-2h of MIQP solving on this runner
+# (same cost class as run_chip_timing_arm.py's greedy arm). Three squads in series would be
+# ~5-6h -- past the safe margin under the 6h job cap -- so this fans them out as a matrix:
+# `prepare` builds one shared DB cache, `plan` runs each squad as its own job, `collect` merges
+# them and commits. An arm that times out just drops from the merged file (fail-fast: false).
+#
+# Same real-DB + live-FPL-API constraints as chip_timing_analysis.yml -- built for this runner,
+# not the network-blocked dev sandbox.
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # daily 04:00 UTC, after nightly_backtest (02:00)
+  workflow_dispatch:
+    inputs:
+      end_gameweek:
+        description: "Last gameweek to plan through (default 18, the set-1 chip window)."
+        required: false
+        default: "18"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: forward-plan
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      db_cache_key: forward-plan-db-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      # A full M0-M6 ingestion, not the narrow `duckdb-` pipeline cache -- the forward walk's
+      # three-season team_strength.calibrate() for 2026-2027 needs the multi-season Elo / alias
+      # data that cache lacks (same reason chip_timing_analysis.yml builds its own).
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size; size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6)
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      # The model team must be seeded (its committed ledger is the bootstrap for its own arm).
+      # run_model_team.py is idempotent and cheap; running it here also advances it if a new
+      # gameweek finished since the last pipeline run.
+      - name: Seed / advance the model team
+        run: PYTHONPATH=src python scripts/run_model_team.py
+
+      - name: Save one shared DB cache for every plan arm
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: forward-plan-db-${{ github.run_id }}
+
+      - name: Commit any model-team advance
+        run: |
+          bash scripts/ci_commit_generated.sh --branch "${GITHUB_REF_NAME}" \
+            "chore: advance model team before forward plan [skip ci]" \
+            data/model_team/ data/dashboard/app_model_team.json
+
+  plan:
+    needs: prepare
+    runs-on: ubuntu-latest
+    # ~1.5-2h per squad; 300 leaves wide margin under GitHub's 360 cap. An arm that overruns
+    # just drops from the merged plan (fail-fast: false).
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        entity: [model_team, "7139944", "1305242"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: ${{ needs.prepare.outputs.db_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Build the forward plan for ${{ matrix.entity }}
+        run: PYTHONPATH=src python scripts/run_forward_plan.py "${{ matrix.entity }}" "${{ github.event.inputs.end_gameweek || '18' }}"
+
+      - name: Upload this squad's plan
+        uses: actions/upload-artifact@v7
+        with:
+          name: forward-plan-${{ matrix.entity }}
+          path: data/forward_plan/${{ matrix.entity }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  collect:
+    needs: [prepare, plan]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Download every squad's plan
+        uses: actions/download-artifact@v8
+        with:
+          pattern: forward-plan-*
+          path: _plans
+          merge-multiple: true
+
+      - name: Collect plan files
+        run: |
+          mkdir -p data/forward_plan
+          find _plans -name '*.json' -exec cp {} data/forward_plan/ \;
+          echo "collected $(ls data/forward_plan | wc -l) plan files"
+
+      - name: Merge into forward_plan_latest.json
+        run: PYTHONPATH=src python scripts/collect_forward_plans.py
+
+      - name: Commit the forward plans
+        run: |
+          bash scripts/ci_commit_generated.sh --branch "${GITHUB_REF_NAME}" \
+            "chore: forward plan to GW18 [skip ci]" \
+            data/forward_plan/

@@ -656,11 +656,13 @@ def _seed_beats_crowd_scenario(con):
         [datetime(2025, 11, 1, 15, 0), now],
     )
 
+    # ep_appearance = 2.0 -> the benchmark's P(start) discount is 1.0 (fully nailed), so these
+    # scenarios exercise the EO wiring without the start-probability factor changing the number.
     for uid, ep_total, sbp, points in (("p1", 6.0, 50.0, 10), ("p2", 4.0, 20.0, 5), ("p3", 3.0, 80.0, 2)):
         con.execute(
             "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
             "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
-            "ep_total, expected_bps) VALUES (?, ?, 'm1', 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 20.0)",
+            "ep_total, expected_bps) VALUES (?, ?, 'm1', 2.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 20.0)",
             [ep_mv, uid, ep_total],
         )
         con.execute(
@@ -719,6 +721,23 @@ def test_avg_manager_benchmark_points_none_when_no_ownership_data(con):
     ep_mv, *_ = _seed_beats_crowd_scenario(con)
     con.execute("UPDATE fact_player_season_stats SET selected_by_percent = NULL WHERE season = '2025-2026' AND gw = 10")
     assert bt._avg_manager_benchmark_points(con, "2025-2026", 10, ep_mv, ownership_params_version=1) is None
+
+
+def test_avg_manager_benchmark_points_discounts_by_probability_of_starting(con):
+    # A 60%-owned player the model expects to bench half the time (ep_appearance 1.0 -> P(start)
+    # 0.5) contributes only ~half their raw-ownership weight -- so the benchmark reflects the
+    # field's XI (~11 + captain), not their 15-man squad.
+    ep_mv, *_ = _seed_beats_crowd_scenario(con)
+    con.execute("UPDATE ep_outputs SET ep_appearance = 1.0 WHERE model_version = ? AND player_uid = 'p3'", [ep_mv])
+    from fpl_quant import ownership as ownership_mod
+    candidates = [
+        {"player_uid": "p1", "position": "Forward", "mu": 6.0, "selected_by_percent": 50.0},
+        {"player_uid": "p2", "position": "Forward", "mu": 4.0, "selected_by_percent": 20.0},
+        {"player_uid": "p3", "position": "Forward", "mu": 3.0, "selected_by_percent": 80.0},
+    ]
+    eo = ownership_mod.compute_eo_for_pool(candidates, captaincy_concentration=0.3)
+    expected = (eo["p1"] / 100 * 1.0 * 10) + (eo["p2"] / 100 * 1.0 * 5) + (eo["p3"] / 100 * 0.5 * 2)
+    assert bt._avg_manager_benchmark_points(con, "2025-2026", 10, ep_mv, ownership_params_version=1) == pytest.approx(expected)
 
 
 # ============================================================
@@ -1717,11 +1736,10 @@ def _seed_season_simulation_league(con, seasons=("2024-2025", "2025-2026"), n_ga
         con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [uid, name])
         uids[name] = uid
 
-    # uncertainty.run()'s cross-player-covariance roster lookup is hardcoded to
-    # season_priority[0] (default "2026-2027") regardless of which season is actually being
-    # processed -- a pre-existing quirk, out of scope to fix here, worked around the same way
-    # the real ingested DB happens to satisfy it naturally (2026-2027 also carries
-    # player_alias/team_alias rows for the same real players as prior seasons).
+    # uncertainty.run() now reads the roster season from its ep_model_version's target_season
+    # (not the old season_priority[0]="2026-2027" hardcode), so per-season player_alias/
+    # team_alias rows are seeded for every simulated season. The extra "2026-2027" rows are
+    # kept -- harmless, and they let a 2026-27 target run against this same fixture.
     for season in (*seasons, "2026-2027"):
         table = f"raw_{season.replace('-', '_')}_teams"
         con.execute(f'CREATE TABLE "{table}" (code VARCHAR, name VARCHAR, elo VARCHAR)')
