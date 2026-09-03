@@ -43,6 +43,15 @@ def main() -> None:
     t0 = time.time()
     backtest_run_id = backtest.run(
         con, **param_versions, n_antithetic_pairs=5000, run_monte_carlo=True,
+        # compute_segments: the position / price_band / promoted_team / new_signing /
+        # set_piece_taker breakdowns of every scored metric -- the diagnostic axis for "where is
+        # the EP model biased" (nightly_backtest.yml -> app_track_record.json's segment_calibration).
+        # ownership_params_version: makes beats_crowd_points_delta ("does the model's own weekly
+        # XI beat the ownership-weighted average manager") measurable from the walk-forward
+        # itself -- previously only the run_season_simulation() leaderboard path computed it, so
+        # the Track Record headline (BUSINESS_PLAN.md P0) sat null between weekly runs.
+        compute_segments=True,
+        ownership_params_version=1,
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")
@@ -57,11 +66,27 @@ def main() -> None:
 
     metrics = con.execute(
         "SELECT tier, metric_name, count(*), avg(metric_value) FROM backtest_metrics "
-        "WHERE backtest_run_id = ? AND metric_name NOT LIKE 'realized%' GROUP BY tier, metric_name ORDER BY metric_name, tier",
+        "WHERE backtest_run_id = ? AND metric_name NOT LIKE 'realized%' AND metric_name NOT LIKE '%:%' "
+        "GROUP BY tier, metric_name ORDER BY metric_name, tier",
         [backtest_run_id],
     ).fetchall()
     for tier, name, n, avg in metrics:
         print(f"  [{tier}] {name}: n={n} mean={avg:.4f}")
+
+    # ep_total calibration by position / price band (mature tier) -- the "where is the EP model
+    # biased" read, printed here so a cloud run's log carries it without a follow-up SQL query.
+    seg = con.execute(
+        "SELECT metric_name, count(*), avg(metric_value) FROM backtest_metrics "
+        "WHERE backtest_run_id = ? AND tier = 'mature' "
+        "AND (metric_name LIKE 'ep_total_calibration_mean_resid:position=%' "
+        "     OR metric_name LIKE 'ep_total_calibration_mean_resid:price_band=%') "
+        "GROUP BY metric_name ORDER BY metric_name",
+        [backtest_run_id],
+    ).fetchall()
+    if seg:
+        print("[ep_total calibration -- mature tier, signed resid = realized - predicted]")
+        for name, n, avg in seg:
+            print(f"  {name.split(':', 1)[1]}: n={n} mean_resid={avg:+.3f}")
 
     n_pred = con.execute(
         "SELECT count(*) FROM backtest_gameweek_steps WHERE backtest_run_id = ? AND ep_model_version IS NOT NULL",

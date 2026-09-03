@@ -819,7 +819,8 @@ def test_build_track_record_summary_none_when_no_backtest_run_yet():
     summary = reporting.build_track_record_summary(None, {"parameter_transparency": []}, None)
     assert summary == {
         "backtest_run_id": None, "n_gameweek_steps": None, "seasons_covered": [], "headline": None,
-        "metrics": [], "parameters_total": 0, "parameters_backtested": 0, "parameters_still_invented": 0,
+        "metrics": [], "segment_calibration": {},
+        "parameters_total": 0, "parameters_backtested": 0, "parameters_still_invented": 0,
     }
 
 
@@ -844,9 +845,41 @@ def test_build_track_record_summary_real_steps_and_metrics(con):
     assert summary["seasons_covered"] == ["2025-2026", "2026-2027"]
     assert summary["metrics"] == [{"metric_name": "brier_appearance", "mean_value": pytest.approx(0.2), "n_observations": 3}]
     assert summary["headline"] is None  # no beats_crowd_points_delta metric seeded
+    assert summary["segment_calibration"] == {}  # no ep_total_calibration segment rows seeded
     assert summary["parameters_total"] == 1
     assert summary["parameters_backtested"] == 0  # no recalibration_proposals row for this family yet
     assert summary["parameters_still_invented"] == 1
+
+
+def test_build_track_record_summary_groups_ep_calibration_segments(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+    backtest_run_id = _seed_backtest_run(
+        con,
+        steps=[("2025-2026", 10, "mature"), ("2025-2026", 11, "mature")],
+        metrics=[
+            ("2025-2026", 10, "mature", "ep_total_calibration_mean_resid", -0.10),
+            ("2025-2026", 11, "mature", "ep_total_calibration_mean_resid", 0.20),
+            ("2025-2026", 10, "mature", "ep_total_calibration_mean_resid:position=Forward", 1.4),
+            ("2025-2026", 11, "mature", "ep_total_calibration_mean_resid:position=Forward", 1.6),
+            ("2025-2026", 10, "mature", "ep_total_calibration_mean_resid:position=Defender", -0.8),
+            ("2025-2026", 10, "mature", "ep_total_calibration_mae:position=Forward", 2.1),
+            ("2025-2026", 10, "mature", "ep_total_calibration_mean_resid:price_band=9.0+", 1.9),
+        ],
+    )
+    summary = reporting.build_track_record_summary(con, report, backtest_run_id)
+    # the unsegmented family still reaches the app-facing metrics list
+    assert any(m["metric_name"] == "ep_total_calibration_mean_resid" for m in summary["metrics"])
+    # segment rows are grouped {segment: {family: {mean_value, n_observations}}}
+    sc = summary["segment_calibration"]
+    assert sc["position=Forward"]["ep_total_calibration_mean_resid"]["mean_value"] == pytest.approx(1.5)
+    assert sc["position=Forward"]["ep_total_calibration_mean_resid"]["n_observations"] == 2
+    assert sc["position=Forward"]["ep_total_calibration_mae"]["mean_value"] == pytest.approx(2.1)
+    assert sc["position=Defender"]["ep_total_calibration_mean_resid"]["mean_value"] == pytest.approx(-0.8)
+    assert sc["price_band=9.0+"]["ep_total_calibration_mean_resid"]["mean_value"] == pytest.approx(1.9)
+    # segment rows never leak into the flat metrics list
+    assert all(":" not in m["metric_name"] for m in summary["metrics"])
 
 
 def test_build_track_record_summary_headline_when_crowd_delta_scored(con):

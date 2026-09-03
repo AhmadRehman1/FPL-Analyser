@@ -450,9 +450,26 @@ def _is_new_signing(con: duckdb.DuckDBPyConnection, player_uid: str, season: str
     return cur_codes != prev_codes
 
 
+# Price bands match research/ml/baselines.py::_price_band exactly -- the ML experiment already
+# slices sliced_model_comparison.csv on these same four boundaries (REPORT.md §10a names
+# `price_band=9.0+` as a safety-critical slice), so the walk-forward's own segment metrics use
+# the identical cut points rather than inventing a parallel banding nobody can line up.
+def _price_band(now_cost: float | None) -> str:
+    if now_cost is None:
+        return "unknown"
+    if now_cost < 5.0:
+        return "<5.0"
+    if now_cost < 7.0:
+        return "5.0-7.0"
+    if now_cost < 9.0:
+        return "7.0-9.0"
+    return "9.0+"
+
+
 def _player_segments(
     con: duckdb.DuckDBPyConnection, player_uid: str, team_uid: str | None, season: str,
     asof, set_piece_params_version: int | None, promoted_team_cache: dict,
+    *, position: str | None = None, now_cost: float | None = None,
 ) -> set[str]:
     segments = set()
     if team_uid is not None:
@@ -465,6 +482,14 @@ def _player_segments(
     if set_piece_params_version is not None and asof is not None:
         if ep._set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version) > 1.0:
             segments.add("set_piece_taker")
+    # position / price_band: the axes needed to see WHERE the EP model is biased (does it
+    # systematically under-predict premium forwards and over-predict cheap defenders?) --
+    # every player has both, so unlike the three membership segments above these partition the
+    # whole scored pool rather than tagging a subset.
+    if position:
+        segments.add(f"position={position}")
+    if now_cost is not None:
+        segments.add(f"price_band={_price_band(now_cost)}")
     return segments
 
 
@@ -585,13 +610,19 @@ def score_gameweek(
     gameweek's realized points for a pair of players is just two scalars, not a covariance;
     the aggregation across many gameweeks happens at recalibration time, not here.
 
+    Also records an `ep_total_calibration_mean_resid` (signed: realized event_points minus
+    predicted ep_total, positive = model under-predicts) and `ep_total_calibration_mae` per
+    gameweek -- the direct "is the whole EP model biased, and for whom" measure the
+    per-category log scores above can't give on their own.
+
     Priority 9b (opt-in via compute_segments, default off -- every existing caller/backtest
-    run is unaffected): additionally buckets each of the four metric families above by
-    segment (promoted_team, new_signing, set_piece_taker -- see _player_segments()) and
-    records a segment-suffixed metric_name (matching this function's own established
-    "realized_goals_assists:{player_uid}" colon-suffix convention below) for whichever
-    segments actually have members this gameweek. set_piece_taker specifically also needs
-    set_piece_params_version -- without it, that one segment is skipped, the other two are not.
+    run is unaffected): additionally buckets each metric family above by segment. Three
+    membership segments tag a subset (promoted_team, new_signing, set_piece_taker -- see
+    _player_segments()); two more partition the whole scored pool (position={GKP|DEF|MID|FWD}
+    and price_band, cut on research/ml/baselines.py's own four boundaries). The segment-
+    suffixed metric_name matches this function's established "realized_goals_assists:{uid}"
+    colon-suffix convention. set_piece_taker specifically also needs set_piece_params_version
+    -- without it, that one segment is skipped, the others are not.
 
     Priority 9c (opt-in via ownership_params_version, needs so_run_id too -- there's no
     squad to compare against otherwise): records model_squad_realized_points,
@@ -614,9 +645,19 @@ def score_gameweek(
         asof = gameweek_deadline(con, season, gameweek)
         for match_id, home_uid, away_uid, _hs, _as in fixtures:
             team_of.update(monte_carlo._team_of_for_fixture(con, home_uid, away_uid, season))
+        # position is time-invariant; now_cost is read at the gameweek actually being scored
+        # (score_gameweek runs after asof_scope has exited, so this is the real, known price
+        # that week -- not a look-ahead).
+        position_of = dict(con.execute("SELECT player_uid, position FROM dim_player").fetchall())
+        price_of = dict(con.execute(
+            "SELECT player_uid, now_cost FROM fact_player_season_stats "
+            "WHERE season = ? AND gw = ? AND now_cost IS NOT NULL",
+            [season, gameweek],
+        ).fetchall())
         for player_uid, team_uid in team_of.items():
             segment_of[player_uid] = _player_segments(
                 con, player_uid, team_uid, season, asof, set_piece_params_version, promoted_team_cache,
+                position=position_of.get(player_uid), now_cost=price_of.get(player_uid),
             )
     resids, n_degenerate = [], 0
     for match_id, home_uid, away_uid, home_score, away_score in fixtures:
@@ -676,14 +717,37 @@ def score_gameweek(
         ).fetchall()}
 
     ep_rows = con.execute(
-        "SELECT o.player_uid, dp.position, o.fixture_match_id, o.ep_clean_sheet, o.ep_goals, o.ep_assists "
+        "SELECT o.player_uid, dp.position, o.fixture_match_id, o.ep_clean_sheet, o.ep_goals, o.ep_assists, o.ep_total "
         "FROM ep_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid WHERE o.model_version = ?",
         [ep_model_version],
     ).fetchall()
+    # realized FPL gameweek score per player (the canonical fact_player_season_stats.event_points,
+    # same source realized_points:{uid} and _avg_manager_benchmark_points() use) -- for the
+    # ep_total calibration residual below. One batch read, not a per-row query.
+    event_points_of = dict(con.execute(
+        "SELECT player_uid, event_points FROM fact_player_season_stats "
+        "WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+        [season, gameweek],
+    ).fetchall())
     cs_log, cs_brier, goals_log, assists_log = [], [], [], []
     cs_log_bp, cs_brier_bp, goals_log_bp, assists_log_bp = [], [], [], []
-    for player_uid, position, match_id, ep_cs, ep_g, ep_a in ep_rows:
+    # ep_total calibration: signed residual (realized event_points - predicted ep_total).
+    # Positive mean = the model UNDER-predicts that segment; negative = OVER-predicts. Kept
+    # unconditional (includes players who didn't feature -- ep_total already prices in P(play),
+    # so a no-show is a real miss, not missing data); a conditional-on-appearance variant is a
+    # mechanical extension of the same helper, left for whoever needs it.
+    ep_resid, ep_abs = [], []
+    ep_resid_bp, ep_abs_bp = [], []
+    for player_uid, position, match_id, ep_cs, ep_g, ep_a, ep_total in ep_rows:
         outcome = _realized_player_match_outcome(con, player_uid, match_id)
+
+        realized_pts = event_points_of.get(player_uid)
+        if realized_pts is not None and ep_total is not None:
+            resid = realized_pts - ep_total
+            ep_resid.append(resid)
+            ep_abs.append(abs(resid))
+            ep_resid_bp.append((player_uid, resid))
+            ep_abs_bp.append((player_uid, abs(resid)))
 
         cs_pts = ep._sm(con, "clean_sheet_points", scoring_params_version, position)
         if cs_pts:
@@ -720,6 +784,7 @@ def score_gameweek(
     for name, values in (
         ("log_score_clean_sheet_mean", cs_log), ("brier_clean_sheet_mean", cs_brier),
         ("log_score_goals_mean", goals_log), ("log_score_assists_mean", assists_log),
+        ("ep_total_calibration_mean_resid", ep_resid), ("ep_total_calibration_mae", ep_abs),
     ):
         if values:
             _record_metric(con, backtest_run_id, season, gameweek, tier, name, sum(values) / len(values))
@@ -727,6 +792,7 @@ def score_gameweek(
         for name, values_bp in (
             ("log_score_clean_sheet_mean", cs_log_bp), ("brier_clean_sheet_mean", cs_brier_bp),
             ("log_score_goals_mean", goals_log_bp), ("log_score_assists_mean", assists_log_bp),
+            ("ep_total_calibration_mean_resid", ep_resid_bp), ("ep_total_calibration_mae", ep_abs_bp),
         ):
             _record_segment_metrics(con, backtest_run_id, season, gameweek, tier, name, values_bp, segment_of)
 

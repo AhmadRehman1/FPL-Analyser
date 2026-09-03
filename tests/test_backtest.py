@@ -495,6 +495,16 @@ def _seed_score_gameweek_segment_scenario(con):
             [ep_mv, uid],
         )
 
+    # realized FPL gameweek score + that gameweek's real price, for the ep_total-calibration
+    # residual and the position / price_band segments. ep_total is 2.0 for all three, so the
+    # signed residuals are p1 0.0, p2 +6.0, p3 +4.0 (model under-predicts p2/p3).
+    for uid, points, price in (("p1", 2, 4.5), ("p2", 8, 12.0), ("p3", 6, 7.5)):
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, now_cost, _ingested_at) "
+            "VALUES (?, '2025-2026', 10, ?, ?, current_timestamp)",
+            [uid, points, price],
+        )
+
     # p3: confirmed primary penalty taker, asof-visible before the target gameweek's deadline
     con.execute("INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) VALUES ('src1', 'Test Source', 'official', 0.9)")
     con.execute(
@@ -534,6 +544,52 @@ def test_score_gameweek_records_no_segment_metrics_when_not_opted_in(con):
         "SELECT metric_name FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
     ).fetchall()}
     assert not any(":" in n and not n.startswith("realized_") for n in names)
+
+
+def test_score_gameweek_records_position_and_price_band_segments(con):
+    backtest_run_id, ep_mv, ts_mv = _seed_score_gameweek_segment_scenario(con)
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, 1, ts_mv, 1,
+        compute_segments=True, set_piece_params_version=1,
+    )
+    names = {r[0] for r in con.execute(
+        "SELECT metric_name FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall()}
+    # every scored player is a Forward; p1 is <5.0, p2 is 9.0+, p3 is 7.0-9.0
+    assert "log_score_goals_mean:position=Forward" in names
+    assert "ep_total_calibration_mean_resid:position=Forward" in names
+    assert "ep_total_calibration_mean_resid:price_band=<5.0" in names
+    assert "ep_total_calibration_mean_resid:price_band=9.0+" in names
+    assert "ep_total_calibration_mean_resid:price_band=7.0-9.0" in names
+
+
+def test_score_gameweek_ep_total_calibration_resid_is_signed_realized_minus_predicted(con):
+    backtest_run_id, ep_mv, ts_mv = _seed_score_gameweek_segment_scenario(con)
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, 1, ts_mv, 1,
+        compute_segments=True, set_piece_params_version=1,
+    )
+    rows = dict(con.execute(
+        "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall())
+    # p1 2-2=0, p2 8-2=+6, p3 6-2=+4  ->  mean +10/3
+    assert rows["ep_total_calibration_mean_resid"] == pytest.approx(10 / 3)
+    assert rows["ep_total_calibration_mae"] == pytest.approx(10 / 3)
+    # the single 9.0+ player (p2) is under-predicted by exactly 6
+    assert rows["ep_total_calibration_mean_resid:price_band=9.0+"] == pytest.approx(6.0)
+    # the single <5.0 player (p1) is perfectly predicted
+    assert rows["ep_total_calibration_mean_resid:price_band=<5.0"] == pytest.approx(0.0)
+
+
+def test_price_band_boundaries():
+    assert bt._price_band(None) == "unknown"
+    assert bt._price_band(4.9) == "<5.0"
+    assert bt._price_band(5.0) == "5.0-7.0"
+    assert bt._price_band(6.9) == "5.0-7.0"
+    assert bt._price_band(7.0) == "7.0-9.0"
+    assert bt._price_band(8.9) == "7.0-9.0"
+    assert bt._price_band(9.0) == "9.0+"
+    assert bt._price_band(15.0) == "9.0+"
 
 
 # ============================================================
