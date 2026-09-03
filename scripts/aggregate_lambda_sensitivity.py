@@ -43,8 +43,8 @@ def _fmt(v, spec="{:.2f}"):
 
 def _table(rows: list[dict], value_label: str, live_value) -> list[str]:
     lines = [
-        f"| {value_label} | season | total | mean/GW | sharpe | max drawdown | transfers | hits | chips | GWs |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        f"| {value_label} | season | total | mean/GW | sharpe | max drawdown | transfers | chips | GWs |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in sorted(rows, key=lambda r: (r["season"], r["value"])):
         m = r.get("metrics", {})
@@ -53,7 +53,7 @@ def _table(rows: list[dict], value_label: str, live_value) -> list[str]:
         lines.append(
             f"| {r['value']}{mark} | {r['season']} | {_fmt(m.get('total_points'), '{:.0f}')} | "
             f"{_fmt(m.get('mean_points'))} | {_fmt(m.get('realized_sharpe'), '{:.3f}')} | "
-            f"{_fmt(m.get('max_drawdown'))} | {ac.get('transfers', '-')} | {ac.get('hits_taken', '-')} | "
+            f"{_fmt(m.get('max_drawdown'))} | {ac.get('transfers', '-')} | "
             f"{ac.get('chips_played', '-')} | {m.get('n_gameweeks', '-')} |"
         )
     return lines

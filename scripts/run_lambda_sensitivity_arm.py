@@ -77,12 +77,15 @@ def main() -> None:
 
     bucket = sensitivity["lambda"] if axis == "lambda" else sensitivity["guardrail_cap"]
     # report_season_simulation_sensitivity keys the bucket by the raw grid value it was handed.
-    (key, arm), = bucket.items()
+    (_key, arm), = bucket.items()
     actions = arm.pop("actions", [])
 
-    n_transfers = sum(1 for a in actions if a.get("action") == "transfer")
-    n_hits = sum(1 for a in actions if a.get("action") == "transfer" and (a.get("detail") or "").find("-4") != -1)
-    n_chips = sum(1 for a in actions if a.get("action") == "chip")
+    # run_season_simulation()'s action shape: {"gameweek", "accepted_transfer_rank",
+    # "accepted_chip", "plan_run_id"} -- accepted_transfer_rank is non-null iff a transfer was
+    # taken that week, accepted_chip non-null iff a chip was played (never both, per
+    # _decide_gameweek_action()).
+    n_transfers = sum(1 for a in actions if a.get("accepted_transfer_rank") is not None)
+    n_chips = sum(1 for a in actions if a.get("accepted_chip"))
 
     payload = {
         "axis": axis,
@@ -93,7 +96,7 @@ def main() -> None:
         "base_param_versions": base_versions,
         "metrics": arm,  # season_cumulative_metrics: total_points / mean_points / realized_sharpe / max_drawdown
         "n_gameweeks_scored": arm.get("n_gameweeks"),
-        "action_counts": {"transfers": n_transfers, "hits_taken": n_hits, "chips_played": n_chips},
+        "action_counts": {"transfers": n_transfers, "chips_played": n_chips},
         "actions": actions,
         "wall_seconds": round(wall, 1),
     }
