@@ -581,6 +581,29 @@ def test_score_gameweek_ep_total_calibration_resid_is_signed_realized_minus_pred
     assert rows["ep_total_calibration_mean_resid:price_band=<5.0"] == pytest.approx(0.0)
 
 
+def test_score_gameweek_ep_component_residuals_decompose_the_total(con):
+    backtest_run_id, ep_mv, ts_mv = _seed_score_gameweek_segment_scenario(con)
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, 1, ts_mv, 1,
+        compute_segments=True, set_piece_params_version=1,
+    )
+    rows = dict(con.execute(
+        "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall())
+    comps = ["ep_goals_calibration_mean_resid", "ep_assists_calibration_mean_resid",
+             "ep_appearance_calibration_mean_resid", "ep_cleansheet_calibration_mean_resid",
+             "ep_other_calibration_mean_resid"]
+    # the component residuals sum back to the ep_total residual, whole-population and per segment
+    assert sum(rows[c] for c in comps) == pytest.approx(rows["ep_total_calibration_mean_resid"])
+    assert sum(rows[f"{c}:price_band=9.0+"] for c in comps) == pytest.approx(6.0)
+    # p2 (Forward, £12m, 90 min, 1 goal, ep_total 2.0 = app 1.0 + goals 0.5 + assists 0.2 + bonus 0.3):
+    #   goals   4.0 realized - 0.5 predicted = +3.5
+    #   appearance 2.0 - 1.0 = +1.0 ; assists 0 - 0.2 = -0.2 ; "other" (bonus) 2.0 - 0.3 = +1.7
+    assert rows["ep_goals_calibration_mean_resid:price_band=9.0+"] == pytest.approx(3.5)
+    assert rows["ep_appearance_calibration_mean_resid:price_band=9.0+"] == pytest.approx(1.0)
+    assert rows["ep_other_calibration_mean_resid:price_band=9.0+"] == pytest.approx(1.7)
+
+
 def test_price_band_boundaries():
     assert bt._price_band(None) == "unknown"
     assert bt._price_band(4.9) == "<5.0"
