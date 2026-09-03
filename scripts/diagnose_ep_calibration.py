@@ -80,6 +80,30 @@ def main() -> None:
         print("\n-- no segment rows on this run -- computing residuals directly from ep_outputs --")
         _fallback_direct(con, run_id)
 
+    # --- 2b. component decomposition of the residual, per price band ---
+    comp = con.execute(
+        "SELECT metric_name, avg(metric_value) FROM backtest_metrics "
+        "WHERE backtest_run_id = ? AND tier = 'mature' "
+        "AND metric_name LIKE 'ep\\_%\\_calibration\\_mean\\_resid:price_band=%' ESCAPE '\\' "
+        "GROUP BY metric_name",
+        [run_id],
+    ).fetchall()
+    if comp:
+        by_band: dict = {}
+        for name, mean in comp:
+            fam, seg = name.split(":", 1)
+            comp_key = fam[len("ep_"):-len("_calibration_mean_resid")]
+            by_band.setdefault(seg.split("=", 1)[1], {})[comp_key] = mean
+        order = ["goals", "assists", "appearance", "cleansheet", "other"]
+        print("\n-- residual decomposition by price band (signed realized - predicted; sums to the total) --")
+        print(f"  {'band':10} " + "  ".join(f"{c:>10}" for c in order) + f"  {'= total':>10}")
+        for band in ("<5.0", "5.0-7.0", "7.0-9.0", "9.0+"):
+            if band in by_band:
+                d = by_band[band]
+                print(f"  {band:10} " + "  ".join(f"{d.get(c, 0.0):>+10.3f}" for c in order)
+                      + f"  {sum(d.values()):>+10.3f}")
+        print("  ('other' is bonus + DefCon + goals-conceded + saves -- ~all bonus for a premium attacker)")
+
     # --- 3. per-category log scores by position (also #124) ---
     catseg = con.execute(
         "SELECT metric_name, avg(metric_value), count(*) FROM backtest_metrics "
