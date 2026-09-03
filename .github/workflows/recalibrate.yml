@@ -1,0 +1,105 @@
+name: Weekly recalibration (chunked)
+
+# weekly_backtest.yml's `backtest` job runs run_backtest.py = walk-forward + EVERY refit
+# technique + auto-promote in ONE job. Its two expensive stages -- the minutes coordinate
+# descent and the lambda SCIP grid, each re-solving per candidate per gameweek -- push it past
+# the 6h Actions hard cap, so every real dispatch (2026-08-25, 2026-08-30) was cancelled with
+# ZERO proposals written. recalibrate() has always been per-technique toggleable for exactly
+# this reason.
+#
+# This runs one technique per step, cheapest first, each committing its own proposals -- so a
+# timeout in `minutes` or `lambda` still lands the xi_rho / rho_residual / kappa_tc results.
+# It restores the walk-forward DB the nightly / ml_experiment already cached (skipping ~3h)
+# and falls back to running it only on a cache miss.
+#
+# NOTHING is auto-promoted -- data/recalibration/proposals_<date>.json is a review artifact;
+# activation stays scripts/review_recalibration.py's human gate, consistent with seeds_1.json
+# being parked pending the owner's lambda sensitivity study.
+
+on:
+  schedule:
+    - cron: "0 7 * * 0"   # Sunday 07:00 UTC -- after ml_experiment.yml's 05:00 walk-forward
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-recalibrate
+  cancel-in-progress: false
+
+jobs:
+  recalibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      # The walk-forward DB (backtest_gameweek_steps + per-step ep_outputs/uncertainty_outputs
+      # the refits re-read). Same key the nightly + ml_experiment save under.
+      - name: Restore a cached walk-forward DB
+        id: wfcache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-none
+          restore-keys: |
+            walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-
+            walkforward-v1-
+
+      - name: Fetch FPL-Core-Insights (public dataset) [walk-forward miss]
+        if: steps.wfcache.outputs.cache-matched-key == ''
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks [walk-forward miss]
+        if: steps.wfcache.outputs.cache-matched-key == ''
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            [ "$(stat -c%s "${out_path}")" -ge 1024 ] || { echo "::error::${out_path} too small"; exit 1; }
+            head -c 256 "${out_path}" | grep -qi "<html" && { echo "::error::${out_path} is HTML, not xlsx"; exit 1; } || true
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Build the walk-forward [walk-forward miss]
+        if: steps.wfcache.outputs.cache-matched-key == ''
+        run: |
+          PYTHONPATH=src python scripts/run_ingestion.py
+          PYTHONPATH=src python scripts/run_walkforward.py
+
+      # --- cheap refits first (closed-form / argmax) -- each commits its own proposals ---
+      - name: Refit xi / rho (Dixon-Coles decay)
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/run_recalibrate.py --stage xi_rho
+
+      - name: Refit rho_residual
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/run_recalibrate.py --stage rho_residual
+
+      - name: Refit kappa_tc
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/run_recalibrate.py --stage kappa_tc
+
+      # --- expensive refits -- may hit the timeout; the cheap proposals above are already in ---
+      - name: Refit minutes / evidence params (coordinate descent)
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/run_recalibrate.py --stage minutes
+
+      - name: Refit lambda (risk aversion, SCIP grid)
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/run_recalibrate.py --stage lambda

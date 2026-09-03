@@ -569,8 +569,13 @@ def run(
     bps_params_version: int,
     tau_params_version: int,
     lookback_seasons: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
-    set_piece_params_version: int | None = None,
+    set_piece_params_version: int | None = 1,
 ) -> int:
+    # set_piece_params_version defaults to 1 (was None): the confirmed-primary penalty/free-kick
+    # taker e_goals/e_assists uplift (_set_piece_goal_uplift_multiplier, built as Priority 7b but
+    # never actually called by any live entrypoint) is now ON. It is a per-player no-op unless an
+    # asof-visible set_piece_order_override primary claim exists -- so historical seasons with no
+    # such claims are unaffected. Pass None to opt out.
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
     mean_minutes = _mean_minutes_by_bucket(con)
     # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()

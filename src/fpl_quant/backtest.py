@@ -259,6 +259,7 @@ def run_gameweek_step(
     guardrail_params_version: int,
     n_antithetic_pairs: int = 2000,
     run_monte_carlo: bool = True,
+    set_piece_params_version: int | None = 1,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -296,6 +297,7 @@ def run_gameweek_step(
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
+            set_piece_params_version=set_piece_params_version,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
@@ -783,7 +785,7 @@ def run(
     run_monte_carlo: bool = True,
     notes: str | None = None,
     compute_segments: bool = False,
-    set_piece_params_version: int | None = None,
+    set_piece_params_version: int | None = 1,  # matches ep.run()'s new default; passed to BOTH the prediction step and score_gameweek's segment metrics
     ownership_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
@@ -817,6 +819,7 @@ def run(
             rho_residual_params_version=rho_residual_params_version, corr_params_version=corr_params_version,
             lambda_params_version=lambda_params_version, guardrail_params_version=guardrail_params_version,
             n_antithetic_pairs=n_antithetic_pairs, run_monte_carlo=run_monte_carlo,
+            set_piece_params_version=set_piece_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
