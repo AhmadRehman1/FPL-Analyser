@@ -240,10 +240,40 @@ def _fetch_real_squad(entry_id: int, event: int) -> list[dict]:
     ]
 
 
+def _gameweek_ep_model_version(con, run_id: int, gameweek: int) -> int | None:
+    """The ep_outputs model_version transfer_planner.run() actually scored for `gameweek` --
+    read from transfer_plan_runs.ep_model_versions, a JSON OBJECT keyed by str(gameweek) (NOT a
+    list, despite an old schema comment -- decision_engine.py and attach_recommendation_breakdowns
+    both parse it this way; the list reading crashed the pipeline for ~12h, PR #103). None if
+    the row or the gameweek key is missing."""
+    row = con.execute(
+        "SELECT ep_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id],
+    ).fetchone()
+    if not row or not row[0]:
+        return None
+    return json.loads(row[0]).get(str(gameweek))
+
+
+def _analytic_gameweek_ep(con, ep_model_version: int, uids: list[str]) -> dict[str, float]:
+    """{player_uid: sum(ep_outputs.ep_total)} at `ep_model_version`, summed over a player's
+    fixtures for the gameweek (double gameweek). This is M3's analytic E[points] -- the same
+    number M9's explain_player_ep() and projections_latest.json's captain_ranking report --
+    which reporting.build_captain_recommendation() ranks the weekly captain by (M6's Monte-Carlo
+    mean_total compresses a big favourite; see that function's docstring)."""
+    if not uids:
+        return {}
+    rows = con.execute(
+        "SELECT player_uid, sum(ep_total) FROM ep_outputs "
+        "WHERE model_version = ? AND player_uid = ANY(?) GROUP BY player_uid",
+        [ep_model_version, uids],
+    ).fetchall()
+    return {uid: total for uid, total in rows if total is not None}
+
+
 def attach_recommendation_breakdowns(
     con, explain: dict, run_id: int, plan_for_gameweek: int,
     tc_detail: dict | None, actual_captain_uid: str | None,
-    recs: list[tuple], name_by_uid: dict[str, str],
+    recs: list[tuple], name_by_uid: dict[str, str], rec_cap_uid: str | None = None,
 ) -> dict:
     """Gap 5 (inline explainability): adds `captain_breakdown` + `transfer_breakdowns` to the
     exported `explain` dict -- expected_points.explain_player_ep() + uncertainty.explain_player_risk()
@@ -251,6 +281,9 @@ def attach_recommendation_breakdowns(
     category-level EP split instead of one blended number, with no new export script.
 
     `recs` are transfer_recommendations rows as (rank, player_out_uid, player_in_uid, ...).
+    `rec_cap_uid` is the weekly captain reporting.build_captain_recommendation() picked -- passed
+    in so the breakdown explains the SAME player the recommendation names. Falls back to the
+    MC-mean pick only for direct callers/tests that don't supply it.
 
     Best-effort: transfer_plan_runs.ep_model_versions/uncertainty_model_versions is a JSON OBJECT
     keyed by str(gameweek) (see transfer_planner.run()'s own INSERT -- NOT a list, despite an old
@@ -281,10 +314,12 @@ def attach_recommendation_breakdowns(
             "risk": un_mod.explain_player_risk(con, target_un_mv, uid),
         }
 
-    # The weekly captain is the highest-E[points] XI player, NOT evaluate_triple_captain()'s
-    # risk-adjusted tc_score pick -- consistent with reporting.build_captain_recommendation().
-    _cands = (tc_detail or {}).get("all_candidates") or []
-    rec_cap_uid = max(_cands, key=lambda c: c["mean_total"])["player_uid"] if _cands else None
+    # The weekly captain is the analytic-E[points] XI player reporting.build_captain_recommendation()
+    # picked (passed in as rec_cap_uid). Fall back to the MC-mean pick only when a direct caller
+    # didn't supply it, so this explanation still names a plausible captain in isolation.
+    if rec_cap_uid is None:
+        _cands = (tc_detail or {}).get("all_candidates") or []
+        rec_cap_uid = max(_cands, key=lambda c: c["mean_total"])["player_uid"] if _cands else None
     if rec_cap_uid:
         explain["captain_breakdown"] = {
             "gameweek": plan_for_gameweek,
@@ -476,22 +511,28 @@ def main() -> None:
     # IS this week.
     reconcile_chips_with_timing_sweep(chips_out, plan_for_gameweek, _load_timing_sweep(entry_id))
 
-    # A real "who should you captain" directive -- the highest-E[points] XI player (see
-    # reporting.build_captain_recommendation()'s own docstring on why the weekly captain is
-    # NOT the risk-adjusted tc_score pick), compared against the manager's actual current
-    # captain from manager_squad_holdings.
+    # A real "who should you captain" directive -- the highest analytic-E[points] XI player (see
+    # reporting.build_captain_recommendation()'s own docstring on why the weekly captain is NOT
+    # the risk-adjusted tc_score pick, and why it ranks by M3's ep_outputs.ep_total rather than
+    # M6's Monte-Carlo mean_total), compared against the manager's actual current captain from
+    # manager_squad_holdings.
     actual_captain_row = con.execute(
         "SELECT player_uid FROM manager_squad_holdings WHERE state_version = ? AND is_captain = TRUE", [state_version],
     ).fetchone()
     actual_captain_uid = actual_captain_row[0] if actual_captain_row else None
     _tc_cands = (tc_detail or {}).get("all_candidates") or []
-    _weekly_cap_uid = max(_tc_cands, key=lambda c: c["mean_total"])["player_uid"] if _tc_cands else None
-    relevant_uids = [uid for uid in {actual_captain_uid, _weekly_cap_uid} if uid]
+    _cand_uids = [c["player_uid"] for c in _tc_cands]
+    _cap_ep_mv = _gameweek_ep_model_version(con, run_id, plan_for_gameweek)
+    analytic_ep_by_uid = _analytic_gameweek_ep(con, _cap_ep_mv, _cand_uids) if _cap_ep_mv is not None else {}
+    relevant_uids = [uid for uid in {actual_captain_uid, *_cand_uids} if uid]
     name_rows = con.execute(
         "SELECT player_uid, canonical_name FROM dim_player WHERE player_uid = ANY(?)", [relevant_uids],
     ).fetchall() if relevant_uids else []
     player_name_by_uid = {uid: name for uid, name in name_rows}
-    captain_recommendation = reporting.build_captain_recommendation(tc_detail, actual_captain_uid, player_name_by_uid)
+    captain_recommendation = reporting.build_captain_recommendation(
+        tc_detail, actual_captain_uid, player_name_by_uid, analytic_ep_by_uid,
+    )
+    rec_cap_uid = captain_recommendation["recommended_uid"] if captain_recommendation else None
     if captain_recommendation:
         print(f"\n--- captain recommendation ---\n  {captain_recommendation}")
 
@@ -535,6 +576,7 @@ def main() -> None:
 
     attach_recommendation_breakdowns(
         con, explain, run_id, plan_for_gameweek, tc_detail, actual_captain_uid, recs, player_name_by_uid,
+        rec_cap_uid=rec_cap_uid,
     )
     print(f"[explain] +captain_breakdown={bool(explain.get('captain_breakdown'))}, "
           f"transfer_breakdowns={len(explain['transfer_breakdowns'])} (GW{plan_for_gameweek})")

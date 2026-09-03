@@ -697,8 +697,15 @@ def build_transparency_log(track_record: dict, history_dir: Path | str, diff: di
     }
 
 
+# Within this much E[points] of each other, two captain candidates are a "near-tie" and the
+# wider Monte-Carlo spread (higher ceiling) wins -- captaincy doubles the score so the payoff is
+# dominated by the upside. Matches projections.build_captain_ranking's own tie_epsilon.
+_CAPTAIN_TIE_EPSILON = 0.15
+
+
 def build_captain_recommendation(
     tc_detail: dict | None, actual_captain_uid: str | None, player_name_by_uid: dict[str, str],
+    analytic_ep_by_uid: dict[str, float] | None = None,
 ) -> dict | None:
     """A real, actionable "who should you captain" directive -- reads M8's own triple_captain
     chip evaluation (transfer_planner.evaluate_triple_captain()'s all_candidates over the real
@@ -706,17 +713,26 @@ def build_captain_recommendation(
     transfer_planner.run(); nothing new modeled here). None when there's no real detail to
     read from (e.g. that evaluator found no simulated XI players for this squad).
 
-    The WEEKLY captain is ranked by pure E[points] (mean_total), NOT by the evaluator's own
-    risk-adjusted tc_score (mean - kappa_tc*std). kappa_tc's risk aversion is defensible for
-    "which week do I burn my one Triple Captain chip" but it's the wrong objective for the
-    every-week captain choice: captaincy doubles the score, so the payoff is dominated by the
-    upside, and penalising variance just captains the flattest option (backtest: refit_kappa_tc
-    has no interior optimum -- extreme aversion trivially captains the lowest-ceiling XI player).
+    The WEEKLY captain is ranked by E[points], NOT by the evaluator's own risk-adjusted tc_score
+    (mean - kappa_tc*std): captaincy doubles the score, so the payoff is dominated by the upside,
+    and penalising variance just captains the flattest option (backtest: refit_kappa_tc has no
+    interior optimum -- extreme aversion trivially captains the lowest-ceiling XI player).
+
+    E[points] source: `analytic_ep_by_uid` (M3's ep_outputs.ep_total for the scored gameweek --
+    the SAME number M9's explain_player_ep() breakdown and projections_latest.json's
+    captain_ranking already show) is used when supplied, per player, falling back to M6's
+    Monte-Carlo mean_total for any candidate missing from it (a blank/edge gameweek). M6's
+    simulate_fixture() has not yet absorbed M3's fixture-strength scaling (#131/#134), so for a
+    big favourite the MC mean compresses the premium ~1pt and a flat clean-sheet defender can
+    edge it -- ranking by the analytic EP keeps this directive consistent with its own "Explain
+    this" breakdown. The MC spread (var_total) still breaks a near-tie toward the higher ceiling.
 
     tc_detail: the parsed chip_evaluations.detail JSON for this run's 'triple_captain' row.
     actual_captain_uid: the manager's real current captain (from manager_squad_holdings), or
     None if it couldn't be resolved -- in which case this only reports the recommendation, not
     a comparison, since there's nothing real to compare against.
+    analytic_ep_by_uid: {player_uid: M3 analytic E[points] for the scored gameweek}, or None to
+    rank purely by the MC mean_total (back-compat).
     """
     if not tc_detail or not tc_detail.get("recommended"):
         return None
@@ -724,20 +740,31 @@ def build_captain_recommendation(
     if not all_candidates:
         return None
     candidates_by_uid = {c["player_uid"]: c for c in all_candidates}
-    recommended = max(all_candidates, key=lambda c: c["mean_total"])
+    ep_map = analytic_ep_by_uid or {}
+
+    def _ep(c: dict) -> float:
+        v = ep_map.get(c["player_uid"])
+        return v if v is not None else c["mean_total"]
+
+    top_ep = max(_ep(c) for c in all_candidates)
+    # Near-tie on E[points] -> prefer the wider MC spread (higher ceiling on a doubled score).
+    near_top = [c for c in all_candidates if top_ep - _ep(c) <= _CAPTAIN_TIE_EPSILON]
+    recommended = max(near_top, key=lambda c: c.get("var_total", 0.0))
+    best_ep = _ep(recommended)
     recommended_uid = recommended["player_uid"]
     current = candidates_by_uid.get(actual_captain_uid) if actual_captain_uid else None
+    current_ep = _ep(current) if current else None
     matches_current = actual_captain_uid is not None and actual_captain_uid == recommended_uid
 
     return {
         "recommended_uid": recommended_uid,
         "recommended_name": player_name_by_uid.get(recommended_uid),
-        "recommended_expected_points": round(recommended["mean_total"], 2),
+        "recommended_expected_points": round(best_ep, 2),
         "current_uid": actual_captain_uid,
         "current_name": player_name_by_uid.get(actual_captain_uid) if actual_captain_uid else None,
-        "current_expected_points": round(current["mean_total"], 2) if current else None,
+        "current_expected_points": round(current_ep, 2) if current_ep is not None else None,
         "matches_current": matches_current,
-        "potential_gain": round(recommended["mean_total"] - current["mean_total"], 2) if current and not matches_current else 0.0,
+        "potential_gain": round(best_ep - current_ep, 2) if current_ep is not None and not matches_current else 0.0,
     }
 
 

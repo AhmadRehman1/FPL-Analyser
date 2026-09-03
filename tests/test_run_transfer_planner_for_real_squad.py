@@ -6,8 +6,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from run_transfer_planner_for_real_squad import (  # noqa: E402
-    _build_chip_preview_squad, _order_chip_evaluations, _resolve_decision_log_row,
-    attach_recommendation_breakdowns, reconcile_chips_with_timing_sweep,
+    _analytic_gameweek_ep, _build_chip_preview_squad, _gameweek_ep_model_version,
+    _order_chip_evaluations, _resolve_decision_log_row, attach_recommendation_breakdowns,
+    reconcile_chips_with_timing_sweep,
 )
 
 
@@ -337,3 +338,58 @@ def test_attach_breakdowns_no_captain_candidate_still_does_transfers(con):
     )
     assert "captain_breakdown" not in out
     assert len(out["transfer_breakdowns"]) == 2
+
+
+def test_attach_breakdowns_explains_the_passed_in_captain_not_the_mc_mean_pick(con):
+    # rec_cap_uid is build_captain_recommendation()'s analytic-EP pick -- the breakdown must
+    # explain THAT player, even when the MC-mean argmax would name someone else.
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con)
+    run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3)
+    out = attach_recommendation_breakdowns(
+        con, {}, run_id, 3,
+        tc_detail={"all_candidates": [
+            {"player_uid": "player_cap", "mean_total": 9.0, "var_total": 1.0},
+            {"player_uid": "player_in", "mean_total": 4.0, "var_total": 1.0},
+        ]},
+        actual_captain_uid="player_out",
+        recs=[(1, "player_out", "player_in", 5.0, 0.0, 5.0)],
+        name_by_uid={"player_cap": "Cap", "player_in": "In Player"},
+        rec_cap_uid="player_in",
+    )
+    assert out["captain_breakdown"]["recommended"]["player_uid"] == "player_in"
+
+
+# ============================================================
+# _gameweek_ep_model_version + _analytic_gameweek_ep -- the analytic E[points] the weekly
+# captain directive ranks by (M6's MC mean_total compresses a big favourite; see
+# reporting.build_captain_recommendation()).
+# ============================================================
+
+def test_gameweek_ep_model_version_reads_the_json_object_shape(con):
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con, gw=3)
+    run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3)
+    assert _gameweek_ep_model_version(con, run_id, 3) == ep_mv
+    assert _gameweek_ep_model_version(con, run_id, 9) is None       # gameweek absent from the object
+    assert _gameweek_ep_model_version(con, 999_999, 3) is None      # no such run
+    empty_run = _make_plan_run(con, sv, ep_mv, un_mv, gw=3, mv_json="{}")
+    assert _gameweek_ep_model_version(con, empty_run, 3) is None    # the KeyError:0 regression shape
+
+
+def test_analytic_gameweek_ep_sums_ep_total_over_a_players_fixtures(con):
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con, gw=3)  # player_cap ep_total 3.68, player_in 4.68
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m2','2026-2027',3,'t_a','t_h',FALSE,"
+        "'Premier League','2026-08-25', current_timestamp)"
+    )
+    con.execute(
+        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+        "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+        "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'player_cap', 'm2', 0.9, 1.0, 0.3, 0.1, "
+        "-0.1, 0.0, 0.5, 0, 0, -0.02, 0, 2.5, 20.0)", [ep_mv],
+    )
+    out = _analytic_gameweek_ep(con, ep_mv, ["player_cap", "player_in", "missing_uid"])
+    assert round(out["player_cap"], 2) == 6.18   # 3.68 + 2.5, double gameweek
+    assert round(out["player_in"], 2) == 4.68
+    assert "missing_uid" not in out
+    assert _analytic_gameweek_ep(con, ep_mv, []) == {}

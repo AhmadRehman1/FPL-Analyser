@@ -806,6 +806,57 @@ def test_build_captain_recommendation_handles_unresolved_current_captain():
     assert rec["potential_gain"] == 0.0  # nothing real to compare against -- not a fabricated gain
 
 
+def test_build_captain_recommendation_ranks_by_analytic_ep_when_supplied():
+    # The real GW3 bug for entry 1305242: M6's Monte-Carlo mean_total compressed Haaland to
+    # ~level with a clean-sheet defender (Van Dijk), so the directive named Van Dijk -- while
+    # M3's analytic ep_total (the number the "Explain this" breakdown shows) has Haaland well
+    # clear. Ranking by the analytic EP fixes it.
+    detail = {
+        "recommended": True,
+        "all_candidates": [
+            {"player_uid": "p_haaland", "mean_total": 5.05, "var_total": 17.3, "tc_score": 3.0},
+            {"player_uid": "p_vvd", "mean_total": 5.21, "var_total": 10.3, "tc_score": 3.7},
+        ],
+    }
+    names = {"p_haaland": "Erling Haaland", "p_vvd": "Virgil van Dijk"}
+    analytic = {"p_haaland": 6.26, "p_vvd": 4.62}
+    rec = reporting.build_captain_recommendation(detail, "p_haaland", names, analytic)
+    assert rec["recommended_uid"] == "p_haaland"
+    assert rec["recommended_expected_points"] == pytest.approx(6.26)
+    assert rec["matches_current"] is True
+    # and without the analytic map it reproduces the bug (ranks by the compressed MC mean)
+    buggy = reporting.build_captain_recommendation(detail, "p_haaland", names)
+    assert buggy["recommended_uid"] == "p_vvd"
+
+
+def test_build_captain_recommendation_analytic_near_tie_breaks_to_higher_ceiling():
+    # Within tie_epsilon on analytic EP -> the wider MC spread (higher ceiling) wins, since
+    # captaincy doubles the score and the payoff is upside-dominated.
+    detail = {
+        "recommended": True,
+        "all_candidates": [
+            {"player_uid": "p_flat", "mean_total": 6.0, "var_total": 4.0},
+            {"player_uid": "p_spiky", "mean_total": 6.0, "var_total": 22.0},
+        ],
+    }
+    analytic = {"p_flat": 6.10, "p_spiky": 6.00}  # 0.10 apart -> a near-tie
+    rec = reporting.build_captain_recommendation(
+        detail, None, {"p_flat": "Flat", "p_spiky": "Spiky"}, analytic,
+    )
+    assert rec["recommended_uid"] == "p_spiky"
+
+
+def test_build_captain_recommendation_falls_back_per_candidate_when_analytic_missing():
+    # A candidate absent from the analytic map (e.g. a blank-gameweek edge) uses its MC mean_total
+    # rather than being dropped from contention.
+    detail = _tc_detail(("p_haaland", 5.0), ("p_other", 9.0))
+    rec = reporting.build_captain_recommendation(
+        detail, None, {"p_haaland": "Erling Haaland", "p_other": "Other"}, {"p_haaland": 6.5},
+    )
+    assert rec["recommended_uid"] == "p_other"  # 9.0 MC fallback beats Haaland's 6.5 analytic
+    assert rec["recommended_expected_points"] == pytest.approx(9.0)
+
+
 # ============================================================
 # build_track_record_summary
 # ============================================================
