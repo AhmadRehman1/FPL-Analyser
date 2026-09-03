@@ -132,29 +132,61 @@ def _shrink_rate(own_rate: float, sample_minutes: float, position_avg_rate: floa
     return weight_own * own_rate + (1 - weight_own) * position_avg_rate
 
 
+def _season_match_minutes(con: duckdb.DuckDBPyConnection, player_uid: str, season: str) -> float:
+    """A player's total real minutes that season, from the per-match grain -- the only place
+    2024-2025 minutes exist (its playerstats.csv snapshot predates the season-total `minutes`
+    column 2025-26+ has; see reconcile.build_fact_player_season_stats)."""
+    row = con.execute(
+        "SELECT sum(minutes_played) FROM fact_player_match_stats WHERE player_uid = ? AND season = ?",
+        [player_uid, season],
+    ).fetchone()
+    return float(row[0]) if row and row[0] else 0.0
+
+
 def _player_rate_pool(con: duckdb.DuckDBPyConnection, player_uid: str, season_priority: list[str]) -> dict:
     """Pools each lookback season's latest (most complete cumulative) row, weighted by that
-    season's own total minutes -- not a single cherry-picked season."""
-    total_minutes = total_goals = total_assists = total_saves_weighted = 0.0
+    season's own total minutes -- not a single cherry-picked season.
+
+    Two source schemas: 2025-26+ publishes a season-total `minutes` + `expected_goals`
+    (cumulative), while 2024-2025's snapshot publishes `expected_goals_per_90` directly but no
+    season-total minutes or xG. The old code required `minutes`, so it silently dropped ALL of
+    2024-2025 -- halving the attacking-rate sample for every player and shrinking premiums
+    (high own rate, small sample) hardest toward the position average, exactly the EP
+    compression the DefCon rate (which reads fact_player_match_stats and DOES see 2024-25) does
+    not suffer. This now recovers 2024-25 from the per-90 rate + match-grain minutes."""
+    total_minutes = total_goals = total_assists = total_saves_weighted = saves_minutes = 0.0
     for season in season_priority:
         row = con.execute(
-            "SELECT minutes, expected_goals, expected_assists, saves_per_90 "
+            "SELECT minutes, expected_goals, expected_assists, saves_per_90, "
+            "expected_goals_per_90, expected_assists_per_90 "
             "FROM fact_player_season_stats WHERE player_uid = ? AND season = ? ORDER BY gw DESC LIMIT 1",
             [player_uid, season],
         ).fetchone()
-        if not row or not row[0]:
+        if not row:
             continue
-        minutes, xg, xa, saves_p90 = row
-        total_minutes += minutes
-        total_goals += xg or 0.0
-        total_assists += xa or 0.0
-        total_saves_weighted += (saves_p90 or 0.0) * minutes
+        minutes, xg, xa, saves_p90, xg90, xa90 = row
+        if minutes and xg is not None:
+            total_minutes += minutes
+            total_goals += xg or 0.0
+            total_assists += xa or 0.0
+            if saves_p90 is not None:
+                total_saves_weighted += saves_p90 * minutes
+                saves_minutes += minutes
+        elif xg90 is not None or xa90 is not None:
+            mins = _season_match_minutes(con, player_uid, season)
+            if mins <= 0:
+                continue
+            total_minutes += mins
+            total_goals += (xg90 or 0.0) / 90.0 * mins
+            total_assists += (xa90 or 0.0) / 90.0 * mins
+            # saves_per_90 genuinely isn't in this schema -- a snapshot-only season contributes
+            # nothing to the saves anchor rather than a fabricated 0 that would drag it down.
     if total_minutes <= 0:
         return {"expected_goals_per_90": 0.0, "expected_assists_per_90": 0.0, "saves_per_90": 0.0, "sample_minutes": 0.0}
     return {
         "expected_goals_per_90": total_goals / total_minutes * 90,
         "expected_assists_per_90": total_assists / total_minutes * 90,
-        "saves_per_90": total_saves_weighted / total_minutes,
+        "saves_per_90": total_saves_weighted / saves_minutes if saves_minutes > 0 else 0.0,
         "sample_minutes": total_minutes,
     }
 
@@ -170,22 +202,50 @@ def _position_average_rates(con: duckdb.DuckDBPyConnection, position: str, seaso
     and _shrink_rate() then compresses every player's rate toward that too-low anchor (the same
     EP-compression failure mode as the DefCon/minutes fixes)."""
     placeholders = ",".join(["?"] * len(season_priority))
+    # Two source schemas, same as _player_rate_pool: the richer 2025-26+ rows carry a
+    # season-total `minutes` + `expected_goals`; 2024-2025's snapshot carries
+    # `expected_goals_per_90` directly but NULL minutes. The old query's `fps.minutes > 0`
+    # filter dropped every 2024-25 player from the anchor -- so the anchor (and every rate
+    # shrunk toward it) was fit on one season while _defensive_action_rates_per_90()'s anchor
+    # saw two. The snapshot branch recovers those players via the per-90 rate x match-grain
+    # minutes; `xg_total`/`xa_total` are the implied season counts so the minutes-weighted
+    # aggregate below stays a single consistent formula across both branches.
     row = con.execute(
         f"""
         WITH latest AS (
-            SELECT fps.expected_goals, fps.expected_assists, fps.saves_per_90, fps.minutes
+            SELECT fps.expected_goals AS xg_total, fps.expected_assists AS xa_total,
+                   fps.saves_per_90, fps.minutes AS mins
             FROM fact_player_season_stats fps
             JOIN dim_player dp ON dp.player_uid = fps.player_uid
             WHERE dp.position = ? AND fps.season IN ({placeholders}) AND fps.minutes > 0
             QUALIFY row_number() OVER (PARTITION BY fps.player_uid, fps.season ORDER BY fps.gw DESC) = 1
+
+            UNION ALL
+
+            SELECT s.xg90 / 90.0 * m.mins AS xg_total, s.xa90 / 90.0 * m.mins AS xa_total,
+                   NULL AS saves_per_90, m.mins
+            FROM (
+                SELECT fps.player_uid, fps.season,
+                       fps.expected_goals_per_90 AS xg90, fps.expected_assists_per_90 AS xa90
+                FROM fact_player_season_stats fps
+                JOIN dim_player dp ON dp.player_uid = fps.player_uid
+                WHERE dp.position = ? AND fps.season IN ({placeholders}) AND fps.minutes IS NULL
+                  AND (fps.expected_goals_per_90 IS NOT NULL OR fps.expected_assists_per_90 IS NOT NULL)
+                QUALIFY row_number() OVER (PARTITION BY fps.player_uid, fps.season ORDER BY fps.gw DESC) = 1
+            ) s
+            JOIN (
+                SELECT player_uid, season, sum(minutes_played) AS mins
+                FROM fact_player_match_stats GROUP BY player_uid, season
+            ) m ON m.player_uid = s.player_uid AND m.season = s.season
+            WHERE m.mins > 0
         )
         SELECT
-            sum(coalesce(expected_goals, 0)) / nullif(sum(minutes), 0) * 90,
-            sum(coalesce(expected_assists, 0)) / nullif(sum(minutes), 0) * 90,
-            sum(coalesce(saves_per_90, 0) * minutes) / nullif(sum(minutes), 0)
+            sum(coalesce(xg_total, 0)) / nullif(sum(mins), 0) * 90,
+            sum(coalesce(xa_total, 0)) / nullif(sum(mins), 0) * 90,
+            sum(coalesce(saves_per_90, 0) * mins) / nullif(sum(CASE WHEN saves_per_90 IS NOT NULL THEN mins ELSE 0 END), 0)
         FROM latest
         """,
-        [position, *season_priority],
+        [position, *season_priority, position, *season_priority],
     ).fetchone()
     return {
         "expected_goals_per_90": row[0] or 0.0,
