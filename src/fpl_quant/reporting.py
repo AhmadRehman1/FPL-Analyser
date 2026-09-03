@@ -700,24 +700,32 @@ def build_transparency_log(track_record: dict, history_dir: Path | str, diff: di
 def build_captain_recommendation(
     tc_detail: dict | None, actual_captain_uid: str | None, player_name_by_uid: dict[str, str],
 ) -> dict | None:
-    """A real, actionable "who should you captain" directive -- reuses M8's own triple_captain
-    chip evaluation (transfer_planner.evaluate_triple_captain()'s tc_score/mean_total ranking
-    over the real current XI, already computed and stored in chip_evaluations.detail on every
-    real transfer_planner.run(); nothing new modeled here). None when there's no real detail to
+    """A real, actionable "who should you captain" directive -- reads M8's own triple_captain
+    chip evaluation (transfer_planner.evaluate_triple_captain()'s all_candidates over the real
+    current XI, already computed and stored in chip_evaluations.detail on every real
+    transfer_planner.run(); nothing new modeled here). None when there's no real detail to
     read from (e.g. that evaluator found no simulated XI players for this squad).
+
+    The WEEKLY captain is ranked by pure E[points] (mean_total), NOT by the evaluator's own
+    risk-adjusted tc_score (mean - kappa_tc*std). kappa_tc's risk aversion is defensible for
+    "which week do I burn my one Triple Captain chip" but it's the wrong objective for the
+    every-week captain choice: captaincy doubles the score, so the payoff is dominated by the
+    upside, and penalising variance just captains the flattest option (backtest: refit_kappa_tc
+    has no interior optimum -- extreme aversion trivially captains the lowest-ceiling XI player).
 
     tc_detail: the parsed chip_evaluations.detail JSON for this run's 'triple_captain' row.
     actual_captain_uid: the manager's real current captain (from manager_squad_holdings), or
     None if it couldn't be resolved -- in which case this only reports the recommendation, not
     a comparison, since there's nothing real to compare against.
     """
-    if not tc_detail or not tc_detail.get("recommended") or not tc_detail.get("captain_candidate"):
+    if not tc_detail or not tc_detail.get("recommended"):
         return None
-    candidates_by_uid = {c["player_uid"]: c for c in tc_detail.get("all_candidates", [])}
-    recommended_uid = tc_detail["captain_candidate"]
-    recommended = candidates_by_uid.get(recommended_uid)
-    if recommended is None:
+    all_candidates = tc_detail.get("all_candidates") or []
+    if not all_candidates:
         return None
+    candidates_by_uid = {c["player_uid"]: c for c in all_candidates}
+    recommended = max(all_candidates, key=lambda c: c["mean_total"])
+    recommended_uid = recommended["player_uid"]
     current = candidates_by_uid.get(actual_captain_uid) if actual_captain_uid else None
     matches_current = actual_captain_uid is not None and actual_captain_uid == recommended_uid
 

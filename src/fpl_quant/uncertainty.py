@@ -395,6 +395,16 @@ def run(
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
     mean_minutes = ep._mean_minutes_by_bucket(con)
 
+    # The season whose rosters this run's teammate/opponent covariance structure must use --
+    # read from the ep_model_version being scored, NOT season_priority[0] (which defaults to
+    # 2026-2027). player_alias / team_alias are NOT asof-shadowed, so a historical backtest
+    # gameweek was silently classifying teammates from 2026-27 rosters -- transferred players,
+    # promoted/relegated clubs all wrong, and any player absent from the 2026-27 rosters was
+    # dropped from uncertainty_outputs entirely (the `team_uid is None: continue` below).
+    target_season = con.execute(
+        "SELECT target_season FROM ep_model_versions WHERE model_version = ?", [ep_model_version],
+    ).fetchone()[0]
+
     model_version = con.execute(
         """
         INSERT INTO uncertainty_model_versions
@@ -432,7 +442,7 @@ def run(
         # team_uid per player, for the fixture-block covariance structure
         team_of = {}
         for team_uid in (home_uid, away_uid):
-            found = ep.reconcile_mod._season_root_table(con, season_priority[0], "teams.csv")
+            found = ep.reconcile_mod._season_root_table(con, target_season, "teams.csv")
             roster = con.execute(
                 """
                 SELECT DISTINCT dp.player_uid
@@ -441,7 +451,7 @@ def run(
                 JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = pa.season
                 WHERE pa.season = ? AND ta.team_uid = ?
                 """.format(found[1]),
-                [season_priority[0], team_uid],
+                [target_season, team_uid],
             ).fetchall()
             for (pid,) in roster:
                 team_of[pid] = team_uid

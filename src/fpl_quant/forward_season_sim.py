@@ -67,6 +67,15 @@ class GameweekResult:
     squad_uids: list[str] = field(default_factory=list)
     xi_uids: list[str] = field(default_factory=list)
     captain_uid: str | None = None
+    # The true starting XI (the 11-man formation), always -- unlike xi_uids, which on a
+    # bench_boost week is all 15 (everyone scores). Display uses this so the pitch stays a
+    # legal formation; scoring uses xi_uids. Equal to xi_uids on every non-bench-boost week.
+    formation_xi_uids: list[str] = field(default_factory=list)
+    # The transfer(s) this gameweek's decision applied, as structured {out_uid, in_uid, net}
+    # rows (action_detail carries the same as a human string). Empty on a hold/chip week.
+    # The forward-plan builder (forward_plan.py) turns these into name-resolved per-week moves
+    # so the app can show the model's whole transfer path, not just this week's.
+    transfers: list[dict] = field(default_factory=list)
     # Real FPL points this XI actually scored, only when score_realized=True AND the gameweek
     # has been played+ingested. None for a future gameweek -- projected_points still carries the
     # forward estimate either way.
@@ -84,6 +93,7 @@ class GameweekResult:
             "wildcard_recommended": self.wildcard_recommended,
             "squad_uids": self.squad_uids,
             "xi_uids": self.xi_uids,
+            "formation_xi_uids": self.formation_xi_uids,
             "captain_uid": self.captain_uid,
             "realized_points": None if self.realized_points is None else round(self.realized_points, 1),
             "current_squad_horizon_value": (
@@ -92,6 +102,7 @@ class GameweekResult:
             "chips_used": self.chips_used,
             "free_hit_gain": None if self.free_hit_gain is None else round(self.free_hit_gain, 2),
             "free_hit_recommended": self.free_hit_recommended,
+            "transfers": self.transfers,
         }
 
 
@@ -421,6 +432,7 @@ def run_forward_season_sim(
 
         action = accept_chip or ("transfer" if accept_rank is not None else "hold")
         detail = ""
+        transfers: list[dict] = []
         if accept_chip == "wildcard":
             detail = "forced" if forced else "model chose wildcard"
         elif accept_rank is not None:
@@ -430,6 +442,7 @@ def run_forward_season_sim(
             ).fetchone()
             if tr:
                 detail = f"{tr[0]} -> {tr[1]} (net {tr[2]:+.2f})"
+                transfers = [{"out_uid": tr[0], "in_uid": tr[1], "net": round(float(tr[2]), 2)}]
 
         scored_squad = free_hit_squad if (accept_chip == "free_hit" and free_hit_squad is not None) else holdings
         rows.append(GameweekResult(
@@ -440,7 +453,10 @@ def run_forward_season_sim(
             chips_used=sorted(chips_set1 | chips_set2 | ({accept_chip} if accept_chip else set())),
             free_hit_gain=fh_gain, free_hit_recommended=fh_reco,
             squad_uids=sorted(h["player_uid"] for h in scored_squad),
-            xi_uids=sorted(xi), captain_uid=cap, realized_points=realized,
+            xi_uids=sorted(xi),
+            formation_xi_uids=sorted(h["player_uid"] for h in scored_squad if h["in_xi"]),
+            captain_uid=cap, realized_points=realized,
+            transfers=transfers,
         ))
 
     total = sum(r.projected_points for r in rows)
