@@ -1,0 +1,151 @@
+name: Live app data (fast tier)
+
+# Tier A of the freshness split (scheduled_pipeline.yml is Tier B, live_tracking.yml is
+# Tier C). This job is the "feels live" feed: prices, injury/availability flags, ownership,
+# fixtures, and each tracked manager's own team/profile/mini-league state -- all a direct
+# pass-through of FPL's own public API (scripts/export_app_data.py -> src/fpl_quant/
+# app_export.py), no DuckDB, no model, no evidence workbooks. It is ~1-2 minutes of real
+# work, so it can run many times more often than scheduled_pipeline.yml's ~90-minute
+# ingestion+MIQP job.
+#
+# Why this exists: until now export_app_data.py ran only as one 3-second step near the end of
+# the twice-daily scheduled_pipeline.yml monolith, so the live data was never fresher than the
+# slowest model step ahead of it -- prices and team news sat up to ~12h stale. Splitting it
+# into its own workflow file (not just its own job) gives it an independent schedule and its
+# own concurrency group, so a slow or failed Tier B run can never hold up or be held up by
+# this refresh.
+#
+# GitHub's `schedule:` trigger is best-effort and gets delayed/dropped under load (heaviest at
+# :00 and :30) -- hence the off-peak :17 minute and the extra entries around the ~01:30 UTC
+# price-change lock-in. `workflow_dispatch` stays available for an immediate manual refresh,
+# and an external scheduler (or a future Cloudflare Worker) can hit that endpoint if the
+# scheduled cadence ever proves too unreliable for a paid product.
+on:
+  schedule:
+    - cron: "17 */2 * * *"   # every 2 hours, off-peak minute
+    - cron: "40 1 * * *"     # catch the ~01:30 UTC price-change lock-in
+    - cron: "40 2 * * *"     # and the BST (02:30) price-change window
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+# Its OWN group, distinct from scheduled-fpl-pipeline: a running Tier B job must not queue or
+# cancel this refresh (and vice versa). The two write disjoint files under data/dashboard/
+# (Tier A: app_players/app_fixtures/app_price_watch/app_team_*/app_profile_*/app_leagues_*;
+# Tier B: real_squad_*/decision_*/squad_grade_*/projections_*/report_history/...), and
+# ci_commit_generated.sh already resolves any git-level push race with `git merge -X ours` +
+# a 6-attempt retry, so concurrent commits from the two workflows are safe.
+concurrency:
+  group: live-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # Just `requests` -- app_export.py's only third-party dependency. Deliberately NOT
+      # requirements.lock (the SCIP/DuckDB-pinned pipeline install), which this tier never
+      # touches -- same rationale as live_tracking.yml.
+      - name: Install dependencies
+        run: pip install requests
+
+      # Same real bootstrap-static resolver every other per-gameweek step in this project
+      # uses (app_export.current_event) -- never a hardcoded event that someone has to
+      # remember to bump at a gameweek boundary. Mirrors scheduled_pipeline.yml's own
+      # "Determine current gameweek" step verbatim.
+      - name: Determine current gameweek
+        id: gw
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          import sys
+
+          sys.path.insert(0, "src")
+          from fpl_quant import app_export as ax
+
+          bootstrap = ax.fetch_bootstrap_static()
+          event = ax.current_event(bootstrap)
+          if event is None:
+              print("::error::bootstrap-static reports no current gameweek right now")
+              raise SystemExit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"event={event}\n")
+          PYEOF
+
+      # The whole point of this workflow. Both tracked accounts share one bootstrap-static /
+      # fixtures fetch; each gets its own team/profile/leagues snapshot. ~1-2 min total.
+      - name: Export live app data (Team/Profile/Leagues/Fixtures/Players)
+        env:
+          EVENT: ${{ steps.gw.outputs.event }}
+        run: |
+          PYTHONPATH=src python scripts/export_app_data.py \
+            "7139944:$EVENT:ChatGPT template team" \
+            "1305242:$EVENT:Main account"
+
+      # Held-player alerts (captain/vice newly doubtful, a price move on a squad player, an
+      # unconfirmed pending rec inside the deadline lead time) are computed off the tracked
+      # accounts' data/dashboard/*.json -- which the step above just refreshed, so on this
+      # tier they fire promptly instead of only twice a day. The model-squad channel
+      # (has_alert / alert_body, from run_report.py's latest_diff.json) reads whatever the
+      # last Tier B run committed; that's the correct freshness for a model-squad signal.
+      - name: Check for deadline alerts
+        id: alerts
+        run: PYTHONPATH=src python scripts/check_deadline_alerts.py
+
+      - name: Open alert issue for newly-doubtful starters
+        if: steps.alerts.outputs.has_alert == 'true'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Deadline alert: newly doubtful starter(s) -- ${new Date().toISOString().slice(0, 10)}`,
+              body: `${{ steps.alerts.outputs.alert_body }}`,
+              labels: ["deadline-alert"],
+            });
+
+      # Same real Web Push channel scheduled_pipeline.yml has -- no-ops cleanly (exit 0) when
+      # the VAPID / gist secrets are unset (see docs/PUSH_SETUP.md), so this is inert until
+      # push is configured and never fails the run. continue-on-error as a second belt.
+      - name: Send Web Push for held-player alerts
+        if: steps.alerts.outputs.push_payload != ''
+        continue-on-error: true
+        env:
+          PUSH_PAYLOAD_JSON: ${{ steps.alerts.outputs.push_payload }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          PUSH_SUBSCRIPTIONS_GIST: ${{ secrets.PUSH_SUBSCRIPTIONS_GIST }}
+          GIST_PAT: ${{ secrets.GIST_PAT }}
+        run: |
+          pip install --quiet pywebpush
+          PYTHONPATH=src python scripts/push_notify.py
+
+      # Commits ONLY this tier's own files. ci_commit_generated.sh: stages each path, exits
+      # clean on no-change, and on a push race merges origin/master with `-X ours` (our
+      # deterministic re-compute wins) across 6 retries -- never force-pushes. The `[skip ci]`
+      # in the message keeps deploy_pages.yml's push trigger from redeploying the static
+      # shell on every refresh (the shell hasn't changed).
+      - name: Commit live app-data snapshots
+        run: |
+          bash scripts/ci_commit_generated.sh "chore: refresh live app data [skip ci]" \
+            data/dashboard/app_players.json \
+            data/dashboard/app_fixtures.json \
+            data/dashboard/app_price_watch.json \
+            data/dashboard/app_team_7139944.json \
+            data/dashboard/app_profile_7139944.json \
+            data/dashboard/app_leagues_7139944.json \
+            data/dashboard/app_team_1305242.json \
+            data/dashboard/app_profile_1305242.json \
+            data/dashboard/app_leagues_1305242.json

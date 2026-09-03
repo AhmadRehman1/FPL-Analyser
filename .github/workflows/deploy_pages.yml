@@ -17,6 +17,13 @@ name: Deploy PWA to GitHub Pages
 on:
   push:
     branches: [master]
+    # Only the static shell is deployed here (see below), so a commit that touches ONLY
+    # generated data never needs a redeploy. The scheduled pipelines already tag those
+    # commits `[skip ci]` (which suppresses this push trigger), but the tracked pipelines
+    # also touch data/ every ~1-2h now (live_data.yml) -- make the intent explicit and
+    # robust to a future data commit that forgets the tag.
+    paths-ignore:
+      - 'data/**'
   workflow_dispatch: {}
 
 permissions:
