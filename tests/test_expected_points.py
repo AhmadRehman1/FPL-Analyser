@@ -442,3 +442,79 @@ def test_position_average_rates_uses_only_the_latest_cumulative_row_per_season(c
     avg = ep._position_average_rates(con, "Forward", ["2025-2026"])
     # only the GW38 row: 15.0 / 3200 * 90
     assert avg["expected_goals_per_90"] == pytest.approx(15.0 / 3200 * 90, rel=1e-6)
+
+
+# ============================================================
+# 2024-2025's playerstats snapshot has NO season-total `minutes` / `expected_goals` columns
+# (reconcile.build_fact_player_season_stats), only `expected_goals_per_90`. The old code
+# required `minutes`, so all of 2024-25 was silently dropped from the attacking-rate pool and
+# anchor -- while _defensive_action_rates_per_90() (reads fact_player_match_stats) kept seeing
+# it. Both now recover 2024-25 via the per-90 rate x match-grain minutes.
+# ============================================================
+
+def _seed_snapshot_season(con, uid, season, xg90, xa90, *, n_matches, minutes_per_match=90):
+    """A 2024-25-style row: NULL minutes / NULL expected_goals, populated per-90 rates, and
+    real per-match minutes in fact_player_match_stats."""
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+        "expected_goals_per_90, expected_assists_per_90, saves_per_90, minutes, _ingested_at) "
+        "VALUES (?, ?, 38, NULL, NULL, ?, ?, NULL, NULL, current_timestamp)",
+        [uid, season, xg90, xa90],
+    )
+    for tuid in ("team_a", "team_b"):
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?) ON CONFLICT DO NOTHING", [tuid, tuid])
+    for i in range(n_matches):
+        match_id = f"{uid}_{season}_m{i}"
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, ?, ?, 'team_a', 'team_b', TRUE, "
+            "'Premier League', '2025-01-01', current_timestamp) ON CONFLICT DO NOTHING",
+            [match_id, season, i + 1],
+        )
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+            "minutes_played, goals, assists, _ingested_at) VALUES (?, ?, ?, 0, ?, ?, 0, 0, current_timestamp)",
+            [uid, match_id, season, minutes_per_match, minutes_per_match],
+        )
+
+
+def test_player_rate_pool_recovers_a_snapshot_only_season(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p', 'p', 'Forward')")
+    # 2024-25: snapshot schema, 0.80 xG/90 over 30x90 = 2700 min. 2025-26: richer schema, an
+    # injury-truncated 0.30 xG/90 over 600 min.
+    _seed_snapshot_season(con, "p", "2024-2025", xg90=0.80, xa90=0.10, n_matches=30)
+    _fps(con, "p", "2025-2026", 38, xg=2.0, xa=0.0, saves_p90=0, minutes=600)  # 0.30 xG/90
+    pool = ep._player_rate_pool(con, "p", ["2025-2026", "2024-2025"])
+    # sample_minutes = 600 + 2700; goals = 2.0 + 0.80/90*2700 = 2.0 + 24.0 = 26.0
+    assert pool["sample_minutes"] == pytest.approx(3300)
+    assert pool["expected_goals_per_90"] == pytest.approx(26.0 / 3300 * 90, rel=1e-6)
+    # old behaviour (2025-26 only) would have been 0.30 with just 600 sample minutes -- far
+    # lower rate AND far more shrinkage toward the position average.
+
+
+def test_player_rate_pool_drops_a_snapshot_season_with_no_match_minutes(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p', 'p', 'Forward')")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+        "expected_goals_per_90, expected_assists_per_90, saves_per_90, minutes, _ingested_at) "
+        "VALUES ('p', '2024-2025', 38, NULL, NULL, 0.9, 0.1, NULL, NULL, current_timestamp)",
+    )  # per-90 rate but zero match-grain minutes -> no real sample -> excluded, not fabricated
+    _fps(con, "p", "2025-2026", 38, xg=10.0, xa=0.0, saves_p90=0, minutes=2000)
+    pool = ep._player_rate_pool(con, "p", ["2025-2026", "2024-2025"])
+    assert pool["sample_minutes"] == pytest.approx(2000)
+    assert pool["expected_goals_per_90"] == pytest.approx(10.0 / 2000 * 90, rel=1e-6)
+
+
+def test_position_average_rates_includes_snapshot_only_players(con):
+    for uid in ("rich", "snap"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward')", [uid, uid])
+    # richer-schema player: 0.40 xG/90 over 3000 min in 2025-26
+    _fps(con, "rich", "2025-2026", 38, xg=13.333, xa=0.0, saves_p90=0, minutes=3000)
+    # snapshot-only player: 0.70 xG/90 over 25x90 = 2250 min in 2024-25, nothing in 2025-26
+    _seed_snapshot_season(con, "snap", "2024-2025", xg90=0.70, xa90=0.0, n_matches=25)
+    avg = ep._position_average_rates(con, "Forward", ["2025-2026", "2024-2025"])
+    # minutes-weighted across BOTH: (13.333 + 0.70/90*2250) / (3000 + 2250) * 90
+    expected = (13.333 + 0.70 / 90 * 2250) / (3000 + 2250) * 90
+    assert avg["expected_goals_per_90"] == pytest.approx(expected, rel=1e-4)
+    # dropping the snapshot player (old behaviour) would give 0.40 exactly
+    assert avg["expected_goals_per_90"] > 0.45
