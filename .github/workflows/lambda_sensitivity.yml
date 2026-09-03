@@ -1,0 +1,207 @@
+name: Risk-aversion (lambda) sensitivity study
+
+# The "lambda in {0.05..0.30} risk-aversion sensitivity study" the README / project backlog
+# has carried as "still unrun" -- it gates data/recalibration/seeds_1.json promotion, the
+# "attack" risk-posture default (src/fpl_quant/risk_posture.py), and the deferred "protect
+# rank" third toggle. backtest.report_season_simulation_sensitivity() is the mechanism; the
+# one existing caller (scripts/run_season_simulation.py) only runs a 5-gameweek 2026-2027
+# window on PROJECTED EP -- too short and not realized-scored to settle it.
+#
+# This runs a full historical season (2025-2026 by default), evolving-manager simulation,
+# scored on REALIZED FPL event_points, one arm per (axis, trial value). One arm is a real MIQP
+# solve + Monte Carlo + transfer-planner call per gameweek across the season (~2-3h/arm on this
+# runner), so it fans out as a matrix -- same shape as chip_timing_analysis.yml.
+#
+# Commits data/lambda_study/ (SUMMARY.md + lambda_study_latest.json). Activates NOTHING: every
+# trial value is an immutable params_mod.write_param() version, promotion stays
+# scripts/review_recalibration.py's human gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: 'Comma-separated historical seasons to sweep (default "2025-2026"; "2024-2025,2025-2026" for two-season evidence -- doubles the arm count).'
+        required: false
+        default: "2025-2026"
+        type: string
+      lambda_grid:
+        description: 'Comma-separated lambda_value trial points (default "0.05,0.10,0.15,0.20,0.25,0.30").'
+        required: false
+        default: "0.05,0.10,0.15,0.20,0.25,0.30"
+        type: string
+      cap_grid:
+        description: 'Comma-separated xi_club_concentration_cap trial points, lambda held at the live pin (default "2,3,4,5"; empty to skip the cap sweep).'
+        required: false
+        default: "2,3,4,5"
+        type: string
+      start_gameweek:
+        description: "First gameweek each arm walks (default 2 -- GW1 is not bootstrappable)."
+        required: false
+        default: "2"
+        type: string
+      end_gameweek:
+        description: "Last gameweek each arm walks (default 38 -- the full season; trim to ~24 for a faster first pass)."
+        required: false
+        default: "38"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lambda-sensitivity
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      arms: ${{ steps.gen.outputs.arms }}
+      db_cache_key: lambda-study-db-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      # A full M0-M6 ingestion, same reasoning as chip_timing_analysis.yml's prepare job: the
+      # narrower scheduled_pipeline.yml `duckdb-` cache lacks the multi-season Elo / team-alias
+      # data team_strength.calibrate() needs for a historical-season fit.
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size; size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6)
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Save one shared DB cache for every arm
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: lambda-study-db-${{ github.run_id }}
+
+      - name: Generate the arm matrix
+        id: gen
+        env:
+          SEASONS: ${{ github.event.inputs.seasons || '2025-2026' }}
+          LAMBDA_GRID: ${{ github.event.inputs.lambda_grid || '0.05,0.10,0.15,0.20,0.25,0.30' }}
+          CAP_GRID: ${{ github.event.inputs.cap_grid || '2,3,4,5' }}
+        run: |
+          python - <<'EOF'
+          import json, os
+          seasons = [s.strip() for s in os.environ["SEASONS"].split(",") if s.strip()]
+          lambdas = [v.strip() for v in os.environ["LAMBDA_GRID"].split(",") if v.strip()]
+          caps = [v.strip() for v in os.environ["CAP_GRID"].split(",") if v.strip()]
+          arms = []
+          for season in seasons:
+              for v in lambdas:
+                  arms.append({"axis": "lambda", "value": v, "season": season, "tag": f"lambda_{v.replace('.', 'p')}_{season}"})
+              for v in caps:
+                  arms.append({"axis": "cap", "value": v, "season": season, "tag": f"cap_{v}_{season}"})
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("arms=" + json.dumps({"include": arms}) + "\n")
+          print(f"{len(arms)} arms: {len(seasons)} season(s) x ({len(lambdas)} lambda + {len(caps)} cap)")
+          EOF
+
+  sweep:
+    needs: prepare
+    runs-on: ubuntu-latest
+    # A full-season (GW2-38) evolving-manager walk is ~2-3h of MIQP + MC + planner on this
+    # runner. 330 leaves margin under the 360 cap. An arm that times out or fails its
+    # divergence check (lambda too small to diverge from lambda=0 on the real pool) just drops
+    # from the sweep -- aggregate still reports from what landed.
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.prepare.outputs.arms) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: ${{ needs.prepare.outputs.db_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Run arm ${{ matrix.tag }}
+        env:
+          LSA_AXIS: ${{ matrix.axis }}
+          LSA_VALUE: ${{ matrix.value }}
+          LSA_SEASON: ${{ matrix.season }}
+          LSA_START_GW: ${{ github.event.inputs.start_gameweek || '2' }}
+          LSA_END_GW: ${{ github.event.inputs.end_gameweek || '38' }}
+          LSA_OUT: data/lambda_study/arms/${{ matrix.tag }}.json
+        run: PYTHONPATH=src python scripts/run_lambda_sensitivity_arm.py
+
+      - name: Upload this arm's artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lambda-arm-${{ matrix.tag }}
+          path: data/lambda_study/arms/${{ matrix.tag }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    needs: [prepare, sweep]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Download every arm
+        uses: actions/download-artifact@v8
+        with:
+          pattern: lambda-arm-*
+          path: _arms
+          merge-multiple: true
+
+      - name: Collect arm artifacts
+        run: |
+          mkdir -p data/lambda_study/arms
+          find _arms -name '*.json' -exec cp {} data/lambda_study/arms/ \;
+          echo "collected $(ls data/lambda_study/arms | wc -l) arm files"
+
+      - name: Aggregate into the study report
+        run: PYTHONPATH=src python scripts/aggregate_lambda_sensitivity.py
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f data/lambda_study/SUMMARY.md ]; then
+            cat data/lambda_study/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No SUMMARY.md produced -- see the aggregate step log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit the study
+        run: |
+          bash scripts/ci_commit_generated.sh \
+            "chore: risk-aversion (lambda) / concentration-cap sensitivity study [skip ci]" \
+            data/lambda_study/SUMMARY.md data/lambda_study/lambda_study_latest.json \
+            data/lambda_study/arms
