@@ -1717,11 +1717,10 @@ def _seed_season_simulation_league(con, seasons=("2024-2025", "2025-2026"), n_ga
         con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [uid, name])
         uids[name] = uid
 
-    # uncertainty.run()'s cross-player-covariance roster lookup is hardcoded to
-    # season_priority[0] (default "2026-2027") regardless of which season is actually being
-    # processed -- a pre-existing quirk, out of scope to fix here, worked around the same way
-    # the real ingested DB happens to satisfy it naturally (2026-2027 also carries
-    # player_alias/team_alias rows for the same real players as prior seasons).
+    # uncertainty.run() now reads the roster season from its ep_model_version's target_season
+    # (not the old season_priority[0]="2026-2027" hardcode), so per-season player_alias/
+    # team_alias rows are seeded for every simulated season. The extra "2026-2027" rows are
+    # kept -- harmless, and they let a 2026-27 target run against this same fixture.
     for season in (*seasons, "2026-2027"):
         table = f"raw_{season.replace('-', '_')}_teams"
         con.execute(f'CREATE TABLE "{table}" (code VARCHAR, name VARCHAR, elo VARCHAR)')
