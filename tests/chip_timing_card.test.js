@@ -38,10 +38,14 @@ test("real feed: card leads with the swept best Wildcard week and a hold recomme
   const h = harness();
   h.state.chipTiming = REAL;
   h.state.accountId = REAL.teams[0].entry_id;
-  h.state.realSquad = { plan_for_gameweek: 4 };
-  h.state.team = { gameweek: 3 };
-  const card = h.api.chipTimingCard();
   const best = REAL.teams[0].report.comparison.swept_best_gameweek;
+  // Upcoming gameweek strictly BEFORE the swept best week, so the "hold" branch fires whatever
+  // value the committed sweep currently carries -- swept_best_gameweek moves every re-run
+  // (hardcoding "4" here broke this test on an unrelated chip_timing_latest.json refresh where
+  // a partial sweep landed with best == 4).
+  h.state.realSquad = { plan_for_gameweek: best - 1 };
+  h.state.team = { gameweek: best - 2 };
+  const card = h.api.chipTimingCard();
   assert.ok(card.includes(`Wildcard &middot; GW${best}`), "headline shows the swept best GW");
   assert.ok(card.includes("Hold your Wildcard"), "best week is in the future -> hold");
   assert.ok(card.includes("pts vs holding"));
