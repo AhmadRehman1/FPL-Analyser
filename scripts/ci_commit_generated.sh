@@ -13,13 +13,27 @@
 # "Our output wins" is safe here: every file passed is a deterministic re-compute from
 # committed inputs, so the version that loses a race is regenerated identically next run.
 #
-# Usage: ci_commit_generated.sh "<commit message>" <path> [<path> ...]
+# Usage: ci_commit_generated.sh [--branch <name>] "<commit message>" <path> [<path> ...]
+#   --branch <name>  the ref to reconcile against on a push race (default: master). Pass the
+#                    workflow's own GITHUB_REF_NAME for a workflow that can be dispatched on a
+#                    non-master branch and still commits (chip_timing_analysis, ml_experiment).
 
+branch="master"
+if [ "$1" = "--branch" ]; then
+  branch="$2"; shift 2
+fi
 msg="$1"; shift
 
 git config user.name "github-actions[bot]"
 git config user.email "github-actions[bot]@users.noreply.github.com"
-git add -- "$@" 2>/dev/null || true
+# Stage each path on its own. `git add -- a b c` is ATOMIC: if ANY pathspec matches nothing
+# (e.g. ml_shadow.json when compute_ml_shadow.py was a continue-on-error no-op) git aborts
+# with `fatal: pathspec ... did not match` and stages NOTHING -- silently dropping the real
+# app_track_record.json update alongside it (nightly_backtest run 33707146821: walk-forward
+# succeeded, export wrote backtest_run_id=1, and this step still said "no staged change").
+for _path in "$@"; do
+  git add -- "$_path" 2>/dev/null || echo "ci_commit_generated: nothing to stage at '${_path}' (skipped)"
+done
 if git diff --cached --quiet; then
   echo "ci_commit_generated: no staged change in $*"
   exit 0
@@ -30,11 +44,11 @@ for attempt in 1 2 3 4 5 6; do
   if git push; then
     exit 0
   fi
-  echo "ci_commit_generated: push rejected (attempt ${attempt}/6) -- merging origin/master, our output wins"
-  git fetch origin master
-  if ! git merge -X ours origin/master -m "Merge origin/master into scheduled-job commit (generated output wins)"; then
+  echo "ci_commit_generated: push rejected (attempt ${attempt}/6) -- merging origin/${branch}, our output wins"
+  git fetch origin "${branch}"
+  if ! git merge -X ours "origin/${branch}" -m "Merge origin/${branch} into scheduled-job commit (generated output wins)"; then
     git merge --abort 2>/dev/null || true
-    echo "::error::ci_commit_generated: could not merge origin/master automatically"
+    echo "::error::ci_commit_generated: could not merge origin/${branch} automatically"
     exit 1
   fi
   sleep $((attempt * 3))

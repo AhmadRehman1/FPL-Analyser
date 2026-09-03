@@ -47,23 +47,11 @@ jobs:
 
       - name: Commit live snapshots (only if anything was actually live)
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           # nullglob: before this workflow's very first real live window, no app_live_*.json
-          # has ever been committed, so the glob matches nothing -- without this, bash passes
-          # the literal unmatched pattern to `git add`, which errors ("did not match any
-          # files") and, under Actions' default `bash -e`, kills the whole step.
+          # has ever been committed, so the glob matches nothing -- ci_commit_generated.sh's own
+          # `git add -- <path>` then sees no matching file and stages nothing, which it handles
+          # as "no staged change -> exit 0".
           shopt -s nullglob
-          git add data/dashboard/app_live_*.json
-          git diff --cached --quiet && exit 0
-          git commit -m "chore: update live tracking snapshot [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              exit 0
-            fi
-            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
-            git fetch origin master
-            git rebase origin/master
-          done
-          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
-          exit 1
+          bash scripts/ci_commit_generated.sh \
+            "chore: update live tracking snapshot [skip ci]" \
+            data/dashboard/app_live_*.json

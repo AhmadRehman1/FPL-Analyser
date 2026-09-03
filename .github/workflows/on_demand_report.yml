@@ -271,21 +271,9 @@ jobs:
         env:
           ENTRY_ID: ${{ steps.parse.outputs.entry_id }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/dashboard/
-          git diff --cached --quiet && exit 0
-          git commit -m "chore: add manager $ENTRY_ID [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              exit 0
-            fi
-            echo "push rejected (attempt $attempt/5) -- fetching and rebasing onto the new master"
-            git fetch origin master
-            git rebase origin/master
-          done
-          echo "::error::git push kept failing after 5 rebase-and-retry attempts"
-          exit 1
+          bash scripts/ci_commit_generated.sh \
+            "chore: add manager $ENTRY_ID [skip ci]" \
+            data/dashboard/
 
       # entry_id/label are passed via env (not spliced into the script text) even though they're
       # already sanitized -- belt-and-suspenders for anything that ever reaches actions/github-script.
