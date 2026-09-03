@@ -418,38 +418,17 @@ jobs:
 
       # Priority 8c's snapshots (+ the real-squad dashboard snapshots above) are the point of
       # persisting anything here -- everything else (the DuckDB file itself) is gitignored and
-      # rebuilt fresh next run. A real, observed failure mode (not hypothesized): two
-      # workflow_dispatch runs finishing close together both tried to push this commit -- the
-      # second's bare `git push` got rejected outright ("fetch first"), even though its own
-      # content was perfectly valid and just needed to land on top of the first's. Retry with a
-      # rebase (never force-push -- this is master) a few times rather than crashing the whole
-      # run over a benign race between two legitimate pushes.
+      # rebuilt fresh next run. ci_commit_generated.sh is the shared committer: it stages each
+      # path on its own (data/model_team/ only exists once run_model_team.py has succeeded, and
+      # a missing pathspec must not sink the report + decision-log commit alongside it), exits
+      # clean on no-change, and on a push race merges origin/master with `-X ours` -- resolving
+      # any content conflict in our favour AND keeping our side of a modify/delete (a stale
+      # report_history/ file this run deleted that a concurrent [skip ci] commit re-touched --
+      # the exact failure of run 33444584526). Never force-pushes; this is master.
       - name: Commit report_history + dashboard snapshots
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/report_history/ data/dashboard/ data/decision_log/
-          # data/model_team/ only exists once run_model_team.py has succeeded at least once --
-          # `git add` on a missing pathspec is fatal under `bash -e`, which would sink the
-          # whole commit (report + decision logs included) over an optional new feature.
-          [ -d data/model_team ] && git add data/model_team/ || true
-          git diff --cached --quiet && exit 0
-          git commit -m "chore: update report_history snapshot [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              exit 0
-            fi
-            echo "push rejected (attempt $attempt/5) -- merging the new master, our generated output wins"
-            git fetch origin master
-            # `merge -X ours` (not rebase): resolves any content conflict in our favour AND
-            # keeps our side of a modify/delete (a stale report_history/ file this run deleted
-            # that a concurrent [skip ci] commit re-touched -- the exact failure of run
-            # 33444584526). This run's generated data is the freshest; a merge commit in the
-            # snapshot history is a fine price for a push that always lands.
-            git merge -X ours --no-edit origin/master || { git merge --abort; sleep 5; }
-          done
-          echo "::error::git push kept failing after 5 merge-and-retry attempts"
-          exit 1
+          bash scripts/ci_commit_generated.sh "chore: update report_history snapshot [skip ci]" \
+            data/report_history/ data/dashboard/ data/decision_log/ data/model_team/
 
   # Feature 4 what-if scenarios, split out of run-pipeline (see the comment where the step used
   # to be). ~99-155 min of MIQP solving for a secondary panel -- decoupled so it can't hold up
@@ -520,20 +499,10 @@ jobs:
           PYTHONPATH=src python scripts/run_scenarios.py 7139944 "$EVENT"
           PYTHONPATH=src python scripts/run_scenarios.py 1305242 "$EVENT"
 
+      # Same shared committer as the run-pipeline job above (merge -X ours on a push race, no
+      # force-push). scenarios_*.json is this job's only output; every other pipeline file is
+      # committed by run-pipeline, so there is no cross-job overlap on the staged set.
       - name: Commit scenario snapshots
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/dashboard/scenarios_*.json
-          git diff --cached --quiet && exit 0
-          git commit -m "chore: update what-if scenario snapshots [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              exit 0
-            fi
-            echo "push rejected (attempt $attempt/5) -- merging origin/master, our generated output wins"
-            git fetch origin master
-            git merge -X ours --no-edit origin/master || { git merge --abort; sleep 5; }
-          done
-          echo "::error::git push kept failing after 5 merge-and-retry attempts"
-          exit 1
+          bash scripts/ci_commit_generated.sh "chore: update what-if scenario snapshots [skip ci]" \
+            data/dashboard/scenarios_*.json
