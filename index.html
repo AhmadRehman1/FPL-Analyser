@@ -2054,7 +2054,7 @@ async function loadShared() {
     document.getElementById("updated-at").textContent = "Development data — not a real run";
     return;
   }
-  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence, modelTeam, chipTiming] = await Promise.all([
+  const [playersPayload, fixturesPayload, roadmap, trackRecord, priceWatch, projections, leaderboard, eliteDivergence, modelTeam, chipTiming, forwardPlan] = await Promise.all([
     fetchJSON("data/dashboard/app_players.json"),
     fetchJSON("data/dashboard/app_fixtures.json"),
     fetchJSON("data/dashboard/chip_timing_roadmap.json").catch(() => null),
@@ -2075,6 +2075,11 @@ async function loadShared() {
     // over GW4-19, ~36 MIQP walks, run periodically not daily). Lives under data/chip_timing/
     // not data/dashboard/. .catch(() => null): the sweep may not have run recently.
     fetchJSON("data/chip_timing/chip_timing_latest.json").catch(() => null),
+    // Forward plan to GW18 (forward_plan.yml, daily) -- one model_choice planner walk per
+    // tracked squad, reshaped into the model's whole forward thinking (per-week team,
+    // transfers, captain, chips, and the Wildcard squad). Merged file, keyed by entity
+    // ("model_team" / "<entry_id>"). .catch(() => null): absent until the first run lands.
+    fetchJSON("data/forward_plan/forward_plan_latest.json").catch(() => null),
   ]);
   state.players = playersPayload.players;
   state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
@@ -2087,6 +2092,7 @@ async function loadShared() {
   state.eliteDivergence = eliteDivergence;
   state.modelTeam = modelTeam;
   state.chipTiming = chipTiming;
+  state.forwardPlan = forwardPlan;
   document.getElementById("updated-at").textContent = `Last run: ${fmtTime(playersPayload.generated_at)}`;
 }
 
@@ -2198,6 +2204,10 @@ function route() {
   }
   if (hash.startsWith("chip-")) {
     openChipSheet(hash.slice(5));
+    return;
+  }
+  if (hash.startsWith("forward-plan-")) {
+    openForwardPlanSheet(hash.slice(13));
     return;
   }
   if (hash === "compare") {
@@ -3234,6 +3244,114 @@ function openChipTimingSheet() {
   openSheet();
 }
 
+// ============================================================
+// FORWARD PLAN -- the model's whole forward thinking for one squad, from the next unplayed
+// gameweek through GW18: per-week action / transfer / captain / projected points, and the
+// Wildcard squad it's building toward. Data: data/forward_plan/forward_plan_latest.json
+// (forward_plan.yml, daily), one model_choice planner walk per tracked squad, keyed by
+// entity ("model_team" or "<entry_id>"). See src/fpl_quant/forward_plan.py.
+// ============================================================
+
+function forwardPlanForEntity(entityKey) {
+  const fp = state.forwardPlan;
+  return (fp && fp.entities && fp.entities[entityKey]) || null;
+}
+
+// Multi-line on purpose: tests/_extract_html_fn.js::extractHtmlConst over-runs a one-line
+// `const X = {...};` (no `\n};` to anchor on) into the rest of the file.
+const FP_CHIP_LABEL = {
+  wildcard: "Wildcard",
+  free_hit: "Free Hit",
+  bench_boost: "Bench Boost",
+  triple_captain: "Triple Captain",
+};
+
+function forwardPlanChipLine(plan) {
+  const bits = [];
+  (plan.chips_planned || []).forEach(c => bits.push(`${FP_CHIP_LABEL[c.chip] || c.chip} GW${c.gameweek}`));
+  if (!plan.wildcard && plan.wildcard_held_until) bits.push(`holding Wildcard for GW${plan.wildcard_held_until.gameweek}`);
+  return bits.join("  &middot;  ");
+}
+
+/** Compact card for Home (the active real account). Opens the full plan sheet. */
+function forwardPlanCard(entityKey) {
+  const plan = forwardPlanForEntity(entityKey);
+  if (!plan || !plan.weeks || !plan.weeks.length) return "";
+  const chipLine = forwardPlanChipLine(plan);
+  const moves = plan.weeks.filter(w => w.action !== "hold").length;
+  return `
+    <div class="section">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+          <span class="card-title" style="margin:0;">The plan to GW${plan.end_gameweek}</span>
+          <span style="font-size:10px;color:var(--ink-dim2);font-weight:600;">model's forward walk</span>
+        </div>
+        <p style="font-size:12px;color:var(--ink-dim);line-height:1.6;margin:0 0 10px;">
+          From GW${plan.start_gameweek}: <b style="color:var(--ink);">${moves} move${moves === 1 ? "" : "s"}</b> planned across ${plan.weeks.length} gameweeks, ~${plan.total_projected_points.toFixed(0)} projected points.
+          ${chipLine ? `<br>${chipLine}.` : ""}
+        </p>
+        <button class="local-btn" onclick="location.hash='forward-plan-${entityKey}'">See the model's full plan</button>
+      </div>
+    </div>`;
+}
+
+function forwardPlanWeekRow(w) {
+  const isChip = !!w.chip;
+  const hasSquad = w.squad && w.squad.length;
+  const tag = isChip
+    ? `<span style="display:inline-block;background:oklch(0.9 0.1 30);color:oklch(0.38 0.15 30);font-weight:700;font-size:10px;border-radius:5px;padding:1px 6px;">${FP_CHIP_LABEL[w.chip] || w.chip}</span>`
+    : w.action === "transfer" ? `<span style="color:var(--on-dark-dim);font-size:10px;font-weight:600;">TRANSFER</span>` : "";
+  return `
+    <div class="fp-week" style="border-bottom:1px solid oklch(1 0 0 / 0.08);padding:9px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+        <span style="font-weight:700;font-size:12px;color:var(--on-dark);">GW${w.gameweek}</span>
+        <span style="flex:1;font-size:11.5px;color:var(--on-dark-dim);text-align:left;">${escapeHtml(w.summary)}</span>
+        ${tag}
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:3px;">
+        <span style="font-size:10.5px;color:var(--on-dark-dim);">${w.captain ? `C: ${escapeHtml(w.captain)}` : ""}</span>
+        <span style="font-size:10.5px;color:var(--on-dark-dim);">${w.projected_points != null ? `${w.projected_points.toFixed(1)} pts` : ""}${w.band ? ` <span style="opacity:0.6;">[${w.band[0].toFixed(0)}&ndash;${w.band[1].toFixed(0)}]</span>` : ""}</span>
+      </div>
+      ${hasSquad ? `
+        <button class="local-btn" style="margin:6px 0 2px;font-size:10.5px;padding:4px 8px;" onclick="this.nextElementSibling.hidden = !this.nextElementSibling.hidden">Show / hide this week's team</button>
+        <div hidden style="margin-top:6px;">${chipPreviewSquadBlock(w.chip || "plan", w.squad)}</div>` : ""}
+    </div>`;
+}
+
+function openForwardPlanSheet(entityKey) {
+  const plan = forwardPlanForEntity(entityKey);
+  const content = document.getElementById("sheet-content");
+  if (!plan || !plan.weeks || !plan.weeks.length) {
+    content.innerHTML = `<p class="empty-state">The model hasn't produced a forward plan for this squad yet &mdash; the daily run seeds it.</p>`;
+    openSheet();
+    return;
+  }
+  const wc = plan.wildcard;
+  content.innerHTML = `
+    <div class="player-hero" style="padding-bottom:10px;">
+      <div class="name" style="font-size:19px;">${escapeHtml(plan.label || "The model's plan")}</div>
+      <div class="sub" style="max-width:300px;text-align:center;">Every decision the model would make from GW${plan.start_gameweek} to GW${plan.end_gameweek}, one real planner solve per gameweek. Projected points, not a live instruction.</div>
+    </div>
+    <div class="stat-grid4" style="grid-template-columns:repeat(2,1fr);">
+      <div class="g-tile"><div class="g-label">Projected pts</div><div class="g-value">${plan.total_projected_points.toFixed(0)}</div></div>
+      <div class="g-tile"><div class="g-label">Planned moves</div><div class="g-value">${plan.weeks.filter(w => w.action !== "hold").length}</div></div>
+    </div>
+    ${forwardPlanChipLine(plan) ? `<p style="font-size:11.5px;color:var(--on-dark-dim);text-align:center;margin:8px 0 4px;">${forwardPlanChipLine(plan)}</p>` : ""}
+    ${wc ? `
+      <div class="section-title" style="color:var(--on-dark);margin-top:8px;"><span>Wildcard squad &middot; GW${wc.gameweek}</span></div>
+      ${wc.projected_gain != null ? `<p style="font-size:11px;color:var(--on-dark-dim);margin:-2px 0 6px;">Projected gain over not playing it: ${wc.projected_gain >= 0 ? "+" : ""}${wc.projected_gain.toFixed(1)} pts. Captain: ${escapeHtml(wc.captain || "&mdash;")}.</p>` : ""}
+      ${chipPreviewSquadBlock("wildcard", wc.squad)}
+    ` : plan.wildcard_held_until ? `
+      <p style="font-size:11.5px;color:var(--on-dark-dim);margin:8px 0;">The model holds its Wildcard through this window &mdash; its own best week to rebuild is <b style="color:var(--on-dark);">GW${plan.wildcard_held_until.gameweek}</b> (projected +${plan.wildcard_held_until.projected_gain.toFixed(1)} pts), just outside GW${plan.end_gameweek}.</p>
+    ` : ""}
+    <div class="section-title" style="color:var(--on-dark);margin-top:10px;"><span>Week by week</span></div>
+    <div style="margin-bottom:12px;">${plan.weeks.map(forwardPlanWeekRow).join("")}</div>
+    <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;">
+      Early-season caveat: with few gameweeks played, every future gameweek's model is fit on the same data, so far-out weeks differ mainly by fixtures and expected minutes, not form. The plan sharpens each week. Nothing here is submitted to FPL.
+    </p>`;
+  openSheet();
+}
+
 // Live Match Center: fixture scores + who-scored feed from the same app_live payload
 // pollLiveData already fetches. Goal/assist events are GW-accumulated (FPL's live payload
 // doesn't publish per-minute event times), so the feed is "scorers this gameweek" and the
@@ -3361,6 +3479,7 @@ function renderHome() {
 
     ${explainMoveCard()}
     ${chipTimingCard()}
+    ${forwardPlanCard(String(state.accountId))}
 
     <div class="stat-row">
       <div class="stat-tile"><div class="k">GW Points</div><div class="v g">${state.team.gameweek_points ?? "&mdash;"}</div></div>
@@ -3537,6 +3656,13 @@ function previewPitchRow(players) {
     </div>`).join("")}</div>`;
 }
 
+const CHIP_PREVIEW_TITLES = {
+  wildcard: "What Wildcard would look like",
+  free_hit: "What Free Hit would look like",
+  "model-team": "The model's current squad",
+  plan: "The squad that week",
+};
+
 function chipPreviewSquadBlock(chipType, previewSquad) {
   if (!previewSquad || !previewSquad.length) return "";
   const resolved = resolvePreviewSquad(previewSquad);
@@ -3547,7 +3673,7 @@ function chipPreviewSquadBlock(chipType, previewSquad) {
   // caveat) have no known position, so they can't join a GKP/DEF/MID/FWD pitch row honestly;
   // shown as a plain fallback list instead of being silently dropped from the preview.
   const unmatched = xi.filter(p => p.position == null);
-  const title = chipType === "wildcard" ? "What Wildcard would look like" : "What Free Hit would look like";
+  const title = CHIP_PREVIEW_TITLES[chipType] || "The squad";
   return `
     <div class="section-title" style="color:var(--on-dark);margin-top:4px;"><span>${title}</span></div>
     <div class="pitch-wrap" style="margin-bottom:12px;">
@@ -3580,7 +3706,11 @@ function chipPreviewSquadBlock(chipType, previewSquad) {
       </div>
     </div>` : ""}
     <p style="font-size:10.5px;color:var(--on-dark-dim);line-height:1.6;margin:-2px 0 14px;">
-      A real candidate squad the model already solved while evaluating this chip &mdash; not a live pick, and never submitted to FPL.
+      ${chipType === "model-team"
+        ? "The model's actual current 15, committed to the repo before the last deadline. It plays this itself &mdash; no human in the loop."
+        : chipType === "plan"
+        ? "A projected squad from one planner solve for that gameweek &mdash; not a live pick, and never submitted to FPL."
+        : "A real candidate squad the model already solved while evaluating this chip &mdash; not a live pick, and never submitted to FPL."}
     </p>`;
 }
 
@@ -5758,6 +5888,11 @@ function modelTeamBlock() {
   if (!mt || !mt.ready) return "";
   const sign = n => (n == null ? "—" : (n >= 0 ? "+" : "") + n);
   const vsField = mt.total_vs_field;
+  const squadRows = (mt.current_squad || []).map(p => ({
+    player_name: p.name, club: null, in_xi: p.in_xi, is_captain: p.is_captain, is_vice: false,
+  }));
+  const plan = forwardPlanForEntity("model_team");
+  const planMoves = plan && plan.weeks ? plan.weeks.filter(w => w.action !== "hold").length : 0;
   return `
     <div class="section-title" style="color:var(--on-dark);"><span>The model's own team</span></div>
     <div class="stat-list" style="margin-bottom:8px;">
@@ -5765,7 +5900,16 @@ function modelTeamBlock() {
       <div class="sl-row"><div class="sl-label">vs the average manager</div><div class="sl-value" style="color:${vsField > 0 ? "var(--pos,#1a7f37)" : vsField < 0 ? "var(--neg,#cf222e)" : "inherit"};">${sign(vsField)}</div></div>
       <div class="sl-row"><div class="sl-label">Gameweeks scored</div><div class="sl-value">${mt.n_gameweeks_scored} <span style="color:var(--ink-dim2);font-weight:500;">(${mt.n_gameweeks_simulated} simulated)</span></div></div>
       ${mt.chips_used && mt.chips_used.length ? `<div class="sl-row"><div class="sl-label">Chips played</div><div class="sl-value">${mt.chips_used.join(", ")}</div></div>` : ""}
+      ${mt.next_decision ? `<div class="sl-row"><div class="sl-label">Next call &middot; GW${mt.next_decision.gameweek}</div><div class="sl-value" style="font-size:11px;">${escapeHtml(mt.next_decision.action === "hold" ? "hold" : (mt.next_decision.detail || mt.next_decision.action))}</div></div>` : ""}
     </div>
+    ${squadRows.length ? chipPreviewSquadBlock("model-team", squadRows) : ""}
+    ${plan && plan.weeks && plan.weeks.length ? `
+      <div class="stat-list" style="margin:4px 0 8px;">
+        <div class="sl-row"><div class="sl-label">Plan to GW${plan.end_gameweek}</div><div class="sl-value">${planMoves} move${planMoves === 1 ? "" : "s"} &middot; ${plan.total_projected_points.toFixed(0)} proj pts</div></div>
+        ${forwardPlanChipLine(plan) ? `<div class="sl-row"><div class="sl-label">Chips</div><div class="sl-value" style="font-size:11px;">${forwardPlanChipLine(plan)}</div></div>` : ""}
+      </div>
+      <button class="local-btn" style="margin-bottom:10px;" onclick="location.hash='forward-plan-model_team'">See the model's full plan to GW${plan.end_gameweek}</button>
+    ` : ""}
     <p style="font-size:11px;line-height:1.6;color:var(--on-dark-dim);margin:0 0 16px;">
       The model builds its own squad and makes its own weekly calls &mdash; no human in the loop. GW1&ndash;2 backfilled by simulation with a per-gameweek data cutoff; live and committed pre-deadline since. <a href="track-record.html" style="color:var(--on-dark);">Full record &rsaquo;</a>
     </p>`;

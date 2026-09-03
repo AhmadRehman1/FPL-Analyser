@@ -558,6 +558,22 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   `window.FQ_DATA_BASE`, with `deploy_pages.yml` bundling `data/dashboard/` into the Pages
   artifact when the repo variable `FQ_STAGING=1`. Nothing about the canonical deployment
   changes. `tests/data_base.test.js` (6) is the regression guard on the core data-loading path.
+- **Forward plan to GW18 (`forward_plan.py`, `forward_plan.yml`): built, not yet run for real.**
+  The app showed the model's *this-week* call and the chip-timing sweep's "hold until GWn"
+  verdict, but never the model's whole forward trajectory or -- the specific gap the request
+  named -- the Wildcard team it's building toward. `build_forward_plan()` runs one
+  `forward_season_sim` `model_choice` walk per tracked squad (model team + both real entries)
+  from the next unplayed gameweek to GW18 and reshapes it into a per-week payload: action,
+  transfer(s), captain, projected points + band, the evolving 15, and the Wildcard squad on its
+  own. `forward_plan.yml` fans the three squads out as a matrix off one shared ingested-DB
+  cache, `collect_forward_plans.py` merges them to
+  `data/forward_plan/forward_plan_latest.json`, daily cron. `index.html`: a "The plan to GW18"
+  card on Home for the active account, the model team's current 15 + plan in the Profile
+  sheet's model-team block, and `openForwardPlanSheet()` for the full week-by-week view with the
+  Wildcard pitch. `GameweekResult` gained `formation_xi_uids` (the true 11 even on a Bench Boost
+  week) and structured `transfers`. Tests: `test_forward_plan.py` (7), `forward_plan_card.test.js`
+  (7), existing `test_forward_season_sim.py` / `test_model_team.py` green with the additive
+  fields. See the "forward plan to GW18" Design note.
 
 ## Quick start
 
@@ -1761,3 +1777,38 @@ honest "couldn't check" where it wasn't, not a guess dressed up as a finding.
 - **Inherits `forward_season_sim`'s early-season limitation, restated.** With only ~2 gameweeks
   of 2026-27 played, every future gameweek's EP model is fit on the same data, so a GW6 and a
   GW16 projection differ by fixtures and minutes, not by form. Re-run as the season fills in.
+
+### forward plan to GW18 (`forward_plan.py`) -- design notes
+
+- **What it is, and how it differs from the chip-timing sweep.** `forward_plan.build_forward_plan()`
+  runs *one* `forward_season_sim` walk in `model_choice` mode -- the greedy arm, the model's own
+  week-by-week decisions -- from the next unplayed gameweek through GW18, and reshapes the
+  `ForwardSimResult` into a display payload: per-week action / transfer(s) / captain / projected
+  points + 80% band, the evolving 15, and the Wildcard squad pulled out on its own. The chip-timing
+  sweep answers "*which* week is structurally best for the Wildcard" by forcing it at every
+  candidate week; this answers "*what is the model actually planning to do*, week by week, and what
+  does its team look like each week". Different question, one walk not ~18. The app shows both:
+  chip-timing's "hold until GWn" verdict, and this plan's full trajectory.
+- **The Wildcard squad is free.** `model_choice` mode already plays the Wildcard at the week
+  `_decide_gameweek_action()` picks; that week's post-decision `squad_uids` *is* the Wildcard
+  squad. No separate solve. If the model never plays it in-window, `wildcard_held_until` carries
+  its own `wildcard_recommendation` (best week + gain) with no squad -- an un-played Wildcard was
+  never solved to a 15 here.
+- **`GameweekResult.formation_xi_uids` vs `xi_uids`.** `xi_uids` is "who scores this gameweek",
+  which on a Bench Boost week is all 15. `formation_xi_uids` (added for this) is always the true
+  11-man formation, so the app's pitch stays legal. They are equal on every non-bench-boost week.
+  Scoring still uses `xi_uids`; only display uses `formation_xi_uids`.
+- **Player rows are the `preview_squad` shape** (`player_name` / `club`, not `player_uid`), so
+  the frontend resolves them with the same `playerIdByName()` path it already uses for the chip
+  preview squads. `club` comes from `fixture_swing.team_uid_by_player()` -- the same lookup M5's
+  own club display uses, never a re-derivation.
+- **Compute shape + cadence.** One `model_choice` walk over GW3-18 is ~1.5-2h of MIQP on the
+  runner. `forward_plan.yml` fans the three tracked squads (model team + both real entries) out
+  as a matrix off one shared DB cache (`prepare` builds a full M0-M6 ingestion, not the narrow
+  `duckdb-` pipeline cache -- same three-season `team_strength.calibrate` need as
+  `chip_timing_analysis.yml`), `collect` merges the arms into
+  `data/forward_plan/forward_plan_latest.json` and commits. Daily cron at 04:00 UTC. An arm that
+  overruns just drops from the merged file (`fail-fast: false`).
+- **Same early-season limitation as everything downstream of `forward_season_sim`.** Far-out
+  weeks differ by fixtures and expected minutes, not form, until the season fills in. Disclosed
+  in the sheet's own footer.
