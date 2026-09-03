@@ -778,6 +778,24 @@ def test_build_captain_recommendation_matches_current_no_gain_claimed():
 def test_build_captain_recommendation_none_when_not_recommended():
     assert reporting.build_captain_recommendation({"recommended": False}, "p_salah", {}) is None
     assert reporting.build_captain_recommendation(None, "p_salah", {}) is None
+    assert reporting.build_captain_recommendation({"recommended": True, "all_candidates": []}, "p_salah", {}) is None
+
+
+def test_build_captain_recommendation_ranks_the_weekly_captain_by_pure_ep_not_risk_adjusted():
+    # evaluate_triple_captain's risk-adjusted tc_score named p_flat the TC-chip candidate, but
+    # p_haaland has the higher E[points] -- the weekly captain follows E[points].
+    detail = {
+        "recommended": True,
+        "captain_candidate": "p_flat",
+        "all_candidates": [
+            {"player_uid": "p_haaland", "mean_total": 9.2, "var_total": 30.0, "tc_score": 6.2},
+            {"player_uid": "p_flat", "mean_total": 7.0, "var_total": 2.0, "tc_score": 6.6},
+        ],
+    }
+    rec = reporting.build_captain_recommendation(detail, "p_flat", {"p_haaland": "Erling Haaland", "p_flat": "Flat Guy"})
+    assert rec["recommended_uid"] == "p_haaland"
+    assert rec["recommended_expected_points"] == pytest.approx(9.2)
+    assert rec["potential_gain"] == pytest.approx(2.2)
 
 
 def test_build_captain_recommendation_handles_unresolved_current_captain():
