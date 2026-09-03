@@ -518,21 +518,24 @@ def _avg_manager_benchmark_points(
 ) -> float | None:
     """A SYNTHETIC 'average manager' benchmark, not FPL's own real published average entry
     score (that aggregate isn't ingested anywhere in this project -- grepped). Reuses Priority
-    1's exact EO mechanism (ownership.compute_eo_for_pool) -- every player with a real fixture
-    this gameweek contributes eo_pct/100 * their REAL realized fact_player_season_stats.
-    event_points, approximating "what the ownership-weighted field actually scored" the same
-    way field_covariance.py's synthetic EO-weighted portfolio approximates field risk exposure
-    elsewhere -- one EO mechanism, two consumers, not two independently-invented ones.
+    1's exact EO mechanism (ownership.compute_eo_for_pool).
+
+    Each player contributes `starting_EO/100 * their REAL realized event_points`, where
+    starting_EO = EO * P(the owner actually STARTS them) -- proxied by ep_appearance/2 (=
+    p_60plus + 0.5*p_1_59, the model's own P(plays)). Without that discount, summing raw
+    ownership counts all 15 squad slots + captaincy (Sum eo/100 ~= 16) when a real manager only
+    scores 11 + captain -- it inflated the benchmark ~35% (a synthetic "average" of ~69/gw vs a
+    real FPL average nearer 50). A captained player is ~always started so the discount barely
+    touches the captaincy contribution, which is what we want.
 
     Players with no real selected_by_percent data this gameweek are excluded from the sum (a
     genuine, disclosed simplification, not a fabricated 0% assumption) -- None (not 0.0) when
-    NO player in the pool has usable ownership data at all, since that's "not computable," not
-    "the field scored zero.\""""
+    NO player in the pool has usable ownership data at all."""
     captaincy_concentration, _ = params_mod.resolve_param(
         con, "ownership_params", "captaincy_concentration", ownership_params_version,
     )
     rows = con.execute(
-        "SELECT o.player_uid, dp.position, o.ep_total, fps.selected_by_percent "
+        "SELECT o.player_uid, dp.position, o.ep_total, o.ep_appearance, fps.selected_by_percent "
         "FROM ep_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid "
         "LEFT JOIN fact_player_season_stats fps ON fps.player_uid = o.player_uid AND fps.season = ? AND fps.gw = ? "
         "WHERE o.model_version = ?",
@@ -540,22 +543,25 @@ def _avg_manager_benchmark_points(
     ).fetchall()
     candidates = [
         {"player_uid": uid, "position": pos, "mu": ep_total, "selected_by_percent": sbp}
-        for uid, pos, ep_total, sbp in rows
+        for uid, pos, ep_total, _ep_app, sbp in rows
     ]
     eo_by_uid = ownership_mod.compute_eo_for_pool(candidates, captaincy_concentration)
+    p_start_by_uid = {uid: max(0.0, min(1.0, (ep_app or 0.0) / 2.0)) for uid, _pos, _ep, ep_app, _sbp in rows}
+
+    points_by_uid = dict(con.execute(
+        "SELECT player_uid, event_points FROM fact_player_season_stats "
+        "WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+        [season, gameweek],
+    ).fetchall())
 
     total, any_eo = 0.0, False
-    for uid, _pos, _ep_total, _sbp in rows:
+    for uid, _pos, _ep_total, _ep_app, _sbp in rows:
         eo = eo_by_uid.get(uid)
         if eo is None:
             continue
         any_eo = True
-        row = con.execute(
-            "SELECT event_points FROM fact_player_season_stats WHERE player_uid = ? AND season = ? AND gw = ?",
-            [uid, season, gameweek],
-        ).fetchone()
-        pts = row[0] if row and row[0] is not None else 0.0
-        total += (eo / 100.0) * pts
+        pts = points_by_uid.get(uid, 0.0)
+        total += (eo / 100.0) * p_start_by_uid.get(uid, 1.0) * pts
     return total if any_eo else None
 
 
