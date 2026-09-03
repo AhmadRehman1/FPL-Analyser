@@ -105,6 +105,10 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # season-mean lambda_for); the walk-forward measures whether it wants damping. Invented v1
     # default, flagged for M7 recalibration -- same status as tau / the set-piece multipliers.
     params_mod.write_param(con, "fixture_strength_params", 1, "2026-08-10", "attack_sensitivity", value_numeric=1.0)
+    # GK saves scale ~1:1 with shots faced (= opponent attack); DefCon actions correlate with
+    # being under pressure but far more loosely, so damped. Both invented v1, M7-recalibratable.
+    params_mod.write_param(con, "fixture_strength_params", 1, "2026-08-10", "save_sensitivity", value_numeric=1.0)
+    params_mod.write_param(con, "fixture_strength_params", 1, "2026-08-10", "defcon_sensitivity", value_numeric=0.5)
 
 
 def _sm(con, key, params_version, position=None):
@@ -362,27 +366,24 @@ def expected_minutes_given_played(p_1_59: float, p_60plus: float, mean_minutes: 
 # projected scoreline can't dominate. Backtest-gated -- flagged for M7 recalibration.
 # ============================================================
 
-_FIXTURE_REF_CACHE: dict = {}
-
-
 def _league_defence_and_home_adv(con: duckdb.DuckDBPyConnection, ts_model_version: int) -> tuple[float, float]:
-    """(mean final_defence across the league, home_advantage) for this snapshot set -- cached.
+    """(mean final_defence across the league, home_advantage) for this snapshot set. Two
+    indexed single-row lookups -- deliberately NOT memoised on a module global (a stale
+    per-model_version cache silently returned another run's/test's values; the cost of just
+    re-reading is negligible next to the SCIP solves and Monte Carlo anyway).
+
     Dixon-Coles centres mean ATTACK at 0 but not mean defence (see team_strength's own design
     note), so the 'average opponent' a player's flat rate is measured against has defence =
     this mean, not 0."""
-    cached = _FIXTURE_REF_CACHE.get(ts_model_version)
-    if cached is None:
-        mean_def = con.execute(
-            "SELECT avg(final_defence) FROM team_strength_snapshots WHERE model_version = ?",
-            [ts_model_version],
-        ).fetchone()[0]
-        home_adv = con.execute(
-            "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?",
-            [ts_model_version],
-        ).fetchone()[0]
-        cached = (float(mean_def or 0.0), float(home_adv or 0.0))
-        _FIXTURE_REF_CACHE[ts_model_version] = cached
-    return cached
+    mean_def = con.execute(
+        "SELECT avg(final_defence) FROM team_strength_snapshots WHERE model_version = ?",
+        [ts_model_version],
+    ).fetchone()[0]
+    home_adv = con.execute(
+        "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?",
+        [ts_model_version],
+    ).fetchone()[0]
+    return float(mean_def or 0.0), float(home_adv or 0.0)
 
 
 def _fixture_attack_multiplier(
@@ -411,6 +412,37 @@ def _fixture_attack_multiplier(
     if ref_lambda <= 0:
         return 1.0
     mult = (lambda_for / ref_lambda) ** sensitivity
+    return max(0.4, min(2.5, mult))
+
+
+def _fixture_defensive_multiplier(
+    con: duckdb.DuckDBPyConnection, team_uid: str, match_id: str,
+    ts_model_version: int, fixture_params_version: int, sensitivity_key: str,
+) -> float:
+    """lambda_against(this fixture) / lambda_against(this team vs a league-average attack,
+    half-away) = exp(opp_attack + adv_opp - home_adv/2) (mean attack is 0 by Dixon-Coles
+    centring). How much more/less this team is expected to concede than in an average fixture.
+
+    Scales GK saves (shots faced ~ opponent attacking strength) at sensitivity_key
+    "save_sensitivity" (v1 1.0), and DefCon actions -- a back line under pressure makes more
+    blocks/clearances/interceptions, but the link is looser than saves-to-shots -- at
+    "defcon_sensitivity" (v1 0.5, damped). Same [0.4, 2.5] clip and asof-clean construction as
+    _fixture_attack_multiplier(); the goals-conceded term already uses lambda_against directly."""
+    sensitivity, _ = params_mod.resolve_param(
+        con, "fixture_strength_params", sensitivity_key, fixture_params_version,
+    )
+    if sensitivity == 0.0:
+        return 1.0
+    _lf, lambda_against, _is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version)
+    _mean_def, home_adv = _league_defence_and_home_adv(con, ts_model_version)
+    own_defence = con.execute(
+        "SELECT final_defence FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
+        [ts_model_version, team_uid],
+    ).fetchone()[0]
+    ref_lambda = math.exp(-own_defence + home_adv / 2.0)
+    if ref_lambda <= 0:
+        return 1.0
+    mult = (lambda_against / ref_lambda) ** sensitivity
     return max(0.4, min(2.5, mult))
 
 
@@ -659,12 +691,24 @@ def compute_player_fixture_components(
     # high-recovery centre-backs and full-backs, making almost every nailed starting defender
     # a near-certain +2 every week -- the single biggest reason defenders outranked premium
     # forwards for captaincy.
+    # Fixture-strength scaling of the DEFENSIVE output (was opponent-blind -- a defender under
+    # siege makes more clearances/blocks, a keeper vs a strong attack faces more shots -- while
+    # the clean-sheet / goals-conceded terms above already use lambda_against directly).
+    defence_defcon_mult = defence_saves_mult = 1.0
+    if fixture_params_version is not None:
+        defence_defcon_mult = _fixture_defensive_multiplier(
+            con, team_uid, match_id, ts_model_version, fixture_params_version, "defcon_sensitivity",
+        )
+        defence_saves_mult = _fixture_defensive_multiplier(
+            con, team_uid, match_id, ts_model_version, fixture_params_version, "save_sensitivity",
+        )
+
     ep_defcon = 0.0
     if position in ("Defender", "Midfielder", "Forward"):
         defcon_actions_per_90 = def_rates["cbi_per_90"]
         if position in ("Midfielder", "Forward"):
             defcon_actions_per_90 += def_rates["recoveries_per_90"]
-        defcon_rate = defcon_actions_per_90 * e_min_played / 90.0
+        defcon_rate = defcon_actions_per_90 * defence_defcon_mult * e_min_played / 90.0
         threshold = _sm(con, "defcon_threshold", scoring_params_version, position)
         p_over_threshold = 1.0 - poisson.cdf(threshold - 1, max(defcon_rate, 1e-9)) if defcon_rate > 0 else 0.0
         ep_defcon = p_over_threshold * p_played * _sm(con, "defcon_points", scoring_params_version)
@@ -673,7 +717,7 @@ def compute_player_fixture_components(
     ep_saves = 0.0
     ep_penalty_save = 0.0
     if position == "Goalkeeper":
-        e_saves = rates["saves_per_90"] * e_min_played / 90.0 * p_played
+        e_saves = rates["saves_per_90"] * defence_saves_mult * e_min_played / 90.0 * p_played
         ep_saves = e_saves / _sm(con, "saves_per_point", scoring_params_version)
         # No penalty-taker/penalties-faced rate reconciled -- left at 0 rather than guessed.
 
@@ -683,14 +727,16 @@ def compute_player_fixture_components(
     mu += _bp(con, "playing_60plus", bps_params_version) * p_60plus
     mu += e_goals * _bp(con, "goal", bps_params_version, position)
     mu += e_assists * _bp(con, "assist", bps_params_version)
-    e_cbi = def_rates["cbi_per_90"] * e_min_played / 90.0 * p_played
-    e_recoveries = def_rates["recoveries_per_90"] * e_min_played / 90.0 * p_played
+    # same fixture-scaled defensive rates as the ep_* terms above (BPS's "intentional dual use"
+    # of the e_* expectations -- see the module docstring's non-double-counting note).
+    e_cbi = def_rates["cbi_per_90"] * defence_defcon_mult * e_min_played / 90.0 * p_played
+    e_recoveries = def_rates["recoveries_per_90"] * defence_defcon_mult * e_min_played / 90.0 * p_played
     mu += e_cbi / _bp(con, "cbi_per_point", bps_params_version)
     mu += e_recoveries / _bp(con, "recoveries_per_point", bps_params_version)
     if position in ("Goalkeeper", "Defender"):
         mu += _bp(con, "goal_conceded_gk_def", bps_params_version) * (_expected_floor_half(lambda_against) * 2) * p_60plus
     if position == "Goalkeeper":
-        e_saves = rates["saves_per_90"] * e_min_played / 90.0 * p_played
+        e_saves = rates["saves_per_90"] * defence_saves_mult * e_min_played / 90.0 * p_played
         mu += e_saves * _bp(con, "save_inside_box", bps_params_version)
 
     return {

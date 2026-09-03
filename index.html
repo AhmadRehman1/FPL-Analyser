@@ -4115,8 +4115,8 @@ function priceWatchBlock(opts) {
 // to the manager's own squad -- see projections.py's own module docstring on why the
 // confidence band is M4's per-player Cornish-Fisher quantile, not a live Monte Carlo draw:
 // MC only ever simulates one already-chosen squad's 15 players, not the whole player pool a
-// ranking like this needs). A narrower-band near-tie ranks above a wider one for the #2 (vice
-// captain) slot -- see vice_captain_reason for why, when present.
+// ranking like this needs). Captaincy doubles the score, so a near-tie on EP is broken by the
+// higher CEILING (ci_high) -- see vice_captain_reason for why the #2 lost, when present.
 function captainRankingBlock() {
   const proj = state.projections;
   if (!proj || !proj.captain_ranking || !proj.captain_ranking.length) return "";

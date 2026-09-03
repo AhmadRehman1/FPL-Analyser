@@ -172,23 +172,41 @@ def test_captain_ranking_higher_ep_wins_when_not_tied(con, monkeypatch):
     assert ranking[1]["rank"] == 2 and ranking[1]["vice_captain_reason"] is not None
 
 
-def test_captain_ranking_narrower_band_wins_a_near_tie():
-    """This feature's own explicit spec example: a 6.3+-0.4 captain ranks above a 6.5+-2.1
-    captain (here 6.3 vs 6.25, within tie_epsilon) -- lower variance wins ties."""
-    haaland = proj.ProjectionRow(
-        player_uid="haaland", name="Haaland", team="clubA", pos="FWD", now_cost=12.5,
+def test_captain_ranking_higher_ceiling_wins_a_near_tie():
+    """Captaincy doubles the score, so a near-tie on EP is broken by the CEILING (the haul
+    you're captaining for), not the safer floor: 6.25 (band 4.0-8.2) out-captains 6.3 (band
+    5.9-6.7) because 8.2 > 6.7."""
+    flat = proj.ProjectionRow(
+        player_uid="flat", name="Flat", team="clubA", pos="FWD", now_cost=12.5,
         ep_per_gw=[proj.GWBand(gw=1, ep=6.3, ci_low=5.9, ci_high=6.7)],
         provenance=proj.Provenance(model_version="v1", data_asof="2026-08-24", calibrated_params_fraction=None),
     )
-    salah = proj.ProjectionRow(
-        player_uid="salah", name="Salah", team="clubB", pos="FWD", now_cost=13.0,
-        ep_per_gw=[proj.GWBand(gw=1, ep=6.25, ci_low=4.0, ci_high=8.2)],  # ep within 0.15 of haaland, far wider band
+    explosive = proj.ProjectionRow(
+        player_uid="explosive", name="Explosive", team="clubB", pos="FWD", now_cost=13.0,
+        ep_per_gw=[proj.GWBand(gw=1, ep=6.25, ci_low=4.0, ci_high=8.2)],  # ep within 0.15, far higher ceiling
         provenance=proj.Provenance(model_version="v1", data_asof="2026-08-24", calibrated_params_fraction=None),
     )
-    ranking = proj.build_captain_ranking([haaland, salah], gw=1)
-    assert ranking[0]["player_uid"] == "haaland"  # narrower band wins the near-tie
-    assert ranking[1]["player_uid"] == "salah"
-    assert "wider confidence band" in ranking[1]["vice_captain_reason"]
+    ranking = proj.build_captain_ranking([flat, explosive], gw=1)
+    assert ranking[0]["player_uid"] == "explosive"  # higher ceiling wins the near-tie
+    assert ranking[1]["player_uid"] == "flat"
+    assert "lower ceiling" in ranking[1]["vice_captain_reason"]
+
+
+def test_captain_ranking_clear_ep_lead_still_beats_a_higher_ceiling():
+    """The ceiling tiebreak only fires within tie_epsilon -- a genuine EP lead is not overridden
+    by a wilder outsider's ceiling."""
+    lead = proj.ProjectionRow(
+        player_uid="lead", name="Lead", team="clubA", pos="FWD", now_cost=12.5,
+        ep_per_gw=[proj.GWBand(gw=1, ep=7.0, ci_low=6.0, ci_high=8.0)],
+        provenance=proj.Provenance(model_version="v1", data_asof="2026-08-24", calibrated_params_fraction=None),
+    )
+    punt = proj.ProjectionRow(
+        player_uid="punt", name="Punt", team="clubB", pos="FWD", now_cost=6.0,
+        ep_per_gw=[proj.GWBand(gw=1, ep=4.0, ci_low=-1.0, ci_high=12.0)],  # huge ceiling but EP well below
+        provenance=proj.Provenance(model_version="v1", data_asof="2026-08-24", calibrated_params_fraction=None),
+    )
+    ranking = proj.build_captain_ranking([punt, lead], gw=1)
+    assert ranking[0]["player_uid"] == "lead"
 
 
 def test_captain_ranking_empty_when_no_fixture_at_that_gameweek():

@@ -296,9 +296,14 @@ def test_attach_breakdowns_reads_the_json_object_shape_and_fills_captain_and_tra
     recs = [(1, "player_out", "player_in", 5.0, 0.0, 5.0)]
     out = attach_recommendation_breakdowns(
         con, explain, run_id, 3,
-        tc_detail={"captain_candidate": "player_cap"}, actual_captain_uid="player_out",
+        tc_detail={"captain_candidate": "player_flat", "all_candidates": [
+            {"player_uid": "player_cap", "mean_total": 8.0, "var_total": 20.0},
+            {"player_uid": "player_flat", "mean_total": 5.0, "var_total": 1.0},
+        ]},
+        actual_captain_uid="player_out",
         recs=recs, name_by_uid={"player_cap": "Cap Player"},
     )
+    # weekly captain follows E[points] (player_cap, 8.0), not the risk-adjusted candidate
     assert out["captain_breakdown"]["recommended"]["name"] == "Cap Player"
     assert out["captain_breakdown"]["recommended"]["ep"]["categories"]["goals"] == 2.0
     assert out["captain_breakdown"]["recommended"]["risk"]["ceiling"] == 12.0
@@ -314,7 +319,8 @@ def test_attach_breakdowns_omits_rather_than_crashes_when_target_gameweek_missin
     run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3, mv_json="{}")
     explain = {"top_transfers": []}
     out = attach_recommendation_breakdowns(
-        con, explain, run_id, 3, tc_detail={"captain_candidate": "player_cap"},
+        con, explain, run_id, 3,
+        tc_detail={"captain_candidate": "player_cap", "all_candidates": [{"player_uid": "player_cap", "mean_total": 6.0, "var_total": 1.0}]},
         actual_captain_uid=None, recs=[(1, "player_out", "player_in", 5.0, 0.0, 5.0)], name_by_uid={},
     )
     assert "captain_breakdown" not in out
