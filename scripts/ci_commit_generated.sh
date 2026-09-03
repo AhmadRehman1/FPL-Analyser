@@ -26,7 +26,14 @@ msg="$1"; shift
 
 git config user.name "github-actions[bot]"
 git config user.email "github-actions[bot]@users.noreply.github.com"
-git add -- "$@" 2>/dev/null || true
+# Stage each path on its own. `git add -- a b c` is ATOMIC: if ANY pathspec matches nothing
+# (e.g. ml_shadow.json when compute_ml_shadow.py was a continue-on-error no-op) git aborts
+# with `fatal: pathspec ... did not match` and stages NOTHING -- silently dropping the real
+# app_track_record.json update alongside it (nightly_backtest run 33707146821: walk-forward
+# succeeded, export wrote backtest_run_id=1, and this step still said "no staged change").
+for _path in "$@"; do
+  git add -- "$_path" 2>/dev/null || echo "ci_commit_generated: nothing to stage at '${_path}' (skipped)"
+done
 if git diff --cached --quiet; then
   echo "ci_commit_generated: no staged change in $*"
   exit 0
