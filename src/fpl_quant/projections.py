@@ -139,16 +139,21 @@ def build_projections(
 
 
 def _captain_compare(item_a: tuple, item_b: tuple, tie_epsilon: float) -> int:
-    """Pairwise comparator: within tie_epsilon of each other's EP, the NARROWER confidence
-    band ranks first ("a 6.3+-0.4 captain ranks above a 6.5+-2.1 captain" is this feature's
-    own explicit spec) -- otherwise higher EP wins. Comparator-based (not a single sort key)
-    since "tied" is a tolerance relation, not exact equality."""
+    """Pairwise comparator: within tie_epsilon of each other's EP, the HIGHER CEILING
+    (ci_high) ranks first -- otherwise higher EP wins. Comparator-based (not a single sort
+    key) since "tied" is a tolerance relation, not exact equality.
+
+    Captaincy DOUBLES the score, so its payoff is dominated by the upside: a captain haul
+    gains ~10+ points relative to the field, a captain blank costs ~5. When two candidates
+    have ~equal EP you want the one most likely to explode, i.e. the wider band / higher
+    ceiling -- the OPPOSITE of the original spec here, which preferred the safer narrower
+    band and was a real contributor to low-variance defenders out-ranking premium attackers
+    for captaincy (backtest: model captained the flatter option and lost hauls)."""
     _ra, ba = item_a
     _rb, bb = item_b
     if abs(ba.ep - bb.ep) <= tie_epsilon:
-        width_a, width_b = ba.ci_high - ba.ci_low, bb.ci_high - bb.ci_low
-        if width_a != width_b:
-            return -1 if width_a < width_b else 1
+        if ba.ci_high != bb.ci_high:
+            return -1 if ba.ci_high > bb.ci_high else 1
     if ba.ep != bb.ep:
         return -1 if ba.ep > bb.ep else 1
     return 0
@@ -156,7 +161,7 @@ def _captain_compare(item_a: tuple, item_b: tuple, tie_epsilon: float) -> int:
 
 def build_captain_ranking(rows: list[ProjectionRow], gw: int, *, tie_epsilon: float = 0.15) -> list[dict]:
     """The EP-per-GW table sorted by ep for gw, with the confidence band shown so a
-    narrower-band near-tie wins captaincy over a wider one (see _captain_compare()). Vice
+    higher-ceiling near-tie wins captaincy over a flatter one (see _captain_compare()). Vice
     captain (rank 2) carries a vice_captain_reason explaining why it isn't rank 1; every
     other row's reason is None. Returns [] if no player has a fixture at gw."""
     eligible = [(r, band) for r in rows for band in r.ep_per_gw if band.gw == gw]
@@ -171,11 +176,10 @@ def build_captain_ranking(rows: list[ProjectionRow], gw: int, *, tie_epsilon: fl
         reason = None
         if rank == 2:
             _top_r, top_band = ranked[0]
-            width, top_width = band.ci_high - band.ci_low, top_band.ci_high - top_band.ci_low
-            if abs(band.ep - top_band.ep) <= tie_epsilon and width > top_width:
+            if abs(band.ep - top_band.ep) <= tie_epsilon and band.ci_high < top_band.ci_high:
                 reason = (
                     f"projected points are close to the #1 pick ({band.ep:.1f} vs {top_band.ep:.1f}) "
-                    f"but a wider confidence band ({width:.1f} vs {top_width:.1f}) drops them to vice captain"
+                    f"but a lower ceiling ({band.ci_high:.1f} vs {top_band.ci_high:.1f}) drops them to vice captain"
                 )
             else:
                 reason = "second-highest projected points this gameweek"

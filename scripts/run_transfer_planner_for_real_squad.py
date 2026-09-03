@@ -281,7 +281,10 @@ def attach_recommendation_breakdowns(
             "risk": un_mod.explain_player_risk(con, target_un_mv, uid),
         }
 
-    rec_cap_uid = (tc_detail or {}).get("captain_candidate")
+    # The weekly captain is the highest-E[points] XI player, NOT evaluate_triple_captain()'s
+    # risk-adjusted tc_score pick -- consistent with reporting.build_captain_recommendation().
+    _cands = (tc_detail or {}).get("all_candidates") or []
+    rec_cap_uid = max(_cands, key=lambda c: c["mean_total"])["player_uid"] if _cands else None
     if rec_cap_uid:
         explain["captain_breakdown"] = {
             "gameweek": plan_for_gameweek,
@@ -473,14 +476,17 @@ def main() -> None:
     # IS this week.
     reconcile_chips_with_timing_sweep(chips_out, plan_for_gameweek, _load_timing_sweep(entry_id))
 
-    # A real "who should you captain" directive -- reuses the triple_captain evaluator's own
-    # already-computed ranking (see reporting.build_captain_recommendation()'s own docstring),
-    # compared against the manager's actual current captain from manager_squad_holdings.
+    # A real "who should you captain" directive -- the highest-E[points] XI player (see
+    # reporting.build_captain_recommendation()'s own docstring on why the weekly captain is
+    # NOT the risk-adjusted tc_score pick), compared against the manager's actual current
+    # captain from manager_squad_holdings.
     actual_captain_row = con.execute(
         "SELECT player_uid FROM manager_squad_holdings WHERE state_version = ? AND is_captain = TRUE", [state_version],
     ).fetchone()
     actual_captain_uid = actual_captain_row[0] if actual_captain_row else None
-    relevant_uids = [uid for uid in {actual_captain_uid, (tc_detail or {}).get("captain_candidate")} if uid]
+    _tc_cands = (tc_detail or {}).get("all_candidates") or []
+    _weekly_cap_uid = max(_tc_cands, key=lambda c: c["mean_total"])["player_uid"] if _tc_cands else None
+    relevant_uids = [uid for uid in {actual_captain_uid, _weekly_cap_uid} if uid]
     name_rows = con.execute(
         "SELECT player_uid, canonical_name FROM dim_player WHERE player_uid = ANY(?)", [relevant_uids],
     ).fetchall() if relevant_uids else []
