@@ -1,10 +1,189 @@
 {
-  "backtest_run_id": null,
-  "n_gameweek_steps": null,
-  "seasons_covered": [],
-  "headline": null,
-  "metrics": [],
-  "segment_calibration": {},
+  "backtest_run_id": 1,
+  "n_gameweek_steps": 71,
+  "seasons_covered": [
+    "2024-2025",
+    "2025-2026"
+  ],
+  "headline": {
+    "beats_avg_manager_by_points_per_gw": -24.0836,
+    "n_scored_gameweeks": 70,
+    "model_squad_points_per_gw": 45.0857,
+    "avg_manager_points_per_gw": 69.1694,
+    "minutes_brier": 0.3667,
+    "minutes_log_score": -1.2585,
+    "ep_points_bias_per_player": 0.0012,
+    "ep_points_mae_per_player": 1.1529
+  },
+  "metrics": [
+    {
+      "metric_name": "avg_manager_benchmark_points",
+      "mean_value": 69.1694,
+      "n_observations": 70
+    },
+    {
+      "metric_name": "beats_crowd_points_delta",
+      "mean_value": -24.0836,
+      "n_observations": 70
+    },
+    {
+      "metric_name": "brier_clean_sheet_mean",
+      "mean_value": 0.0586,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "brier_minutes_mean",
+      "mean_value": 0.3667,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "ep_total_calibration_mae",
+      "mean_value": 1.1529,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "ep_total_calibration_mean_resid",
+      "mean_value": 0.0012,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "log_score_assists_mean",
+      "mean_value": -0.1561,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "log_score_clean_sheet_mean",
+      "mean_value": -0.3136,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "log_score_goals_mean",
+      "mean_value": -0.1682,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "log_score_minutes_mean",
+      "mean_value": -1.2585,
+      "n_observations": 71
+    },
+    {
+      "metric_name": "model_squad_realized_points",
+      "mean_value": 45.0857,
+      "n_observations": 70
+    },
+    {
+      "metric_name": "poisson_calibration_degenerate_count",
+      "mean_value": 3.0,
+      "n_observations": 1
+    },
+    {
+      "metric_name": "poisson_calibration_mean_resid",
+      "mean_value": 0.0615,
+      "n_observations": 71
+    }
+  ],
+  "segment_calibration": {
+    "new_signing": {
+      "ep_total_calibration_mae": {
+        "mean_value": 1.1067,
+        "n_observations": 35
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": 0.0538,
+        "n_observations": 35
+      }
+    },
+    "position=Defender": {
+      "ep_total_calibration_mae": {
+        "mean_value": 1.2562,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": -0.0797,
+        "n_observations": 71
+      }
+    },
+    "position=Forward": {
+      "ep_total_calibration_mae": {
+        "mean_value": 1.2141,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": 0.1836,
+        "n_observations": 71
+      }
+    },
+    "position=Goalkeeper": {
+      "ep_total_calibration_mae": {
+        "mean_value": 1.0587,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": -0.2876,
+        "n_observations": 71
+      }
+    },
+    "position=Midfielder": {
+      "ep_total_calibration_mae": {
+        "mean_value": 1.0867,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": 0.0861,
+        "n_observations": 71
+      }
+    },
+    "price_band=5.0-7.0": {
+      "ep_total_calibration_mae": {
+        "mean_value": 1.4477,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": 0.3303,
+        "n_observations": 71
+      }
+    },
+    "price_band=7.0-9.0": {
+      "ep_total_calibration_mae": {
+        "mean_value": 2.3914,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": 0.8462,
+        "n_observations": 71
+      }
+    },
+    "price_band=9.0+": {
+      "ep_total_calibration_mae": {
+        "mean_value": 3.2705,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": 1.229,
+        "n_observations": 71
+      }
+    },
+    "price_band=<5.0": {
+      "ep_total_calibration_mae": {
+        "mean_value": 0.9092,
+        "n_observations": 71
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": -0.2293,
+        "n_observations": 71
+      }
+    },
+    "promoted_team": {
+      "ep_total_calibration_mae": {
+        "mean_value": 1.0089,
+        "n_observations": 35
+      },
+      "ep_total_calibration_mean_resid": {
+        "mean_value": 0.0705,
+        "n_observations": 35
+      }
+    }
+  },
   "parameters_total": 71,
   "parameters_backtested": 0,
   "parameters_still_invented": 71,
@@ -14,67 +193,5 @@
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2
   },
-  "generated_at": "2026-09-03T12:07:26.042370",
-  "transparency_log": {
-    "backtest": {
-      "n_gameweek_steps": null,
-      "seasons_covered": [],
-      "headline": null,
-      "metrics": [],
-      "parameters_total": 71,
-      "parameters_backtested": 0
-    },
-    "snapshots": [
-      {
-        "season": "2026-2027",
-        "gameweek": 2,
-        "total_projected_ep": 42.71257365366756,
-        "captain_name": "Igor Jesus Maciel da Cruz",
-        "squad_size": 15,
-        "in_xi_count": 11
-      },
-      {
-        "season": "2026-2027",
-        "gameweek": 1,
-        "total_projected_ep": 51.65598857567362,
-        "captain_name": "Ethan Ampadu",
-        "squad_size": 15,
-        "in_xi_count": 11
-      }
-    ],
-    "latest_diff": {
-      "has_previous": false,
-      "previous_gameweek": null,
-      "current_gameweek": 1,
-      "squad_changes": null,
-      "captain_changed": null,
-      "total_projected_ep_delta": null,
-      "newly_doubtful_flags": null
-    },
-    "provenance": {
-      "data_asof": "2026-09-03",
-      "evidence_workbook": {
-        "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
-        "size_bytes": 695705
-      },
-      "fpl_analyser_commit_sha": "33beba30819d9c5c598173234d94d327eeccda78",
-      "fpl_core_insights_commit_sha": "8b8351bec5fede578ee18031aa4116ee2aab9f19",
-      "installed_packages": {
-        "duckdb": "1.5.5",
-        "numpy": "2.4.6",
-        "openpyxl": "3.1.5",
-        "pandas": "3.0.5",
-        "pyscipopt": "6.2.1",
-        "pytest": "9.1.1",
-        "python-dateutil": "2.9.0.post0",
-        "requests": "2.34.2",
-        "scipy": "1.17.1"
-      },
-      "recorded_at": "2026-09-03T10:41:18.752223+00:00",
-      "research_pull_workbook": {
-        "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
-        "size_bytes": 26007
-      }
-    }
-  }
+  "generated_at": "2026-09-03T13:38:13.922073"
 }
