@@ -430,6 +430,28 @@ jobs:
           bash scripts/ci_commit_generated.sh "chore: update report_history snapshot [skip ci]" \
             data/report_history/ data/dashboard/ data/decision_log/ data/model_team/
 
+      # Dead-man's-switch. GitHub's `schedule:` is best-effort -- it silently delays/drops runs
+      # under load, and a public repo's scheduled workflows auto-disable after 60 days with no
+      # default-branch commit. A pipeline that just stops running is invisible without an
+      # external monitor. This pings Healthchecks.io (free) ONLY when run-pipeline is fully
+      # green, so a missed run OR a failed run both trip its "no ping within the period + grace"
+      # alert. Guarded on the 06:00/18:00 period plus a wide grace, per docs/MONITORING.md. The
+      # separate `scenarios` job is deliberately NOT covered -- it's a ~2h secondary panel, not
+      # the critical path. No-op when HEALTHCHECK_URL_MODEL is unset; `continue-on-error` so a
+      # monitor outage never fails the run.
+      - name: Ping dead-man's-switch (Healthchecks.io)
+        continue-on-error: true
+        env:
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL_MODEL }}
+        run: |
+          if [ -z "${HEALTHCHECK_URL}" ]; then
+            echo "HEALTHCHECK_URL_MODEL not set -- skipping dead-man's-switch ping (see docs/MONITORING.md)"
+            exit 0
+          fi
+          curl -fsS -m 10 --retry 3 -o /dev/null "${HEALTHCHECK_URL}" \
+            && echo "pinged dead-man's-switch" \
+            || echo "::warning::dead-man's-switch ping failed (non-fatal)"
+
   # Feature 4 what-if scenarios, split out of run-pipeline (see the comment where the step used
   # to be). ~99-155 min of MIQP solving for a secondary panel -- decoupled so it can't hold up
   # the twice-daily critical output or push a run near the 6h cap.
