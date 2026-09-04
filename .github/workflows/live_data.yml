@@ -149,3 +149,23 @@ jobs:
             data/dashboard/app_team_1305242.json \
             data/dashboard/app_profile_1305242.json \
             data/dashboard/app_leagues_1305242.json
+
+      # Dead-man's-switch. GitHub's `schedule:` is best-effort -- it silently delays/drops runs
+      # under load, and a public repo's scheduled workflows auto-disable after 60 days with no
+      # default-branch commit. A refresh that just stops happening is invisible without an
+      # external monitor. This pings Healthchecks.io (free) ONLY on a fully green run, so a
+      # missed run OR a failed run both trip its "no ping within the period + grace" alert.
+      # No-op when HEALTHCHECK_URL_LIVE is unset (forks, or before setup); `continue-on-error`
+      # so a monitor outage never fails the refresh. Setup: docs/MONITORING.md.
+      - name: Ping dead-man's-switch (Healthchecks.io)
+        continue-on-error: true
+        env:
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL_LIVE }}
+        run: |
+          if [ -z "${HEALTHCHECK_URL}" ]; then
+            echo "HEALTHCHECK_URL_LIVE not set -- skipping dead-man's-switch ping (see docs/MONITORING.md)"
+            exit 0
+          fi
+          curl -fsS -m 10 --retry 3 -o /dev/null "${HEALTHCHECK_URL}" \
+            && echo "pinged dead-man's-switch" \
+            || echo "::warning::dead-man's-switch ping failed (non-fatal)"
