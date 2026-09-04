@@ -778,3 +778,225 @@ def test_run_without_any_priority1_2_features_is_unchanged(con):
         "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
     ).fetchone()
     assert row == (None, None, None, None, None)
+
+
+# ============================================================
+# fetch_horizon_candidate_pool() / fetch_horizon_sigma_pairs() / run(horizon_ep_versions=...)
+# -- real bug fix: evaluate_wildcard() used to call run() with just target_gameweek's own
+# (ep_mv, un_mv), the exact same single-gameweek shape evaluate_free_hit() correctly uses.
+# Wildcard locks a squad in for the WHOLE horizon, not just the gameweek it's played, so
+# scoring the rebuild on one week's numbers alone is blind to fixture-swing trades -- a
+# genuinely strong all-round player having one weak week (this fixture's own "differential"
+# forward, deliberately built the same shape as a real premium striker whose GW4 fixture is
+# tougher than the rest of his horizon) gets passed over for players who happen to have a good
+# single target-gameweek, exactly the "no full sweep" failure mode reported against the app.
+# ============================================================
+
+def _seed_two_gameweek_candidate_pool(con, target_season="2026-2027"):
+    """Same shape as _seed_run_candidate_pool() above (2 GK/6 DEF/6 MID/4 FWD across 6 clubs,
+    budget/club-cap-feasible), but seeded at TWO gameweeks (2 and 3) sharing one team-strength/
+    minutes model (both are gameweek-agnostic snapshots -- see fetch_candidate_pool's own
+    docstring) with their own ep_model_versions/uncertainty_model_versions/ep_outputs/
+    uncertainty_outputs rows per gameweek. "fwd3" is the deliberate differential: a genuinely
+    strong forward whose gw2 mu alone is the WORST of the five forwards (so a single-gameweek
+    solve at gw2 never picks him) but whose gw2+gw3 SUM is the best (so a horizon-aware solve
+    should). Returns {2: (ep_mv, un_mv), 3: (ep_mv, un_mv)}."""
+    clubs = ["clubA", "clubB", "clubC", "clubD", "clubE", "clubF"]
+    # Forwards get their own dedicated clubs (not reused by any GK/DEF/MID) so the <=3-per-club
+    # guardrail can never coincidentally force a non-differential forward out for club-cap
+    # reasons -- a real false-positive this test hit on its first pass, not a solver bug: with
+    # forwards sharing clubs A-F, a tied-mu forward could get excluded purely because its club
+    # was already at its cap from an unrelated DEF/MID pick, which would make "fwd3 excluded at
+    # single-gw" true for the wrong reason (forced by club cap, not by its worse mu).
+    forward_clubs = ["clubG", "clubH", "clubI", "clubJ", "clubK"]
+    for club in clubs + forward_clubs:
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [club, club])
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'clubA')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', ?, 1, 1, 1, 1, '[]')", [target_season],
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+
+    players = []
+    for i in range(2):
+        players.append((f"gk{i}", "Goalkeeper", 4.5 + i, clubs[i % 6]))
+    for i in range(6):
+        players.append((f"def{i}", "Defender", 4.0 + i * 0.5, clubs[i % 6]))
+    for i in range(6):
+        players.append((f"mid{i}", "Midfielder", 5.0 + i * 0.5, clubs[i % 6]))
+    for i in range(5):
+        players.append((f"fwd{i}", "Forward", 6.0 + i * 0.5, forward_clubs[i]))
+
+    # gw2, gw3 mu per player -- every non-differential player scores a flat 3.0/gw (so their
+    # gw2 and gw2+gw3-sum rankings agree); "fwd3" is deliberately last on gw2 alone (0.5, below
+    # every other forward's 3.0) but way out ahead on the gw2+gw3 sum (0.5 + 20.0 = 20.5).
+    mu_by_gw = {2: {}, 3: {}}
+    for uid, _pos, _price, _club in players:
+        mu_by_gw[2][uid] = 3.0
+        mu_by_gw[3][uid] = 3.0
+    mu_by_gw[2]["fwd3"] = 0.5
+    mu_by_gw[3]["fwd3"] = 20.0
+
+    for uid, position, price, club in players:
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, position])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, ?, ?, ?)", [uid, uid.lower(), club, target_season, uid],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, ?, 1, ?, current_timestamp)", [uid, target_season, price],
+        )
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_position_avg, "
+            "weight_own, p_start_historical_final, logit_adjustment_total, p_start_final, "
+            "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+            "VALUES (?, ?, ?, 0.7, 1.0, 0.7, 0.0, 0.7, 0.0, 0.15, 0.05, 0.8, 20)",
+            [mm_mv, uid, position],
+        )
+
+    versions: dict[int, tuple[int, int]] = {}
+    for gw, match_id in ((2, "m2"), (3, "m3")):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, ?, ?, 'clubA', 'clubB', FALSE, "
+            "'Premier League', '2026-08-24', current_timestamp)", [match_id, target_season, gw],
+        )
+        ep_mv = con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2026-08-10', ?, ?, ?, 1, 1, 1) RETURNING model_version", [target_season, ts_mv, mm_mv],
+        ).fetchone()[0]
+        un_mv = con.execute(
+            "INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, minutes_model_version, "
+            "team_strength_model_version, rho_residual_params_version) VALUES ('2026-08-10', ?, ?, ?, 1) "
+            "RETURNING model_version", [ep_mv, mm_mv, ts_mv],
+        ).fetchone()[0]
+        for uid, _position, _price, _club in players:
+            mu = mu_by_gw[gw][uid]
+            con.execute(
+                "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+                "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+                "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, ?, 0,0,0,0.02,0,0,0,0,0,0,0, ?, 5.0)",
+                [ep_mv, uid, match_id, mu],
+            )
+            var = 1.0 + mu * 0.5
+            con.execute(
+                "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+                "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+                "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+                "VALUES (?, ?, ?, 0,0,0,0,0,0,0,0, ?, 0,0,0,0,0,0)", [un_mv, uid, match_id, var],
+            )
+        # real, differentiated positive covariance among a small, fixed clique of non-forward
+        # anchor players -- same recipe/scale _seed_run_candidate_pool() above uses (a handful
+        # of correlated players, not every candidate), needed so run()'s lambda=0-vs-lambda
+        # divergence check genuinely passes. Deliberately every player here has a flat 3.0 mu
+        # (see mu_by_gw above), so unlike _seed_run_candidate_pool()'s own mu>=4.0 threshold, a
+        # mu-based threshold here would sweep in nearly the WHOLE pool (a real bug this test
+        # hit on its first pass: an 18-player fully-connected same-covariance clique is not
+        # PSD, which corrupts the risk term instead of just exercising it) -- a small fixed
+        # anchor set avoids that, and staying off the forwards entirely keeps the risk term
+        # from ever confounding the fwd3 in/out assertions this fixture exists to isolate.
+        anchor_uids = ["gk0", "gk1", "def0", "def1", "mid0"]
+        for i in range(len(anchor_uids)):
+            for j in range(i + 1, len(anchor_uids)):
+                con.execute(
+                    "INSERT INTO cross_player_covariance (model_version, player_uid_a, player_uid_b, "
+                    "fixture_match_id, relationship, covariance) VALUES (?, ?, ?, ?, 'teammate', 0.6)",
+                    [un_mv, *sorted([anchor_uids[i], anchor_uids[j]]), match_id],
+                )
+        versions[gw] = (ep_mv, un_mv)
+    return versions
+
+
+def test_fetch_horizon_candidate_pool_sums_mu_and_var_across_gameweeks(con):
+    versions = _seed_two_gameweek_candidate_pool(con)
+    pool = so.fetch_horizon_candidate_pool(con, versions, "2026-2027")
+    by_uid = {c["player_uid"]: c for c in pool}
+
+    # flat 3.0/gw non-differential player -> summed mu 6.0, summed var (1+3*0.5)*2 = 5.0
+    assert by_uid["mid0"]["mu"] == pytest.approx(6.0)
+    assert by_uid["mid0"]["var"] == pytest.approx(5.0)
+
+    # differential forward: 0.5 (gw2) + 20.0 (gw3) = 20.5, worst-at-gw2 but best overall
+    assert by_uid["fwd3"]["mu"] == pytest.approx(20.5)
+    assert by_uid["fwd3"]["var"] == pytest.approx((1 + 0.5 * 0.5) + (1 + 20.0 * 0.5))
+
+    # price/position/club are gameweek-agnostic -- taken from the base gameweek, not re-summed
+    assert by_uid["fwd3"]["price"] == pytest.approx(7.5)
+    assert by_uid["fwd3"]["position"] == "Forward"
+
+
+def test_fetch_horizon_candidate_pool_rejects_empty_horizon(con):
+    with pytest.raises(ValueError):
+        so.fetch_horizon_candidate_pool(con, {}, "2026-2027")
+
+
+def test_fetch_horizon_sigma_pairs_sums_covariance_across_gameweeks(con):
+    """fwd0/fwd1 carry no auto-seeded covariance from _seed_two_gameweek_candidate_pool()'s own
+    anchor clique (forwards are deliberately excluded from it -- see that fixture's own
+    docstring), so this pair is a clean slate to insert against and assert an exact sum on."""
+    versions = _seed_two_gameweek_candidate_pool(con)
+    for gw, match_id, cov in ((2, "m2", 1.5), (3, "m3", 2.5)):
+        _ep_mv, un_mv = versions[gw]
+        con.execute(
+            "INSERT INTO cross_player_covariance (model_version, player_uid_a, player_uid_b, "
+            "fixture_match_id, relationship, covariance) VALUES (?, 'fwd0', 'fwd1', ?, 'teammate', ?)",
+            [un_mv, match_id, cov],
+        )
+    pairs = so.fetch_horizon_sigma_pairs(con, versions, {"fwd0", "fwd1"})
+    assert pairs[("fwd0", "fwd1")] == pytest.approx(4.0)
+
+
+def test_horizon_aware_solve_picks_a_player_a_single_gameweek_solve_would_miss(con):
+    """The direct demonstration of the bug this fixes: solving on gw2 alone never picks
+    "fwd3" (its gw2 mu, 0.5, is the worst of the four forwards) -- solving on the gw2+gw3
+    horizon does (its summed mu, 20.5, is far and away the best), exactly the failure mode
+    a real Wildcard rebuild hits when it only ever looked at the target gameweek."""
+    versions = _seed_two_gameweek_candidate_pool(con)
+    ep_mv2, un_mv2 = versions[2]
+
+    single_gw_pool = so.fetch_candidate_pool(con, ep_mv2, un_mv2, "2026-2027")
+    single_gw_result = so.solve(single_gw_pool, {}, lam=0.0, guardrail_cap=3)
+    assert single_gw_result["status"] == "optimal"
+    assert "fwd3" not in single_gw_result["squad"]
+
+    horizon_pool = so.fetch_horizon_candidate_pool(con, versions, "2026-2027")
+    horizon_result = so.solve(horizon_pool, {}, lam=0.0, guardrail_cap=3)
+    assert horizon_result["status"] == "optimal"
+    assert "fwd3" in horizon_result["squad"]
+
+
+def test_run_with_horizon_ep_versions_picks_the_horizon_winner(con):
+    """End-to-end run() wiring: passing horizon_ep_versions=... (evaluate_wildcard()'s own new
+    call shape) makes the persisted squad_optimizer_selections reflect the horizon-summed
+    winner, not the single-target-gameweek one -- the same real DB round-trip
+    test_run_with_priority1_features_enabled_end_to_end already covers for the Priority 1/2
+    kwargs, applied to this one."""
+    versions = _seed_two_gameweek_candidate_pool(con)
+    so.seed_v1_params(con)
+    ep_mv2, un_mv2 = versions[2]
+
+    run_id_single = so.run(con, date(2026, 8, 10), "2026-2027", 2, ep_mv2, un_mv2, 1, 1)
+    single_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [run_id_single],
+        ).fetchall()
+    }
+    assert "fwd3" not in single_uids
+
+    run_id_horizon = so.run(
+        con, date(2026, 8, 10), "2026-2027", 2, ep_mv2, un_mv2, 1, 1, horizon_ep_versions=versions,
+    )
+    horizon_uids = {
+        r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [run_id_horizon],
+        ).fetchall()
+    }
+    assert "fwd3" in horizon_uids

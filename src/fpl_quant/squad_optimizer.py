@@ -218,6 +218,59 @@ def fetch_sigma_pairs(con: duckdb.DuckDBPyConnection, uncertainty_model_version:
     return {(a, b): cov for a, b, cov in rows if a in player_uids and b in player_uids}
 
 
+def fetch_horizon_candidate_pool(
+    con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], target_season: str,
+) -> list[dict]:
+    """Wildcard/Free-Hit candidate pool, but scored on the WHOLE remaining horizon rather than
+    one target gameweek. A real bug this fixes: evaluate_wildcard() used to call run() with
+    just target_gameweek's own (ep_model_version, uncertainty_model_version) pair -- the exact
+    same single-gameweek call shape evaluate_free_hit() correctly uses (see its own docstring:
+    "One-gameweek-only rebuild (unlike Wildcard, only target_gameweek's own EP, not the whole
+    horizon...)"). Wildcard locks the squad in for every gameweek in the horizon, not just the
+    one it's played -- scoring the rebuild on a single week's numbers is blind to exactly the
+    fixture-swing trades it should be weighing (a great single week for an average player vs. a
+    strong all-round player with one so-so week), and transfer_planner's own
+    _horizon_ep_by_player() already sums mu across horizon_ep_versions this same way for
+    ranking ordinary transfers -- Wildcard's own squad rebuild was the one path still blind to
+    it. mu/var are summed across every gameweek in horizon_ep_versions; price/position/club/
+    ownership/p_start_final are gameweek-agnostic (see fetch_candidate_pool's own docstring) so
+    are taken from a single gameweek, not re-summed. var is summed assuming independence across
+    gameweeks (no serial covariance modeled) -- the same simplifying assumption cross-player
+    Sigma already makes within a gameweek, just extended across weeks; see
+    fetch_horizon_sigma_pairs() for the matching cross-player treatment."""
+    if not horizon_ep_versions:
+        raise ValueError("horizon_ep_versions must be non-empty")
+    gameweeks = sorted(horizon_ep_versions)
+    base_ep_mv, base_un_mv = horizon_ep_versions[gameweeks[0]]
+    base_pool = fetch_candidate_pool(con, base_ep_mv, base_un_mv, target_season)
+    mu_sum = {c["player_uid"]: 0.0 for c in base_pool}
+    var_sum = {c["player_uid"]: 0.0 for c in base_pool}
+    for gw in gameweeks:
+        ep_mv, un_mv = horizon_ep_versions[gw]
+        pool = base_pool if gw == gameweeks[0] else fetch_candidate_pool(con, ep_mv, un_mv, target_season)
+        for c in pool:
+            uid = c["player_uid"]
+            if uid not in mu_sum:
+                continue
+            mu_sum[uid] += c["mu"]
+            var_sum[uid] += c["var"]
+    return [{**c, "mu": mu_sum[c["player_uid"]], "var": var_sum[c["player_uid"]]} for c in base_pool]
+
+
+def fetch_horizon_sigma_pairs(
+    con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], player_uids: set[str],
+) -> dict:
+    """Cross-player Sigma summed across every gameweek in horizon_ep_versions -- the matching
+    horizon-wide counterpart fetch_horizon_candidate_pool()'s summed var needs so the risk term
+    stays internally consistent (same independence-across-gameweeks assumption var_sum already
+    makes, not a mix of one gameweek's covariance against a multi-gameweek mu/var)."""
+    combined: dict[tuple[str, str], float] = {}
+    for _gw, (_ep_mv, un_mv) in horizon_ep_versions.items():
+        for pair, cov in fetch_sigma_pairs(con, un_mv, player_uids).items():
+            combined[pair] = combined.get(pair, 0.0) + cov
+    return combined
+
+
 # ============================================================
 # MIQP solve (one lambda value)
 # ============================================================
@@ -466,28 +519,47 @@ def run(
     field_covariance_params_version: int | None = None,
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
+    horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
 ) -> int:
-    """The five new keyword-only *_params_version arguments are all independently optional
-    and all default to an exact no-op (matching solve()'s own default-off convention) -- an
-    existing caller passing only the original eight positional arguments gets byte-identical
-    behavior to before Priority 1/2 existed. ownership_params_version and
-    risk_posture_params_version must be provided TOGETHER (EO computation and the posture
-    term that consumes it are two independently-versioned dimensions, but activating one
-    without the other is always a caller mistake, not a valid partial configuration) --
-    resolve_param's own "fail loud on a missing lookup" discipline extends here rather than
-    silently defaulting one and not the other. field_covariance_params_version additionally
-    requires both of those (the field-covariance term needs real EO weights to build its
-    synthetic field portfolio -- see field_covariance.compute_field_covariance)."""
+    """The five *_params_version arguments are all independently optional and all default to
+    an exact no-op (matching solve()'s own default-off convention) -- an existing caller
+    passing only the original eight positional arguments gets byte-identical behavior to
+    before Priority 1/2 existed. ownership_params_version and risk_posture_params_version must
+    be provided TOGETHER (EO computation and the posture term that consumes it are two
+    independently-versioned dimensions, but activating one without the other is always a
+    caller mistake, not a valid partial configuration) -- resolve_param's own "fail loud on a
+    missing lookup" discipline extends here rather than silently defaulting one and not the
+    other. field_covariance_params_version additionally requires both of those (the
+    field-covariance term needs real EO weights to build its synthetic field portfolio -- see
+    field_covariance.compute_field_covariance).
+
+    horizon_ep_versions (optional, no-op by default -- every existing caller keeps solving on
+    ep_model_version/uncertainty_model_version's own single-gameweek numbers exactly as
+    before): when given (Wildcard's real use case -- see evaluate_wildcard()), the candidate
+    pool and cross-player Sigma are built from fetch_horizon_candidate_pool()/
+    fetch_horizon_sigma_pairs() instead -- mu/var/Sigma summed across every gameweek in
+    horizon_ep_versions rather than just target_gameweek's own. ep_model_version/
+    uncertainty_model_version are still recorded on squad_optimizer_runs (the run's own
+    "as of which target-gameweek model" identity for audit trails) and still drive the
+    bench-quality p_start_final join below, even though they no longer solely drive mu/var --
+    p_start_final is gameweek-agnostic (see fetch_candidate_pool's own docstring) so using the
+    target gameweek's own minutes-model output for it is correct, not a mismatch."""
     lam, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", lambda_params_version)
     guardrail_cap, _ = params_mod.resolve_param(
         con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", guardrail_params_version
     )
 
-    candidates = fetch_candidate_pool(con, ep_model_version, uncertainty_model_version, target_season)
+    if horizon_ep_versions:
+        candidates = fetch_horizon_candidate_pool(con, horizon_ep_versions, target_season)
+    else:
+        candidates = fetch_candidate_pool(con, ep_model_version, uncertainty_model_version, target_season)
     if len(candidates) < 15:
         raise ValueError(f"candidate pool has only {len(candidates)} priced players -- cannot fill a 15-player squad")
     player_uids = {c["player_uid"] for c in candidates}
-    sigma_pairs = fetch_sigma_pairs(con, uncertainty_model_version, player_uids)
+    if horizon_ep_versions:
+        sigma_pairs = fetch_horizon_sigma_pairs(con, horizon_ep_versions, player_uids)
+    else:
+        sigma_pairs = fetch_sigma_pairs(con, uncertainty_model_version, player_uids)
 
     if (ownership_params_version is None) != (risk_posture_params_version is None):
         raise ValueError(

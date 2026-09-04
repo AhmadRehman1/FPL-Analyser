@@ -1093,9 +1093,16 @@ def evaluate_wildcard(
     if target_gameweek not in horizon_ep_versions:
         return {"recommended": False, "reason": "no fixtures this gameweek -- cannot rebuild"}
     ep_mv, un_mv = horizon_ep_versions[target_gameweek]
+    # horizon_ep_versions=horizon_ep_versions -- a real bug fixed here: this used to call
+    # run() with just target_gameweek's own (ep_mv, un_mv), the exact same single-gameweek
+    # shape evaluate_free_hit() correctly uses. Wildcard locks the squad in for every
+    # gameweek in the horizon, not just the one it's played -- see squad_optimizer.
+    # fetch_horizon_candidate_pool()'s own docstring for the full reasoning. Passing the
+    # whole horizon here makes the rebuild score mu/var/Sigma summed across it, not just
+    # target_gameweek's own numbers.
     fresh_run_id = squad_optimizer.run(
         con, calibration_asof_date, target_season, target_gameweek, ep_mv, un_mv,
-        lambda_params_version, guardrail_params_version,
+        lambda_params_version, guardrail_params_version, horizon_ep_versions=horizon_ep_versions,
     )
     fresh_uids = {
         r[0] for r in con.execute(
