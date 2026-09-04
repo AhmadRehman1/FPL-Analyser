@@ -1812,3 +1812,26 @@ honest "couldn't check" where it wasn't, not a guess dressed up as a finding.
 - **Same early-season limitation as everything downstream of `forward_season_sim`.** Far-out
   weeks differ by fixtures and expected minutes, not form, until the season fills in. Disclosed
   in the sheet's own footer.
+- **A real bug found and fixed here: the Wildcard squad this whole module surfaces was never
+  actually solved against the horizon.** `evaluate_wildcard()` called `squad_optimizer.run()`
+  with just `target_gameweek`'s own `(ep_model_version, uncertainty_model_version)` pair -- the
+  exact same single-gameweek call shape `evaluate_free_hit()` correctly uses (its own docstring
+  already said as much: "One-gameweek-only rebuild (unlike Wildcard, only target_gameweek's own
+  EP, not the whole horizon...)" -- Wildcard was supposed to differ, and didn't). A squad you
+  Wildcard into is held for every gameweek in the plan's horizon, not just the one it's played,
+  so scoring the rebuild on one week's numbers alone is blind to exactly the fixture-swing
+  trades it should be weighing -- a premium player having one tougher week among several strong
+  ones (this project's own real GW1 2026-27 data reproduces it: Erling Haaland's GW4 mu is the
+  weakest of his GW3-10 horizon, so the old single-gameweek solve never selected him at any
+  price, despite a real ~5.3m of unspent budget in the rebuild). `transfer_planner`'s own
+  `_horizon_ep_by_player()` already sums mu across the horizon this same way for ranking
+  ordinary transfers -- Wildcard's own full rebuild was the one path still blind to it. Fixed
+  with `squad_optimizer.fetch_horizon_candidate_pool()`/`fetch_horizon_sigma_pairs()` (mu/var/
+  Sigma summed across every gameweek in `horizon_ep_versions`, independence-across-gameweeks
+  assumed for both, same simplifying assumption cross-player Sigma already makes within one
+  gameweek) and a new optional `run(horizon_ep_versions=...)` kwarg that swaps them in --
+  no-op by default (every existing single-gameweek caller, Free Hit included, is unaffected),
+  wired through from `evaluate_wildcard()` only. `ep_model_version`/`uncertainty_model_version`
+  still drive `squad_optimizer_runs`' own audit identity and the bench-quality `p_start_final`
+  join (gameweek-agnostic, so no mismatch there); only the candidates' mu/var and the
+  cross-player Sigma actually change.

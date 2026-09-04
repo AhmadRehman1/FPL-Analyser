@@ -3292,6 +3292,18 @@ function chipTimingCard() {
   const fh = (r.free_hit_scan || []).slice().sort((a, b) => b.free_hit_gain - a.free_hit_gain)[0];
   const nextGw = (state.realSquad && state.realSquad.plan_for_gameweek) ?? state.team.gameweek;
   const holdNow = bestGw > nextGw;
+  // Full sweep window is a fixed GW4-19 (16 candidate weeks -- see run_chip_timing_arm.py's own
+  // doc, "A GW4-19 sweep is 16 forced walks + hold + model_choice per team = 36 arms"), run a
+  // few arms at a time over many scheduled workflow runs, not all at once. partialWindow alone
+  // ("does the swept range touch both GW4 and GW19 yet") doesn't capture HOW early the sweep
+  // still is: 2 of 16 weeks evaluated and 15 of 16 evaluated are both "partial," but only one of
+  // those is thin enough that "GWx leads" is barely more than "GWx beat the one other week
+  // tried so far" -- a real UX bug this fixes: the verdict pill/copy below used to look exactly
+  // as confident either way. sweepEarly gates that: under half the window swept means the
+  // headline gets demoted from a confident recommendation to an honest "so far" readout.
+  const FULL_SWEEP_WEEKS = 16;
+  const sweptCount = c.sweep_gameweeks ? c.sweep_gameweeks.length : 0;
+  const sweepEarly = sweptCount > 0 && sweptCount < FULL_SWEEP_WEEKS / 2;
   const partialWindow = c.sweep_gameweeks && (Math.min(...c.sweep_gameweeks) > 4 || Math.max(...c.sweep_gameweeks) < 19);
   return `
     <div class="section">
@@ -3300,21 +3312,23 @@ function chipTimingCard() {
           <span class="card-title" style="margin:0;">Chip timing</span>
           <span style="font-size:10px;color:var(--ink-dim2);font-weight:600;">full-season sweep${c.eval_end_gameweek ? ` &middot; scored to GW${c.eval_end_gameweek}` : ""}</span>
         </div>
-        <div class="verdict" style="background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));margin-bottom:10px;">
-          <span class="action" style="color:oklch(0.38 0.15 30);">Wildcard &middot; GW${bestGw}</span>
-          ${bestDelta != null ? `<span class="nums" style="color:oklch(0.42 0.1 30);">+${bestDelta.toFixed(0)}&nbsp;pts vs holding</span>` : ""}
+        <div class="verdict" style="background:${sweepEarly ? "linear-gradient(155deg,oklch(0.95 0.03 60),oklch(0.92 0.04 60))" : "linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30))"};margin-bottom:10px;">
+          <span class="action" style="color:${sweepEarly ? "oklch(0.45 0.08 60)" : "oklch(0.38 0.15 30)"};">Wildcard &middot; GW${bestGw}${sweepEarly ? ` <span style="font-weight:500;">(so far)</span>` : ""}</span>
+          ${bestDelta != null ? `<span class="nums" style="color:${sweepEarly ? "oklch(0.5 0.06 60)" : "oklch(0.42 0.1 30)"};">+${bestDelta.toFixed(0)}&nbsp;pts vs holding</span>` : ""}
         </div>
         <p style="font-size:12px;color:var(--ink-dim);line-height:1.6;margin:0 0 10px;">
-          ${holdNow
-            ? `<b style="color:var(--ink);">Hold your Wildcard</b> &mdash; the full-horizon sweep projects GW${bestGw} as the best week to rebuild, worth about +${bestDelta != null ? bestDelta.toFixed(0) : "?"} points over holding through GW${c.eval_end_gameweek}. The weekly card says "play it now" only because it can see just 5 gameweeks ahead${c.greedy_gameweek != null ? ` (it picks GW${c.greedy_gameweek})` : ""}.`
-            : `The sweep's best Wildcard week is <b style="color:var(--ink);">GW${bestGw}</b> &mdash; that's now or imminent, so playing it is live.`}
+          ${sweepEarly
+            ? `Only <b style="color:var(--ink);">${sweptCount} of ${FULL_SWEEP_WEEKS}</b> candidate weeks have been swept so far &mdash; GW${bestGw} leads by +${bestDelta != null ? bestDelta.toFixed(0) : "?"} pts vs holding among those, but it's too early to call this the best week yet. The true best week could easily sit among the ${FULL_SWEEP_WEEKS - sweptCount} not evaluated yet.`
+            : holdNow
+              ? `<b style="color:var(--ink);">Hold your Wildcard</b> &mdash; the full-horizon sweep projects GW${bestGw} as the best week to rebuild, worth about +${bestDelta != null ? bestDelta.toFixed(0) : "?"} points over holding through GW${c.eval_end_gameweek}. The weekly card says "play it now" only because it can see just 5 gameweeks ahead${c.greedy_gameweek != null ? ` (it picks GW${c.greedy_gameweek})` : ""}.`
+              : `The sweep's best Wildcard week is <b style="color:var(--ink);">GW${bestGw}</b> &mdash; that's now or imminent, so playing it is live.`}
         </p>
         ${fh ? `<div class="stat-list" style="margin-bottom:10px;">
           <div class="sl-row"><div class="sl-label">Best Free Hit week</div><div class="sl-value">GW${fh.gameweek} <span style="color:var(--ink-dim2);font-weight:500;">(+${fh.free_hit_gain.toFixed(1)})</span></div></div>
           ${r.bench_boost_window && r.bench_boost_window.length ? `<div class="sl-row"><div class="sl-label">Bench Boost window</div><div class="sl-value">GW${r.bench_boost_window[0].gameweek ?? r.bench_boost_window[0]}</div></div>` : ""}
           <div class="sl-row"><div class="sl-label">Wildcard stable across param sets</div><div class="sl-value">${r.sensitivity && r.sensitivity.wildcard_stable ? "yes" : "no"}</div></div>
         </div>` : ""}
-        ${partialWindow ? `<p style="font-size:10.5px;color:oklch(0.5 0.15 60);background:oklch(0.95 0.05 60);border-radius:8px;padding:6px 9px;margin:0 0 8px;">Sweep so far covers GW${Math.min(...c.sweep_gameweeks)}&ndash;${Math.max(...c.sweep_gameweeks)} only &mdash; the best week could sit outside it until the full GW4&ndash;19 run lands.</p>` : ""}
+        ${partialWindow && !sweepEarly ? `<p style="font-size:10.5px;color:oklch(0.5 0.15 60);background:oklch(0.95 0.05 60);border-radius:8px;padding:6px 9px;margin:0 0 8px;">Sweep so far covers GW${Math.min(...c.sweep_gameweeks)}&ndash;${Math.max(...c.sweep_gameweeks)} only &mdash; the best week could sit outside it until the full GW4&ndash;19 run lands.</p>` : ""}
         <button class="local-btn" onclick="openChipTimingSheet()">See the full sweep</button>
         ${provenanceLine({ data_asof: (r.generated_at || "").slice(0, 10), model_version: r.active_param_bundle })}
       </div>
