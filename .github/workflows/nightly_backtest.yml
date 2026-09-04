@@ -49,7 +49,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          # 3.12 (was 3.11): requirements-research.txt now floors xgboost>=3.4.1 (Dependabot
+          # #96) and requirements.txt numpy>=2.5.2 / scipy>=1.18.1 -- none publish cp311
+          # wheels, so the install step could not resolve. Local dev is 3.12; requirements.lock
+          # (numpy 2.4.6) stays 3.12-clean. Matches tests.yml (#112).
+          python-version: "3.12"
 
       # Pinned lockfile, not requirements.txt -- SCIP tie-breaking and DuckDB constraint
       # behavior are version-sensitive here (see requirements.lock's own header).
