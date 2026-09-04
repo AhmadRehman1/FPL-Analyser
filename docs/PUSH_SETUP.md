@@ -77,3 +77,12 @@ a price move on a squad player, or — within `PUSH_ALERT_LEAD_HOURS` (default 3
 — an unconfirmed pending transfer/chip recommendation. If anything fires, the run sends **one**
 Web Push (highest-priority alert, "+N more") to every subscription in the gist and prunes any
 the push service reports as expired.
+
+## Setup consistency check
+
+`scheduled_pipeline.yml` also runs `scripts/verify_push_setup.py` early in every run. It's
+stdlib-only, never fails the run, and stays silent while push is unconfigured (the default). It
+logs a GitHub `::warning::` only for a **half-configured** state — the VAPID/gist secrets are
+set but `index.html`'s `VAPID_PUBLIC_KEY` is still empty (or vice versa), or the client key and
+the `VAPID_PUBLIC_KEY` secret disagree — because that state is otherwise silently inert. If you
+do steps 1–3 above and see no warning on the next scheduled run, both halves match.

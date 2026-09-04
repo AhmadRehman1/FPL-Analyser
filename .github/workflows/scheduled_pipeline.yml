@@ -65,6 +65,22 @@ jobs:
         with:
           python-version: "3.11"
 
+      # App gap 1 follow-up: a non-fatal, stdlib-only consistency check between index.html's
+      # VAPID_PUBLIC_KEY literal and the VAPID/gist repo secrets below. Logs a ::warning:: ONLY
+      # when exactly one half of Web Push is configured (the silently-inert state) -- staying
+      # quiet in the repo default (neither half set up). Never fails the run. Runs early, before
+      # the ~90-minute pipeline, so a config nudge surfaces even if a later step errors. The
+      # secrets are mapped in only so the script can see whether each name is set (it never
+      # prints a value); a fork without them just sees "not configured" and stays silent.
+      - name: Check Web Push setup consistency (advisory)
+        env:
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          PUSH_SUBSCRIPTIONS_GIST: ${{ secrets.PUSH_SUBSCRIPTIONS_GIST }}
+          GIST_PAT: ${{ secrets.GIST_PAT }}
+        run: python scripts/verify_push_setup.py
+
       # Pinned lockfile, not requirements.txt -- see requirements.lock's own header for why
       # (SCIP tie-breaking and DuckDB constraint behavior are version-sensitive here).
       - name: Install dependencies
