@@ -247,7 +247,17 @@ jobs:
       # loads ONLY when the user flips the Plan-tab toggle. continue-on-error: this is an
       # opt-in what-if, not the recommendation of record -- a failure here must not block the
       # balanced snapshot, decision log, report, or commit for the real accounts.
+      #
+      # Cost trim (PR #137 follow-up): this MIQP variant (~13 min) and the chip-timing roadmap
+      # step below (~20 min) barely move between the two runs this early in the season (few
+      # gameweeks played, fixture/form signals not yet settled). Run them on the 06:00 UTC
+      # invocation only, not 18:00 -- and always on a manual workflow_dispatch, so an operator
+      # asking for a full refresh still gets one. `github.event.schedule` is the cron string
+      # that triggered this run; it is unset for workflow_dispatch, so `!= 'schedule'` is the
+      # "manual run" branch. The balanced snapshot, grade/explain, report, and alerts are
+      # untouched and still run every invocation.
       - name: Plan transfers -- Attack-rank risk posture (opt-in variant)
+        if: github.event_name != 'schedule' || github.event.schedule == '0 6 * * *'
         continue-on-error: true
         env:
           EVENT: ${{ steps.gw.outputs.event }}
@@ -285,7 +295,16 @@ jobs:
       # covering GW3-19 -- see the script's own docstring for what "swing" means and its real
       # caveat (squad composition will change via transfers before most of these gameweeks
       # arrive, so this is a live-refreshed signal, not a locked-in plan).
+      #
+      # 06:00-only, same rationale as the attack-posture step above: this runs an
+      # evaluate_wildcard() MIQP (~20 min) per candidate window, and the roadmap barely shifts
+      # between the two daily runs this early. run_report.py already constrains its
+      # squad_optimizer_runs lookup to target_gameweek <= current_event, so a run WITHOUT the
+      # roadmap's future-dated evaluate_wildcard() rows produces an identical report; the DB is
+      # rebuilt from ingestion every run, and forward_season_sim.yml / weekly_backtest.yml
+      # restore the `duckdb-` cache saved BEFORE this step, so nothing downstream regresses.
       - name: Print first-half chip-timing roadmap
+        if: github.event_name != 'schedule' || github.event.schedule == '0 6 * * *'
         run: PYTHONPATH=src python scripts/print_chip_timing_roadmap.py
 
       # Roadmap Feature 1's real per-player, per-gameweek xPts table (scripts/export_projections.py)
