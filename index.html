@@ -148,6 +148,24 @@
   .live .dot{width:6px;height:6px;border-radius:50%;background:var(--live);box-shadow:0 0 0 3px oklch(0.94 0.18 130/0.25);animation:pulse 1.8s ease-in-out infinite;}
   @keyframes pulse{50%{opacity:0.4;}}
 
+  /* ---- Per-feed freshness badge (PR #137 Tier-A / Tier-B split follow-up) ----
+     The app refreshes on two cadences now: live_data.yml rewrites app_*.json every ~2h
+     (Tier A "live"), scheduled_pipeline.yml rewrites the model feeds roughly twice a day
+     (Tier B "model"). A single global "Last run" line can't distinguish a stale price feed
+     from a stale recommendation, so each data section carries its own "updated Nm ago" chip.
+     A status dot carries the state (neutral fresh / amber past the tier threshold / red past
+     ~2x) so the badge stays legible on both the dark hero header and the light cards. */
+  .fresh-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--ink-dim2);white-space:nowrap;letter-spacing:0.01em;}
+  .fresh-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ink-dim2);flex:none;}
+  .fresh-badge.is-fresh::before{background:var(--fdr-easy);}
+  .fresh-badge.is-stale{color:var(--amber);}
+  .fresh-badge.is-stale::before{background:var(--amber);}
+  .fresh-badge.is-failed{color:var(--red);}
+  .fresh-badge.is-failed::before{background:var(--red);}
+  .ts .fresh-badge{color:var(--on-dark-dim);}
+  .ts .fresh-badge.is-stale{color:var(--fdr-mid);}
+  .ts .fresh-badge.is-failed{color:oklch(0.82 0.16 25);}
+
   /* ---- layout ---- */
   /* ---- Phase 1: app row -- wraps the (phone-hidden) side-nav + main so a tablet/desktop nav
      rail/sidebar can sit as a real flex sibling of main instead of an overlay. On phone this is
@@ -1986,6 +2004,83 @@ function fmtTime(iso, opts) {
   return new Date(iso).toLocaleString(undefined, opts || { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 function fmtMoney(v) { return v == null ? "&mdash;" : `£${v.toFixed(1)}m`; }
+
+// ---- Per-feed freshness (PR #137 Tier-A / Tier-B split follow-up) -----------------------------
+// Two refresh cadences now feed the app: live_data.yml rewrites app_*.json every ~2h (Tier A),
+// scheduled_pipeline.yml rewrites the model feeds (real_squad_* / projections_latest /
+// chip_timing_roadmap / forward_plan_latest) roughly twice a day (Tier B). freshnessBadge() is
+// the one reusable "updated Nm ago" chip; each data section renders its own against its tier's
+// threshold instead of the app showing a single global "Last run" line that can't tell a stale
+// price feed from a stale recommendation. Every dashboard/forward_plan JSON already carries
+// generated_at (ISO UTC); freshnessTsOf() falls back to data_asof (a YYYY-MM-DD date, so coarser
+// -- it parses to UTC midnight) only if a feed somehow lacks generated_at.
+const FRESHNESS_TIERS = {
+  live: { amberMs: 90 * 60 * 1000, redMs: 4 * 60 * 60 * 1000 },
+  model: { amberMs: 14 * 60 * 60 * 1000, redMs: 30 * 60 * 60 * 1000 },
+};
+
+function freshnessTsOf(payload) {
+  if (!payload) return null;
+  return payload.generated_at || payload.data_asof || null;
+}
+
+// "12m" / "3h 5m" / "2d 4h" -- coarse, human, no seconds.
+function fmtAge(ms) {
+  const totalMin = Math.floor(Math.max(0, ms) / 60000);
+  if (totalMin < 60) return `${totalMin}m`;
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  if (h < 24) return m ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+}
+
+function _freshnessText(ageMs) {
+  if (ageMs == null) return "age unknown";
+  if (ageMs < 60000) return "updated just now";
+  return `updated ${fmtAge(ageMs)} ago`;
+}
+
+// state from age: null age (unparseable timestamp) -> "unknown"; past redMs -> "failed";
+// past amberMs -> "stale"; else "fresh". `tier` is a FRESHNESS_TIERS key or an explicit
+// {amberMs, redMs}.
+function freshnessState(ageMs, tier) {
+  const t = (typeof tier === "string" ? FRESHNESS_TIERS[tier] : tier) || FRESHNESS_TIERS.model;
+  if (ageMs == null || !Number.isFinite(ageMs)) return "unknown";
+  if (ageMs >= t.redMs) return "failed";
+  if (ageMs >= t.amberMs) return "stale";
+  return "fresh";
+}
+
+function _freshnessAge(timestamp, nowMs) {
+  const parsed = timestamp ? Date.parse(timestamp) : NaN;
+  return Number.isNaN(parsed) ? null : Math.max(0, (nowMs || Date.now()) - parsed);
+}
+
+// The one reusable renderer. `timestamp` is an ISO datetime (generated_at) or YYYY-MM-DD
+// (data_asof); `tier` is "live" | "model" (or an explicit {amberMs, redMs}); `label` an optional
+// prefix ("Live data", "Model"). Carries its inputs as data-* so tickFreshnessBadges() can
+// re-age every badge in place on a 60s interval, with no refetch.
+function freshnessBadge(timestamp, tier, label, nowMs) {
+  const ageMs = _freshnessAge(timestamp, nowMs);
+  const st = freshnessState(ageMs, tier);
+  const tierKey = typeof tier === "string" ? tier : "custom";
+  const lbl = label ? `${escapeHtml(label)} · ` : "";
+  const parsed = timestamp ? Date.parse(timestamp) : NaN;
+  const title = Number.isNaN(parsed) ? "" : ` title="${escapeHtml(fmtTime(new Date(parsed).toISOString()))}"`;
+  return `<span class="fresh-badge is-${st}" role="status" data-fresh-ts="${escapeHtml(timestamp || "")}" data-fresh-tier="${escapeHtml(tierKey)}" data-fresh-label="${escapeHtml(label || "")}"${title}>${lbl}${_freshnessText(ageMs)}</span>`;
+}
+
+// Re-age every rendered badge from its own data-fresh-ts, without refetching anything. Wired to
+// a 60s interval in init().
+function tickFreshnessBadges() {
+  const now = Date.now();
+  document.querySelectorAll(".fresh-badge[data-fresh-ts]").forEach((el) => {
+    const ageMs = _freshnessAge(el.dataset.freshTs, now);
+    el.className = `fresh-badge is-${freshnessState(ageMs, el.dataset.freshTier || "model")}`;
+    const lbl = el.dataset.freshLabel ? `${el.dataset.freshLabel} · ` : "";
+    el.textContent = `${lbl}${_freshnessText(ageMs)}`;
+  });
+}
 function fmtCompact(n) {
   if (n == null) return "&mdash;";
   const sign = n < 0 ? "-" : "";
@@ -2051,6 +2146,7 @@ async function loadShared() {
     state.playersById = Object.fromEntries(state.players.map(p => [p.id, p]));
     state.fixtures = mock.fixtures.gameweeks;
     state.roadmap = mock.roadmap; state.trackRecord = mock.trackRecord; state.priceWatch = mock.priceWatch;
+    state.liveDataTs = new Date().toISOString();
     document.getElementById("updated-at").textContent = "Development data — not a real run";
     return;
   }
@@ -2093,7 +2189,11 @@ async function loadShared() {
   state.modelTeam = modelTeam;
   state.chipTiming = chipTiming;
   state.forwardPlan = forwardPlan;
-  document.getElementById("updated-at").textContent = `Last run: ${fmtTime(playersPayload.generated_at)}`;
+  // Tier A ("live") freshness: app_players/app_fixtures are written together by live_data.yml's
+  // single export step, so app_players' generated_at is the age of the whole live feed. The
+  // per-section model-tier badges read their own payloads' generated_at directly.
+  state.liveDataTs = freshnessTsOf(playersPayload) || freshnessTsOf(fixturesPayload);
+  document.getElementById("updated-at").innerHTML = freshnessBadge(state.liveDataTs, "live", "Live data");
 }
 
 async function loadAccount(id) {
@@ -3068,7 +3168,10 @@ function movesThisWeekCard() {
   ].filter(Boolean).join("");
   if (!rows) return "";
   return `
-    <div class="card-title">Your moves this week</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+      <div class="card-title">Your moves this week</div>
+      ${freshnessBadge(freshnessTsOf(rs), "model", "Model")}
+    </div>
     ${postureBanner}
     ${rows}
     <p style="font-size:10.5px;color:var(--ink-dim2);margin:12px 0 0;line-height:1.5;">
@@ -3133,7 +3236,10 @@ function explainMoveCard() {
   return `
     <div class="section">
       <div class="card">
-        <div class="card-title">Explain my move</div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+          <div class="card-title">Explain my move</div>
+          ${freshnessBadge(freshnessTsOf(state.realSquad) || freshnessTsOf(d), "model", "Model")}
+        </div>
         <div class="verdict" style="background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));margin-bottom:12px;">
           <span class="action" style="color:oklch(0.32 0.1 250);">${escapeHtml(d.action_display || d.action)}</span>
           <span class="nums" style="color:oklch(0.38 0.05 250);">${d.ep_lift >= 0 ? "+" : ""}${d.ep_lift.toFixed(2)}&nbsp;EP</span>
@@ -5252,7 +5358,8 @@ function renderPlan() {
   const focusGw = state.planTimelineFocusGw || state.planViewGw;
 
   el.innerHTML = `
-    <div class="section-title" style="margin-bottom:10px;"><span>Transfer planner</span><span class="link-sm" onclick="location.hash='plan-compare'">Compare drafts &rsaquo;</span></div>
+    <div class="section-title" style="margin-bottom:4px;"><span>Transfer planner</span><span class="link-sm" onclick="location.hash='plan-compare'">Compare drafts &rsaquo;</span></div>
+    <div style="margin:0 0 12px;">${freshnessBadge(freshnessTsOf(state.realSquad) || freshnessTsOf(state.forwardPlan), "model", "Plan")}</div>
     ${riskPostureCard()}
     ${planDraftPickerBlock()}
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;">
@@ -5403,6 +5510,7 @@ function swingRoadmapCard(account, maxAbs) {
         <span class="card-title" style="margin:0;">Fixture swing roadmap</span>
         <span style="font-size:10px;color:var(--ink-dim2);font-weight:600;">GW${account.weekly_swing[0].gameweek}&ndash;${account.weekly_swing[account.weekly_swing.length - 1].gameweek}</span>
       </div>
+      <div style="margin-bottom:6px;">${freshnessBadge(freshnessTsOf(roadmap), "model", "Model")}</div>
       <div style="font-size:11px;color:var(--ink-dim);margin-bottom:${thinSample ? "6px" : "12px"};">Negative = easier run for this squad's clubs</div>
       ${thinSample ? `<div style="font-size:10.5px;color:oklch(0.55 0.15 60);background:oklch(0.94 0.06 60);border-radius:8px;padding:6px 9px;margin-bottom:12px;">Only ${roadmap.n_matches_played_this_season} matches played so far this season &mdash; ${roadmap.reliability_note}</div>` : ""}
       ${rows}
@@ -5451,6 +5559,7 @@ function renderFixtures() {
         <button class="gw-btn" id="fixtures-next" onclick="shiftFixturesGw(1)" aria-label="Next gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
       </div>
     </div>
+    <div style="margin:-6px 0 12px;">${freshnessBadge(state.liveDataTs, "live", "Live data")}</div>
     <div id="fixtures-list"></div>
     ${account ? `<div class="section" style="margin-top:6px;">${swingRoadmapCard(account, maxAbs)}</div>` : ""}
   `;
@@ -6358,6 +6467,32 @@ async function promptInstall() {
   document.getElementById("install-btn").hidden = true;
 }
 
+// Returning to a backgrounded tab (or reconnecting after an outage) can mean the on-screen data
+// is now hours stale -- either tier may have refreshed while the app wasn't visible, and nothing
+// would otherwise re-pull until the next manual pull-to-refresh. Re-fetch every feed on
+// visibilitychange/online (same cache:"no-store" path pull-to-refresh uses), throttled so a
+// burst of focus/online events can't stampede raw.githubusercontent.com.
+let _lastRefetchAt = 0;
+let _refetchInFlight = false;
+async function refetchAllData() {
+  if (_refetchInFlight || !state.players) return; // not while one is running, or before first load
+  if (Date.now() - _lastRefetchAt < 30_000) return;
+  _refetchInFlight = true;
+  try {
+    state.staleSince = null;
+    await loadShared();
+    await loadAccount(state.accountId);
+    updateStaleBanner();
+    renderCurrentTab();
+    await pollLiveData();
+    _lastRefetchAt = Date.now();
+  } catch {
+    // loadShared/loadAccount already fall back to cached data on a real network failure.
+  } finally {
+    _refetchInFlight = false;
+  }
+}
+
 async function init() {
   try {
     state.isMock = isDevModeRequested();
@@ -6383,6 +6518,11 @@ async function init() {
     pollLiveData();
     setInterval(pollLiveData, LIVE_POLL_INTERVAL_MS);
     setInterval(tickDeadlineCountdown, 60_000);
+    // Re-age every freshness badge from its own stored timestamp -- no refetch, just relabels
+    // "updated 1h ago" -> "2h ago" and flips fresh/stale/failed as thresholds are crossed.
+    setInterval(tickFreshnessBadges, 60_000);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refetchAllData(); });
+    window.addEventListener("online", refetchAllData);
   } catch (err) {
     document.getElementById("home-content").innerHTML = `
       <div class="card">
