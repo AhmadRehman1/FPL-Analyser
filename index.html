@@ -5510,6 +5510,7 @@ function swingRoadmapCard(account, maxAbs) {
         <span class="card-title" style="margin:0;">Fixture swing roadmap</span>
         <span style="font-size:10px;color:var(--ink-dim2);font-weight:600;">GW${account.weekly_swing[0].gameweek}&ndash;${account.weekly_swing[account.weekly_swing.length - 1].gameweek}</span>
       </div>
+      <div style="margin-bottom:6px;">${freshnessBadge(freshnessTsOf(roadmap), "model", "Model")}</div>
       <div style="font-size:11px;color:var(--ink-dim);margin-bottom:${thinSample ? "6px" : "12px"};">Negative = easier run for this squad's clubs</div>
       ${thinSample ? `<div style="font-size:10.5px;color:oklch(0.55 0.15 60);background:oklch(0.94 0.06 60);border-radius:8px;padding:6px 9px;margin-bottom:12px;">Only ${roadmap.n_matches_played_this_season} matches played so far this season &mdash; ${roadmap.reliability_note}</div>` : ""}
       ${rows}
