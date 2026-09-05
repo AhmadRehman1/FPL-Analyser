@@ -1,12 +1,14 @@
 {
   "ready": true,
   "season": "2026-2027",
-  "current_gameweek": 2,
+  "current_gameweek": 3,
   "n_gameweeks_scored": 2,
   "n_gameweeks_simulated": 1,
   "total_realized_points": 93.0,
   "total_vs_field": -38.0,
-  "chips_used": [],
+  "chips_used": [
+    "free_hit"
+  ],
   "weeks": [
     {
       "gameweek": 1,
@@ -31,32 +33,29 @@
       "delta_vs_field": -30.0,
       "cumulative_points": 93.0,
       "cumulative_vs_field": -38.0
+    },
+    {
+      "gameweek": 3,
+      "simulated": false,
+      "action": "free_hit",
+      "action_detail": "",
+      "projected_points": 78.23,
+      "realized_points": null,
+      "field_average": null,
+      "delta_vs_field": null,
+      "cumulative_points": null,
+      "cumulative_vs_field": null
     }
   ],
   "current_squad": [
     {
-      "name": "Bart Verbruggen",
-      "in_xi": false,
+      "name": "Alexander Isak",
+      "in_xi": true,
       "is_captain": false
     },
     {
       "name": "Bernd Leno",
-      "in_xi": true,
-      "is_captain": false
-    },
-    {
-      "name": "Bruno Borges Fernandes",
-      "in_xi": true,
-      "is_captain": false
-    },
-    {
-      "name": "Cody Gakpo",
       "in_xi": false,
-      "is_captain": false
-    },
-    {
-      "name": "Dara O'Shea",
-      "in_xi": true,
       "is_captain": false
     },
     {
@@ -65,56 +64,71 @@
       "is_captain": false
     },
     {
-      "name": "Elliot Anderson",
+      "name": "Erling Haaland",
       "in_xi": true,
       "is_captain": false
     },
     {
       "name": "Ethan Ampadu",
       "in_xi": true,
+      "is_captain": true
+    },
+    {
+      "name": "Gianluigi Donnarumma",
+      "in_xi": true,
       "is_captain": false
     },
     {
-      "name": "Igor Jesus Maciel da Cruz",
+      "name": "Granit Xhaka",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Igor Thiago Nascimento Rodrigues",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "James Garner",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Luke Shaw",
       "in_xi": false,
       "is_captain": false
     },
     {
-      "name": "James Tarkowski",
+      "name": "Marc Gu\u00e9hi",
       "in_xi": true,
       "is_captain": false
     },
     {
       "name": "Marcos Senesi Bar\u00f3n",
       "in_xi": true,
-      "is_captain": true
+      "is_captain": false
     },
     {
-      "name": "Morgan Rogers",
+      "name": "Neco Williams",
       "in_xi": false,
       "is_captain": false
     },
     {
-      "name": "Nathan Collins",
+      "name": "Nikola Milenkovi\u0107",
       "in_xi": true,
       "is_captain": false
     },
     {
-      "name": "Ollie Watkins",
-      "in_xi": true,
-      "is_captain": false
-    },
-    {
-      "name": "Pascal Struijk",
-      "in_xi": true,
+      "name": "Will Hughes",
+      "in_xi": false,
       "is_captain": false
     }
   ],
   "next_decision": {
-    "gameweek": 2,
-    "action": "transfer",
-    "detail": "player_maxence_lacroix -> player_pascal_struijk (net +3.72)"
+    "gameweek": 3,
+    "action": "free_hit",
+    "detail": ""
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark.",
-  "generated_at": "2026-09-04T12:25:43.669336+00:00"
+  "generated_at": "2026-09-04T22:12:18.050396+00:00"
 }
