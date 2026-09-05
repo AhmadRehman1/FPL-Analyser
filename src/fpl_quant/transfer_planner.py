@@ -1267,6 +1267,7 @@ def evaluate_free_hit(
     return {
         "recommended": gain > threshold, "fresh_run_id": fresh_run_id,
         "fresh_gw_value": fresh_gw_value, "current_gw_value": current_gw_value, "gain": gain,
+        "threshold": threshold,
         "current_xi_value_per_gw": current_xi_value_per_gw,
     }
 

@@ -396,6 +396,10 @@ def test_evaluate_free_hit_uses_its_own_threshold_family_not_wildcards(con):
     )
     assert "gain" in result
     assert isinstance(result["recommended"], bool)
+    # the threshold it actually resolved is surfaced for the decision audit -- and it is the
+    # free_hit family's value (1.5), not wildcard's (8.0)
+    assert result["threshold"] == 1.5
+    assert result["recommended"] == (result["gain"] > 1.5)
 
 
 def test_evaluate_free_hit_raises_if_only_wildcards_family_is_seeded(con):
