@@ -4,14 +4,14 @@
   "gameweek": 3,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 1,
+  "live_total": 48,
   "players": [
     {
       "player_id": 496,
       "web_name": "Kinsky",
-      "live_points": 0,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     },
     {
       "player_id": 4,
@@ -23,9 +23,9 @@
     {
       "player_id": 534,
       "web_name": "Hume",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 418,
@@ -44,9 +44,9 @@
     {
       "player_id": 399,
       "web_name": "Cherki",
-      "live_points": 0,
+      "live_points": 3,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 3
     },
     {
       "player_id": 557,
@@ -58,9 +58,9 @@
     {
       "player_id": 124,
       "web_name": "Gro\u00df",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 464,
@@ -72,9 +72,9 @@
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 12,
+      "provisional_bonus": 3,
+      "contribution": 36
     },
     {
       "player_id": 165,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 18.5,
-    "estimated_rank": 8535969
+    "percentile": 80.5,
+    "estimated_rank": 2044403
   },
   "fixtures": [
     {
@@ -123,6 +123,91 @@
         "name": "Bournemouth",
         "score": 2
       }
+    },
+    {
+      "id": 22,
+      "kickoff": "2026-09-05T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "BRE",
+        "name": "Brentford",
+        "score": 1
+      },
+      "away": {
+        "short_name": "SUN",
+        "name": "Sunderland",
+        "score": 1
+      }
+    },
+    {
+      "id": 23,
+      "kickoff": "2026-09-05T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "BHA",
+        "name": "Brighton",
+        "score": 1
+      },
+      "away": {
+        "short_name": "LEE",
+        "name": "Leeds",
+        "score": 1
+      }
+    },
+    {
+      "id": 24,
+      "kickoff": "2026-09-05T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "FUL",
+        "name": "Fulham",
+        "score": 2
+      },
+      "away": {
+        "short_name": "CRY",
+        "name": "Crystal Palace",
+        "score": 3
+      }
+    },
+    {
+      "id": 26,
+      "kickoff": "2026-09-05T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "MCI",
+        "name": "Man City",
+        "score": 1
+      },
+      "away": {
+        "short_name": "COV",
+        "name": "Coventry City",
+        "score": 0
+      }
+    },
+    {
+      "id": 28,
+      "kickoff": "2026-09-05T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NFO",
+        "name": "Nott'm Forest",
+        "score": 0
+      },
+      "away": {
+        "short_name": "TOT",
+        "name": "Spurs",
+        "score": 0
+      }
     }
   ],
   "events": [
@@ -143,6 +228,86 @@
       "fixture_id": 27
     },
     {
+      "player_id": 96,
+      "web_name": "Damsgaard",
+      "team": 4,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 22
+    },
+    {
+      "player_id": 98,
+      "web_name": "Janelt",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 22
+    },
+    {
+      "player_id": 115,
+      "web_name": "De Cuyper",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 23
+    },
+    {
+      "player_id": 204,
+      "web_name": "Mitchell",
+      "team": 8,
+      "event": "goal",
+      "count": 2,
+      "fixture_id": 24
+    },
+    {
+      "player_id": 211,
+      "web_name": "Yeremy",
+      "team": 8,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 24
+    },
+    {
+      "player_id": 214,
+      "web_name": "Kamada",
+      "team": 8,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 24
+    },
+    {
+      "player_id": 224,
+      "web_name": "Nketiah",
+      "team": 8,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 24
+    },
+    {
+      "player_id": 268,
+      "web_name": "King",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 24
+    },
+    {
+      "player_id": 330,
+      "web_name": "Bogle",
+      "team": 13,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 23
+    },
+    {
+      "player_id": 345,
+      "web_name": "Tanaka",
+      "team": 13,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 23
+    },
+    {
       "player_id": 367,
       "web_name": "Gakpo",
       "team": 14,
@@ -157,6 +322,22 @@
       "event": "goal",
       "count": 2,
       "fixture_id": 21
+    },
+    {
+      "player_id": 397,
+      "web_name": "Semenyo",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 26
+    },
+    {
+      "player_id": 411,
+      "web_name": "Haaland",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 26
     },
     {
       "player_id": 445,
@@ -197,7 +378,47 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 27
+    },
+    {
+      "player_id": 504,
+      "web_name": "Vuskovic",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 23
+    },
+    {
+      "player_id": 542,
+      "web_name": "E.Le F\u00e9e",
+      "team": 20,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 22
+    },
+    {
+      "player_id": 553,
+      "web_name": "Isidor",
+      "team": 20,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 22
+    },
+    {
+      "player_id": 570,
+      "web_name": "Palacios",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 24
+    },
+    {
+      "player_id": 643,
+      "web_name": "Chilwell",
+      "team": 8,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 24
     }
   ],
-  "generated_at": "2026-09-05T13:49:18.440773+00:00"
+  "generated_at": "2026-09-05T16:23:43.830466+00:00"
 }
