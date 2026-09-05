@@ -13,6 +13,7 @@ preseason_involvement evidence claim for qualitative visibility only.
 
 import json
 import math
+import re
 import uuid
 from datetime import date, datetime, timezone
 
@@ -383,6 +384,213 @@ def explain_player_adjustment(con: duckdb.DuckDBPyConnection, model_version: int
             rows.append({**base, "included": True, "exclusion_reason": None, "weight": w, "contribution": contribution})
 
     return rows
+
+
+# ============================================================
+# Role / position / club-change: data-quality flag (M2)
+# ============================================================
+# A player who has just moved clubs (or into a new tactical role) carries their PRIOR
+# club's recency-weighted start rate at full weight_own once they clear the
+# competitive_matches_threshold -- run() blends p_start_historical_own toward the position
+# average by SAMPLE SIZE alone, never by whether that history was accrued in the role being
+# projected. The evidence channel that could temper this is weak and untreated:
+#   * compute_logit_adjustment() consumes exactly injury_status / manager_tendency /
+#     transfer_likelihood (shift-type) and predicted_xi (pull-type). It has NO branch on
+#     role-change, club-change, or "new role, thin sample there" -- a "role still bedding
+#     in" predicted_xi claim gets the identical pull and the identical global +/-6.0 logit
+#     clip (minutes_adjustment_params / cap / {"scope":"global"}) as a same-club injury
+#     update.
+#   * ingest_research_pull._ROLE_CHANGE_ROUTING sends a `new_position` RoleChange row to
+#     manager_tendency with valence "note" -> {"positive":1,"negative":-1}.get("note", 0)
+#     == 0 -> literally zero minutes effect.
+#   * a completed transfer_likelihood claim is skipped outright by compute_logit_adjustment
+#     ("a completed move isn't an ongoing risk of reduced minutes at the club they left").
+#
+# There is nothing to calibrate a role-change reliability multiplier / clip bound against:
+# every evidence_claims row in this project was ingested on one day with observed_date in a
+# ~10-week window, there are no pre-2026-09 claims, and the target season is 2 gameweeks
+# old, so the realized start rate of the "0.9+ start-prob for a just-moved player" category
+# cannot be scored here. Rather than invent a coefficient (see PR body / the M2 role-change
+# investigation), M2 emits a VISIBLE DATA-QUALITY FLAG on any projection that (1) stays
+# confident (p_start_final high) while resting on the player's own pre-move history
+# (weight_own high) and (2) has evidence carrying a role/club-change signal. The flag
+# changes no model number -- it tells a human the start probability is optimistic and
+# un-validated. Thresholds are versioned (role_change_flag_params) with the same
+# invented-default / M7-recalibration status as every other unpinned constant here.
+
+_ROLE_CHANGE_TEXT_RE = re.compile(
+    r"club correction|corrected club|"
+    r"transferr?ed (from|to)|joined (from|on loan)|new signing|signed (for|from)|"
+    r"bedding in|still (bedding|adapting|settling)|yet to (nail|cement)|"
+    r"far from guaranteed|competition for (a |his )?(place|spot|position|minutes)|"
+    r"new (position|role)|role (at (his )?new club|change|still)",
+    re.IGNORECASE,
+)
+
+_ROLE_CHANGE_SIGNAL_CLAIM_TYPES = ("predicted_xi", "manager_tendency", "transfer_likelihood")
+
+
+def _claim_text_blob(claim_row: dict) -> str:
+    """raw_text + every stringified value of the claim_value JSON payload, joined -- the text
+    a role/club-change phrase could plausibly live in for a hand-entered evidence row."""
+    raw = claim_row.get("raw_text")
+    parts = ["" if raw is None or (not isinstance(raw, str) and pd.isna(raw)) else str(raw)]
+    cv = claim_row.get("claim_value")
+    if cv and not (not isinstance(cv, str) and pd.isna(cv)):
+        try:
+            payload = json.loads(cv)
+            parts.extend(str(v) for v in payload.values() if v is not None)
+        except (TypeError, ValueError):
+            parts.append(str(cv))
+    return " ".join(parts).strip()
+
+
+def seed_role_change_flag_params(con: duckdb.DuckDBPyConnection) -> None:
+    """role_change_flag_params v1 -- gates for the M2 role/club-change data-quality flag
+    (role_change_evidence_flag). FLAG-ONLY: nothing here changes a model number; these decide
+    only whether a human-visible "this start probability is un-validated" note is attached.
+    Invented v1 defaults -- this project has no historical role-change outcomes to fit
+    against (see role_change_evidence_flag's note) -- flagged for M7 recalibration like every
+    other unpinned constant. Idempotent (params.write_param no-ops an identical re-write)."""
+    def w(key, val):
+        params_mod.write_param(
+            con, "role_change_flag_params", 1, "2026-09-05", key, value_numeric=val
+        )
+    w("min_p_start_final", 0.75)              # only flag a projection that is still confident
+    w("min_weight_own", 0.60)                 # ...and rests mostly on the player's own (pre-move) history
+    w("recent_transfer_lookback_days", 140.0)  # a completed-transfer claim this recent still counts as "just moved"
+
+
+def role_change_evidence_flag(
+    con: duckdb.DuckDBPyConnection,
+    model_version: int,
+    player_uid: str,
+    asof: datetime,
+    *,
+    decay_params_version: int,
+    fact_multiplier_params_version: int,
+    flag_params_version: int,
+) -> dict | None:
+    """Data-quality flag (NOT a model adjustment). Fires when a player's minutes projection
+    stays confident (p_start_final >= role_change_flag_params.min_p_start_final) while resting
+    on the player's own pre-move history (weight_own >= min_weight_own) AND that player's
+    active evidence carries a role/club-change signal -- a completed transfer to a different
+    club, a RoleChange-tab manager_tendency row, or a predicted_xi / manager_tendency /
+    transfer_likelihood claim whose text matches _ROLE_CHANGE_TEXT_RE.
+
+    Generic: keys only on claim_type + payload text + the model's own weight_own/p_start_final,
+    never on a player identity. Returns the flag dict, or None if it does not fire."""
+    out_row = con.execute(
+        "SELECT p_start_final, weight_own, p_start_historical_own, "
+        "competitive_matches_last_2_seasons "
+        "FROM minutes_model_outputs WHERE model_version = ? AND player_uid = ?",
+        [model_version, player_uid],
+    ).fetchone()
+    if not out_row:
+        return None
+    p_start_final, weight_own, p_start_hist_own, competitive_matches = out_row
+    if p_start_final is None or weight_own is None:
+        return None
+
+    min_p, _ = params_mod.resolve_param(
+        con, "role_change_flag_params", "min_p_start_final", flag_params_version
+    )
+    min_w, _ = params_mod.resolve_param(
+        con, "role_change_flag_params", "min_weight_own", flag_params_version
+    )
+    lookback_days, _ = params_mod.resolve_param(
+        con, "role_change_flag_params", "recent_transfer_lookback_days", flag_params_version
+    )
+    if p_start_final < min_p or weight_own < min_w:
+        return None
+
+    signals: list[dict] = []
+    for claim_type in _ROLE_CHANGE_SIGNAL_CLAIM_TYPES:
+        claims = snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type=claim_type
+        ).to_dict("records")
+        for c in claims:
+            try:
+                payload = json.loads(c["claim_value"]) if c["claim_value"] else {}
+            except (TypeError, ValueError):
+                payload = {}
+
+            structural = False
+            if claim_type == "transfer_likelihood":
+                old_club, new_club = payload.get("old_club"), payload.get("new_club")
+                if old_club and new_club and old_club != new_club:
+                    observed = c["observed_date"]
+                    if observed is None or pd.isna(observed):
+                        structural = True  # undated completed move -> treat as recent
+                    else:
+                        days = (asof.date() - pd.Timestamp(observed).date()).days
+                        structural = 0 <= days <= lookback_days
+            elif claim_type == "manager_tendency" and "change" in payload:
+                structural = True  # a RoleChange-tab row (incl. new_position, which has 0 minutes effect)
+
+            blob = _claim_text_blob(c)
+            if not structural and not _ROLE_CHANGE_TEXT_RE.search(blob):
+                continue
+
+            w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
+            signals.append({
+                "claim_id": c["claim_id"],
+                "claim_type": claim_type,
+                "claim_value_numeric": None if c["claim_value_numeric"] is None or pd.isna(c["claim_value_numeric"]) else float(c["claim_value_numeric"]),
+                "effective_weight": w,
+                "detection": "structural" if structural else "text",
+                "snippet": blob[:240],
+            })
+
+    if not signals:
+        return None
+
+    return {
+        "flag": "role_change_evidence_unvalidated",
+        "passed": False,
+        "player_uid": player_uid,
+        "p_start_final": float(p_start_final),
+        "weight_own": float(weight_own),
+        "p_start_historical_own": None if p_start_hist_own is None else float(p_start_hist_own),
+        "competitive_matches_last_2_seasons": None if competitive_matches is None else int(competitive_matches),
+        "signal_claim_types": sorted({s["claim_type"] for s in signals}),
+        "signals": signals,
+        "message": (
+            f"Start probability {float(p_start_final):.2f} rests on this player's own pre-move history "
+            f"(weight_own={float(weight_own):.2f}"
+            + (f", {int(competitive_matches)} competitive matches" if competitive_matches is not None else "")
+            + " at the prior club/role). Their evidence carries a role/club-change signal, but M2 "
+            "applies no claim-type-specific uncertainty widening for role changes and this project "
+            "has no historical role-change outcomes to calibrate one against -- treat the start "
+            "probability as optimistic and un-validated."
+        ),
+    }
+
+
+def role_change_evidence_flags(
+    con: duckdb.DuckDBPyConnection,
+    model_version: int,
+    player_uids: list[str],
+    asof: datetime,
+    *,
+    decay_params_version: int,
+    fact_multiplier_params_version: int,
+    flag_params_version: int,
+) -> dict[str, dict]:
+    """Bulk role_change_evidence_flag over a player_uid list -- {player_uid: flag_dict} for
+    the players that trip it (absent = did not trip). Same bulk-accessor shape as
+    p_start_final_by_player() / weight_own_by_player()."""
+    out: dict[str, dict] = {}
+    for uid in player_uids:
+        flag = role_change_evidence_flag(
+            con, model_version, uid, asof,
+            decay_params_version=decay_params_version,
+            fact_multiplier_params_version=fact_multiplier_params_version,
+            flag_params_version=flag_params_version,
+        )
+        if flag is not None:
+            out[uid] = flag
+    return out
 
 
 def p_start_final_by_player(con: duckdb.DuckDBPyConnection, model_version: int, player_uids: list[str]) -> dict[str, float]:

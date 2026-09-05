@@ -169,6 +169,7 @@ def build_report(
     evidence_fact_multiplier_params_version: int | None = None,
     bench_quality_params_version: int | None = None,
     confidence_score_params_version: int | None = None,
+    role_change_flag_params_version: int | None = None,
     report_asof: datetime | None = None,
 ) -> dict:
     """The minimal headline is always present; every other section is a dict key a caller can
@@ -273,6 +274,39 @@ def build_report(
     guardrail_audit = squad_optimizer.explain_run(con, squad_optimizer_run_id)
     automated_flags = compute_automated_flags(con, squad_optimizer_run_id, sanity_check_params_version)
 
+    # M2 role/club-change data-quality flags -- opt-in, needs role_change_flag_params_version
+    # plus the same evidence-decay params + as-of date the evidence-weight sections need (an
+    # effective_weight computation is meaningless without an as-of date). Per player it either
+    # trips or is absent; the rollup flag below `passes` iff no XI player trips it. This adds
+    # NOTHING to the model numbers -- see minutes_model.role_change_evidence_flag.
+    data_quality_flags: dict[str, dict] = {}
+    if (
+        role_change_flag_params_version is not None
+        and evidence_decay_params_version is not None
+        and evidence_fact_multiplier_params_version is not None
+        and report_asof is not None
+    ):
+        data_quality_flags = mm.role_change_evidence_flags(
+            con, minutes_model_version, [p["player_uid"] for p in squad], report_asof,
+            decay_params_version=evidence_decay_params_version,
+            fact_multiplier_params_version=evidence_fact_multiplier_params_version,
+            flag_params_version=role_change_flag_params_version,
+        )
+        tripped_xi = sorted(uid for uid in data_quality_flags if uid in xi_uids)
+        automated_flags.append({
+            "name": "role_change_evidence_unvalidated",
+            "passed": not tripped_xi,
+            "detail": {
+                "xi_players_flagged": tripped_xi,
+                "squad_players_flagged": sorted(data_quality_flags),
+                "note": (
+                    "start probability rests on pre-move history while the role/club-change "
+                    "evidence for these players is un-validated (no historical role-change "
+                    "outcomes in this project to calibrate against)"
+                ),
+            },
+        })
+
     # Priority 6 -- squad-level confidence range on the headline total, reusing solve()'s own
     # captain-doubled cross-covariance pairs rather than a second, independently-invented
     # aggregation (see _squad_ep_range's own docstring).
@@ -331,6 +365,7 @@ def build_report(
         "backtest_summary": bt.explain_backtest_summary(con, backtest_run_id) if backtest_run_id is not None else None,
         "transfer_chip_rationale": tp.explain_plan(con, transfer_plan_run_id) if transfer_plan_run_id is not None else None,
         "automated_flags": automated_flags,
+        "data_quality_flags": data_quality_flags,
         # Priority 1 -- EO-adjusted captain-risk, its own explicit decision distinct from
         # squad selection itself (per Priority 1's own framing) -- never changes which player
         # is captained, only reports on the rank-risk profile of the choice already made.

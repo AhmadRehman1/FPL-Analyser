@@ -110,6 +110,9 @@ def main() -> None:
     params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=math.log(2) / 200)
     params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10",
                         "competitive_matches_threshold", value_numeric=10)
+    # M2 role/club-change data-quality flag gates (role_change_flag_params) -- flag-only,
+    # changes no model number; see minutes_model.role_change_evidence_flag.
+    minutes_model.seed_role_change_flag_params(con)
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
@@ -148,7 +151,7 @@ def main() -> None:
           "tc_risk_aversion_params, wildcard_gain_threshold_params, ownership_params, "
           "risk_posture_params, field_covariance_params, bench_quality_params, "
           "concentration_risk_params, sanity_check_params, consensus_check_params, "
-          "confidence_score_params, claim_type_decay_params v1 seeded")
+          "confidence_score_params, claim_type_decay_params, role_change_flag_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
