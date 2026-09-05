@@ -1,7 +1,23 @@
 {
   "backtest_run_id": 1,
   "generated_at": "2026-09-05",
-  "n_proposals": 0,
+  "n_proposals": 1,
   "note": "Proposals only -- nothing is activated. Review and confirm with scripts/review_recalibration.py. Every proposal must improve its own out-of-sample metric to be listed here (recalibrate() writes a row only on a strict improvement).",
-  "proposals": []
+  "proposals": [
+    {
+      "dimensions": null,
+      "metric": "rho_hat",
+      "metric_after": 0.0,
+      "metric_before": 0.0,
+      "metric_delta": 0.0,
+      "new_params_version": 3,
+      "new_value": 0.0,
+      "old_params_version": 2,
+      "old_value": 0.0,
+      "param_family": "correlation_params",
+      "param_key": "rho_residual",
+      "proposal_id": 1,
+      "status": "pending"
+    }
+  ]
 }
