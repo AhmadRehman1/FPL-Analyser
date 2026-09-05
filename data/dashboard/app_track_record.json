@@ -418,5 +418,106 @@
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2
   },
-  "generated_at": "2026-09-05T06:07:58.305884"
+  "generated_at": "2026-09-05T13:37:56.070258",
+  "transparency_log": {
+    "backtest": {
+      "n_gameweek_steps": null,
+      "seasons_covered": [],
+      "headline": null,
+      "metrics": [],
+      "parameters_total": 71,
+      "parameters_backtested": 0
+    },
+    "snapshots": [
+      {
+        "season": "2026-2027",
+        "gameweek": 3,
+        "total_projected_ep": 55.66834824897292,
+        "captain_name": "Ethan Ampadu",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 2,
+        "total_projected_ep": 42.71257365366756,
+        "captain_name": "Igor Jesus Maciel da Cruz",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 1,
+        "total_projected_ep": 53.84602920851347,
+        "captain_name": "Ethan Ampadu",
+        "squad_size": 15,
+        "in_xi_count": 11
+      }
+    ],
+    "latest_diff": {
+      "has_previous": true,
+      "previous_gameweek": 2,
+      "current_gameweek": 3,
+      "squad_changes": {
+        "in": [
+          "Igor Thiago Nascimento Rodrigues",
+          "Bart Verbruggen",
+          "James Garner",
+          "Alex Palmer",
+          "Joachim Andersen",
+          "Leif Davis",
+          "Erling Haaland",
+          "Bruno Borges Fernandes",
+          "Alexander Isak",
+          "Nikola Milenkovi\u0107",
+          "Zach Abbott",
+          "Alfie Cresswell"
+        ],
+        "out": [
+          "Nathan Collins",
+          "Yankuba Minteh",
+          "Ollie Watkins",
+          "Will Dennis",
+          "Declan Rice",
+          "Mois\u00e9s Caicedo Corozo",
+          "Maxence Lacroix",
+          "Bernd Leno",
+          "William Osula",
+          "Adrien Truffert",
+          "Igor Jesus Maciel da Cruz",
+          "Omar Alderete"
+        ]
+      },
+      "captain_changed": true,
+      "previous_captain": "Igor Jesus Maciel da Cruz",
+      "current_captain": "Ethan Ampadu",
+      "total_projected_ep_delta": 12.955774595305357,
+      "newly_doubtful_flags": []
+    },
+    "provenance": {
+      "data_asof": "2026-09-05",
+      "evidence_workbook": {
+        "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
+        "size_bytes": 695705
+      },
+      "fpl_analyser_commit_sha": "d763be0ef40d69bbf722772e38d5dd970de35b07",
+      "fpl_core_insights_commit_sha": "a7fed41e88eabe90a085b876f9385cfd2fab1d85",
+      "installed_packages": {
+        "duckdb": "1.5.5",
+        "numpy": "2.4.6",
+        "openpyxl": "3.1.5",
+        "pandas": "3.0.5",
+        "pyscipopt": "6.2.1",
+        "pytest": "9.1.1",
+        "python-dateutil": "2.9.0.post0",
+        "requests": "2.34.2",
+        "scipy": "1.17.1"
+      },
+      "recorded_at": "2026-09-05T09:58:28.306744+00:00",
+      "research_pull_workbook": {
+        "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
+        "size_bytes": 26007
+      }
+    }
+  }
 }
