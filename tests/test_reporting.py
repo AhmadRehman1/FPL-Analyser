@@ -210,6 +210,55 @@ def test_compute_automated_flags_catches_rotation_risk_when_all_def_mid_below_th
     assert by_name["rotation_risk_def_mid"]["passed"] is False
 
 
+def test_build_report_emits_role_change_data_quality_flag_when_requested(con):
+    """M2 role/club-change flag: opt-in via role_change_flag_params_version + the evidence
+    params. p1's start prob is confident (0.95) and history-dominant (weight_own=1.0) while
+    its only fresh evidence is a completed cross-club transfer -> the flag must fire, both
+    per-player (data_quality_flags) and as the automated_flags rollup."""
+    from fpl_quant import minutes_model as mm
+    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Midfielder")
+    mm_mv = con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [un_mv]
+    ).fetchone()[0]
+    con.execute(
+        "UPDATE minutes_model_outputs SET p_start_final = 0.95, weight_own = 1.0, "
+        "competitive_matches_last_2_seasons = 75 WHERE model_version = ? AND player_uid = 'p1'", [mm_mv],
+    )
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES ('s_journo', 'Beat Reporter', 'journalist', 0.8)"
+    )
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+        "claim_value, claim_value_numeric, information_type, source_id, source_reliability_score, confidence, "
+        "observed_date, ingested_date) VALUES ('rc1', 'player', 'p1', 'transfer_likelihood', ?, 1.0, 'FACT', "
+        "'s_journo', 0.8, 0.7, '2026-08-01', ?)",
+        [__import__("json").dumps({"status": "Complete", "old_club": "Forest", "new_club": "Man City"}),
+         datetime(2026, 8, 1)],
+    )
+    mm.seed_role_change_flag_params(con)
+
+    report = reporting.build_report(
+        con, run_id,
+        evidence_decay_params_version=1, evidence_fact_multiplier_params_version=1,
+        role_change_flag_params_version=1, report_asof=datetime(2026, 9, 2),
+    )
+    assert "p1" in report["data_quality_flags"]
+    assert report["data_quality_flags"]["p1"]["flag"] == "role_change_evidence_unvalidated"
+    rollup = next(f for f in report["automated_flags"] if f["name"] == "role_change_evidence_unvalidated")
+    assert rollup["passed"] is False
+    assert "p1" in rollup["detail"]["xi_players_flagged"]
+
+
+def test_build_report_role_change_flag_is_opt_in(con):
+    """Without role_change_flag_params_version, no data_quality_flags and no rollup flag --
+    backward compatible for every existing build_report caller."""
+    run_id, *_ = _seed_full_squad_scenario(con)
+    report = reporting.build_report(con, run_id)
+    assert report["data_quality_flags"] == {}
+    assert not any(f["name"] == "role_change_evidence_unvalidated" for f in report["automated_flags"])
+
+
 # ============================================================
 # build_report / render_report_text
 # ============================================================

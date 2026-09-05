@@ -7,9 +7,12 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from run_transfer_planner_for_real_squad import (  # noqa: E402
     _analytic_gameweek_ep, _build_chip_preview_squad, _gameweek_ep_model_version,
-    _order_chip_evaluations, _resolve_decision_log_row, attach_recommendation_breakdowns,
-    reconcile_chips_with_timing_sweep,
+    _order_chip_evaluations, _resolve_decision_log_row, _role_change_flags_for_players,
+    attach_recommendation_breakdowns, reconcile_chips_with_timing_sweep,
 )
+
+sys.path.insert(0, str(REPO_ROOT / "src"))
+from fpl_quant import minutes_model as _mm  # noqa: E402
 
 
 def _sweep_report():
@@ -312,6 +315,47 @@ def test_attach_breakdowns_reads_the_json_object_shape_and_fills_captain_and_tra
     assert len(out["transfer_breakdowns"]) == 1
     assert out["transfer_breakdowns"][0]["player_in"]["name"] == "In"       # dim_player fallback
     assert out["transfer_breakdowns"][0]["player_out"]["ep"]["total"] is not None
+
+
+def test_role_change_flags_for_players_flags_a_confident_mover_and_nobody_else(con):
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con)
+    run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3)
+    mm_mv = con.execute(
+        "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [un_mv]
+    ).fetchone()[0]
+    # player_in: confident + history-dominant projection; player_out: same but no move
+    for uid, p_start in (("player_in", 0.95), ("player_out", 0.95)):
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_own, "
+            "p_start_historical_final, p_start_historical_position_avg, weight_own, logit_adjustment_total, "
+            "p_start_final, p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, "
+            "competitive_matches_last_2_seasons) "
+            "VALUES (?, ?, 'Forward', ?, ?, 0.32, 1.0, 0.0, ?, 0.1, 0.05, 0.05, 0.9, 80)",
+            [mm_mv, uid, p_start, p_start, p_start],
+        )
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES ('s_j', 'J', 'journalist', 0.8)"
+    )
+    con.execute(
+        "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, claim_value, "
+        "claim_value_numeric, information_type, source_id, source_reliability_score, confidence, observed_date, "
+        "ingested_date) VALUES ('rc1', 'player', 'player_in', 'transfer_likelihood', ?, 1.0, 'FACT', 's_j', 0.8, "
+        "0.7, '2026-08-01', '2026-08-01')",
+        [json.dumps({"status": "Complete", "old_club": "Forest", "new_club": "Man City"})],
+    )
+    _mm.seed_role_change_flag_params(con)
+
+    flags = _role_change_flags_for_players(con, run_id, 3, ["player_in", "player_out"])
+    assert set(flags) == {"player_in"}
+    assert flags["player_in"]["flag"] == "role_change_evidence_unvalidated"
+
+
+def test_role_change_flags_for_players_is_best_effort_on_a_missing_model_version(con):
+    ep_mv, un_mv, sv = _seed_breakdown_scenario(con)
+    run_id = _make_plan_run(con, sv, ep_mv, un_mv, gw=3, mv_json="{}")  # no key for GW3
+    # must not raise even though role_change_flag_params was never seeded
+    assert _role_change_flags_for_players(con, run_id, 3, ["player_in"]) == {}
 
 
 def test_attach_breakdowns_omits_rather_than_crashes_when_target_gameweek_missing(con):

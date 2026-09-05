@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest as bt, db, expected_points as ep_mod, fixture_swing as fs, ingest_fpl_entry_picks as ifp, reporting, risk_posture, transfer_planner as tp, uncertainty as un_mod  # noqa: E402
+from fpl_quant import backtest as bt, db, expected_points as ep_mod, fixture_swing as fs, ingest_fpl_entry_picks as ifp, minutes_model as mm, reporting, risk_posture, transfer_planner as tp, uncertainty as un_mod  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -337,6 +337,46 @@ def attach_recommendation_breakdowns(
     return explain
 
 
+def _role_change_flags_for_players(
+    con, run_id: int, plan_for_gameweek: int, player_uids: list[str], fact_multiplier_params_version: int = 1,
+) -> dict:
+    """{player_uid: flag_dict} for players whose minutes projection this run rests on pre-move
+    history while their role/club-change evidence is un-validated (minutes_model.
+    role_change_evidence_flag). Best-effort: resolves the target gameweek's minutes model
+    version off transfer_plan_runs.uncertainty_model_versions the same way
+    attach_recommendation_breakdowns() resolves the ep/un versions; returns {} (never raises)
+    if that lookup is unavailable, so a secondary data-quality panel can't break the export."""
+    if not player_uids:
+        return {}
+    try:
+        mv_row = con.execute(
+            "SELECT uncertainty_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id],
+        ).fetchone()
+        target_un_mv = json.loads(mv_row[0]).get(str(plan_for_gameweek)) if mv_row and mv_row[0] else None
+        if target_un_mv is None:
+            return {}
+        mm_row = con.execute(
+            "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [target_un_mv],
+        ).fetchone()
+        if not mm_row:
+            return {}
+        mm_version = mm_row[0]
+        asof_row = con.execute(
+            "SELECT calibration_asof_date FROM minutes_model_versions WHERE model_version = ?", [mm_version],
+        ).fetchone()
+        if not asof_row:
+            return {}
+        asof = datetime.combine(asof_row[0], datetime.max.time(), tzinfo=timezone.utc)
+        return mm.role_change_evidence_flags(
+            con, mm_version, list(dict.fromkeys(player_uids)), asof,
+            decay_params_version=1, fact_multiplier_params_version=fact_multiplier_params_version,
+            flag_params_version=1,
+        )
+    except Exception as exc:  # noqa: BLE001 -- secondary panel, must not break the per-account export
+        print(f"::warning::_role_change_flags_for_players: skipped ({exc!r})")
+        return {}
+
+
 def main() -> None:
     if len(sys.argv) not in (3, 4, 5):
         raise SystemExit(f"usage: {sys.argv[0]} <entry_id> <event> [label] [balanced|attack|ml]")
@@ -443,6 +483,16 @@ def main() -> None:
     team_by_player = fs.team_uid_by_player(con, TARGET_SEASON)
     team_names = {r[0]: r[1] for r in con.execute("SELECT team_uid, canonical_name FROM dim_team").fetchall()}
 
+    # M2 data-quality flag: a recommended-IN player whose start probability rests on
+    # pre-move history while their role/club-change evidence is un-validated (this project
+    # has no historical role-change outcomes to calibrate a reliability/clip treatment
+    # against -- see minutes_model.role_change_evidence_flag). Surfaced on the rec so the
+    # dashboard shows "start prob is optimistic / un-validated" next to the transfer.
+    role_change_flags = _role_change_flags_for_players(
+        con, run_id, plan_for_gameweek, [in_uid for _r, _o, in_uid, *_x in recs],
+        fact_multiplier_params_version=active["fact_multiplier_params_version"],
+    )
+
     recs_out = []
     for rank, out_uid, in_uid, gain, cost, net in recs:
         out_name = con.execute("SELECT canonical_name FROM dim_player WHERE player_uid = ?", [out_uid]).fetchone()[0]
@@ -450,11 +500,23 @@ def main() -> None:
         out_club = team_names.get(team_by_player.get(out_uid))
         in_club = team_names.get(team_by_player.get(in_uid))
         print(f"  #{rank}: OUT {out_name} -> IN {in_name} | gain={gain:.2f} cost={cost} net={net:.2f}")
-        recs_out.append({
+        rec = {
             "rank": rank, "player_out": out_name, "player_in": in_name,
             "player_out_club": out_club, "player_in_club": in_club,
             "gain": round(gain, 2), "cost": cost, "net": round(net, 2),
-        })
+        }
+        in_flag = role_change_flags.get(in_uid)
+        if in_flag is not None:
+            rec["data_quality_flags"] = [{
+                "flag": in_flag["flag"], "subject": "player_in",
+                "message": in_flag["message"],
+                "p_start_final": round(in_flag["p_start_final"], 3),
+                "weight_own": round(in_flag["weight_own"], 3),
+                "signal_claim_types": in_flag["signal_claim_types"],
+            }]
+            print(f"    data-quality flag: {in_flag['flag']} on IN {in_name} "
+                  f"(p_start_final={in_flag['p_start_final']:.2f})")
+        recs_out.append(rec)
 
     hold_rec = con.execute(
         "SELECT recommended_action, transfer_now_value, hold_value FROM hold_recommendations WHERE run_id = ?", [run_id],
