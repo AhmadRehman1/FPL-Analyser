@@ -4,7 +4,7 @@
   "gameweek": 3,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 0,
+  "live_total": 1,
   "players": [
     {
       "player_id": 496,
@@ -65,9 +65,9 @@
     {
       "player_id": 464,
       "web_name": "Wissa",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 411,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 16.0,
-    "estimated_rank": 8778448
+    "percentile": 18.5,
+    "estimated_rank": 8535969
   },
   "fixtures": [
     {
@@ -106,9 +106,42 @@
         "name": "Liverpool",
         "score": 2
       }
+    },
+    {
+      "id": 27,
+      "kickoff": "2026-09-05T11:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NEW",
+        "name": "Newcastle",
+        "score": 2
+      },
+      "away": {
+        "short_name": "BOU",
+        "name": "Bournemouth",
+        "score": 2
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 68,
+      "web_name": "Tavernier",
+      "team": 3,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 27
+    },
+    {
+      "player_id": 69,
+      "web_name": "Scott",
+      "team": 3,
+      "event": "assist",
+      "count": 2,
+      "fixture_id": 27
+    },
     {
       "player_id": 367,
       "web_name": "Gakpo",
@@ -124,7 +157,47 @@
       "event": "goal",
       "count": 2,
       "fixture_id": 21
+    },
+    {
+      "player_id": 445,
+      "web_name": "Thiaw",
+      "team": 17,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 27
+    },
+    {
+      "player_id": 449,
+      "web_name": "Hall",
+      "team": 17,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 27
+    },
+    {
+      "player_id": 453,
+      "web_name": "Barnes",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 27
+    },
+    {
+      "player_id": 453,
+      "web_name": "Barnes",
+      "team": 17,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 27
+    },
+    {
+      "player_id": 456,
+      "web_name": "J.Ramsey",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 27
     }
   ],
-  "generated_at": "2026-09-04T22:19:15.224872+00:00"
+  "generated_at": "2026-09-05T13:49:18.440773+00:00"
 }
