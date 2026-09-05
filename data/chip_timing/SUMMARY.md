@@ -1,39 +1,46 @@
 # Two-team chip timing -- Wildcard / Bench Boost / Free Hit
 
-_Generated 2026-09-03T02:19:24.371632+00:00. Projected expected points, not realised. Param bundles compared: active._
+_Generated 2026-09-05T01:47:53.800932+00:00. Projected expected points, not realised. Param bundles compared: active._
 
 The full-horizon `force_wildcard_at` sweep is the primary Wildcard signal; the greedy `model_choice` walk only sees ~5 gameweeks ahead at each step and is shown for contrast. See `src/fpl_quant/chip_timing_analysis.py` for the method.
 
 ## Matippy toes (entry 1305242)
 
-_Param bundle: active (xi v2, rho_residual=0.0, lambda=0.15, kappa_tc=0.15). Projected EP over GW3-22. Not realised points._
+_Param bundle: active (xi v2, rho_residual=0.0, lambda=0.15, kappa_tc=0.15). Projected EP over GW4-22. Not realised points._
 
 **Data flags:**
-- [!] stale injury/rotation evidence (>14d) for held players: Riccardo Calafiori, Pascal Groß
-- [!] no availability evidence at all for held players: player_bobby_thomas, player_regan_slater
+- [!] stale injury/rotation evidence (>14d) for held players: Riccardo Calafiori, Rayan Cherki, Pascal Groß
+- [!] no availability evidence at all for held players: player_regan_slater, player_bobby_thomas
+- [!] entry has already used chips: set1=['triple_captain'] set2=[]
 
-**Wildcard -- full-horizon sweep says GW4** (+25.1 projected pts vs holding, 1028.8 total).
-- Greedy model_choice walk: plays GW3
-- Hold arm's own threshold read-off: GW5 (+41.5)
-- Greedy plays GW3; full-horizon sweep prefers GW4 (+25.1 projected pts vs holding). At GW3 the model only sees GW3..GW7, so GW4 is outside its visible horizon and cannot be compared against GW3 at decision time. Per-GW evaluate_wildcard gain: GW3~11.9, GW4~0.7.
+**Wildcard:** the sweep finds no forced week that beats holding the chip over the evaluation window -- hold it and re-run as the season fills in.
+- Greedy model_choice walk: plays GW4
+- Hold arm's own threshold read-off: GW3 (+57.4)
+- No forced-Wildcard gameweek in the sweep window beats the hold-Wildcard baseline on total projected points -- the sweep says hold the chip, not that any particular week is best.
 
 | forced WC GW | total proj pts | 80% band | vs hold |
 |----|----|----|----|
-| 4 | 1028.8 | 761-1296 | +25.1 |
-| 5 | 1028.8 | 761-1296 | +25.1 |
+| 4 | 1400.3 | 1061-1740 | -91.5 |
+| 5 | 1396.5 | 1060-1733 | -95.3 |
+| 6 | 1408.8 | 1066-1752 | -83.0 |
+| 7 | 1333.5 | 1017-1650 | -158.3 |
+| 8 | 1327.6 | 1019-1637 | -164.2 |
+| 9 | 1322.5 | 1012-1633 | -169.3 |
+| 10 | 1327.6 | 1019-1637 | -164.2 |
+| 11 | 1321.2 | 1011-1631 | -170.6 |
+| 13 | 1335.4 | 1020-1651 | -156.4 |
+| 14 | 1333.5 | 1017-1650 | -158.3 |
+| 15 | 1335.4 | 1020-1651 | -156.4 |
+| 16 | 1333.5 | 1017-1650 | -158.3 |
+| 17 | 1351.1 | 1029-1673 | -140.7 |
+| 18 | 1351.1 | 1029-1673 | -140.7 |
+| 19 | 1333.5 | 1017-1650 | -158.3 |
 
 **Bench Boost combo** (fresh post-WC squad's bench, WC week + next 3):
-- GW3: synergy -4.88 (combo 52.9 vs naive 57.8) 
-- GW4: synergy -8.81 (combo 44.8 vs naive 53.6) 
-- GW5: synergy -4.89 (combo 51.5 vs naive 56.4) 
-- GW6: synergy -5.00 (combo 44.4 vs naive 49.4) 
 
-**Free Hit:** GW3 (+15.9), GW4 (+17.4), GW5 (+17.1), GW6 (+8.2), GW7 (+12.5), GW8 (+8.3), GW9 (+11.8), GW10 (+12.8), GW11 (+10.9), GW12 (+4.1), GW14 (+4.8), GW15 (+2.9), GW16 (+7.0), GW17 (+8.2), GW18 (+3.7), GW19 (+6.1), GW21 (+10.1), GW22 (+5.8)
+**Free Hit:** GW3 (+21.3), GW4 (+19.5), GW5 (+15.8), GW6 (+12.3), GW7 (+15.5), GW8 (+6.9), GW9 (+10.2), GW10 (+5.2), GW11 (+4.7), GW12 (+2.0), GW13 (+8.8), GW15 (+1.8), GW16 (+10.4), GW17 (+4.5), GW18 (+3.7), GW19 (+2.9), GW20 (+3.9), GW21 (+5.8)
 
-**Wildcard squad robustness (GW3, 8 perturbed solves):** fragile -- 0/15 core, 47 fragile.
-- fragile: player_adrien_truffert, player_bart_verbruggen, player_bruno_borges_fernandes, player_bryan_mbeumo, player_dan_bentley, player_declan_rice, player_dillon_phillips, player_eberechi_eze, player_elliot_anderson, player_emiliano_martinez_romero, player_enzo_fernandez, player_enzo_le_fee, player_erling_haaland, player_ethan_ampadu, player_ezri_konsa_ngoyo, player_francisco_evanilson_de_lima_barbosa, player_gianluigi_donnarumma, player_iliman_ndiaye, player_james_garner, player_joachim_andersen, player_joelinton_cassio_apolinario_de_lira, player_liam_kitching, player_marcos_senesi_baron, player_matheus_nunes, player_matheus_santos_carneiro_da_cunha, player_mikkel_damsgaard, player_moises_caicedo_corozo, player_morgan_rogers, player_nathan_collins, player_nikola_milenkovic, player_ollie_watkins, player_ruben_dos_santos_gato_alves_dias, player_ryan_gravenberch, player_sepp_van_den_berg, player_shumaira_mheuka, player_sindre_walle_egeli, player_tyler_fredricson, player_vitezslav_jaros, player_wellity_lucky, player_wesley_fofana, player_will_dennis, player_will_hughes, player_william_osula, player_william_saliba, player_wilson_isidor, player_yoane_wissa, player_zach_abbott
-
-**Recalibration sensitivity:** Wildcard week by bundle: {'active': 4}. Stable across bundles.
+**Recalibration sensitivity:** Wildcard week by bundle: {'active': None}. Stable across bundles.
 
 
 ## Ahmad sucks (entry 7139944)
@@ -44,39 +51,33 @@ _Param bundle: active (xi v2, rho_residual=0.0, lambda=0.15, kappa_tc=0.15). Pro
 - [!] stale injury/rotation evidence (>14d) for held players: Pascal Groß
 - [!] no availability evidence at all for held players: player_bobby_thomas, player_regan_slater
 
-**Wildcard -- full-horizon sweep says GW10** (+23.7 projected pts vs holding, 1028.8 total).
-- Greedy model_choice walk: plays GW3
-- Hold arm's own threshold read-off: GW5 (+41.0)
-- Greedy plays GW3; full-horizon sweep prefers GW10 (+23.7 projected pts vs holding). At GW3 the model only sees GW3..GW7, so GW10 is outside its visible horizon and cannot be compared against GW3 at decision time. Per-GW evaluate_wildcard gain: GW3~31.3, GW10~-17.4.
+**Wildcard:** the sweep finds no forced week that beats holding the chip over the evaluation window -- hold it and re-run as the season fills in.
+- Greedy model_choice walk: plays GW4
+- Hold arm's own threshold read-off: GW3 (+82.1)
+- No forced-Wildcard gameweek in the sweep window beats the hold-Wildcard baseline on total projected points -- the sweep says hold the chip, not that any particular week is best.
 
 | forced WC GW | total proj pts | 80% band | vs hold |
 |----|----|----|----|
-| 5 | 1028.8 | 761-1296 | +23.7 |
-| 6 | 1028.8 | 761-1296 | +23.7 |
-| 7 | 1028.8 | 761-1296 | +23.7 |
-| 8 | 1028.8 | 761-1296 | +23.7 |
-| 9 | 1028.8 | 761-1296 | +23.7 |
-| 10 | 1028.8 | 761-1296 | +23.7 |
-| 11 | 1028.8 | 761-1296 | +23.7 |
-| 12 | 1028.8 | 761-1296 | +23.7 |
-| 14 | 1028.8 | 761-1296 | +23.7 |
-| 15 | 1028.8 | 761-1296 | +23.7 |
-| 16 | 1028.8 | 761-1296 | +23.7 |
-| 17 | 1028.8 | 761-1296 | +23.7 |
-| 18 | 1028.8 | 761-1296 | +23.7 |
-| 19 | 1028.8 | 761-1296 | +23.7 |
+| 4 | 1421.8 | 1074-1770 | -62.3 |
+| 5 | 1409.1 | 1067-1751 | -75.0 |
+| 6 | 1395.7 | 1057-1735 | -88.4 |
+| 7 | 1421.8 | 1074-1770 | -62.3 |
+| 8 | 1367.3 | 1039-1695 | -116.8 |
+| 9 | 1404.2 | 1062-1746 | -79.9 |
+| 10 | 1404.2 | 1062-1746 | -79.9 |
+| 12 | 1391.9 | 1056-1728 | -92.2 |
+| 13 | 1391.9 | 1056-1728 | -92.2 |
+| 14 | 1391.9 | 1056-1728 | -92.2 |
+| 15 | 1407.3 | 1066-1749 | -76.8 |
+| 16 | 1421.8 | 1074-1770 | -62.3 |
+| 17 | 1398.3 | 1064-1733 | -85.8 |
+| 18 | 1391.9 | 1056-1728 | -92.2 |
+| 19 | 1407.9 | 1069-1747 | -76.2 |
 
 **Bench Boost combo** (fresh post-WC squad's bench, WC week + next 3):
-- GW3: synergy -2.48 (combo 52.9 vs naive 55.4) 
-- GW4: synergy -3.69 (combo 44.8 vs naive 48.5) 
-- GW5: synergy -2.90 (combo 51.5 vs naive 54.4) 
-- GW6: synergy -3.15 (combo 44.4 vs naive 47.6) 
 
-**Free Hit:** GW3 (+18.4), GW4 (+16.3), GW5 (+20.1), GW6 (+9.1), GW7 (+11.1), GW8 (+11.7), GW9 (+5.9), GW10 (+12.4), GW11 (+8.9), GW12 (+2.3), GW13 (+7.4), GW14 (+2.4), GW15 (+2.0), GW16 (+5.9), GW17 (+7.5), GW18 (+2.8), GW19 (+4.7), GW20 (+4.0), GW21 (+6.3), GW22 (+5.5)
+**Free Hit:** GW3 (+25.9), GW4 (+23.5), GW5 (+19.0), GW6 (+9.9), GW7 (+17.8), GW8 (+9.0), GW9 (+4.0), GW10 (+4.8), GW11 (+3.6), GW13 (+8.0), GW16 (+10.2), GW17 (+2.2), GW18 (+2.9), GW19 (+4.4), GW20 (+2.9), GW21 (+2.8)
 
-**Wildcard squad robustness (GW3, 8 perturbed solves):** fragile -- 0/15 core, 47 fragile.
-- fragile: player_adrien_truffert, player_bart_verbruggen, player_bruno_borges_fernandes, player_bryan_mbeumo, player_declan_rice, player_eberechi_eze, player_elliot_anderson, player_emiliano_martinez_romero, player_enzo_fernandez, player_enzo_le_fee, player_erling_haaland, player_ethan_ampadu, player_ezri_konsa_ngoyo, player_francisco_evanilson_de_lima_barbosa, player_gianluigi_donnarumma, player_iliman_ndiaye, player_james_garner, player_joachim_andersen, player_joelinton_cassio_apolinario_de_lira, player_jorrel_hato, player_liam_kitching, player_marcos_senesi_baron, player_martin_dubravka, player_matheus_nunes, player_matheus_santos_carneiro_da_cunha, player_maxence_lacroix, player_mikkel_damsgaard, player_moises_caicedo_corozo, player_morgan_rogers, player_nathan_collins, player_nikola_milenkovic, player_ollie_watkins, player_robin_roefs, player_ruben_dos_santos_gato_alves_dias, player_ryan_gravenberch, player_sepp_van_den_berg, player_shumaira_mheuka, player_sindre_walle_egeli, player_tyler_fredricson, player_vitezslav_jaros, player_wellity_lucky, player_will_dennis, player_will_hughes, player_william_osula, player_wilson_isidor, player_yoane_wissa, player_zach_abbott
-
-**Recalibration sensitivity:** Wildcard week by bundle: {'active': 10}. Stable across bundles.
+**Recalibration sensitivity:** Wildcard week by bundle: {'active': None}. Stable across bundles.
 
 
