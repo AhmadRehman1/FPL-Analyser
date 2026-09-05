@@ -537,7 +537,7 @@ def role_change_evidence_flag(
                 "claim_id": c["claim_id"],
                 "claim_type": claim_type,
                 "claim_value_numeric": None if c["claim_value_numeric"] is None or pd.isna(c["claim_value_numeric"]) else float(c["claim_value_numeric"]),
-                "effective_weight": w,
+                "effective_weight": float(w),
                 "detection": "structural" if structural else "text",
                 "snippet": blob[:240],
             })
