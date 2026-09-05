@@ -1,7 +1,7 @@
 {
   "backtest_run_id": 1,
   "generated_at": "2026-09-05",
-  "n_proposals": 2,
+  "n_proposals": 4,
   "note": "Proposals only -- nothing is activated. Review and confirm with scripts/review_recalibration.py. Every proposal must improve its own out-of-sample metric to be listed here (recalibrate() writes a row only on a strict improvement).",
   "proposals": [
     {
@@ -32,6 +32,36 @@
       "param_family": "tc_risk_aversion_params",
       "param_key": "kappa_tc",
       "proposal_id": 2,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
+      "metric": "log_score_minutes_mean_holdout",
+      "metric_after": -1.8787601645729588,
+      "metric_before": -1.8806214822395657,
+      "metric_delta": 0.00186,
+      "new_params_version": 5,
+      "new_value": 1.2,
+      "old_params_version": 1,
+      "old_value": 1.2,
+      "param_family": "fact_type_multiplier_params",
+      "param_key": "multiplier",
+      "proposal_id": 3,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
+      "metric": "log_score_minutes_mean_holdout",
+      "metric_after": -1.8787601645729588,
+      "metric_before": -1.8806214822395657,
+      "metric_delta": 0.00186,
+      "new_params_version": 6,
+      "new_value": 15.0,
+      "old_params_version": 1,
+      "old_value": 10.0,
+      "param_family": "minutes_model_shrinkage_params",
+      "param_key": "competitive_matches_threshold",
+      "proposal_id": 4,
       "status": "pending"
     }
   ]
