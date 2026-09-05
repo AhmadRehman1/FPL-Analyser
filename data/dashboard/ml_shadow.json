@@ -1,10 +1,6828 @@
 {
-  "data_asof": "2026-09-03",
+  "data_asof": "2026-09-05",
   "disclaimer": "Shadow only -- the ML residual model's view of the same gameweek, never a recommendation. ep_ml = ep_quant + a learned residual correction.",
-  "generated_at": "2026-09-03T21:23:26+00:00",
+  "generated_at": "2026-09-05T10:45:02+00:00",
+  "ml_boosts": [
+    {
+      "ep_ml": 2.924,
+      "ep_quant": 0.0,
+      "fpl_element_id": 10,
+      "ml_residual": 2.924,
+      "name": "Benjamin White",
+      "player_uid": "player_benjamin_white"
+    },
+    {
+      "ep_ml": 2.911,
+      "ep_quant": 0.0,
+      "fpl_element_id": 230,
+      "ml_residual": 2.911,
+      "name": "Jarrad Branthwaite",
+      "player_uid": "player_jarrad_branthwaite"
+    },
+    {
+      "ep_ml": 2.679,
+      "ep_quant": 0.0,
+      "fpl_element_id": 335,
+      "ml_residual": 2.679,
+      "name": "Anton Stach",
+      "player_uid": "player_anton_stach"
+    },
+    {
+      "ep_ml": 2.581,
+      "ep_quant": 0.0,
+      "fpl_element_id": 532,
+      "ml_residual": 2.581,
+      "name": "Daniel Ballard",
+      "player_uid": "player_daniel_ballard"
+    },
+    {
+      "ep_ml": 2.259,
+      "ep_quant": 0.0,
+      "fpl_element_id": 504,
+      "ml_residual": 2.259,
+      "name": "Luka Vu\u0161kovi\u0107",
+      "player_uid": "player_luka_vuskovic"
+    }
+  ],
+  "ml_fades": [
+    {
+      "ep_ml": 1.432,
+      "ep_quant": 3.601,
+      "fpl_element_id": 6,
+      "ml_residual": -2.169,
+      "name": "William Saliba",
+      "player_uid": "player_william_saliba"
+    },
+    {
+      "ep_ml": 0.079,
+      "ep_quant": 2.237,
+      "fpl_element_id": 31,
+      "ml_residual": -2.158,
+      "name": "Ezri Konsa Ngoyo",
+      "player_uid": "player_ezri_konsa_ngoyo"
+    },
+    {
+      "ep_ml": 0.613,
+      "ep_quant": 2.729,
+      "fpl_element_id": 620,
+      "ml_residual": -2.116,
+      "name": "El Hadji Malick Diouf",
+      "player_uid": "player_el_hadji_malick_diouf"
+    },
+    {
+      "ep_ml": 0.801,
+      "ep_quant": 2.913,
+      "fpl_element_id": 85,
+      "ml_residual": -2.112,
+      "name": "Sepp van den Berg",
+      "player_uid": "player_sepp_van_den_berg"
+    },
+    {
+      "ep_ml": 0.859,
+      "ep_quant": 2.932,
+      "fpl_element_id": 232,
+      "ml_residual": -2.073,
+      "name": "Jake O'Brien",
+      "player_uid": "player_jake_o_brien"
+    }
+  ],
   "model": "quant_lightgbm_huber_delta4",
-  "players": [],
-  "status": "no_walk_forward_history_or_lightgbm",
+  "n_train_rows": 52950,
+  "players": [
+    {
+      "ep_ml": 5.449,
+      "ep_quant": 4.638,
+      "fpl_element_id": 426,
+      "ml_residual": 0.811,
+      "name": "Bruno Borges Fernandes",
+      "player_uid": "player_bruno_borges_fernandes"
+    },
+    {
+      "ep_ml": 4.628,
+      "ep_quant": 4.62,
+      "fpl_element_id": 154,
+      "ml_residual": 0.008,
+      "name": "Cole Palmer",
+      "player_uid": "player_cole_palmer"
+    },
+    {
+      "ep_ml": 4.588,
+      "ep_quant": 5.382,
+      "fpl_element_id": 411,
+      "ml_residual": -0.794,
+      "name": "Erling Haaland",
+      "player_uid": "player_erling_haaland"
+    },
+    {
+      "ep_ml": 4.018,
+      "ep_quant": 4.244,
+      "fpl_element_id": 229,
+      "ml_residual": -0.226,
+      "name": "James Tarkowski",
+      "player_uid": "player_james_tarkowski"
+    },
+    {
+      "ep_ml": 3.912,
+      "ep_quant": 4.413,
+      "fpl_element_id": 1,
+      "ml_residual": -0.501,
+      "name": "David Raya Martin",
+      "player_uid": "player_david_raya_martin"
+    },
+    {
+      "ep_ml": 3.881,
+      "ep_quant": 3.805,
+      "fpl_element_id": 368,
+      "ml_residual": 0.076,
+      "name": "Dominik Szoboszlai",
+      "player_uid": "player_dominik_szoboszlai"
+    },
+    {
+      "ep_ml": 3.773,
+      "ep_quant": 4.34,
+      "fpl_element_id": 4,
+      "ml_residual": -0.567,
+      "name": "Gabriel dos Santos Magalh\u00e3es",
+      "player_uid": "player_gabriel_dos_santos_magalhaes"
+    },
+    {
+      "ep_ml": 3.755,
+      "ep_quant": 4.302,
+      "fpl_element_id": 481,
+      "ml_residual": -0.547,
+      "name": "Elliot Anderson",
+      "player_uid": "player_elliot_anderson"
+    },
+    {
+      "ep_ml": 3.711,
+      "ep_quant": 3.708,
+      "fpl_element_id": 12,
+      "ml_residual": 0.002,
+      "name": "Bukayo Saka",
+      "player_uid": "player_bukayo_saka"
+    },
+    {
+      "ep_ml": 3.649,
+      "ep_quant": 3.692,
+      "fpl_element_id": 68,
+      "ml_residual": -0.043,
+      "name": "Marcus Tavernier",
+      "player_uid": "player_marcus_tavernier"
+    },
+    {
+      "ep_ml": 3.593,
+      "ep_quant": 3.385,
+      "fpl_element_id": 367,
+      "ml_residual": 0.208,
+      "name": "Cody Gakpo",
+      "player_uid": "player_cody_gakpo"
+    },
+    {
+      "ep_ml": 3.569,
+      "ep_quant": 4.036,
+      "fpl_element_id": 356,
+      "ml_residual": -0.467,
+      "name": "Virgil van Dijk",
+      "player_uid": "player_virgil_van_dijk"
+    },
+    {
+      "ep_ml": 3.535,
+      "ep_quant": 3.825,
+      "fpl_element_id": 480,
+      "ml_residual": -0.29,
+      "name": "Morgan Gibbs-White",
+      "player_uid": "player_morgan_gibbs_white"
+    },
+    {
+      "ep_ml": 3.5,
+      "ep_quant": 3.837,
+      "fpl_element_id": 427,
+      "ml_residual": -0.337,
+      "name": "Bryan Mbeumo",
+      "player_uid": "player_bryan_mbeumo"
+    },
+    {
+      "ep_ml": 3.473,
+      "ep_quant": 4.532,
+      "fpl_element_id": 498,
+      "ml_residual": -1.059,
+      "name": "Marcos Senesi Bar\u00f3n",
+      "player_uid": "player_marcos_senesi_baron"
+    },
+    {
+      "ep_ml": 3.439,
+      "ep_quant": 3.411,
+      "fpl_element_id": 544,
+      "ml_residual": 0.027,
+      "name": "Granit Xhaka",
+      "player_uid": "player_granit_xhaka"
+    },
+    {
+      "ep_ml": 3.428,
+      "ep_quant": 3.67,
+      "fpl_element_id": 391,
+      "ml_residual": -0.243,
+      "name": "Jo\u0161ko Gvardiol",
+      "player_uid": "player_josko_gvardiol"
+    },
+    {
+      "ep_ml": 3.408,
+      "ep_quant": 4.342,
+      "fpl_element_id": null,
+      "ml_residual": -0.934,
+      "name": "Jarrod Bowen",
+      "player_uid": "player_jarrod_bowen"
+    },
+    {
+      "ep_ml": 3.397,
+      "ep_quant": 3.441,
+      "fpl_element_id": 69,
+      "ml_residual": -0.043,
+      "name": "Alex Scott",
+      "player_uid": "player_alex_scott"
+    },
+    {
+      "ep_ml": 3.37,
+      "ep_quant": 3.324,
+      "fpl_element_id": 40,
+      "ml_residual": 0.046,
+      "name": "Morgan Rogers",
+      "player_uid": "player_morgan_rogers"
+    },
+    {
+      "ep_ml": 3.37,
+      "ep_quant": 2.262,
+      "fpl_element_id": 8,
+      "ml_residual": 1.108,
+      "name": "Riccardo Calafiori",
+      "player_uid": "player_riccardo_calafiori"
+    },
+    {
+      "ep_ml": 3.326,
+      "ep_quant": 3.362,
+      "fpl_element_id": 94,
+      "ml_residual": -0.036,
+      "name": "Kevin Schade",
+      "player_uid": "player_kevin_schade"
+    },
+    {
+      "ep_ml": 3.256,
+      "ep_quant": 4.141,
+      "fpl_element_id": 384,
+      "ml_residual": -0.885,
+      "name": "Gianluigi Donnarumma",
+      "player_uid": "player_gianluigi_donnarumma"
+    },
+    {
+      "ep_ml": 3.252,
+      "ep_quant": 3.927,
+      "fpl_element_id": 338,
+      "ml_residual": -0.675,
+      "name": "Ethan Ampadu",
+      "player_uid": "player_ethan_ampadu"
+    },
+    {
+      "ep_ml": 3.229,
+      "ep_quant": 3.219,
+      "fpl_element_id": 366,
+      "ml_residual": 0.009,
+      "name": "Florian Wirtz",
+      "player_uid": "player_florian_wirtz"
+    },
+    {
+      "ep_ml": 3.22,
+      "ep_quant": 3.284,
+      "fpl_element_id": 237,
+      "ml_residual": -0.064,
+      "name": "Iliman Ndiaye",
+      "player_uid": "player_iliman_ndiaye"
+    },
+    {
+      "ep_ml": 3.191,
+      "ep_quant": 2.745,
+      "fpl_element_id": 86,
+      "ml_residual": 0.446,
+      "name": "Keane Lewis-Potter",
+      "player_uid": "player_keane_lewis_potter"
+    },
+    {
+      "ep_ml": 3.166,
+      "ep_quant": 3.682,
+      "fpl_element_id": 61,
+      "ml_residual": -0.516,
+      "name": "Adrien Truffert",
+      "player_uid": "player_adrien_truffert"
+    },
+    {
+      "ep_ml": 3.166,
+      "ep_quant": 2.137,
+      "fpl_element_id": 165,
+      "ml_residual": 1.028,
+      "name": "Jo\u00e3o Pedro Junqueira de Jesus",
+      "player_uid": "player_joao_pedro_junqueira_de_jesus"
+    },
+    {
+      "ep_ml": 3.164,
+      "ep_quant": 3.412,
+      "fpl_element_id": 79,
+      "ml_residual": -0.248,
+      "name": "Francisco Evanilson de Lima Barbosa",
+      "player_uid": "player_francisco_evanilson_de_lima_barbosa"
+    },
+    {
+      "ep_ml": 3.144,
+      "ep_quant": 3.896,
+      "fpl_element_id": 226,
+      "ml_residual": -0.752,
+      "name": "Jordan Pickford",
+      "player_uid": "player_jordan_pickford"
+    },
+    {
+      "ep_ml": 3.135,
+      "ep_quant": 2.81,
+      "fpl_element_id": 398,
+      "ml_residual": 0.325,
+      "name": "Phil Foden",
+      "player_uid": "player_phil_foden"
+    },
+    {
+      "ep_ml": 3.12,
+      "ep_quant": 2.244,
+      "fpl_element_id": 379,
+      "ml_residual": 0.876,
+      "name": "Alexander Isak",
+      "player_uid": "player_alexander_isak"
+    },
+    {
+      "ep_ml": 3.116,
+      "ep_quant": 2.801,
+      "fpl_element_id": 399,
+      "ml_residual": 0.315,
+      "name": "Rayan Cherki",
+      "player_uid": "player_rayan_cherki"
+    },
+    {
+      "ep_ml": 3.111,
+      "ep_quant": 3.677,
+      "fpl_element_id": 445,
+      "ml_residual": -0.566,
+      "name": "Malick Thiaw",
+      "player_uid": "player_malick_thiaw"
+    },
+    {
+      "ep_ml": 3.086,
+      "ep_quant": 3.647,
+      "fpl_element_id": 346,
+      "ml_residual": -0.562,
+      "name": "Dominic Calvert-Lewin",
+      "player_uid": "player_dominic_calvert_lewin"
+    },
+    {
+      "ep_ml": 3.053,
+      "ep_quant": 3.87,
+      "fpl_element_id": 250,
+      "ml_residual": -0.817,
+      "name": "Bernd Leno",
+      "player_uid": "player_bernd_leno"
+    },
+    {
+      "ep_ml": 3.049,
+      "ep_quant": 3.922,
+      "fpl_element_id": 109,
+      "ml_residual": -0.873,
+      "name": "Bart Verbruggen",
+      "player_uid": "player_bart_verbruggen"
+    },
+    {
+      "ep_ml": 3.039,
+      "ep_quant": 4.13,
+      "fpl_element_id": 106,
+      "ml_residual": -1.09,
+      "name": "Igor Thiago Nascimento Rodrigues",
+      "player_uid": "player_igor_thiago_nascimento_rodrigues"
+    },
+    {
+      "ep_ml": 3.019,
+      "ep_quant": 3.521,
+      "fpl_element_id": 529,
+      "ml_residual": -0.502,
+      "name": "Robin Roefs",
+      "player_uid": "player_robin_roefs"
+    },
+    {
+      "ep_ml": 3.006,
+      "ep_quant": 2.627,
+      "fpl_element_id": 236,
+      "ml_residual": 0.379,
+      "name": "Kiernan Dewsbury-Hall",
+      "player_uid": "player_kiernan_dewsbury_hall"
+    },
+    {
+      "ep_ml": 2.997,
+      "ep_quant": 2.933,
+      "fpl_element_id": 397,
+      "ml_residual": 0.064,
+      "name": "Antoine Semenyo",
+      "player_uid": "player_antoine_semenyo"
+    },
+    {
+      "ep_ml": 2.987,
+      "ep_quant": 3.825,
+      "fpl_element_id": 13,
+      "ml_residual": -0.838,
+      "name": "Declan Rice",
+      "player_uid": "player_declan_rice"
+    },
+    {
+      "ep_ml": 2.974,
+      "ep_quant": 4.107,
+      "fpl_element_id": null,
+      "ml_residual": -1.134,
+      "name": "Mohamed Salah",
+      "player_uid": "player_mohamed_salah"
+    },
+    {
+      "ep_ml": 2.974,
+      "ep_quant": 3.75,
+      "fpl_element_id": 542,
+      "ml_residual": -0.776,
+      "name": "Enzo Le F\u00e9e",
+      "player_uid": "player_enzo_le_fee"
+    },
+    {
+      "ep_ml": 2.924,
+      "ep_quant": 0.0,
+      "fpl_element_id": 10,
+      "ml_residual": 2.924,
+      "name": "Benjamin White",
+      "player_uid": "player_benjamin_white"
+    },
+    {
+      "ep_ml": 2.912,
+      "ep_quant": 3.399,
+      "fpl_element_id": 84,
+      "ml_residual": -0.487,
+      "name": "Nathan Collins",
+      "player_uid": "player_nathan_collins"
+    },
+    {
+      "ep_ml": 2.911,
+      "ep_quant": 0.0,
+      "fpl_element_id": 230,
+      "ml_residual": 2.911,
+      "name": "Jarrad Branthwaite",
+      "player_uid": "player_jarrad_branthwaite"
+    },
+    {
+      "ep_ml": 2.899,
+      "ep_quant": 3.662,
+      "fpl_element_id": 112,
+      "ml_residual": -0.763,
+      "name": "Jan Paul van Hecke",
+      "player_uid": "player_jan_paul_van_hecke"
+    },
+    {
+      "ep_ml": 2.894,
+      "ep_quant": 2.989,
+      "fpl_element_id": 388,
+      "ml_residual": -0.096,
+      "name": "Marc Gu\u00e9hi",
+      "player_uid": "player_marc_guehi"
+    },
+    {
+      "ep_ml": 2.879,
+      "ep_quant": 2.485,
+      "fpl_element_id": 464,
+      "ml_residual": 0.394,
+      "name": "Yoane Wissa",
+      "player_uid": "player_yoane_wissa"
+    },
+    {
+      "ep_ml": 2.871,
+      "ep_quant": 3.666,
+      "fpl_element_id": 467,
+      "ml_residual": -0.795,
+      "name": "Matz Sels",
+      "player_uid": "player_matz_sels"
+    },
+    {
+      "ep_ml": 2.865,
+      "ep_quant": 3.17,
+      "fpl_element_id": 95,
+      "ml_residual": -0.305,
+      "name": "Dango Ouattara",
+      "player_uid": "player_dango_ouattara"
+    },
+    {
+      "ep_ml": 2.84,
+      "ep_quant": 3.468,
+      "fpl_element_id": 469,
+      "ml_residual": -0.628,
+      "name": "Neco Williams",
+      "player_uid": "player_neco_williams"
+    },
+    {
+      "ep_ml": 2.832,
+      "ep_quant": 3.854,
+      "fpl_element_id": 239,
+      "ml_residual": -1.021,
+      "name": "James Garner",
+      "player_uid": "player_james_garner"
+    },
+    {
+      "ep_ml": 2.826,
+      "ep_quant": 3.121,
+      "fpl_element_id": 261,
+      "ml_residual": -0.295,
+      "name": "Alex Iwobi",
+      "player_uid": "player_alex_iwobi"
+    },
+    {
+      "ep_ml": 2.79,
+      "ep_quant": 2.697,
+      "fpl_element_id": 332,
+      "ml_residual": 0.093,
+      "name": "James Justin",
+      "player_uid": "player_james_justin"
+    },
+    {
+      "ep_ml": 2.774,
+      "ep_quant": 0.801,
+      "fpl_element_id": 124,
+      "ml_residual": 1.973,
+      "name": "Pascal Gro\u00df",
+      "player_uid": "player_pascal_gross"
+    },
+    {
+      "ep_ml": 2.73,
+      "ep_quant": 3.09,
+      "fpl_element_id": 428,
+      "ml_residual": -0.36,
+      "name": "Matheus Santos Carneiro Da Cunha",
+      "player_uid": "player_matheus_santos_carneiro_da_cunha"
+    },
+    {
+      "ep_ml": 2.704,
+      "ep_quant": 0.827,
+      "fpl_element_id": 385,
+      "ml_residual": 1.877,
+      "name": "James Trafford",
+      "player_uid": "player_james_trafford"
+    },
+    {
+      "ep_ml": 2.679,
+      "ep_quant": 0.0,
+      "fpl_element_id": 335,
+      "ml_residual": 2.679,
+      "name": "Anton Stach",
+      "player_uid": "player_anton_stach"
+    },
+    {
+      "ep_ml": 2.676,
+      "ep_quant": 3.382,
+      "fpl_element_id": 533,
+      "ml_residual": -0.705,
+      "name": "Nordi Mukiele",
+      "player_uid": "player_nordi_mukiele"
+    },
+    {
+      "ep_ml": 2.664,
+      "ep_quant": 3.698,
+      "fpl_element_id": null,
+      "ml_residual": -1.034,
+      "name": "Maxime Est\u00e8ve",
+      "player_uid": "player_maxime_esteve"
+    },
+    {
+      "ep_ml": 2.655,
+      "ep_quant": 3.657,
+      "fpl_element_id": 200,
+      "ml_residual": -1.002,
+      "name": "Maxence Lacroix",
+      "player_uid": "player_maxence_lacroix"
+    },
+    {
+      "ep_ml": 2.65,
+      "ep_quant": 2.459,
+      "fpl_element_id": 98,
+      "ml_residual": 0.19,
+      "name": "Vitaly Janelt",
+      "player_uid": "player_vitaly_janelt"
+    },
+    {
+      "ep_ml": 2.649,
+      "ep_quant": 3.765,
+      "fpl_element_id": 471,
+      "ml_residual": -1.117,
+      "name": "Nikola Milenkovi\u0107",
+      "player_uid": "player_nikola_milenkovic"
+    },
+    {
+      "ep_ml": 2.641,
+      "ep_quant": 2.268,
+      "fpl_element_id": 249,
+      "ml_residual": 0.373,
+      "name": "Thierno Barry",
+      "player_uid": "player_thierno_barry"
+    },
+    {
+      "ep_ml": 2.631,
+      "ep_quant": 2.924,
+      "fpl_element_id": 210,
+      "ml_residual": -0.293,
+      "name": "Adam Wharton",
+      "player_uid": "player_adam_wharton"
+    },
+    {
+      "ep_ml": 2.631,
+      "ep_quant": 2.913,
+      "fpl_element_id": 534,
+      "ml_residual": -0.281,
+      "name": "Trai Hume",
+      "player_uid": "player_trai_hume"
+    },
+    {
+      "ep_ml": 2.63,
+      "ep_quant": 2.379,
+      "fpl_element_id": 60,
+      "ml_residual": 0.251,
+      "name": "James Hill",
+      "player_uid": "player_james_hill"
+    },
+    {
+      "ep_ml": 2.63,
+      "ep_quant": 3.581,
+      "fpl_element_id": null,
+      "ml_residual": -0.951,
+      "name": "Mateus Gon\u00e7alo Espanha Fernandes",
+      "player_uid": "player_mateus_goncalo_espanha_fernandes"
+    },
+    {
+      "ep_ml": 2.624,
+      "ep_quant": 2.207,
+      "fpl_element_id": 127,
+      "ml_residual": 0.416,
+      "name": "Diego G\u00f3mez Amarilla",
+      "player_uid": "player_diego_gomez_amarilla"
+    },
+    {
+      "ep_ml": 2.621,
+      "ep_quant": 4.179,
+      "fpl_element_id": 155,
+      "ml_residual": -1.559,
+      "name": "Enzo Fern\u00e1ndez",
+      "player_uid": "player_enzo_fernandez"
+    },
+    {
+      "ep_ml": 2.602,
+      "ep_quant": 3.107,
+      "fpl_element_id": 233,
+      "ml_residual": -0.505,
+      "name": "Vitalii Mykolenko",
+      "player_uid": "player_vitalii_mykolenko"
+    },
+    {
+      "ep_ml": 2.594,
+      "ep_quant": 3.024,
+      "fpl_element_id": 43,
+      "ml_residual": -0.43,
+      "name": "Youri Tielemans",
+      "player_uid": "player_youri_tielemans"
+    },
+    {
+      "ep_ml": 2.586,
+      "ep_quant": 2.814,
+      "fpl_element_id": 82,
+      "ml_residual": -0.228,
+      "name": "Caoimhin Kelleher",
+      "player_uid": "player_caoimhin_kelleher"
+    },
+    {
+      "ep_ml": 2.584,
+      "ep_quant": 2.535,
+      "fpl_element_id": 390,
+      "ml_residual": 0.049,
+      "name": "R\u00faben dos Santos Gato Alves Dias",
+      "player_uid": "player_ruben_dos_santos_gato_alves_dias"
+    },
+    {
+      "ep_ml": 2.583,
+      "ep_quant": 0.803,
+      "fpl_element_id": 244,
+      "ml_residual": 1.78,
+      "name": "Harrison Armstrong",
+      "player_uid": "player_harrison_armstrong"
+    },
+    {
+      "ep_ml": 2.581,
+      "ep_quant": 0.0,
+      "fpl_element_id": 532,
+      "ml_residual": 2.581,
+      "name": "Daniel Ballard",
+      "player_uid": "player_daniel_ballard"
+    },
+    {
+      "ep_ml": 2.56,
+      "ep_quant": 2.256,
+      "fpl_element_id": 15,
+      "ml_residual": 0.303,
+      "name": "Martin \u00d8degaard",
+      "player_uid": "player_martin_degaard"
+    },
+    {
+      "ep_ml": 2.554,
+      "ep_quant": 2.776,
+      "fpl_element_id": 254,
+      "ml_residual": -0.222,
+      "name": "Antonee Robinson",
+      "player_uid": "player_antonee_robinson"
+    },
+    {
+      "ep_ml": 2.553,
+      "ep_quant": 2.712,
+      "fpl_element_id": 449,
+      "ml_residual": -0.16,
+      "name": "Lewis Hall",
+      "player_uid": "player_lewis_hall"
+    },
+    {
+      "ep_ml": 2.546,
+      "ep_quant": 3.03,
+      "fpl_element_id": 156,
+      "ml_residual": -0.484,
+      "name": "Pedro Lomba Neto",
+      "player_uid": "player_pedro_lomba_neto"
+    },
+    {
+      "ep_ml": 2.54,
+      "ep_quant": 2.993,
+      "fpl_element_id": 57,
+      "ml_residual": -0.453,
+      "name": "\u0110or\u0111e Petrovi\u0107",
+      "player_uid": "player_or_e_petrovic"
+    },
+    {
+      "ep_ml": 2.54,
+      "ep_quant": 1.965,
+      "fpl_element_id": 115,
+      "ml_residual": 0.575,
+      "name": "Maxim De Cuyper",
+      "player_uid": "player_maxim_de_cuyper"
+    },
+    {
+      "ep_ml": 2.53,
+      "ep_quant": 3.053,
+      "fpl_element_id": 372,
+      "ml_residual": -0.524,
+      "name": "Alexis Mac Allister",
+      "player_uid": "player_alexis_mac_allister"
+    },
+    {
+      "ep_ml": 2.493,
+      "ep_quant": 3.487,
+      "fpl_element_id": 198,
+      "ml_residual": -0.994,
+      "name": "Dean Henderson",
+      "player_uid": "player_dean_henderson"
+    },
+    {
+      "ep_ml": 2.485,
+      "ep_quant": 2.316,
+      "fpl_element_id": 267,
+      "ml_residual": 0.168,
+      "name": "Sa\u0161a Luki\u0107",
+      "player_uid": "player_sasa_lukic"
+    },
+    {
+      "ep_ml": 2.475,
+      "ep_quant": 3.395,
+      "fpl_element_id": 412,
+      "ml_residual": -0.92,
+      "name": "Senne Lammens",
+      "player_uid": "player_senne_lammens"
+    },
+    {
+      "ep_ml": 2.462,
+      "ep_quant": 2.559,
+      "fpl_element_id": 453,
+      "ml_residual": -0.097,
+      "name": "Harvey Barnes",
+      "player_uid": "player_harvey_barnes"
+    },
+    {
+      "ep_ml": 2.461,
+      "ep_quant": 2.781,
+      "fpl_element_id": 516,
+      "ml_residual": -0.32,
+      "name": "Rodrigo Bentancur",
+      "player_uid": "player_rodrigo_bentancur"
+    },
+    {
+      "ep_ml": 2.458,
+      "ep_quant": 1.656,
+      "fpl_element_id": 26,
+      "ml_residual": 0.801,
+      "name": "Kai Havertz",
+      "player_uid": "player_kai_havertz"
+    },
+    {
+      "ep_ml": 2.455,
+      "ep_quant": 2.862,
+      "fpl_element_id": 387,
+      "ml_residual": -0.408,
+      "name": "Nico O'Reilly",
+      "player_uid": "player_nico_o_reilly"
+    },
+    {
+      "ep_ml": 2.44,
+      "ep_quant": 3.594,
+      "fpl_element_id": 140,
+      "ml_residual": -1.154,
+      "name": "Robert Lynch S\u00e1nchez",
+      "player_uid": "player_robert_lynch_sanchez"
+    },
+    {
+      "ep_ml": 2.434,
+      "ep_quant": 2.716,
+      "fpl_element_id": 545,
+      "ml_residual": -0.282,
+      "name": "Noah Sadiki",
+      "player_uid": "player_noah_sadiki"
+    },
+    {
+      "ep_ml": 2.432,
+      "ep_quant": 2.642,
+      "fpl_element_id": 327,
+      "ml_residual": -0.21,
+      "name": "Jaka Bijol",
+      "player_uid": "player_jaka_bijol"
+    },
+    {
+      "ep_ml": 2.425,
+      "ep_quant": 2.322,
+      "fpl_element_id": 447,
+      "ml_residual": 0.103,
+      "name": "Sven Botman",
+      "player_uid": "player_sven_botman"
+    },
+    {
+      "ep_ml": 2.397,
+      "ep_quant": 2.705,
+      "fpl_element_id": 491,
+      "ml_residual": -0.307,
+      "name": "Igor Jesus Maciel da Cruz",
+      "player_uid": "player_igor_jesus_maciel_da_cruz"
+    },
+    {
+      "ep_ml": 2.396,
+      "ep_quant": 3.256,
+      "fpl_element_id": 260,
+      "ml_residual": -0.859,
+      "name": "Harry Wilson",
+      "player_uid": "player_harry_wilson"
+    },
+    {
+      "ep_ml": 2.392,
+      "ep_quant": 2.273,
+      "fpl_element_id": 258,
+      "ml_residual": 0.119,
+      "name": "Timothy Castagne",
+      "player_uid": "player_timothy_castagne"
+    },
+    {
+      "ep_ml": 2.37,
+      "ep_quant": 3.1,
+      "fpl_element_id": 329,
+      "ml_residual": -0.73,
+      "name": "Joe Rodon",
+      "player_uid": "player_joe_rodon"
+    },
+    {
+      "ep_ml": 2.341,
+      "ep_quant": 3.196,
+      "fpl_element_id": 96,
+      "ml_residual": -0.855,
+      "name": "Mikkel Damsgaard",
+      "player_uid": "player_mikkel_damsgaard"
+    },
+    {
+      "ep_ml": 2.327,
+      "ep_quant": 3.233,
+      "fpl_element_id": null,
+      "ml_residual": -0.906,
+      "name": "Marc Cucurella Saseta",
+      "player_uid": "player_marc_cucurella_saseta"
+    },
+    {
+      "ep_ml": 2.326,
+      "ep_quant": 3.122,
+      "fpl_element_id": 640,
+      "ml_residual": -0.795,
+      "name": "Zian Flemming",
+      "player_uid": "player_zian_flemming"
+    },
+    {
+      "ep_ml": 2.317,
+      "ep_quant": 3.274,
+      "fpl_element_id": null,
+      "ml_residual": -0.957,
+      "name": "Ibrahima Konat\u00e9",
+      "player_uid": "player_ibrahima_konate"
+    },
+    {
+      "ep_ml": 2.314,
+      "ep_quant": 2.039,
+      "fpl_element_id": 350,
+      "ml_residual": 0.274,
+      "name": "Alisson Becker",
+      "player_uid": "player_alisson_becker"
+    },
+    {
+      "ep_ml": 2.308,
+      "ep_quant": 2.758,
+      "fpl_element_id": 70,
+      "ml_residual": -0.45,
+      "name": "Justin Kluivert",
+      "player_uid": "player_justin_kluivert"
+    },
+    {
+      "ep_ml": 2.272,
+      "ep_quant": 2.1,
+      "fpl_element_id": 454,
+      "ml_residual": 0.172,
+      "name": "Anthony Elanga",
+      "player_uid": "player_anthony_elanga"
+    },
+    {
+      "ep_ml": 2.267,
+      "ep_quant": 2.825,
+      "fpl_element_id": 105,
+      "ml_residual": -0.558,
+      "name": "Jaidon Anthony",
+      "player_uid": "player_jaidon_anthony"
+    },
+    {
+      "ep_ml": 2.259,
+      "ep_quant": 0.0,
+      "fpl_element_id": 504,
+      "ml_residual": 2.259,
+      "name": "Luka Vu\u0161kovi\u0107",
+      "player_uid": "player_luka_vuskovic"
+    },
+    {
+      "ep_ml": 2.255,
+      "ep_quant": 2.766,
+      "fpl_element_id": 123,
+      "ml_residual": -0.511,
+      "name": "Jack Hinshelwood",
+      "player_uid": "player_jack_hinshelwood"
+    },
+    {
+      "ep_ml": 2.249,
+      "ep_quant": 2.338,
+      "fpl_element_id": 130,
+      "ml_residual": -0.089,
+      "name": "Mats Wieffer",
+      "player_uid": "player_mats_wieffer"
+    },
+    {
+      "ep_ml": 2.245,
+      "ep_quant": 0.485,
+      "fpl_element_id": 551,
+      "ml_residual": 1.761,
+      "name": "Nilson Angulo",
+      "player_uid": "player_nilson_angulo"
+    },
+    {
+      "ep_ml": 2.237,
+      "ep_quant": 2.66,
+      "fpl_element_id": 257,
+      "ml_residual": -0.423,
+      "name": "Calvin Bassey",
+      "player_uid": "player_calvin_bassey"
+    },
+    {
+      "ep_ml": 2.232,
+      "ep_quant": 2.719,
+      "fpl_element_id": 116,
+      "ml_residual": -0.487,
+      "name": "Lewis Dunk",
+      "player_uid": "player_lewis_dunk"
+    },
+    {
+      "ep_ml": 2.209,
+      "ep_quant": 2.314,
+      "fpl_element_id": 418,
+      "ml_residual": -0.104,
+      "name": "Harry Maguire",
+      "player_uid": "player_harry_maguire"
+    },
+    {
+      "ep_ml": 2.199,
+      "ep_quant": 0.0,
+      "fpl_element_id": 459,
+      "ml_residual": 2.199,
+      "name": "Lewis Miley",
+      "player_uid": "player_lewis_miley"
+    },
+    {
+      "ep_ml": 2.193,
+      "ep_quant": 0.0,
+      "fpl_element_id": 564,
+      "ml_residual": 2.193,
+      "name": "Kjell Scherpen",
+      "player_uid": "player_kjell_scherpen"
+    },
+    {
+      "ep_ml": 2.186,
+      "ep_quant": 2.345,
+      "fpl_element_id": 88,
+      "ml_residual": -0.159,
+      "name": "Michael Kayode",
+      "player_uid": "player_michael_kayode"
+    },
+    {
+      "ep_ml": 2.148,
+      "ep_quant": 1.953,
+      "fpl_element_id": 502,
+      "ml_residual": 0.195,
+      "name": "Andrew Robertson",
+      "player_uid": "player_andrew_robertson"
+    },
+    {
+      "ep_ml": 2.144,
+      "ep_quant": 2.339,
+      "fpl_element_id": 28,
+      "ml_residual": -0.195,
+      "name": "Emiliano Mart\u00ednez Romero",
+      "player_uid": "player_emiliano_martinez_romero"
+    },
+    {
+      "ep_ml": 2.142,
+      "ep_quant": 3.001,
+      "fpl_element_id": null,
+      "ml_residual": -0.858,
+      "name": "Konstantinos Mavropanos",
+      "player_uid": "player_konstantinos_mavropanos"
+    },
+    {
+      "ep_ml": 2.14,
+      "ep_quant": 1.895,
+      "fpl_element_id": 514,
+      "ml_residual": 0.245,
+      "name": "Mathys Tel",
+      "player_uid": "player_mathys_tel"
+    },
+    {
+      "ep_ml": 2.131,
+      "ep_quant": 2.652,
+      "fpl_element_id": 358,
+      "ml_residual": -0.521,
+      "name": "Milos Kerkez",
+      "player_uid": "player_milos_kerkez"
+    },
+    {
+      "ep_ml": 2.125,
+      "ep_quant": 3.106,
+      "fpl_element_id": 371,
+      "ml_residual": -0.981,
+      "name": "Ryan Gravenberch",
+      "player_uid": "player_ryan_gravenberch"
+    },
+    {
+      "ep_ml": 2.098,
+      "ep_quant": 3.297,
+      "fpl_element_id": 499,
+      "ml_residual": -1.2,
+      "name": "Pedro Porro Sauceda",
+      "player_uid": "player_pedro_porro_sauceda"
+    },
+    {
+      "ep_ml": 2.089,
+      "ep_quant": 2.966,
+      "fpl_element_id": null,
+      "ml_residual": -0.877,
+      "name": "Crysencio Summerville",
+      "player_uid": "player_crysencio_summerville"
+    },
+    {
+      "ep_ml": 2.084,
+      "ep_quant": 1.656,
+      "fpl_element_id": 553,
+      "ml_residual": 0.429,
+      "name": "Wilson Isidor",
+      "player_uid": "player_wilson_isidor"
+    },
+    {
+      "ep_ml": 2.083,
+      "ep_quant": 2.688,
+      "fpl_element_id": 423,
+      "ml_residual": -0.605,
+      "name": "Luke Shaw",
+      "player_uid": "player_luke_shaw"
+    },
+    {
+      "ep_ml": 2.081,
+      "ep_quant": 2.151,
+      "fpl_element_id": 455,
+      "ml_residual": -0.07,
+      "name": "Sandro Tonali",
+      "player_uid": "player_sandro_tonali"
+    },
+    {
+      "ep_ml": 2.071,
+      "ep_quant": 3.201,
+      "fpl_element_id": null,
+      "ml_residual": -1.13,
+      "name": "Bernardo Mota Veiga de Carvalho e Silva",
+      "player_uid": "player_bernardo_mota_veiga_de_carvalho_e_silva"
+    },
+    {
+      "ep_ml": 2.068,
+      "ep_quant": 2.304,
+      "fpl_element_id": 211,
+      "ml_residual": -0.236,
+      "name": "Y\u00e9remy Pino Santos",
+      "player_uid": "player_yeremy_pino_santos"
+    },
+    {
+      "ep_ml": 2.059,
+      "ep_quant": 2.689,
+      "fpl_element_id": 265,
+      "ml_residual": -0.631,
+      "name": "Sander Berge",
+      "player_uid": "player_sander_berge"
+    },
+    {
+      "ep_ml": 2.053,
+      "ep_quant": 1.765,
+      "fpl_element_id": 347,
+      "ml_residual": 0.289,
+      "name": "Lukas Nmecha",
+      "player_uid": "player_lukas_nmecha"
+    },
+    {
+      "ep_ml": 2.046,
+      "ep_quant": 2.204,
+      "fpl_element_id": 214,
+      "ml_residual": -0.158,
+      "name": "Daichi Kamada",
+      "player_uid": "player_daichi_kamada"
+    },
+    {
+      "ep_ml": 2.04,
+      "ep_quant": 2.564,
+      "fpl_element_id": 97,
+      "ml_residual": -0.524,
+      "name": "Mathias Jensen",
+      "player_uid": "player_mathias_jensen"
+    },
+    {
+      "ep_ml": 2.025,
+      "ep_quant": 0.718,
+      "fpl_element_id": 264,
+      "ml_residual": 1.307,
+      "name": "Oscar Bobb",
+      "player_uid": "player_oscar_bobb"
+    },
+    {
+      "ep_ml": 2.023,
+      "ep_quant": 0.451,
+      "fpl_element_id": 242,
+      "ml_residual": 1.572,
+      "name": "Tyrique George",
+      "player_uid": "player_tyrique_george"
+    },
+    {
+      "ep_ml": 2.021,
+      "ep_quant": 1.736,
+      "fpl_element_id": 393,
+      "ml_residual": 0.285,
+      "name": "Abdukodir Khusanov",
+      "player_uid": "player_abdukodir_khusanov"
+    },
+    {
+      "ep_ml": 2.014,
+      "ep_quant": 2.287,
+      "fpl_element_id": 337,
+      "ml_residual": -0.274,
+      "name": "Brenden Aaronson",
+      "player_uid": "player_brenden_aaronson"
+    },
+    {
+      "ep_ml": 1.995,
+      "ep_quant": 2.853,
+      "fpl_element_id": 417,
+      "ml_residual": -0.858,
+      "name": "Diogo Dalot Teixeira",
+      "player_uid": "player_diogo_dalot_teixeira"
+    },
+    {
+      "ep_ml": 1.991,
+      "ep_quant": 2.531,
+      "fpl_element_id": 552,
+      "ml_residual": -0.541,
+      "name": "Brian Brobbey",
+      "player_uid": "player_brian_brobbey"
+    },
+    {
+      "ep_ml": 1.984,
+      "ep_quant": 2.038,
+      "fpl_element_id": 536,
+      "ml_residual": -0.054,
+      "name": "Reinildo Mandava",
+      "player_uid": "player_reinildo_mandava"
+    },
+    {
+      "ep_ml": 1.976,
+      "ep_quant": 2.797,
+      "fpl_element_id": null,
+      "ml_residual": -0.821,
+      "name": "Leandro Trossard",
+      "player_uid": "player_leandro_trossard"
+    },
+    {
+      "ep_ml": 1.964,
+      "ep_quant": 2.849,
+      "fpl_element_id": null,
+      "ml_residual": -0.885,
+      "name": "Santiago Ignacio Bueno",
+      "player_uid": "player_santiago_ignacio_bueno"
+    },
+    {
+      "ep_ml": 1.959,
+      "ep_quant": 3.181,
+      "fpl_element_id": null,
+      "ml_residual": -1.222,
+      "name": "Anthony Gordon",
+      "player_uid": "player_anthony_gordon"
+    },
+    {
+      "ep_ml": 1.952,
+      "ep_quant": 2.16,
+      "fpl_element_id": 330,
+      "ml_residual": -0.208,
+      "name": "Jayden Bogle",
+      "player_uid": "player_jayden_bogle"
+    },
+    {
+      "ep_ml": 1.951,
+      "ep_quant": 3.088,
+      "fpl_element_id": null,
+      "ml_residual": -1.136,
+      "name": "Ra\u00fal Jim\u00e9nez Rodr\u00edguez",
+      "player_uid": "player_raul_jimenez_rodriguez"
+    },
+    {
+      "ep_ml": 1.95,
+      "ep_quant": 3.116,
+      "fpl_element_id": 14,
+      "ml_residual": -1.166,
+      "name": "Eberechi Eze",
+      "player_uid": "player_eberechi_eze"
+    },
+    {
+      "ep_ml": 1.939,
+      "ep_quant": 2.81,
+      "fpl_element_id": 248,
+      "ml_residual": -0.871,
+      "name": "Norberto Bercique Gomes Betuncal",
+      "player_uid": "player_norberto_bercique_gomes_betuncal"
+    },
+    {
+      "ep_ml": 1.927,
+      "ep_quant": 1.206,
+      "fpl_element_id": 138,
+      "ml_residual": 0.721,
+      "name": "Charalampos Kostoulas",
+      "player_uid": "player_charalampos_kostoulas"
+    },
+    {
+      "ep_ml": 1.921,
+      "ep_quant": 3.021,
+      "fpl_element_id": 102,
+      "ml_residual": -1.1,
+      "name": "Yehor Yarmoliuk",
+      "player_uid": "player_yehor_yarmoliuk"
+    },
+    {
+      "ep_ml": 1.918,
+      "ep_quant": 2.693,
+      "fpl_element_id": 527,
+      "ml_residual": -0.774,
+      "name": "Richarlison de Andrade",
+      "player_uid": "player_richarlison_de_andrade"
+    },
+    {
+      "ep_ml": 1.917,
+      "ep_quant": 1.344,
+      "fpl_element_id": 268,
+      "ml_residual": 0.573,
+      "name": "Josh King",
+      "player_uid": "player_josh_king"
+    },
+    {
+      "ep_ml": 1.914,
+      "ep_quant": 0.0,
+      "fpl_element_id": 472,
+      "ml_residual": 1.914,
+      "name": "Murillo Costa dos Santos",
+      "player_uid": "player_murillo_costa_dos_santos"
+    },
+    {
+      "ep_ml": 1.909,
+      "ep_quant": 1.696,
+      "fpl_element_id": 67,
+      "ml_residual": 0.213,
+      "name": "Rayan Vitor Simpl\u00edcio Rocha",
+      "player_uid": "player_rayan_vitor_simplicio_rocha"
+    },
+    {
+      "ep_ml": 1.901,
+      "ep_quant": 2.556,
+      "fpl_element_id": 543,
+      "ml_residual": -0.655,
+      "name": "Habib Diarra",
+      "player_uid": "player_habib_diarra"
+    },
+    {
+      "ep_ml": 1.893,
+      "ep_quant": 1.921,
+      "fpl_element_id": 432,
+      "ml_residual": -0.027,
+      "name": "Kobbie Mainoo",
+      "player_uid": "player_kobbie_mainoo"
+    },
+    {
+      "ep_ml": 1.893,
+      "ep_quant": 2.794,
+      "fpl_element_id": null,
+      "ml_residual": -0.9,
+      "name": "Yerson Mosquera Valdelamar",
+      "player_uid": "player_yerson_mosquera_valdelamar"
+    },
+    {
+      "ep_ml": 1.813,
+      "ep_quant": 1.892,
+      "fpl_element_id": 71,
+      "ml_residual": -0.08,
+      "name": "Lewis Cook",
+      "player_uid": "player_lewis_cook"
+    },
+    {
+      "ep_ml": 1.808,
+      "ep_quant": 1.742,
+      "fpl_element_id": 87,
+      "ml_residual": 0.067,
+      "name": "Kristoffer Ajer",
+      "player_uid": "player_kristoffer_ajer"
+    },
+    {
+      "ep_ml": 1.802,
+      "ep_quant": 1.249,
+      "fpl_element_id": 259,
+      "ml_residual": 0.553,
+      "name": "Issa Diop",
+      "player_uid": "player_issa_diop"
+    },
+    {
+      "ep_ml": 1.796,
+      "ep_quant": 2.682,
+      "fpl_element_id": null,
+      "ml_residual": -0.886,
+      "name": "Kyle Walker",
+      "player_uid": "player_kyle_walker"
+    },
+    {
+      "ep_ml": 1.788,
+      "ep_quant": 1.947,
+      "fpl_element_id": 241,
+      "ml_residual": -0.159,
+      "name": "Dwight McNeil",
+      "player_uid": "player_dwight_mcneil"
+    },
+    {
+      "ep_ml": 1.786,
+      "ep_quant": 2.265,
+      "fpl_element_id": 463,
+      "ml_residual": -0.479,
+      "name": "Nick Woltemade",
+      "player_uid": "player_nick_woltemade"
+    },
+    {
+      "ep_ml": 1.783,
+      "ep_quant": 1.293,
+      "fpl_element_id": 246,
+      "ml_residual": 0.49,
+      "name": "Merlin R\u00f6hl",
+      "player_uid": "player_merlin_rohl"
+    },
+    {
+      "ep_ml": 1.778,
+      "ep_quant": 2.673,
+      "fpl_element_id": 526,
+      "ml_residual": -0.895,
+      "name": "Dominic Solanke-Mitchell",
+      "player_uid": "player_dominic_solanke_mitchell"
+    },
+    {
+      "ep_ml": 1.759,
+      "ep_quant": 1.667,
+      "fpl_element_id": 190,
+      "ml_residual": 0.092,
+      "name": "Loum Tchaouna",
+      "player_uid": "player_loum_tchaouna"
+    },
+    {
+      "ep_ml": 1.745,
+      "ep_quant": 2.052,
+      "fpl_element_id": 473,
+      "ml_residual": -0.307,
+      "name": "Ola Aina",
+      "player_uid": "player_ola_aina"
+    },
+    {
+      "ep_ml": 1.741,
+      "ep_quant": 0.321,
+      "fpl_element_id": 496,
+      "ml_residual": 1.419,
+      "name": "Anton\u00edn Kinsky",
+      "player_uid": "player_antonin_kinsky"
+    },
+    {
+      "ep_ml": 1.717,
+      "ep_quant": 1.078,
+      "fpl_element_id": 41,
+      "ml_residual": 0.639,
+      "name": "Emiliano Buend\u00eda Stati",
+      "player_uid": "player_emiliano_buendia_stati"
+    },
+    {
+      "ep_ml": 1.716,
+      "ep_quant": 2.571,
+      "fpl_element_id": 45,
+      "ml_residual": -0.855,
+      "name": "John McGinn",
+      "player_uid": "player_john_mcginn"
+    },
+    {
+      "ep_ml": 1.713,
+      "ep_quant": 3.488,
+      "fpl_element_id": 159,
+      "ml_residual": -1.775,
+      "name": "Mois\u00e9s Caicedo Corozo",
+      "player_uid": "player_moises_caicedo_corozo"
+    },
+    {
+      "ep_ml": 1.71,
+      "ep_quant": 3.282,
+      "fpl_element_id": 113,
+      "ml_residual": -1.573,
+      "name": "Ferdi Kad\u0131o\u011flu",
+      "player_uid": "player_ferdi_kad_oglu"
+    },
+    {
+      "ep_ml": 1.684,
+      "ep_quant": 2.945,
+      "fpl_element_id": null,
+      "ml_residual": -1.261,
+      "name": "Alphonse Areola",
+      "player_uid": "player_alphonse_areola"
+    },
+    {
+      "ep_ml": 1.681,
+      "ep_quant": 2.519,
+      "fpl_element_id": null,
+      "ml_residual": -0.838,
+      "name": "Jo\u00e3o Victor Gomes da Silva",
+      "player_uid": "player_joao_victor_gomes_da_silva"
+    },
+    {
+      "ep_ml": 1.662,
+      "ep_quant": 3.31,
+      "fpl_element_id": 442,
+      "ml_residual": -1.648,
+      "name": "Nick Pope",
+      "player_uid": "player_nick_pope"
+    },
+    {
+      "ep_ml": 1.659,
+      "ep_quant": 1.123,
+      "fpl_element_id": 369,
+      "ml_residual": 0.536,
+      "name": "Rio Ngumoha",
+      "player_uid": "player_rio_ngumoha"
+    },
+    {
+      "ep_ml": 1.645,
+      "ep_quant": 1.309,
+      "fpl_element_id": 460,
+      "ml_residual": 0.337,
+      "name": "Joe Willock",
+      "player_uid": "player_joe_willock"
+    },
+    {
+      "ep_ml": 1.643,
+      "ep_quant": 2.564,
+      "fpl_element_id": 223,
+      "ml_residual": -0.921,
+      "name": "Jean-Philippe Mateta",
+      "player_uid": "player_jean_philippe_mateta"
+    },
+    {
+      "ep_ml": 1.625,
+      "ep_quant": 2.4,
+      "fpl_element_id": 125,
+      "ml_residual": -0.775,
+      "name": "Georginio Rutter",
+      "player_uid": "player_georginio_rutter"
+    },
+    {
+      "ep_ml": 1.62,
+      "ep_quant": 0.857,
+      "fpl_element_id": 486,
+      "ml_residual": 0.763,
+      "name": "James McAtee",
+      "player_uid": "player_james_mcatee"
+    },
+    {
+      "ep_ml": 1.612,
+      "ep_quant": 1.837,
+      "fpl_element_id": 144,
+      "ml_residual": -0.225,
+      "name": "Malo Gusto",
+      "player_uid": "player_malo_gusto"
+    },
+    {
+      "ep_ml": 1.609,
+      "ep_quant": 1.244,
+      "fpl_element_id": 7,
+      "ml_residual": 0.365,
+      "name": "Myles Lewis-Skelly",
+      "player_uid": "player_myles_lewis_skelly"
+    },
+    {
+      "ep_ml": 1.6,
+      "ep_quant": 1.731,
+      "fpl_element_id": 401,
+      "ml_residual": -0.131,
+      "name": "Omar Marmoush",
+      "player_uid": "player_omar_marmoush"
+    },
+    {
+      "ep_ml": 1.599,
+      "ep_quant": 2.861,
+      "fpl_element_id": 490,
+      "ml_residual": -1.262,
+      "name": "Chris Wood",
+      "player_uid": "player_chris_wood"
+    },
+    {
+      "ep_ml": 1.586,
+      "ep_quant": 2.47,
+      "fpl_element_id": 515,
+      "ml_residual": -0.884,
+      "name": "James Maddison",
+      "player_uid": "player_james_maddison"
+    },
+    {
+      "ep_ml": 1.57,
+      "ep_quant": 2.72,
+      "fpl_element_id": 503,
+      "ml_residual": -1.15,
+      "name": "Micky van de Ven",
+      "player_uid": "player_micky_van_de_ven"
+    },
+    {
+      "ep_ml": 1.555,
+      "ep_quant": 0.0,
+      "fpl_element_id": 47,
+      "ml_residual": 1.555,
+      "name": "Boubacar Kamara",
+      "player_uid": "player_boubacar_kamara"
+    },
+    {
+      "ep_ml": 1.552,
+      "ep_quant": 3.274,
+      "fpl_element_id": 389,
+      "ml_residual": -1.722,
+      "name": "Matheus Nunes",
+      "player_uid": "player_matheus_nunes"
+    },
+    {
+      "ep_ml": 1.536,
+      "ep_quant": 1.168,
+      "fpl_element_id": 46,
+      "ml_residual": 0.367,
+      "name": "Ross Barkley",
+      "player_uid": "player_ross_barkley"
+    },
+    {
+      "ep_ml": 1.531,
+      "ep_quant": 0.923,
+      "fpl_element_id": 483,
+      "ml_residual": 0.608,
+      "name": "Dan Ndoye",
+      "player_uid": "player_dan_ndoye"
+    },
+    {
+      "ep_ml": 1.528,
+      "ep_quant": 0.0,
+      "fpl_element_id": 202,
+      "ml_residual": 1.528,
+      "name": "Chris Richards",
+      "player_uid": "player_chris_richards"
+    },
+    {
+      "ep_ml": 1.518,
+      "ep_quant": 1.426,
+      "fpl_element_id": 148,
+      "ml_residual": 0.092,
+      "name": "Jorrel Hato",
+      "player_uid": "player_jorrel_hato"
+    },
+    {
+      "ep_ml": 1.516,
+      "ep_quant": 0.0,
+      "fpl_element_id": 110,
+      "ml_residual": 1.516,
+      "name": "Carl Rushworth",
+      "player_uid": "player_carl_rushworth"
+    },
+    {
+      "ep_ml": 1.513,
+      "ep_quant": 2.59,
+      "fpl_element_id": 73,
+      "ml_residual": -1.077,
+      "name": "Tyler Adams",
+      "player_uid": "player_tyler_adams"
+    },
+    {
+      "ep_ml": 1.512,
+      "ep_quant": 1.925,
+      "fpl_element_id": 522,
+      "ml_residual": -0.414,
+      "name": "Archie Gray",
+      "player_uid": "player_archie_gray"
+    },
+    {
+      "ep_ml": 1.512,
+      "ep_quant": 3.296,
+      "fpl_element_id": 136,
+      "ml_residual": -1.784,
+      "name": "Danny Welbeck",
+      "player_uid": "player_danny_welbeck"
+    },
+    {
+      "ep_ml": 1.495,
+      "ep_quant": 0.82,
+      "fpl_element_id": 161,
+      "ml_residual": 0.676,
+      "name": "Rom\u00e9o Lavia",
+      "player_uid": "player_romeo_lavia"
+    },
+    {
+      "ep_ml": 1.494,
+      "ep_quant": 2.425,
+      "fpl_element_id": null,
+      "ml_residual": -0.93,
+      "name": "Jos\u00e9 Malheiro de S\u00e1",
+      "player_uid": "player_jose_malheiro_de_sa"
+    },
+    {
+      "ep_ml": 1.487,
+      "ep_quant": 0.0,
+      "fpl_element_id": 605,
+      "ml_residual": 1.487,
+      "name": "Malick Yalcouy\u00e9",
+      "player_uid": "player_malick_yalcouye"
+    },
+    {
+      "ep_ml": 1.472,
+      "ep_quant": 2.254,
+      "fpl_element_id": null,
+      "ml_residual": -0.782,
+      "name": "Mads Hermansen",
+      "player_uid": "player_mads_hermansen"
+    },
+    {
+      "ep_ml": 1.446,
+      "ep_quant": 1.494,
+      "fpl_element_id": 108,
+      "ml_residual": -0.047,
+      "name": "Callum Wilson",
+      "player_uid": "player_callum_wilson"
+    },
+    {
+      "ep_ml": 1.436,
+      "ep_quant": 3.248,
+      "fpl_element_id": 497,
+      "ml_residual": -1.812,
+      "name": "Martin D\u00fabravka",
+      "player_uid": "player_martin_dubravka"
+    },
+    {
+      "ep_ml": 1.432,
+      "ep_quant": 3.601,
+      "fpl_element_id": 6,
+      "ml_residual": -2.169,
+      "name": "William Saliba",
+      "player_uid": "player_william_saliba"
+    },
+    {
+      "ep_ml": 1.42,
+      "ep_quant": 0.934,
+      "fpl_element_id": 492,
+      "ml_residual": 0.486,
+      "name": "Taiwo Awoniyi",
+      "player_uid": "player_taiwo_awoniyi"
+    },
+    {
+      "ep_ml": 1.403,
+      "ep_quant": 1.432,
+      "fpl_element_id": 222,
+      "ml_residual": -0.029,
+      "name": "J\u00f8rgen Strand Larsen",
+      "player_uid": "player_j_rgen_strand_larsen"
+    },
+    {
+      "ep_ml": 1.392,
+      "ep_quant": 1.832,
+      "fpl_element_id": 405,
+      "ml_residual": -0.44,
+      "name": "Nico Gonz\u00e1lez Iglesias",
+      "player_uid": "player_nico_gonzalez_iglesias"
+    },
+    {
+      "ep_ml": 1.377,
+      "ep_quant": 1.7,
+      "fpl_element_id": 406,
+      "ml_residual": -0.323,
+      "name": "Mateo Kova\u010di\u0107",
+      "player_uid": "player_mateo_kovacic"
+    },
+    {
+      "ep_ml": 1.372,
+      "ep_quant": 2.189,
+      "fpl_element_id": null,
+      "ml_residual": -0.817,
+      "name": "Tom\u00e1\u0161 Sou\u010dek",
+      "player_uid": "player_tomas_soucek"
+    },
+    {
+      "ep_ml": 1.365,
+      "ep_quant": 3.084,
+      "fpl_element_id": 55,
+      "ml_residual": -1.719,
+      "name": "Ollie Watkins",
+      "player_uid": "player_ollie_watkins"
+    },
+    {
+      "ep_ml": 1.344,
+      "ep_quant": 2.404,
+      "fpl_element_id": 457,
+      "ml_residual": -1.06,
+      "name": "Jacob Murphy",
+      "player_uid": "player_jacob_murphy"
+    },
+    {
+      "ep_ml": 1.341,
+      "ep_quant": 1.982,
+      "fpl_element_id": 488,
+      "ml_residual": -0.641,
+      "name": "Ibrahim Sangar\u00e9",
+      "player_uid": "player_ibrahim_sangare"
+    },
+    {
+      "ep_ml": 1.308,
+      "ep_quant": 1.426,
+      "fpl_element_id": 162,
+      "ml_residual": -0.117,
+      "name": "Andrey Nascimento dos Santos",
+      "player_uid": "player_andrey_nascimento_dos_santos"
+    },
+    {
+      "ep_ml": 1.303,
+      "ep_quant": 1.643,
+      "fpl_element_id": 269,
+      "ml_residual": -0.34,
+      "name": "Ryan Sessegnon",
+      "player_uid": "player_ryan_sessegnon"
+    },
+    {
+      "ep_ml": 1.297,
+      "ep_quant": 0.0,
+      "fpl_element_id": 429,
+      "ml_residual": 1.297,
+      "name": "Marcus Rashford",
+      "player_uid": "player_marcus_rashford"
+    },
+    {
+      "ep_ml": 1.292,
+      "ep_quant": 2.714,
+      "fpl_element_id": 204,
+      "ml_residual": -1.422,
+      "name": "Tyrick Mitchell",
+      "player_uid": "player_tyrick_mitchell"
+    },
+    {
+      "ep_ml": 1.282,
+      "ep_quant": 1.399,
+      "fpl_element_id": 11,
+      "ml_residual": -0.118,
+      "name": "Cristhian Mosquera",
+      "player_uid": "player_cristhian_mosquera"
+    },
+    {
+      "ep_ml": 1.281,
+      "ep_quant": 2.346,
+      "fpl_element_id": null,
+      "ml_residual": -1.066,
+      "name": "Lesley Ugochukwu",
+      "player_uid": "player_lesley_ugochukwu"
+    },
+    {
+      "ep_ml": 1.28,
+      "ep_quant": 1.505,
+      "fpl_element_id": 263,
+      "ml_residual": -0.226,
+      "name": "Kevin Santos Lopes de Macedo",
+      "player_uid": "player_kevin_santos_lopes_de_macedo"
+    },
+    {
+      "ep_ml": 1.28,
+      "ep_quant": 2.619,
+      "fpl_element_id": 262,
+      "ml_residual": -1.339,
+      "name": "Emile Smith Rowe",
+      "player_uid": "player_emile_smith_rowe"
+    },
+    {
+      "ep_ml": 1.273,
+      "ep_quant": 2.014,
+      "fpl_element_id": null,
+      "ml_residual": -0.742,
+      "name": "Tolu Arokodare",
+      "player_uid": "player_tolu_arokodare"
+    },
+    {
+      "ep_ml": 1.273,
+      "ep_quant": 1.702,
+      "fpl_element_id": 17,
+      "ml_residual": -0.429,
+      "name": "Mikel Merino Zaz\u00f3n",
+      "player_uid": "player_mikel_merino_zazon"
+    },
+    {
+      "ep_ml": 1.265,
+      "ep_quant": 2.688,
+      "fpl_element_id": 16,
+      "ml_residual": -1.423,
+      "name": "Noni Madueke",
+      "player_uid": "player_noni_madueke"
+    },
+    {
+      "ep_ml": 1.247,
+      "ep_quant": 0.0,
+      "fpl_element_id": 336,
+      "ml_residual": 1.247,
+      "name": "Noah Okafor",
+      "player_uid": "player_noah_okafor"
+    },
+    {
+      "ep_ml": 1.247,
+      "ep_quant": 2.039,
+      "fpl_element_id": 142,
+      "ml_residual": -0.792,
+      "name": "Reece James",
+      "player_uid": "player_reece_james"
+    },
+    {
+      "ep_ml": 1.247,
+      "ep_quant": 1.503,
+      "fpl_element_id": 160,
+      "ml_residual": -0.256,
+      "name": "Alejandro Garnacho Ferreyra",
+      "player_uid": "player_alejandro_garnacho_ferreyra"
+    },
+    {
+      "ep_ml": 1.243,
+      "ep_quant": 2.224,
+      "fpl_element_id": 129,
+      "ml_residual": -0.98,
+      "name": "Yasin Ayari",
+      "player_uid": "player_yasin_ayari"
+    },
+    {
+      "ep_ml": 1.239,
+      "ep_quant": 2.378,
+      "fpl_element_id": null,
+      "ml_residual": -1.139,
+      "name": "Quilindschy Hartman",
+      "player_uid": "player_quilindschy_hartman"
+    },
+    {
+      "ep_ml": 1.235,
+      "ep_quant": 2.356,
+      "fpl_element_id": null,
+      "ml_residual": -1.121,
+      "name": "Bashir Humphreys",
+      "player_uid": "player_bashir_humphreys"
+    },
+    {
+      "ep_ml": 1.233,
+      "ep_quant": 1.547,
+      "fpl_element_id": 64,
+      "ml_residual": -0.314,
+      "name": "Adam Smith",
+      "player_uid": "player_adam_smith"
+    },
+    {
+      "ep_ml": 1.224,
+      "ep_quant": 2.777,
+      "fpl_element_id": 208,
+      "ml_residual": -1.554,
+      "name": "Isma\u00efla Sarr",
+      "player_uid": "player_ismaila_sarr"
+    },
+    {
+      "ep_ml": 1.214,
+      "ep_quant": 0.929,
+      "fpl_element_id": 151,
+      "ml_residual": 0.285,
+      "name": "Josh Acheampong",
+      "player_uid": "player_josh_acheampong"
+    },
+    {
+      "ep_ml": 1.2,
+      "ep_quant": 1.549,
+      "fpl_element_id": 209,
+      "ml_residual": -0.349,
+      "name": "Brennan Johnson",
+      "player_uid": "player_brennan_johnson"
+    },
+    {
+      "ep_ml": 1.198,
+      "ep_quant": 0.0,
+      "fpl_element_id": 224,
+      "ml_residual": 1.198,
+      "name": "Eddie Nketiah",
+      "player_uid": "player_eddie_nketiah"
+    },
+    {
+      "ep_ml": 1.197,
+      "ep_quant": 2.954,
+      "fpl_element_id": 122,
+      "ml_residual": -1.756,
+      "name": "Yankuba Minteh",
+      "player_uid": "player_yankuba_minteh"
+    },
+    {
+      "ep_ml": 1.188,
+      "ep_quant": 2.03,
+      "fpl_element_id": null,
+      "ml_residual": -0.842,
+      "name": "Andr\u00e9 Trindade da Costa Neto",
+      "player_uid": "player_andre_trindade_da_costa_neto"
+    },
+    {
+      "ep_ml": 1.188,
+      "ep_quant": 1.283,
+      "fpl_element_id": 548,
+      "ml_residual": -0.095,
+      "name": "Chris Rigg",
+      "player_uid": "player_chris_rigg"
+    },
+    {
+      "ep_ml": 1.18,
+      "ep_quant": 1.287,
+      "fpl_element_id": 114,
+      "ml_residual": -0.107,
+      "name": "Olivier Boscagli",
+      "player_uid": "player_olivier_boscagli"
+    },
+    {
+      "ep_ml": 1.173,
+      "ep_quant": 1.202,
+      "fpl_element_id": 465,
+      "ml_residual": -0.029,
+      "name": "William Osula",
+      "player_uid": "player_william_osula"
+    },
+    {
+      "ep_ml": 1.166,
+      "ep_quant": 2.343,
+      "fpl_element_id": 19,
+      "ml_residual": -1.176,
+      "name": "Mart\u00edn Zubimendi Ib\u00e1\u00f1ez",
+      "player_uid": "player_martin_zubimendi_ibanez"
+    },
+    {
+      "ep_ml": 1.159,
+      "ep_quant": 1.691,
+      "fpl_element_id": 271,
+      "ml_residual": -0.532,
+      "name": "Rodrigo Muniz Carvalho",
+      "player_uid": "player_rodrigo_muniz_carvalho"
+    },
+    {
+      "ep_ml": 1.155,
+      "ep_quant": 2.013,
+      "fpl_element_id": null,
+      "ml_residual": -0.858,
+      "name": "Ladislav Krejc\u00ed",
+      "player_uid": "player_ladislav_krejci"
+    },
+    {
+      "ep_ml": 1.146,
+      "ep_quant": 1.741,
+      "fpl_element_id": null,
+      "ml_residual": -0.594,
+      "name": "Lucas Pires Silva",
+      "player_uid": "player_lucas_pires_silva"
+    },
+    {
+      "ep_ml": 1.145,
+      "ep_quant": 2.952,
+      "fpl_element_id": 448,
+      "ml_residual": -1.807,
+      "name": "Dan Burn",
+      "player_uid": "player_dan_burn"
+    },
+    {
+      "ep_ml": 1.119,
+      "ep_quant": 2.672,
+      "fpl_element_id": 231,
+      "ml_residual": -1.554,
+      "name": "Michael Keane",
+      "player_uid": "player_michael_keane"
+    },
+    {
+      "ep_ml": 1.099,
+      "ep_quant": 3.113,
+      "fpl_element_id": 494,
+      "ml_residual": -2.014,
+      "name": "Guglielmo Vicario",
+      "player_uid": "player_guglielmo_vicario"
+    },
+    {
+      "ep_ml": 1.082,
+      "ep_quant": 0.777,
+      "fpl_element_id": 51,
+      "ml_residual": 0.304,
+      "name": "George Hemmings",
+      "player_uid": "player_george_hemmings"
+    },
+    {
+      "ep_ml": 1.078,
+      "ep_quant": 2.254,
+      "fpl_element_id": 167,
+      "ml_residual": -1.176,
+      "name": "Liam Delap",
+      "player_uid": "player_liam_delap"
+    },
+    {
+      "ep_ml": 1.071,
+      "ep_quant": 1.817,
+      "fpl_element_id": 422,
+      "ml_residual": -0.746,
+      "name": "Noussair Mazraoui",
+      "player_uid": "player_noussair_mazraoui"
+    },
+    {
+      "ep_ml": 1.068,
+      "ep_quant": 1.199,
+      "fpl_element_id": 255,
+      "ml_residual": -0.132,
+      "name": "Jorge Cuenca Barreno",
+      "player_uid": "player_jorge_cuenca_barreno"
+    },
+    {
+      "ep_ml": 1.067,
+      "ep_quant": 1.049,
+      "fpl_element_id": 439,
+      "ml_residual": 0.018,
+      "name": "Benjamin Sesko",
+      "player_uid": "player_benjamin_sesko"
+    },
+    {
+      "ep_ml": 1.067,
+      "ep_quant": 1.734,
+      "fpl_element_id": null,
+      "ml_residual": -0.667,
+      "name": "Axel Tuanzebe",
+      "player_uid": "player_axel_tuanzebe"
+    },
+    {
+      "ep_ml": 1.065,
+      "ep_quant": 2.177,
+      "fpl_element_id": null,
+      "ml_residual": -1.112,
+      "name": "Toti Gomes",
+      "player_uid": "player_toti_gomes"
+    },
+    {
+      "ep_ml": 1.059,
+      "ep_quant": 0.663,
+      "fpl_element_id": 474,
+      "ml_residual": 0.396,
+      "name": "Jair Paula da Cunha Filho",
+      "player_uid": "player_jair_paula_da_cunha_filho"
+    },
+    {
+      "ep_ml": 1.058,
+      "ep_quant": 2.591,
+      "fpl_element_id": 611,
+      "ml_residual": -1.533,
+      "name": "Aaron Wan-Bissaka",
+      "player_uid": "player_aaron_wan_bissaka"
+    },
+    {
+      "ep_ml": 1.042,
+      "ep_quant": 1.734,
+      "fpl_element_id": 74,
+      "ml_residual": -0.692,
+      "name": "David Brooks",
+      "player_uid": "player_david_brooks"
+    },
+    {
+      "ep_ml": 1.042,
+      "ep_quant": 1.801,
+      "fpl_element_id": null,
+      "ml_residual": -0.759,
+      "name": "Marcus Edwards",
+      "player_uid": "player_marcus_edwards"
+    },
+    {
+      "ep_ml": 1.041,
+      "ep_quant": 2.808,
+      "fpl_element_id": 143,
+      "ml_residual": -1.767,
+      "name": "Trevoh Chalobah",
+      "player_uid": "player_trevoh_chalobah"
+    },
+    {
+      "ep_ml": 1.041,
+      "ep_quant": 1.196,
+      "fpl_element_id": 357,
+      "ml_residual": -0.154,
+      "name": "Jeremie Frimpong",
+      "player_uid": "player_jeremie_frimpong"
+    },
+    {
+      "ep_ml": 1.032,
+      "ep_quant": 1.772,
+      "fpl_element_id": 506,
+      "ml_residual": -0.741,
+      "name": "Destiny Udogie",
+      "player_uid": "player_destiny_udogie"
+    },
+    {
+      "ep_ml": 1.026,
+      "ep_quant": 1.729,
+      "fpl_element_id": 415,
+      "ml_residual": -0.703,
+      "name": "Patrick Dorgu",
+      "player_uid": "player_patrick_dorgu"
+    },
+    {
+      "ep_ml": 1.026,
+      "ep_quant": 2.609,
+      "fpl_element_id": 431,
+      "ml_residual": -1.583,
+      "name": "Amad Diallo",
+      "player_uid": "player_amad_diallo"
+    },
+    {
+      "ep_ml": 1.019,
+      "ep_quant": 2.484,
+      "fpl_element_id": 48,
+      "ml_residual": -1.465,
+      "name": "Amadou Onana",
+      "player_uid": "player_amadou_onana"
+    },
+    {
+      "ep_ml": 1.016,
+      "ep_quant": 2.171,
+      "fpl_element_id": null,
+      "ml_residual": -1.155,
+      "name": "Kyle Walker-Peters",
+      "player_uid": "player_kyle_walker_peters"
+    },
+    {
+      "ep_ml": 1.003,
+      "ep_quant": 1.642,
+      "fpl_element_id": null,
+      "ml_residual": -0.639,
+      "name": "Hwang Hee-chan",
+      "player_uid": "player_hwang_hee_chan"
+    },
+    {
+      "ep_ml": 1.0,
+      "ep_quant": 2.054,
+      "fpl_element_id": null,
+      "ml_residual": -1.053,
+      "name": "Hugo Bueno L\u00f3pez",
+      "player_uid": "player_hugo_bueno_lopez"
+    },
+    {
+      "ep_ml": 0.996,
+      "ep_quant": 1.978,
+      "fpl_element_id": null,
+      "ml_residual": -0.982,
+      "name": "Jean-Ricner Bellegarde",
+      "player_uid": "player_jean_ricner_bellegarde"
+    },
+    {
+      "ep_ml": 0.993,
+      "ep_quant": 2.189,
+      "fpl_element_id": null,
+      "ml_residual": -1.195,
+      "name": "Aaron Ramsdale",
+      "player_uid": "player_aaron_ramsdale"
+    },
+    {
+      "ep_ml": 0.993,
+      "ep_quant": 1.823,
+      "fpl_element_id": null,
+      "ml_residual": -0.83,
+      "name": "Lutsharel Geertruida",
+      "player_uid": "player_lutsharel_geertruida"
+    },
+    {
+      "ep_ml": 0.985,
+      "ep_quant": 2.053,
+      "fpl_element_id": null,
+      "ml_residual": -1.068,
+      "name": "Randal Kolo Muani",
+      "player_uid": "player_randal_kolo_muani"
+    },
+    {
+      "ep_ml": 0.983,
+      "ep_quant": 2.792,
+      "fpl_element_id": 452,
+      "ml_residual": -1.809,
+      "name": "Bruno Guimar\u00e3es Rodriguez Moura",
+      "player_uid": "player_bruno_guimaraes_rodriguez_moura"
+    },
+    {
+      "ep_ml": 0.983,
+      "ep_quant": 1.725,
+      "fpl_element_id": null,
+      "ml_residual": -0.742,
+      "name": "Lyle Foster",
+      "player_uid": "player_lyle_foster"
+    },
+    {
+      "ep_ml": 0.979,
+      "ep_quant": 1.834,
+      "fpl_element_id": 456,
+      "ml_residual": -0.854,
+      "name": "Jacob Ramsey",
+      "player_uid": "player_jacob_ramsey"
+    },
+    {
+      "ep_ml": 0.978,
+      "ep_quant": 1.952,
+      "fpl_element_id": null,
+      "ml_residual": -0.974,
+      "name": "Hjalmar Ekdal",
+      "player_uid": "player_hjalmar_ekdal"
+    },
+    {
+      "ep_ml": 0.976,
+      "ep_quant": 2.633,
+      "fpl_element_id": 328,
+      "ml_residual": -1.657,
+      "name": "Pascal Struijk",
+      "player_uid": "player_pascal_struijk"
+    },
+    {
+      "ep_ml": 0.976,
+      "ep_quant": 1.477,
+      "fpl_element_id": 520,
+      "ml_residual": -0.501,
+      "name": "Lucas Bergvall",
+      "player_uid": "player_lucas_bergvall"
+    },
+    {
+      "ep_ml": 0.972,
+      "ep_quant": 1.762,
+      "fpl_element_id": 203,
+      "ml_residual": -0.791,
+      "name": "Jaydee Canvot",
+      "player_uid": "player_jaydee_canvot"
+    },
+    {
+      "ep_ml": 0.961,
+      "ep_quant": 1.711,
+      "fpl_element_id": 535,
+      "ml_residual": -0.75,
+      "name": "Omar Alderete",
+      "player_uid": "player_omar_alderete"
+    },
+    {
+      "ep_ml": 0.96,
+      "ep_quant": 2.299,
+      "fpl_element_id": 145,
+      "ml_residual": -1.339,
+      "name": "Wesley Fofana",
+      "player_uid": "player_wesley_fofana"
+    },
+    {
+      "ep_ml": 0.943,
+      "ep_quant": 0.743,
+      "fpl_element_id": 375,
+      "ml_residual": 0.199,
+      "name": "Trey Nyoni",
+      "player_uid": "player_trey_nyoni"
+    },
+    {
+      "ep_ml": 0.934,
+      "ep_quant": 2.074,
+      "fpl_element_id": null,
+      "ml_residual": -1.14,
+      "name": "Jean-Clair Todibo",
+      "player_uid": "player_jean_clair_todibo"
+    },
+    {
+      "ep_ml": 0.924,
+      "ep_quant": 2.12,
+      "fpl_element_id": 32,
+      "ml_residual": -1.196,
+      "name": "Matty Cash",
+      "player_uid": "player_matty_cash"
+    },
+    {
+      "ep_ml": 0.912,
+      "ep_quant": 1.921,
+      "fpl_element_id": null,
+      "ml_residual": -1.009,
+      "name": "Jackson Tchatchoua",
+      "player_uid": "player_jackson_tchatchoua"
+    },
+    {
+      "ep_ml": 0.908,
+      "ep_quant": 1.124,
+      "fpl_element_id": 343,
+      "ml_residual": -0.216,
+      "name": "Daniel James",
+      "player_uid": "player_daniel_james"
+    },
+    {
+      "ep_ml": 0.904,
+      "ep_quant": 1.603,
+      "fpl_element_id": null,
+      "ml_residual": -0.699,
+      "name": "Jo\u00e3o Maria Lobo Alves Palhares Costa Palhinha Gon\u00e7alves",
+      "player_uid": "player_joao_maria_lobo_alves_palhares_costa_palhinha_goncalves"
+    },
+    {
+      "ep_ml": 0.902,
+      "ep_quant": 2.229,
+      "fpl_element_id": 419,
+      "ml_residual": -1.327,
+      "name": "Lisandro Mart\u00ednez",
+      "player_uid": "player_lisandro_martinez"
+    },
+    {
+      "ep_ml": 0.893,
+      "ep_quant": 1.046,
+      "fpl_element_id": 149,
+      "ml_residual": -0.154,
+      "name": "Levi Samuels Colwill",
+      "player_uid": "player_levi_samuels_colwill"
+    },
+    {
+      "ep_ml": 0.872,
+      "ep_quant": 2.915,
+      "fpl_element_id": 25,
+      "ml_residual": -2.043,
+      "name": "Viktor Gy\u00f6keres",
+      "player_uid": "player_viktor_gyokeres"
+    },
+    {
+      "ep_ml": 0.87,
+      "ep_quant": 0.555,
+      "fpl_element_id": 478,
+      "ml_residual": 0.316,
+      "name": "Luca Netz",
+      "player_uid": "player_luca_netz"
+    },
+    {
+      "ep_ml": 0.865,
+      "ep_quant": 2.553,
+      "fpl_element_id": 9,
+      "ml_residual": -1.688,
+      "name": "Piero Hincapi\u00e9",
+      "player_uid": "player_piero_hincapie"
+    },
+    {
+      "ep_ml": 0.859,
+      "ep_quant": 2.932,
+      "fpl_element_id": 232,
+      "ml_residual": -2.073,
+      "name": "Jake O'Brien",
+      "player_uid": "player_jake_o_brien"
+    },
+    {
+      "ep_ml": 0.852,
+      "ep_quant": 0.0,
+      "fpl_element_id": 104,
+      "ml_residual": 0.852,
+      "name": "Frank Onyeka",
+      "player_uid": "player_frank_onyeka"
+    },
+    {
+      "ep_ml": 0.849,
+      "ep_quant": 1.422,
+      "fpl_element_id": 403,
+      "ml_residual": -0.574,
+      "name": "S\u00e1vio Moreira de Oliveira",
+      "player_uid": "player_savio_moreira_de_oliveira"
+    },
+    {
+      "ep_ml": 0.845,
+      "ep_quant": 0.968,
+      "fpl_element_id": 90,
+      "ml_residual": -0.123,
+      "name": "Aaron Hickey",
+      "player_uid": "player_aaron_hickey"
+    },
+    {
+      "ep_ml": 0.845,
+      "ep_quant": 1.792,
+      "fpl_element_id": null,
+      "ml_residual": -0.948,
+      "name": "Josh Laurent",
+      "player_uid": "player_josh_laurent"
+    },
+    {
+      "ep_ml": 0.845,
+      "ep_quant": 0.544,
+      "fpl_element_id": 42,
+      "ml_residual": 0.301,
+      "name": "Evann Guessand",
+      "player_uid": "player_evann_guessand"
+    },
+    {
+      "ep_ml": 0.842,
+      "ep_quant": 2.529,
+      "fpl_element_id": 392,
+      "ml_residual": -1.686,
+      "name": "Rayan A\u00eft-Nouri",
+      "player_uid": "player_rayan_ait_nouri"
+    },
+    {
+      "ep_ml": 0.825,
+      "ep_quant": 1.774,
+      "fpl_element_id": null,
+      "ml_residual": -0.949,
+      "name": "Maximilian Kilman",
+      "player_uid": "player_maximilian_kilman"
+    },
+    {
+      "ep_ml": 0.823,
+      "ep_quant": 1.836,
+      "fpl_element_id": null,
+      "ml_residual": -1.014,
+      "name": "Kieran Trippier",
+      "player_uid": "player_kieran_trippier"
+    },
+    {
+      "ep_ml": 0.821,
+      "ep_quant": 1.762,
+      "fpl_element_id": 420,
+      "ml_residual": -0.941,
+      "name": "Leny Yoro",
+      "player_uid": "player_leny_yoro"
+    },
+    {
+      "ep_ml": 0.82,
+      "ep_quant": 2.245,
+      "fpl_element_id": 571,
+      "ml_residual": -1.425,
+      "name": "Florentino Ibrain Morris Lu\u00eds",
+      "player_uid": "player_florentino_ibrain_morris_luis"
+    },
+    {
+      "ep_ml": 0.815,
+      "ep_quant": 1.616,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Josh Nichols",
+      "player_uid": "player_josh_nichols"
+    },
+    {
+      "ep_ml": 0.815,
+      "ep_quant": 1.616,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Brayden Clarke",
+      "player_uid": "player_brayden_clarke"
+    },
+    {
+      "ep_ml": 0.811,
+      "ep_quant": 1.707,
+      "fpl_element_id": 240,
+      "ml_residual": -0.897,
+      "name": "Tim Iroegbunam",
+      "player_uid": "player_tim_iroegbunam"
+    },
+    {
+      "ep_ml": 0.801,
+      "ep_quant": 2.913,
+      "fpl_element_id": 85,
+      "ml_residual": -2.112,
+      "name": "Sepp van den Berg",
+      "player_uid": "player_sepp_van_den_berg"
+    },
+    {
+      "ep_ml": 0.8,
+      "ep_quant": 1.876,
+      "fpl_element_id": 487,
+      "ml_residual": -1.077,
+      "name": "Nicol\u00e1s Dom\u00ednguez",
+      "player_uid": "player_nicolas_dominguez"
+    },
+    {
+      "ep_ml": 0.797,
+      "ep_quant": 1.798,
+      "fpl_element_id": 345,
+      "ml_residual": -1.001,
+      "name": "Tanaka Ao",
+      "player_uid": "player_tanaka_ao"
+    },
+    {
+      "ep_ml": 0.794,
+      "ep_quant": 1.401,
+      "fpl_element_id": 36,
+      "ml_residual": -0.607,
+      "name": "Ian Maatsen",
+      "player_uid": "player_ian_maatsen"
+    },
+    {
+      "ep_ml": 0.791,
+      "ep_quant": 2.725,
+      "fpl_element_id": 256,
+      "ml_residual": -1.934,
+      "name": "Kenny Tete",
+      "player_uid": "player_kenny_tete"
+    },
+    {
+      "ep_ml": 0.789,
+      "ep_quant": 1.519,
+      "fpl_element_id": null,
+      "ml_residual": -0.73,
+      "name": "Samuel Chukwueze",
+      "player_uid": "player_samuel_chukwueze"
+    },
+    {
+      "ep_ml": 0.775,
+      "ep_quant": 2.424,
+      "fpl_element_id": 213,
+      "ml_residual": -1.649,
+      "name": "Jefferson Lerma Sol\u00eds",
+      "player_uid": "player_jefferson_lerma_solis"
+    },
+    {
+      "ep_ml": 0.764,
+      "ep_quant": 1.889,
+      "fpl_element_id": 201,
+      "ml_residual": -1.126,
+      "name": "Daniel Mu\u00f1oz Mej\u00eda",
+      "player_uid": "player_daniel_munoz_mejia"
+    },
+    {
+      "ep_ml": 0.762,
+      "ep_quant": 1.441,
+      "fpl_element_id": null,
+      "ml_residual": -0.679,
+      "name": "Eliezer Mayenda Dossou",
+      "player_uid": "player_eliezer_mayenda_dossou"
+    },
+    {
+      "ep_ml": 0.743,
+      "ep_quant": 0.0,
+      "fpl_element_id": 166,
+      "ml_residual": 0.743,
+      "name": "Nicolas Jackson",
+      "player_uid": "player_nicolas_jackson"
+    },
+    {
+      "ep_ml": 0.725,
+      "ep_quant": 1.497,
+      "fpl_element_id": null,
+      "ml_residual": -0.772,
+      "name": "Marli Salmon",
+      "player_uid": "player_marli_salmon"
+    },
+    {
+      "ep_ml": 0.721,
+      "ep_quant": 1.311,
+      "fpl_element_id": null,
+      "ml_residual": -0.59,
+      "name": "Hannibal Mejbri",
+      "player_uid": "player_hannibal_mejbri"
+    },
+    {
+      "ep_ml": 0.714,
+      "ep_quant": 1.448,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Leon Chiwome",
+      "player_uid": "player_leon_chiwome"
+    },
+    {
+      "ep_ml": 0.714,
+      "ep_quant": 1.448,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Nathan Fraser",
+      "player_uid": "player_nathan_fraser"
+    },
+    {
+      "ep_ml": 0.709,
+      "ep_quant": 2.368,
+      "fpl_element_id": 373,
+      "ml_residual": -1.658,
+      "name": "Curtis Jones",
+      "player_uid": "player_curtis_jones"
+    },
+    {
+      "ep_ml": 0.707,
+      "ep_quant": 2.451,
+      "fpl_element_id": 325,
+      "ml_residual": -1.744,
+      "name": "Karl Darlow",
+      "player_uid": "player_karl_darlow"
+    },
+    {
+      "ep_ml": 0.696,
+      "ep_quant": 1.253,
+      "fpl_element_id": null,
+      "ml_residual": -0.556,
+      "name": "James Milner",
+      "player_uid": "player_james_milner"
+    },
+    {
+      "ep_ml": 0.695,
+      "ep_quant": 1.39,
+      "fpl_element_id": null,
+      "ml_residual": -0.695,
+      "name": "Armando Broja",
+      "player_uid": "player_armando_broja"
+    },
+    {
+      "ep_ml": 0.693,
+      "ep_quant": 2.462,
+      "fpl_element_id": 404,
+      "ml_residual": -1.768,
+      "name": "Tijjani Reijnders",
+      "player_uid": "player_tijjani_reijnders"
+    },
+    {
+      "ep_ml": 0.679,
+      "ep_quant": 1.45,
+      "fpl_element_id": 91,
+      "ml_residual": -0.77,
+      "name": "Ethan Pinnock",
+      "player_uid": "player_ethan_pinnock"
+    },
+    {
+      "ep_ml": 0.666,
+      "ep_quant": 2.588,
+      "fpl_element_id": 400,
+      "ml_residual": -1.922,
+      "name": "J\u00e9r\u00e9my Doku",
+      "player_uid": "player_jeremy_doku"
+    },
+    {
+      "ep_ml": 0.66,
+      "ep_quant": 0.968,
+      "fpl_element_id": 539,
+      "ml_residual": -0.308,
+      "name": "Luke O'Nien",
+      "player_uid": "player_luke_o_nien"
+    },
+    {
+      "ep_ml": 0.654,
+      "ep_quant": 1.867,
+      "fpl_element_id": 501,
+      "ml_residual": -1.213,
+      "name": "Kevin Danso",
+      "player_uid": "player_kevin_danso"
+    },
+    {
+      "ep_ml": 0.652,
+      "ep_quant": 1.506,
+      "fpl_element_id": 27,
+      "ml_residual": -0.855,
+      "name": "Gabriel Fernando de Jesus",
+      "player_uid": "player_gabriel_fernando_de_jesus"
+    },
+    {
+      "ep_ml": 0.652,
+      "ep_quant": 1.347,
+      "fpl_element_id": null,
+      "ml_residual": -0.695,
+      "name": "Nathan Ak\u00e9",
+      "player_uid": "player_nathan_ake"
+    },
+    {
+      "ep_ml": 0.651,
+      "ep_quant": 1.26,
+      "fpl_element_id": null,
+      "ml_residual": -0.609,
+      "name": "Jacob Bruun Larsen",
+      "player_uid": "player_jacob_bruun_larsen"
+    },
+    {
+      "ep_ml": 0.642,
+      "ep_quant": 1.202,
+      "fpl_element_id": null,
+      "ml_residual": -0.56,
+      "name": "Idrissa Gana Gueye",
+      "player_uid": "player_idrissa_gana_gueye"
+    },
+    {
+      "ep_ml": 0.639,
+      "ep_quant": 2.355,
+      "fpl_element_id": 131,
+      "ml_residual": -1.716,
+      "name": "Carlos Baleba",
+      "player_uid": "player_carlos_baleba"
+    },
+    {
+      "ep_ml": 0.636,
+      "ep_quant": 1.268,
+      "fpl_element_id": null,
+      "ml_residual": -0.631,
+      "name": "Rodrigo Martins Gomes",
+      "player_uid": "player_rodrigo_martins_gomes"
+    },
+    {
+      "ep_ml": 0.631,
+      "ep_quant": 1.367,
+      "fpl_element_id": null,
+      "ml_residual": -0.736,
+      "name": "Pablo Felipe Pereira de Jesus",
+      "player_uid": "player_pablo_felipe_pereira_de_jesus"
+    },
+    {
+      "ep_ml": 0.627,
+      "ep_quant": 1.571,
+      "fpl_element_id": 34,
+      "ml_residual": -0.944,
+      "name": "Pau Torres",
+      "player_uid": "player_pau_torres"
+    },
+    {
+      "ep_ml": 0.626,
+      "ep_quant": 1.36,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "James Wilson",
+      "player_uid": "player_james_wilson"
+    },
+    {
+      "ep_ml": 0.621,
+      "ep_quant": 1.672,
+      "fpl_element_id": 518,
+      "ml_residual": -1.051,
+      "name": "Pape Matar Sarr",
+      "player_uid": "player_pape_matar_sarr"
+    },
+    {
+      "ep_ml": 0.618,
+      "ep_quant": 1.118,
+      "fpl_element_id": 421,
+      "ml_residual": -0.5,
+      "name": "Ayden Heaven",
+      "player_uid": "player_ayden_heaven"
+    },
+    {
+      "ep_ml": 0.617,
+      "ep_quant": 1.351,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Will Wright",
+      "player_uid": "player_will_wright"
+    },
+    {
+      "ep_ml": 0.616,
+      "ep_quant": 1.167,
+      "fpl_element_id": null,
+      "ml_residual": -0.551,
+      "name": "John Stones",
+      "player_uid": "player_john_stones"
+    },
+    {
+      "ep_ml": 0.615,
+      "ep_quant": 1.349,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Ahmed Abdullahi",
+      "player_uid": "player_ahmed_abdullahi"
+    },
+    {
+      "ep_ml": 0.613,
+      "ep_quant": 1.39,
+      "fpl_element_id": null,
+      "ml_residual": -0.777,
+      "name": "Yves Bissouma",
+      "player_uid": "player_yves_bissouma"
+    },
+    {
+      "ep_ml": 0.613,
+      "ep_quant": 2.729,
+      "fpl_element_id": 620,
+      "ml_residual": -2.116,
+      "name": "El Hadji Malick Diouf",
+      "player_uid": "player_el_hadji_malick_diouf"
+    },
+    {
+      "ep_ml": 0.611,
+      "ep_quant": 0.931,
+      "fpl_element_id": 29,
+      "ml_residual": -0.32,
+      "name": "Marco Bizot",
+      "player_uid": "player_marco_bizot"
+    },
+    {
+      "ep_ml": 0.61,
+      "ep_quant": 1.227,
+      "fpl_element_id": null,
+      "ml_residual": -0.617,
+      "name": "David M\u00f8ller Wolfe",
+      "player_uid": "player_david_m_ller_wolfe"
+    },
+    {
+      "ep_ml": 0.61,
+      "ep_quant": 1.386,
+      "fpl_element_id": null,
+      "ml_residual": -0.777,
+      "name": "Radu Dr\u0103gu\u0219in",
+      "player_uid": "player_radu_dragusin"
+    },
+    {
+      "ep_ml": 0.606,
+      "ep_quant": 1.15,
+      "fpl_element_id": null,
+      "ml_residual": -0.544,
+      "name": "Zeki Amdouni",
+      "player_uid": "player_zeki_amdouni"
+    },
+    {
+      "ep_ml": 0.602,
+      "ep_quant": 1.183,
+      "fpl_element_id": 339,
+      "ml_residual": -0.581,
+      "name": "Sean Longstaff",
+      "player_uid": "player_sean_longstaff"
+    },
+    {
+      "ep_ml": 0.599,
+      "ep_quant": 1.334,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Braiden Graham",
+      "player_uid": "player_braiden_graham"
+    },
+    {
+      "ep_ml": 0.593,
+      "ep_quant": 1.127,
+      "fpl_element_id": 243,
+      "ml_residual": -0.535,
+      "name": "Carlos Alcaraz Dur\u00e1n",
+      "player_uid": "player_carlos_alcaraz_duran"
+    },
+    {
+      "ep_ml": 0.581,
+      "ep_quant": 1.347,
+      "fpl_element_id": 33,
+      "ml_residual": -0.766,
+      "name": "Tyrone Mings",
+      "player_uid": "player_tyrone_mings"
+    },
+    {
+      "ep_ml": 0.579,
+      "ep_quant": 1.314,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Lamin Sillah",
+      "player_uid": "player_lamin_sillah"
+    },
+    {
+      "ep_ml": 0.574,
+      "ep_quant": 1.304,
+      "fpl_element_id": null,
+      "ml_residual": -0.73,
+      "name": "Jo\u00ebl Veltman",
+      "player_uid": "player_joel_veltman"
+    },
+    {
+      "ep_ml": 0.569,
+      "ep_quant": 1.317,
+      "fpl_element_id": 266,
+      "ml_residual": -0.748,
+      "name": "Tom Cairney",
+      "player_uid": "player_tom_cairney"
+    },
+    {
+      "ep_ml": 0.567,
+      "ep_quant": 1.367,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "George Brierley",
+      "player_uid": "player_george_brierley"
+    },
+    {
+      "ep_ml": 0.567,
+      "ep_quant": 1.367,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Oliver Pimlott",
+      "player_uid": "player_oliver_pimlott"
+    },
+    {
+      "ep_ml": 0.567,
+      "ep_quant": 1.367,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Kian McMahon-Brown",
+      "player_uid": "player_kian_mcmahon_brown"
+    },
+    {
+      "ep_ml": 0.567,
+      "ep_quant": 1.367,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Enock Agyei",
+      "player_uid": "player_enock_agyei"
+    },
+    {
+      "ep_ml": 0.557,
+      "ep_quant": 1.067,
+      "fpl_element_id": 395,
+      "ml_residual": -0.509,
+      "name": "Rico Lewis",
+      "player_uid": "player_rico_lewis"
+    },
+    {
+      "ep_ml": 0.547,
+      "ep_quant": 1.348,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Talla Ndiaye",
+      "player_uid": "player_talla_ndiaye"
+    },
+    {
+      "ep_ml": 0.547,
+      "ep_quant": 1.279,
+      "fpl_element_id": 621,
+      "ml_residual": -0.732,
+      "name": "Ryan McAidoo",
+      "player_uid": "player_ryan_mcaidoo"
+    },
+    {
+      "ep_ml": 0.547,
+      "ep_quant": 1.348,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Rhys Williams",
+      "player_uid": "player_rhys_williams"
+    },
+    {
+      "ep_ml": 0.537,
+      "ep_quant": 1.509,
+      "fpl_element_id": 470,
+      "ml_residual": -0.972,
+      "name": "Felipe Rodrigues da Silva",
+      "player_uid": "player_felipe_rodrigues_da_silva"
+    },
+    {
+      "ep_ml": 0.537,
+      "ep_quant": 0.905,
+      "fpl_element_id": null,
+      "ml_residual": -0.368,
+      "name": "Lorenzo Lucca",
+      "player_uid": "player_lorenzo_lucca"
+    },
+    {
+      "ep_ml": 0.531,
+      "ep_quant": 1.343,
+      "fpl_element_id": null,
+      "ml_residual": -0.812,
+      "name": "Amara Nallo",
+      "player_uid": "player_amara_nallo"
+    },
+    {
+      "ep_ml": 0.529,
+      "ep_quant": 1.329,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Samuel Amissah",
+      "player_uid": "player_samuel_amissah"
+    },
+    {
+      "ep_ml": 0.527,
+      "ep_quant": 1.638,
+      "fpl_element_id": 78,
+      "ml_residual": -1.111,
+      "name": "Junior Kroupi",
+      "player_uid": "player_junior_kroupi"
+    },
+    {
+      "ep_ml": 0.527,
+      "ep_quant": 1.247,
+      "fpl_element_id": null,
+      "ml_residual": -0.721,
+      "name": "Soungoutou Magassa",
+      "player_uid": "player_soungoutou_magassa"
+    },
+    {
+      "ep_ml": 0.522,
+      "ep_quant": 1.246,
+      "fpl_element_id": null,
+      "ml_residual": -0.724,
+      "name": "Jadon Sancho",
+      "player_uid": "player_jadon_sancho"
+    },
+    {
+      "ep_ml": 0.52,
+      "ep_quant": 1.561,
+      "fpl_element_id": 21,
+      "ml_residual": -1.041,
+      "name": "Christian N\u00f8rgaard",
+      "player_uid": "player_christian_n_rgaard"
+    },
+    {
+      "ep_ml": 0.517,
+      "ep_quant": 1.318,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Saheed Olagunju",
+      "player_uid": "player_saheed_olagunju"
+    },
+    {
+      "ep_ml": 0.515,
+      "ep_quant": 1.46,
+      "fpl_element_id": null,
+      "ml_residual": -0.945,
+      "name": "Freddie Potts",
+      "player_uid": "player_freddie_potts"
+    },
+    {
+      "ep_ml": 0.513,
+      "ep_quant": 1.314,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Freddie Simmonds",
+      "player_uid": "player_freddie_simmonds"
+    },
+    {
+      "ep_ml": 0.513,
+      "ep_quant": 1.314,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Charlie Tasker",
+      "player_uid": "player_charlie_tasker"
+    },
+    {
+      "ep_ml": 0.51,
+      "ep_quant": 0.622,
+      "fpl_element_id": 56,
+      "ml_residual": -0.112,
+      "name": "Tammy Abraham",
+      "player_uid": "player_tammy_abraham"
+    },
+    {
+      "ep_ml": 0.51,
+      "ep_quant": 1.23,
+      "fpl_element_id": 440,
+      "ml_residual": -0.72,
+      "name": "Joshua Zirkzee",
+      "player_uid": "player_joshua_zirkzee"
+    },
+    {
+      "ep_ml": 0.509,
+      "ep_quant": 0.0,
+      "fpl_element_id": 523,
+      "ml_residual": 0.509,
+      "name": "Mikey Moore",
+      "player_uid": "player_mikey_moore"
+    },
+    {
+      "ep_ml": 0.505,
+      "ep_quant": 1.201,
+      "fpl_element_id": null,
+      "ml_residual": -0.696,
+      "name": "Mateus Man\u00e9",
+      "player_uid": "player_mateus_mane"
+    },
+    {
+      "ep_ml": 0.501,
+      "ep_quant": 1.301,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Enso Gonz\u00e1lez Medina",
+      "player_uid": "player_enso_gonzalez_medina"
+    },
+    {
+      "ep_ml": 0.501,
+      "ep_quant": 0.0,
+      "fpl_element_id": 238,
+      "ml_residual": 0.501,
+      "name": "Jack Grealish",
+      "player_uid": "player_jack_grealish"
+    },
+    {
+      "ep_ml": 0.501,
+      "ep_quant": 1.301,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Ethan Sutherland",
+      "player_uid": "player_ethan_sutherland"
+    },
+    {
+      "ep_ml": 0.501,
+      "ep_quant": 1.301,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Luke Rawlings",
+      "player_uid": "player_luke_rawlings"
+    },
+    {
+      "ep_ml": 0.501,
+      "ep_quant": 1.301,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Jerome Abbey",
+      "player_uid": "player_jerome_abbey"
+    },
+    {
+      "ep_ml": 0.499,
+      "ep_quant": 1.994,
+      "fpl_element_id": 484,
+      "ml_residual": -1.495,
+      "name": "Omari Hutchinson",
+      "player_uid": "player_omari_hutchinson"
+    },
+    {
+      "ep_ml": 0.498,
+      "ep_quant": 0.212,
+      "fpl_element_id": 153,
+      "ml_residual": 0.286,
+      "name": "Axel Disasi",
+      "player_uid": "player_axel_disasi"
+    },
+    {
+      "ep_ml": 0.497,
+      "ep_quant": 1.169,
+      "fpl_element_id": null,
+      "ml_residual": -0.672,
+      "name": "Tommy Setford",
+      "player_uid": "player_tommy_setford"
+    },
+    {
+      "ep_ml": 0.492,
+      "ep_quant": 1.292,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Airidas Golambeckis",
+      "player_uid": "player_airidas_golambeckis"
+    },
+    {
+      "ep_ml": 0.492,
+      "ep_quant": 2.383,
+      "fpl_element_id": 402,
+      "ml_residual": -1.89,
+      "name": "Rodrigo 'Rodri' Hernandez Cascante",
+      "player_uid": "player_rodrigo_rodri_hernandez_cascante"
+    },
+    {
+      "ep_ml": 0.485,
+      "ep_quant": 1.994,
+      "fpl_element_id": 505,
+      "ml_residual": -1.509,
+      "name": "Djed Spence",
+      "player_uid": "player_djed_spence"
+    },
+    {
+      "ep_ml": 0.481,
+      "ep_quant": 1.281,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Miodrag Piva\u0161",
+      "player_uid": "player_miodrag_pivas"
+    },
+    {
+      "ep_ml": 0.48,
+      "ep_quant": 0.832,
+      "fpl_element_id": null,
+      "ml_residual": -0.352,
+      "name": "Ashley Barnes",
+      "player_uid": "player_ashley_barnes"
+    },
+    {
+      "ep_ml": 0.479,
+      "ep_quant": 1.08,
+      "fpl_element_id": null,
+      "ml_residual": -0.601,
+      "name": "Valent\u00edn Castellanos",
+      "player_uid": "player_valentin_castellanos"
+    },
+    {
+      "ep_ml": 0.473,
+      "ep_quant": 1.246,
+      "fpl_element_id": 430,
+      "ml_residual": -0.773,
+      "name": "Mason Mount",
+      "player_uid": "player_mason_mount"
+    },
+    {
+      "ep_ml": 0.471,
+      "ep_quant": 0.82,
+      "fpl_element_id": 72,
+      "ml_residual": -0.35,
+      "name": "Ben Gannon-Doak",
+      "player_uid": "player_ben_gannon_doak"
+    },
+    {
+      "ep_ml": 0.47,
+      "ep_quant": 1.271,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Jenson Jones",
+      "player_uid": "player_jenson_jones"
+    },
+    {
+      "ep_ml": 0.467,
+      "ep_quant": 0.0,
+      "fpl_element_id": 512,
+      "ml_residual": 0.467,
+      "name": "Mohammed Kudus",
+      "player_uid": "player_mohammed_kudus"
+    },
+    {
+      "ep_ml": 0.467,
+      "ep_quant": 1.111,
+      "fpl_element_id": null,
+      "ml_residual": -0.644,
+      "name": "Milan Aleksi\u0107",
+      "player_uid": "player_milan_aleksic"
+    },
+    {
+      "ep_ml": 0.462,
+      "ep_quant": 2.172,
+      "fpl_element_id": 18,
+      "ml_residual": -1.71,
+      "name": "Gabriel Martinelli Silva",
+      "player_uid": "player_gabriel_martinelli_silva"
+    },
+    {
+      "ep_ml": 0.461,
+      "ep_quant": 1.261,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Diego Le\u00f3n Blanco",
+      "player_uid": "player_diego_leon_blanco"
+    },
+    {
+      "ep_ml": 0.461,
+      "ep_quant": 1.261,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Godwill Kukonki",
+      "player_uid": "player_godwill_kukonki"
+    },
+    {
+      "ep_ml": 0.459,
+      "ep_quant": 0.568,
+      "fpl_element_id": 76,
+      "ml_residual": -0.109,
+      "name": "Alex T\u00f3th",
+      "player_uid": "player_alex_toth"
+    },
+    {
+      "ep_ml": 0.454,
+      "ep_quant": 1.255,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Seth Ridgeon",
+      "player_uid": "player_seth_ridgeon"
+    },
+    {
+      "ep_ml": 0.453,
+      "ep_quant": 0.0,
+      "fpl_element_id": 253,
+      "ml_residual": 0.453,
+      "name": "Joachim Andersen",
+      "player_uid": "player_joachim_andersen"
+    },
+    {
+      "ep_ml": 0.453,
+      "ep_quant": 1.254,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Sverre Nypan",
+      "player_uid": "player_sverre_nypan"
+    },
+    {
+      "ep_ml": 0.453,
+      "ep_quant": 1.254,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Reigan Heskey",
+      "player_uid": "player_reigan_heskey"
+    },
+    {
+      "ep_ml": 0.452,
+      "ep_quant": 1.252,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Keiber Lamadrid",
+      "player_uid": "player_keiber_lamadrid"
+    },
+    {
+      "ep_ml": 0.451,
+      "ep_quant": 1.252,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Matai Akinmboni",
+      "player_uid": "player_matai_akinmboni"
+    },
+    {
+      "ep_ml": 0.451,
+      "ep_quant": 1.252,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Owen Bevan",
+      "player_uid": "player_owen_bevan"
+    },
+    {
+      "ep_ml": 0.451,
+      "ep_quant": 1.228,
+      "fpl_element_id": null,
+      "ml_residual": -0.777,
+      "name": "Ollie Scarles",
+      "player_uid": "player_ollie_scarles"
+    },
+    {
+      "ep_ml": 0.45,
+      "ep_quant": 1.065,
+      "fpl_element_id": 348,
+      "ml_residual": -0.615,
+      "name": "Jo\u00ebl Piroe",
+      "player_uid": "player_joel_piroe"
+    },
+    {
+      "ep_ml": 0.45,
+      "ep_quant": 1.065,
+      "fpl_element_id": 485,
+      "ml_residual": -0.615,
+      "name": "Dilane Bakwa",
+      "player_uid": "player_dilane_bakwa"
+    },
+    {
+      "ep_ml": 0.445,
+      "ep_quant": 0.954,
+      "fpl_element_id": 20,
+      "ml_residual": -0.509,
+      "name": "Max Dowman",
+      "player_uid": "player_max_dowman"
+    },
+    {
+      "ep_ml": 0.445,
+      "ep_quant": 0.0,
+      "fpl_element_id": 549,
+      "ml_residual": 0.445,
+      "name": "Chemsdine Talbi",
+      "player_uid": "player_chemsdine_talbi"
+    },
+    {
+      "ep_ml": 0.442,
+      "ep_quant": 1.213,
+      "fpl_element_id": null,
+      "ml_residual": -0.772,
+      "name": "Reece Welch",
+      "player_uid": "player_reece_welch"
+    },
+    {
+      "ep_ml": 0.442,
+      "ep_quant": 1.242,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Rio Kyerematen",
+      "player_uid": "player_rio_kyerematen"
+    },
+    {
+      "ep_ml": 0.441,
+      "ep_quant": 0.837,
+      "fpl_element_id": 206,
+      "ml_residual": -0.396,
+      "name": "Chadi Riad Dnanou",
+      "player_uid": "player_chadi_riad_dnanou"
+    },
+    {
+      "ep_ml": 0.44,
+      "ep_quant": 1.211,
+      "fpl_element_id": 519,
+      "ml_residual": -0.771,
+      "name": "Conor Gallagher",
+      "player_uid": "player_conor_gallagher"
+    },
+    {
+      "ep_ml": 0.438,
+      "ep_quant": 1.239,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Rhys Chadwick",
+      "player_uid": "player_rhys_chadwick"
+    },
+    {
+      "ep_ml": 0.438,
+      "ep_quant": 1.239,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Sam Chambers",
+      "player_uid": "player_sam_chambers"
+    },
+    {
+      "ep_ml": 0.436,
+      "ep_quant": 0.0,
+      "fpl_element_id": 493,
+      "ml_residual": 0.436,
+      "name": "Arnaud Kalimuendo",
+      "player_uid": "player_arnaud_kalimuendo"
+    },
+    {
+      "ep_ml": 0.435,
+      "ep_quant": 1.236,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Jaydon Jones",
+      "player_uid": "player_jaydon_jones"
+    },
+    {
+      "ep_ml": 0.435,
+      "ep_quant": 1.236,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Jack Whittaker",
+      "player_uid": "player_jack_whittaker"
+    },
+    {
+      "ep_ml": 0.435,
+      "ep_quant": 1.236,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Abdoullah Ba",
+      "player_uid": "player_abdoullah_ba"
+    },
+    {
+      "ep_ml": 0.435,
+      "ep_quant": 1.236,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Ian Poveda-Ocampo",
+      "player_uid": "player_ian_poveda_ocampo"
+    },
+    {
+      "ep_ml": 0.431,
+      "ep_quant": 1.232,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Callum Bates",
+      "player_uid": "player_callum_bates"
+    },
+    {
+      "ep_ml": 0.431,
+      "ep_quant": 1.232,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Coby Ebere",
+      "player_uid": "player_coby_ebere"
+    },
+    {
+      "ep_ml": 0.43,
+      "ep_quant": 1.766,
+      "fpl_element_id": 212,
+      "ml_residual": -1.335,
+      "name": "Will Hughes",
+      "player_uid": "player_will_hughes"
+    },
+    {
+      "ep_ml": 0.429,
+      "ep_quant": 0.974,
+      "fpl_element_id": 370,
+      "ml_residual": -0.545,
+      "name": "Federico Chiesa",
+      "player_uid": "player_federico_chiesa"
+    },
+    {
+      "ep_ml": 0.428,
+      "ep_quant": 0.901,
+      "fpl_element_id": null,
+      "ml_residual": -0.473,
+      "name": "Kieran Morrison",
+      "player_uid": "player_kieran_morrison"
+    },
+    {
+      "ep_ml": 0.428,
+      "ep_quant": 1.026,
+      "fpl_element_id": 126,
+      "ml_residual": -0.599,
+      "name": "Matt O'Riley",
+      "player_uid": "player_matt_o_riley"
+    },
+    {
+      "ep_ml": 0.426,
+      "ep_quant": 1.183,
+      "fpl_element_id": null,
+      "ml_residual": -0.757,
+      "name": "Andre Harriman-Annous",
+      "player_uid": "player_andre_harriman_annous"
+    },
+    {
+      "ep_ml": 0.425,
+      "ep_quant": 1.248,
+      "fpl_element_id": null,
+      "ml_residual": -0.823,
+      "name": "Charlie Gray",
+      "player_uid": "player_charlie_gray"
+    },
+    {
+      "ep_ml": 0.422,
+      "ep_quant": 1.223,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Jimmy Sinclair",
+      "player_uid": "player_jimmy_sinclair"
+    },
+    {
+      "ep_ml": 0.422,
+      "ep_quant": 1.223,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Archie Whitehall",
+      "player_uid": "player_archie_whitehall"
+    },
+    {
+      "ep_ml": 0.42,
+      "ep_quant": 0.0,
+      "fpl_element_id": 446,
+      "ml_residual": 0.42,
+      "name": "Fabian Sch\u00e4r",
+      "player_uid": "player_fabian_schar"
+    },
+    {
+      "ep_ml": 0.419,
+      "ep_quant": 0.0,
+      "fpl_element_id": 482,
+      "ml_residual": 0.419,
+      "name": "Callum Hudson-Odoi",
+      "player_uid": "player_callum_hudson_odoi"
+    },
+    {
+      "ep_ml": 0.417,
+      "ep_quant": 1.218,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Ryan Kavuma-McQueen",
+      "player_uid": "player_ryan_kavuma_mcqueen"
+    },
+    {
+      "ep_ml": 0.417,
+      "ep_quant": 1.218,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Mathis Ebou\u00e9",
+      "player_uid": "player_mathis_eboue"
+    },
+    {
+      "ep_ml": 0.417,
+      "ep_quant": 1.218,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Landon Emenalo",
+      "player_uid": "player_landon_emenalo"
+    },
+    {
+      "ep_ml": 0.416,
+      "ep_quant": 1.155,
+      "fpl_element_id": null,
+      "ml_residual": -0.739,
+      "name": "James Ward-Prowse",
+      "player_uid": "player_james_ward_prowse"
+    },
+    {
+      "ep_ml": 0.414,
+      "ep_quant": 0.0,
+      "fpl_element_id": 75,
+      "ml_residual": 0.414,
+      "name": "Ryan Christie",
+      "player_uid": "player_ryan_christie"
+    },
+    {
+      "ep_ml": 0.405,
+      "ep_quant": 0.75,
+      "fpl_element_id": null,
+      "ml_residual": -0.345,
+      "name": "Mike Tr\u00e9sor Ndayishimiye",
+      "player_uid": "player_mike_tresor_ndayishimiye"
+    },
+    {
+      "ep_ml": 0.401,
+      "ep_quant": 0.935,
+      "fpl_element_id": null,
+      "ml_residual": -0.534,
+      "name": "Eric da Silva Moreira",
+      "player_uid": "player_eric_da_silva_moreira"
+    },
+    {
+      "ep_ml": 0.392,
+      "ep_quant": 1.112,
+      "fpl_element_id": null,
+      "ml_residual": -0.72,
+      "name": "Jesse Derry",
+      "player_uid": "player_jesse_derry"
+    },
+    {
+      "ep_ml": 0.389,
+      "ep_quant": 2.228,
+      "fpl_element_id": 326,
+      "ml_residual": -1.839,
+      "name": "Lucas Estella Perri",
+      "player_uid": "player_lucas_estella_perri"
+    },
+    {
+      "ep_ml": 0.387,
+      "ep_quant": 1.121,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Zach Marsh",
+      "player_uid": "player_zach_marsh"
+    },
+    {
+      "ep_ml": 0.387,
+      "ep_quant": 1.121,
+      "fpl_element_id": null,
+      "ml_residual": -0.734,
+      "name": "Ben Casey",
+      "player_uid": "player_ben_casey"
+    },
+    {
+      "ep_ml": 0.383,
+      "ep_quant": 0.795,
+      "fpl_element_id": 435,
+      "ml_residual": -0.412,
+      "name": "Shea Lacey",
+      "player_uid": "player_shea_lacey"
+    },
+    {
+      "ep_ml": 0.382,
+      "ep_quant": 0.847,
+      "fpl_element_id": null,
+      "ml_residual": -0.465,
+      "name": "Tom Edozie",
+      "player_uid": "player_tom_edozie"
+    },
+    {
+      "ep_ml": 0.381,
+      "ep_quant": 1.127,
+      "fpl_element_id": null,
+      "ml_residual": -0.746,
+      "name": "Remy Rees-Dottin",
+      "player_uid": "player_remy_rees_dottin"
+    },
+    {
+      "ep_ml": 0.381,
+      "ep_quant": 1.388,
+      "fpl_element_id": 351,
+      "ml_residual": -1.008,
+      "name": "Giorgi Mamardashvili",
+      "player_uid": "player_giorgi_mamardashvili"
+    },
+    {
+      "ep_ml": 0.374,
+      "ep_quant": 1.175,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Seung-Soo Park",
+      "player_uid": "player_seung_soo_park"
+    },
+    {
+      "ep_ml": 0.374,
+      "ep_quant": 1.175,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Sam Alabi",
+      "player_uid": "player_sam_alabi"
+    },
+    {
+      "ep_ml": 0.371,
+      "ep_quant": 0.0,
+      "fpl_element_id": 547,
+      "ml_residual": 0.371,
+      "name": "Romaine Mundle",
+      "player_uid": "player_romaine_mundle"
+    },
+    {
+      "ep_ml": 0.37,
+      "ep_quant": 0.0,
+      "fpl_element_id": 157,
+      "ml_residual": 0.37,
+      "name": "Est\u00eav\u00e3o Almeida de Oliveira Gon\u00e7alves",
+      "player_uid": "player_estevao_almeida_de_oliveira_goncalves"
+    },
+    {
+      "ep_ml": 0.367,
+      "ep_quant": 0.0,
+      "fpl_element_id": 89,
+      "ml_residual": 0.367,
+      "name": "Rico Henry",
+      "player_uid": "player_rico_henry"
+    },
+    {
+      "ep_ml": 0.365,
+      "ep_quant": 0.0,
+      "fpl_element_id": 52,
+      "ml_residual": 0.365,
+      "name": "Alysson Edward Franco da Rocha dos Santos",
+      "player_uid": "player_alysson_edward_franco_da_rocha_dos_santos"
+    },
+    {
+      "ep_ml": 0.365,
+      "ep_quant": 1.166,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Charlie Stevens",
+      "player_uid": "player_charlie_stevens"
+    },
+    {
+      "ep_ml": 0.365,
+      "ep_quant": 1.166,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Malcom DaCosta",
+      "player_uid": "player_malcom_dacosta"
+    },
+    {
+      "ep_ml": 0.358,
+      "ep_quant": 1.158,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Luka Bentt",
+      "player_uid": "player_luka_bentt"
+    },
+    {
+      "ep_ml": 0.358,
+      "ep_quant": 1.158,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Riley Owen",
+      "player_uid": "player_riley_owen"
+    },
+    {
+      "ep_ml": 0.357,
+      "ep_quant": 0.822,
+      "fpl_element_id": null,
+      "ml_residual": -0.465,
+      "name": "Dennis Cirkin",
+      "player_uid": "player_dennis_cirkin"
+    },
+    {
+      "ep_ml": 0.355,
+      "ep_quant": 0.934,
+      "fpl_element_id": 24,
+      "ml_residual": -0.579,
+      "name": "Reiss Nelson",
+      "player_uid": "player_reiss_nelson"
+    },
+    {
+      "ep_ml": 0.35,
+      "ep_quant": 0.815,
+      "fpl_element_id": null,
+      "ml_residual": -0.465,
+      "name": "Harrison Jones",
+      "player_uid": "player_harrison_jones"
+    },
+    {
+      "ep_ml": 0.346,
+      "ep_quant": 1.147,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Jim Thwaites",
+      "player_uid": "player_jim_thwaites"
+    },
+    {
+      "ep_ml": 0.346,
+      "ep_quant": 1.147,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Jayce Fitzgerald",
+      "player_uid": "player_jayce_fitzgerald"
+    },
+    {
+      "ep_ml": 0.335,
+      "ep_quant": 1.246,
+      "fpl_element_id": 215,
+      "ml_residual": -0.91,
+      "name": "Justin Devenny",
+      "player_uid": "player_justin_devenny"
+    },
+    {
+      "ep_ml": 0.331,
+      "ep_quant": 1.103,
+      "fpl_element_id": null,
+      "ml_residual": -0.772,
+      "name": "Connor Roberts",
+      "player_uid": "player_connor_roberts"
+    },
+    {
+      "ep_ml": 0.328,
+      "ep_quant": 0.903,
+      "fpl_element_id": 80,
+      "ml_residual": -0.575,
+      "name": "Enes \u00dcnal",
+      "player_uid": "player_enes_unal"
+    },
+    {
+      "ep_ml": 0.327,
+      "ep_quant": 1.568,
+      "fpl_element_id": 245,
+      "ml_residual": -1.241,
+      "name": "Tyler Dibling",
+      "player_uid": "player_tyler_dibling"
+    },
+    {
+      "ep_ml": 0.323,
+      "ep_quant": 0.463,
+      "fpl_element_id": null,
+      "ml_residual": -0.14,
+      "name": "Adam Armstrong",
+      "player_uid": "player_adam_armstrong"
+    },
+    {
+      "ep_ml": 0.322,
+      "ep_quant": 1.334,
+      "fpl_element_id": 147,
+      "ml_residual": -1.012,
+      "name": "Tosin Adarabioyo",
+      "player_uid": "player_tosin_adarabioyo"
+    },
+    {
+      "ep_ml": 0.319,
+      "ep_quant": 1.812,
+      "fpl_element_id": 101,
+      "ml_residual": -1.492,
+      "name": "Jordan Henderson",
+      "player_uid": "player_jordan_henderson"
+    },
+    {
+      "ep_ml": 0.314,
+      "ep_quant": 1.115,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Joshua Stephenson",
+      "player_uid": "player_joshua_stephenson"
+    },
+    {
+      "ep_ml": 0.314,
+      "ep_quant": 1.115,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Conor McManus",
+      "player_uid": "player_conor_mcmanus"
+    },
+    {
+      "ep_ml": 0.314,
+      "ep_quant": 1.115,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Ollie Shield",
+      "player_uid": "player_ollie_shield"
+    },
+    {
+      "ep_ml": 0.314,
+      "ep_quant": 0.869,
+      "fpl_element_id": 128,
+      "ml_residual": -0.555,
+      "name": "Facundo Buonanotte",
+      "player_uid": "player_facundo_buonanotte"
+    },
+    {
+      "ep_ml": 0.313,
+      "ep_quant": 0.765,
+      "fpl_element_id": null,
+      "ml_residual": -0.452,
+      "name": "Douglas Luiz Soares de Paulo",
+      "player_uid": "player_douglas_luiz_soares_de_paulo"
+    },
+    {
+      "ep_ml": 0.304,
+      "ep_quant": 0.886,
+      "fpl_element_id": 5,
+      "ml_residual": -0.582,
+      "name": "Jurri\u00ebn Timber",
+      "player_uid": "player_jurrien_timber"
+    },
+    {
+      "ep_ml": 0.303,
+      "ep_quant": 0.943,
+      "fpl_element_id": 413,
+      "ml_residual": -0.64,
+      "name": "Altay Bay\u0131nd\u0131r",
+      "player_uid": "player_altay_bay_nd_r"
+    },
+    {
+      "ep_ml": 0.296,
+      "ep_quant": 1.1,
+      "fpl_element_id": 169,
+      "ml_residual": -0.805,
+      "name": "Shumaira Mheuka",
+      "player_uid": "player_shumaira_mheuka"
+    },
+    {
+      "ep_ml": 0.295,
+      "ep_quant": 0.767,
+      "fpl_element_id": null,
+      "ml_residual": -0.473,
+      "name": "Sam Byram",
+      "player_uid": "player_sam_byram"
+    },
+    {
+      "ep_ml": 0.295,
+      "ep_quant": 1.084,
+      "fpl_element_id": 394,
+      "ml_residual": -0.789,
+      "name": "Max Alleyne",
+      "player_uid": "player_max_alleyne"
+    },
+    {
+      "ep_ml": 0.286,
+      "ep_quant": 0.801,
+      "fpl_element_id": null,
+      "ml_residual": -0.514,
+      "name": "Nathaniel Clyne",
+      "player_uid": "player_nathaniel_clyne"
+    },
+    {
+      "ep_ml": 0.278,
+      "ep_quant": 0.869,
+      "fpl_element_id": 333,
+      "ml_residual": -0.592,
+      "name": "Sebastiaan Bornauw",
+      "player_uid": "player_sebastiaan_bornauw"
+    },
+    {
+      "ep_ml": 0.278,
+      "ep_quant": 0.828,
+      "fpl_element_id": null,
+      "ml_residual": -0.55,
+      "name": "John Ruddy",
+      "player_uid": "player_john_ruddy"
+    },
+    {
+      "ep_ml": 0.278,
+      "ep_quant": 1.078,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "George King",
+      "player_uid": "player_george_king"
+    },
+    {
+      "ep_ml": 0.278,
+      "ep_quant": 1.078,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Dean Benamar",
+      "player_uid": "player_dean_benamar"
+    },
+    {
+      "ep_ml": 0.276,
+      "ep_quant": 0.908,
+      "fpl_element_id": null,
+      "ml_residual": -0.633,
+      "name": "Gabriel S\u0142onina",
+      "player_uid": "player_gabriel_s_onina"
+    },
+    {
+      "ep_ml": 0.275,
+      "ep_quant": 0.969,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Tom McGill",
+      "player_uid": "player_tom_mcgill"
+    },
+    {
+      "ep_ml": 0.274,
+      "ep_quant": 0.968,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Teddy Sharman-Lowe",
+      "player_uid": "player_teddy_sharman_lowe"
+    },
+    {
+      "ep_ml": 0.274,
+      "ep_quant": 0.968,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Max Merrick",
+      "player_uid": "player_max_merrick"
+    },
+    {
+      "ep_ml": 0.271,
+      "ep_quant": 0.452,
+      "fpl_element_id": 383,
+      "ml_residual": -0.181,
+      "name": "Harvey Elliott",
+      "player_uid": "player_harvey_elliott"
+    },
+    {
+      "ep_ml": 0.271,
+      "ep_quant": 0.96,
+      "fpl_element_id": null,
+      "ml_residual": -0.689,
+      "name": "Bertrand Traor\u00e9",
+      "player_uid": "player_bertrand_traore"
+    },
+    {
+      "ep_ml": 0.268,
+      "ep_quant": 0.944,
+      "fpl_element_id": null,
+      "ml_residual": -0.677,
+      "name": "Kaden Rodney",
+      "player_uid": "player_kaden_rodney"
+    },
+    {
+      "ep_ml": 0.268,
+      "ep_quant": 0.847,
+      "fpl_element_id": 365,
+      "ml_residual": -0.579,
+      "name": "Calvin Ramsay",
+      "player_uid": "player_calvin_ramsay"
+    },
+    {
+      "ep_ml": 0.266,
+      "ep_quant": 0.982,
+      "fpl_element_id": 37,
+      "ml_residual": -0.717,
+      "name": "Victor Lindel\u00f6f",
+      "player_uid": "player_victor_lindelof"
+    },
+    {
+      "ep_ml": 0.266,
+      "ep_quant": 0.816,
+      "fpl_element_id": 220,
+      "ml_residual": -0.55,
+      "name": "Rio Cardines",
+      "player_uid": "player_rio_cardines"
+    },
+    {
+      "ep_ml": 0.263,
+      "ep_quant": 1.03,
+      "fpl_element_id": 359,
+      "ml_residual": -0.767,
+      "name": "Joe Gomez",
+      "player_uid": "player_joe_gomez"
+    },
+    {
+      "ep_ml": 0.262,
+      "ep_quant": 0.955,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Dermot Mee",
+      "player_uid": "player_dermot_mee"
+    },
+    {
+      "ep_ml": 0.262,
+      "ep_quant": 0.444,
+      "fpl_element_id": null,
+      "ml_residual": -0.182,
+      "name": "Mohamadou Kant\u00e9",
+      "player_uid": "player_mohamadou_kante"
+    },
+    {
+      "ep_ml": 0.26,
+      "ep_quant": 1.061,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Travis Patterson",
+      "player_uid": "player_travis_patterson"
+    },
+    {
+      "ep_ml": 0.26,
+      "ep_quant": 1.061,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "TJ Carroll",
+      "player_uid": "player_tj_carroll"
+    },
+    {
+      "ep_ml": 0.26,
+      "ep_quant": 1.061,
+      "fpl_element_id": null,
+      "ml_residual": -0.801,
+      "name": "Leon Routh",
+      "player_uid": "player_leon_routh"
+    },
+    {
+      "ep_ml": 0.26,
+      "ep_quant": 0.982,
+      "fpl_element_id": 234,
+      "ml_residual": -0.722,
+      "name": "Nathan Patterson",
+      "player_uid": "player_nathan_patterson"
+    },
+    {
+      "ep_ml": 0.26,
+      "ep_quant": 0.954,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "V\u00e1clav Hladk\u00fd",
+      "player_uid": "player_vaclav_hladky"
+    },
+    {
+      "ep_ml": 0.258,
+      "ep_quant": 1.542,
+      "fpl_element_id": 77,
+      "ml_residual": -1.284,
+      "name": "Amine Adli",
+      "player_uid": "player_amine_adli"
+    },
+    {
+      "ep_ml": 0.257,
+      "ep_quant": 0.45,
+      "fpl_element_id": null,
+      "ml_residual": -0.193,
+      "name": "Solly March",
+      "player_uid": "player_solly_march"
+    },
+    {
+      "ep_ml": 0.254,
+      "ep_quant": 0.909,
+      "fpl_element_id": null,
+      "ml_residual": -0.655,
+      "name": "Asher Agbinone",
+      "player_uid": "player_asher_agbinone"
+    },
+    {
+      "ep_ml": 0.253,
+      "ep_quant": 0.934,
+      "fpl_element_id": 524,
+      "ml_residual": -0.681,
+      "name": "Callum Olusesi",
+      "player_uid": "player_callum_olusesi"
+    },
+    {
+      "ep_ml": 0.253,
+      "ep_quant": 0.718,
+      "fpl_element_id": null,
+      "ml_residual": -0.465,
+      "name": "Joe Worrall",
+      "player_uid": "player_joe_worrall"
+    },
+    {
+      "ep_ml": 0.248,
+      "ep_quant": 0.942,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Christos Mandas",
+      "player_uid": "player_christos_mandas"
+    },
+    {
+      "ep_ml": 0.248,
+      "ep_quant": 0.942,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Callan McKenna",
+      "player_uid": "player_callan_mckenna"
+    },
+    {
+      "ep_ml": 0.248,
+      "ep_quant": 0.0,
+      "fpl_element_id": 556,
+      "ml_residual": 0.248,
+      "name": "Matt Targett",
+      "player_uid": "player_matt_targett"
+    },
+    {
+      "ep_ml": 0.242,
+      "ep_quant": 0.0,
+      "fpl_element_id": 396,
+      "ml_residual": 0.242,
+      "name": "Vitor de Oliveira Nunes dos Reis",
+      "player_uid": "player_vitor_de_oliveira_nunes_dos_reis"
+    },
+    {
+      "ep_ml": 0.236,
+      "ep_quant": 0.858,
+      "fpl_element_id": 466,
+      "ml_residual": -0.622,
+      "name": "Sean Neave",
+      "player_uid": "player_sean_neave"
+    },
+    {
+      "ep_ml": 0.232,
+      "ep_quant": 0.825,
+      "fpl_element_id": 150,
+      "ml_residual": -0.593,
+      "name": "Mamadou Sarr",
+      "player_uid": "player_mamadou_sarr"
+    },
+    {
+      "ep_ml": 0.23,
+      "ep_quant": 0.747,
+      "fpl_element_id": null,
+      "ml_residual": -0.516,
+      "name": "Simon Moore",
+      "player_uid": "player_simon_moore"
+    },
+    {
+      "ep_ml": 0.229,
+      "ep_quant": 0.821,
+      "fpl_element_id": 341,
+      "ml_residual": -0.592,
+      "name": "Wilfried Gnonto",
+      "player_uid": "player_wilfried_gnonto"
+    },
+    {
+      "ep_ml": 0.226,
+      "ep_quant": 0.697,
+      "fpl_element_id": null,
+      "ml_residual": -0.47,
+      "name": "Daniel Bentley",
+      "player_uid": "player_daniel_bentley"
+    },
+    {
+      "ep_ml": 0.221,
+      "ep_quant": 1.323,
+      "fpl_element_id": 361,
+      "ml_residual": -1.103,
+      "name": "Wellity Lucky",
+      "player_uid": "player_wellity_lucky"
+    },
+    {
+      "ep_ml": 0.219,
+      "ep_quant": 0.328,
+      "fpl_element_id": 58,
+      "ml_residual": -0.108,
+      "name": "Fraser Forster",
+      "player_uid": "player_fraser_forster"
+    },
+    {
+      "ep_ml": 0.217,
+      "ep_quant": 0.911,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Lukasz Fabianski",
+      "player_uid": "player_lukasz_fabianski"
+    },
+    {
+      "ep_ml": 0.217,
+      "ep_quant": 0.911,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Finlay Herrick",
+      "player_uid": "player_finlay_herrick"
+    },
+    {
+      "ep_ml": 0.215,
+      "ep_quant": 0.728,
+      "fpl_element_id": 434,
+      "ml_residual": -0.512,
+      "name": "Jack Fletcher",
+      "player_uid": "player_jack_fletcher"
+    },
+    {
+      "ep_ml": 0.212,
+      "ep_quant": 0.677,
+      "fpl_element_id": null,
+      "ml_residual": -0.465,
+      "name": "S\u00e9amus Coleman",
+      "player_uid": "player_seamus_coleman"
+    },
+    {
+      "ep_ml": 0.208,
+      "ep_quant": 0.793,
+      "fpl_element_id": 44,
+      "ml_residual": -0.584,
+      "name": "Leon Bailey",
+      "player_uid": "player_leon_bailey"
+    },
+    {
+      "ep_ml": 0.205,
+      "ep_quant": 0.899,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Alfie Brooks",
+      "player_uid": "player_alfie_brooks"
+    },
+    {
+      "ep_ml": 0.205,
+      "ep_quant": 0.899,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Josh Gracey",
+      "player_uid": "player_josh_gracey"
+    },
+    {
+      "ep_ml": 0.205,
+      "ep_quant": 1.1,
+      "fpl_element_id": 386,
+      "ml_residual": -0.894,
+      "name": "Marcus Bettinelli",
+      "player_uid": "player_marcus_bettinelli"
+    },
+    {
+      "ep_ml": 0.199,
+      "ep_quant": 1.383,
+      "fpl_element_id": 433,
+      "ml_residual": -1.183,
+      "name": "Manuel Ugarte Ribeiro",
+      "player_uid": "player_manuel_ugarte_ribeiro"
+    },
+    {
+      "ep_ml": 0.197,
+      "ep_quant": 0.209,
+      "fpl_element_id": null,
+      "ml_residual": -0.012,
+      "name": "Angel Gomes",
+      "player_uid": "player_angel_gomes"
+    },
+    {
+      "ep_ml": 0.194,
+      "ep_quant": 1.192,
+      "fpl_element_id": 489,
+      "ml_residual": -0.998,
+      "name": "Ryan Yates",
+      "player_uid": "player_ryan_yates"
+    },
+    {
+      "ep_ml": 0.186,
+      "ep_quant": 0.819,
+      "fpl_element_id": null,
+      "ml_residual": -0.633,
+      "name": "Ellery Balcombe",
+      "player_uid": "player_ellery_balcombe"
+    },
+    {
+      "ep_ml": 0.182,
+      "ep_quant": 1.323,
+      "fpl_element_id": 603,
+      "ml_residual": -1.141,
+      "name": "Jayden Lienou",
+      "player_uid": "player_jayden_lienou"
+    },
+    {
+      "ep_ml": 0.182,
+      "ep_quant": 0.525,
+      "fpl_element_id": null,
+      "ml_residual": -0.343,
+      "name": "Max Wei\u00df",
+      "player_uid": "player_max_weiss"
+    },
+    {
+      "ep_ml": 0.18,
+      "ep_quant": 0.591,
+      "fpl_element_id": null,
+      "ml_residual": -0.411,
+      "name": "Romelle Donovan",
+      "player_uid": "player_romelle_donovan"
+    },
+    {
+      "ep_ml": 0.176,
+      "ep_quant": 0.781,
+      "fpl_element_id": 63,
+      "ml_residual": -0.605,
+      "name": "Veljko Milosavljevic",
+      "player_uid": "player_veljko_milosavljevic"
+    },
+    {
+      "ep_ml": 0.175,
+      "ep_quant": 0.869,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Ronnie Hollingshead",
+      "player_uid": "player_ronnie_hollingshead"
+    },
+    {
+      "ep_ml": 0.175,
+      "ep_quant": 0.869,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Sam Proctor",
+      "player_uid": "player_sam_proctor"
+    },
+    {
+      "ep_ml": 0.175,
+      "ep_quant": 0.869,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "James Wright",
+      "player_uid": "player_james_wright"
+    },
+    {
+      "ep_ml": 0.171,
+      "ep_quant": 0.865,
+      "fpl_element_id": null,
+      "ml_residual": -0.694,
+      "name": "Julian Eyestone",
+      "player_uid": "player_julian_eyestone"
+    },
+    {
+      "ep_ml": 0.171,
+      "ep_quant": 0.546,
+      "fpl_element_id": null,
+      "ml_residual": -0.376,
+      "name": "Pedro Cardoso de Lima",
+      "player_uid": "player_pedro_cardoso_de_lima"
+    },
+    {
+      "ep_ml": 0.167,
+      "ep_quant": 0.767,
+      "fpl_element_id": 132,
+      "ml_residual": -0.601,
+      "name": "Harry Howell",
+      "player_uid": "player_harry_howell"
+    },
+    {
+      "ep_ml": 0.165,
+      "ep_quant": 1.195,
+      "fpl_element_id": 441,
+      "ml_residual": -1.03,
+      "name": "Chido Obi",
+      "player_uid": "player_chido_obi"
+    },
+    {
+      "ep_ml": 0.158,
+      "ep_quant": 0.225,
+      "fpl_element_id": 158,
+      "ml_residual": -0.067,
+      "name": "Jamie Bynoe-Gittens",
+      "player_uid": "player_jamie_bynoe_gittens"
+    },
+    {
+      "ep_ml": 0.158,
+      "ep_quant": 0.588,
+      "fpl_element_id": null,
+      "ml_residual": -0.429,
+      "name": "Angus Gunn",
+      "player_uid": "player_angus_gunn"
+    },
+    {
+      "ep_ml": 0.156,
+      "ep_quant": 0.0,
+      "fpl_element_id": 578,
+      "ml_residual": 0.156,
+      "name": "Mykhailo Mudryk",
+      "player_uid": "player_mykhailo_mudryk"
+    },
+    {
+      "ep_ml": 0.152,
+      "ep_quant": 0.67,
+      "fpl_element_id": 352,
+      "ml_residual": -0.517,
+      "name": "Freddie Woodman",
+      "player_uid": "player_freddie_woodman"
+    },
+    {
+      "ep_ml": 0.149,
+      "ep_quant": 0.903,
+      "fpl_element_id": 163,
+      "ml_residual": -0.754,
+      "name": "D\u00e1rio Lu\u00eds Essugo",
+      "player_uid": "player_dario_luis_essugo"
+    },
+    {
+      "ep_ml": 0.146,
+      "ep_quant": 0.0,
+      "fpl_element_id": 424,
+      "ml_residual": 0.146,
+      "name": "Harry Amass",
+      "player_uid": "player_harry_amass"
+    },
+    {
+      "ep_ml": 0.139,
+      "ep_quant": 0.709,
+      "fpl_element_id": 168,
+      "ml_residual": -0.57,
+      "name": "Marc Guiu Paz",
+      "player_uid": "player_marc_guiu_paz"
+    },
+    {
+      "ep_ml": 0.139,
+      "ep_quant": 0.276,
+      "fpl_element_id": null,
+      "ml_residual": -0.137,
+      "name": "Stefan Ortega Moreno",
+      "player_uid": "player_stefan_ortega_moreno"
+    },
+    {
+      "ep_ml": 0.136,
+      "ep_quant": 1.242,
+      "fpl_element_id": 601,
+      "ml_residual": -1.107,
+      "name": "Luca Williams-Barnett",
+      "player_uid": "player_luca_williams_barnett"
+    },
+    {
+      "ep_ml": 0.135,
+      "ep_quant": 0.646,
+      "fpl_element_id": 531,
+      "ml_residual": -0.511,
+      "name": "Melker Ellborg",
+      "player_uid": "player_melker_ellborg"
+    },
+    {
+      "ep_ml": 0.129,
+      "ep_quant": 1.281,
+      "fpl_element_id": 609,
+      "ml_residual": -1.152,
+      "name": "Leo Shahar",
+      "player_uid": "player_leo_shahar"
+    },
+    {
+      "ep_ml": 0.121,
+      "ep_quant": 0.788,
+      "fpl_element_id": 353,
+      "ml_residual": -0.667,
+      "name": "\u00c1rmin P\u00e9csi",
+      "player_uid": "player_armin_pecsi"
+    },
+    {
+      "ep_ml": 0.115,
+      "ep_quant": 1.049,
+      "fpl_element_id": 438,
+      "ml_residual": -0.934,
+      "name": "Tyler Fletcher",
+      "player_uid": "player_tyler_fletcher"
+    },
+    {
+      "ep_ml": 0.115,
+      "ep_quant": 0.526,
+      "fpl_element_id": null,
+      "ml_residual": -0.411,
+      "name": "Tyrell Malacia",
+      "player_uid": "player_tyrell_malacia"
+    },
+    {
+      "ep_ml": 0.108,
+      "ep_quant": 0.636,
+      "fpl_element_id": 225,
+      "ml_residual": -0.528,
+      "name": "Christantus Uche",
+      "player_uid": "player_christantus_uche"
+    },
+    {
+      "ep_ml": 0.104,
+      "ep_quant": 0.976,
+      "fpl_element_id": 35,
+      "ml_residual": -0.872,
+      "name": "Lamare Bogarde",
+      "player_uid": "player_lamare_bogarde"
+    },
+    {
+      "ep_ml": 0.103,
+      "ep_quant": 1.123,
+      "fpl_element_id": 107,
+      "ml_residual": -1.02,
+      "name": "Kaye Furo",
+      "player_uid": "player_kaye_furo"
+    },
+    {
+      "ep_ml": 0.102,
+      "ep_quant": 0.0,
+      "fpl_element_id": 100,
+      "ml_residual": 0.102,
+      "name": "F\u00e1bio Freitas Gouveia Carvalho",
+      "player_uid": "player_fabio_freitas_gouveia_carvalho"
+    },
+    {
+      "ep_ml": 0.102,
+      "ep_quant": 1.109,
+      "fpl_element_id": 550,
+      "ml_residual": -1.007,
+      "name": "Djiamgone Jocelin Ta Bi",
+      "player_uid": "player_djiamgone_jocelin_ta_bi"
+    },
+    {
+      "ep_ml": 0.101,
+      "ep_quant": 0.49,
+      "fpl_element_id": 118,
+      "ml_residual": -0.389,
+      "name": "Igor Julio dos Santos de Paulo",
+      "player_uid": "player_igor_julio_dos_santos_de_paulo"
+    },
+    {
+      "ep_ml": 0.1,
+      "ep_quant": 0.0,
+      "fpl_element_id": 340,
+      "ml_residual": 0.1,
+      "name": "Joe Gelhardt",
+      "player_uid": "player_joe_gelhardt"
+    },
+    {
+      "ep_ml": 0.099,
+      "ep_quant": 0.719,
+      "fpl_element_id": 141,
+      "ml_residual": -0.62,
+      "name": "Filip J\u00f6rgensen",
+      "player_uid": "player_filip_jorgensen"
+    },
+    {
+      "ep_ml": 0.098,
+      "ep_quant": 0.838,
+      "fpl_element_id": 221,
+      "ml_residual": -0.74,
+      "name": "Jo\u00e9l Drakes-Thomas",
+      "player_uid": "player_joel_drakes_thomas"
+    },
+    {
+      "ep_ml": 0.098,
+      "ep_quant": 0.0,
+      "fpl_element_id": 219,
+      "ml_residual": 0.098,
+      "name": "Jesurun Rak-Sakyi",
+      "player_uid": "player_jesurun_rak_sakyi"
+    },
+    {
+      "ep_ml": 0.097,
+      "ep_quant": 1.239,
+      "fpl_element_id": 604,
+      "ml_residual": -1.141,
+      "name": "Alfie Cresswell",
+      "player_uid": "player_alfie_cresswell"
+    },
+    {
+      "ep_ml": 0.097,
+      "ep_quant": 0.0,
+      "fpl_element_id": 272,
+      "ml_residual": 0.097,
+      "name": "Jonah Kusi-Asare",
+      "player_uid": "player_jonah_kusi_asare"
+    },
+    {
+      "ep_ml": 0.095,
+      "ep_quant": 1.051,
+      "fpl_element_id": 235,
+      "ml_residual": -0.956,
+      "name": "Adam Aznou",
+      "player_uid": "player_adam_aznou"
+    },
+    {
+      "ep_ml": 0.095,
+      "ep_quant": 0.992,
+      "fpl_element_id": 437,
+      "ml_residual": -0.898,
+      "name": "Bendito Mantato",
+      "player_uid": "player_bendito_mantato"
+    },
+    {
+      "ep_ml": 0.09,
+      "ep_quant": 1.107,
+      "fpl_element_id": 134,
+      "ml_residual": -1.017,
+      "name": "Nehemiah Oriola",
+      "player_uid": "player_nehemiah_oriola"
+    },
+    {
+      "ep_ml": 0.088,
+      "ep_quant": 1.027,
+      "fpl_element_id": 509,
+      "ml_residual": -0.94,
+      "name": "Jun'ai Byfield",
+      "player_uid": "player_jun_ai_byfield"
+    },
+    {
+      "ep_ml": 0.087,
+      "ep_quant": 0.979,
+      "fpl_element_id": 103,
+      "ml_residual": -0.891,
+      "name": "Josh Dasilva",
+      "player_uid": "player_josh_dasilva"
+    },
+    {
+      "ep_ml": 0.086,
+      "ep_quant": 0.0,
+      "fpl_element_id": 218,
+      "ml_residual": 0.086,
+      "name": "Cheick Doucour\u00e9",
+      "player_uid": "player_cheick_doucoure"
+    },
+    {
+      "ep_ml": 0.086,
+      "ep_quant": 0.898,
+      "fpl_element_id": null,
+      "ml_residual": -0.812,
+      "name": "Caleb Kporha",
+      "player_uid": "player_caleb_kporha"
+    },
+    {
+      "ep_ml": 0.085,
+      "ep_quant": 0.657,
+      "fpl_element_id": 270,
+      "ml_residual": -0.572,
+      "name": "Harrison Reed",
+      "player_uid": "player_harrison_reed"
+    },
+    {
+      "ep_ml": 0.084,
+      "ep_quant": 0.0,
+      "fpl_element_id": 331,
+      "ml_residual": 0.084,
+      "name": "Gabriel Gudmundsson",
+      "player_uid": "player_gabriel_gudmundsson"
+    },
+    {
+      "ep_ml": 0.082,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.082,
+      "name": "Ilkay G\u00fcndogan",
+      "player_uid": "player_ilkay_gundogan"
+    },
+    {
+      "ep_ml": 0.079,
+      "ep_quant": 2.237,
+      "fpl_element_id": 31,
+      "ml_residual": -2.158,
+      "name": "Ezri Konsa Ngoyo",
+      "player_uid": "player_ezri_konsa_ngoyo"
+    },
+    {
+      "ep_ml": 0.078,
+      "ep_quant": 1.806,
+      "fpl_element_id": 30,
+      "ml_residual": -1.727,
+      "name": "Lucas Digne",
+      "player_uid": "player_lucas_digne"
+    },
+    {
+      "ep_ml": 0.078,
+      "ep_quant": 0.496,
+      "fpl_element_id": null,
+      "ml_residual": -0.418,
+      "name": "Ezra Mayers",
+      "player_uid": "player_ezra_mayers"
+    },
+    {
+      "ep_ml": 0.076,
+      "ep_quant": 0.0,
+      "fpl_element_id": 217,
+      "ml_residual": 0.076,
+      "name": "Matheus Fran\u00e7a de Oliveira",
+      "player_uid": "player_matheus_franca_de_oliveira"
+    },
+    {
+      "ep_ml": 0.074,
+      "ep_quant": 0.617,
+      "fpl_element_id": 146,
+      "ml_residual": -0.543,
+      "name": "Beno\u00eet Badiashile Mukinayi",
+      "player_uid": "player_benoit_badiashile_mukinayi"
+    },
+    {
+      "ep_ml": 0.073,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.073,
+      "name": "Carlos Henrique Casimiro",
+      "player_uid": "player_carlos_henrique_casimiro"
+    },
+    {
+      "ep_ml": 0.07,
+      "ep_quant": 0.709,
+      "fpl_element_id": 228,
+      "ml_residual": -0.64,
+      "name": "Tom King",
+      "player_uid": "player_tom_king"
+    },
+    {
+      "ep_ml": 0.067,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.067,
+      "name": "Hamed Traor\u00e8",
+      "player_uid": "player_hamed_traore"
+    },
+    {
+      "ep_ml": 0.065,
+      "ep_quant": 0.0,
+      "fpl_element_id": 380,
+      "ml_residual": 0.065,
+      "name": "Hugo Ekitik\u00e9",
+      "player_uid": "player_hugo_ekitike"
+    },
+    {
+      "ep_ml": 0.065,
+      "ep_quant": 0.0,
+      "fpl_element_id": 117,
+      "ml_residual": 0.065,
+      "name": "Diego Coppola",
+      "player_uid": "player_diego_coppola"
+    },
+    {
+      "ep_ml": 0.065,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.065,
+      "name": "Manuel Akanji",
+      "player_uid": "player_manuel_akanji"
+    },
+    {
+      "ep_ml": 0.051,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.051,
+      "name": "Jakub Kiwior",
+      "player_uid": "player_jakub_kiwior"
+    },
+    {
+      "ep_ml": 0.049,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.049,
+      "name": "Mads Roerslev Rasmussen",
+      "player_uid": "player_mads_roerslev_rasmussen"
+    },
+    {
+      "ep_ml": 0.049,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.049,
+      "name": "Ederson Santana de Moraes",
+      "player_uid": "player_ederson_santana_de_moraes"
+    },
+    {
+      "ep_ml": 0.048,
+      "ep_quant": 1.155,
+      "fpl_element_id": 510,
+      "ml_residual": -1.107,
+      "name": "James Rowswell",
+      "player_uid": "player_james_rowswell"
+    },
+    {
+      "ep_ml": 0.046,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.046,
+      "name": "Emmanuel Agbadou",
+      "player_uid": "player_emmanuel_agbadou"
+    },
+    {
+      "ep_ml": 0.043,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.043,
+      "name": "Norberto Murara Neto",
+      "player_uid": "player_norberto_murara_neto"
+    },
+    {
+      "ep_ml": 0.043,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.043,
+      "name": "Andr\u00e9 Onana",
+      "player_uid": "player_andre_onana"
+    },
+    {
+      "ep_ml": 0.043,
+      "ep_quant": 0.0,
+      "fpl_element_id": 561,
+      "ml_residual": 0.043,
+      "name": "Aaron Anselmino",
+      "player_uid": "player_aaron_anselmino"
+    },
+    {
+      "ep_ml": 0.043,
+      "ep_quant": 0.0,
+      "fpl_element_id": 360,
+      "ml_residual": 0.043,
+      "name": "Conor Bradley",
+      "player_uid": "player_conor_bradley"
+    },
+    {
+      "ep_ml": 0.043,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.043,
+      "name": "Adam Webster",
+      "player_uid": "player_adam_webster"
+    },
+    {
+      "ep_ml": 0.041,
+      "ep_quant": 1.545,
+      "fpl_element_id": 62,
+      "ml_residual": -1.504,
+      "name": "Bafod\u00e9 Diakit\u00e9",
+      "player_uid": "player_bafode_diakite"
+    },
+    {
+      "ep_ml": 0.04,
+      "ep_quant": 0.0,
+      "fpl_element_id": 521,
+      "ml_residual": 0.04,
+      "name": "Dejan Kulusevski",
+      "player_uid": "player_dejan_kulusevski"
+    },
+    {
+      "ep_ml": 0.039,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.039,
+      "name": "Illia Zabarnyi",
+      "player_uid": "player_illia_zabarnyi"
+    },
+    {
+      "ep_ml": 0.038,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.038,
+      "name": "Rasmus H\u00f8jlund",
+      "player_uid": "player_rasmus_h_jlund"
+    },
+    {
+      "ep_ml": 0.037,
+      "ep_quant": 0.0,
+      "fpl_element_id": 517,
+      "ml_residual": 0.037,
+      "name": "Wilson Odobert",
+      "player_uid": "player_wilson_odobert"
+    },
+    {
+      "ep_ml": 0.037,
+      "ep_quant": 0.0,
+      "fpl_element_id": 508,
+      "ml_residual": 0.037,
+      "name": "Ben Davies",
+      "player_uid": "player_ben_davies"
+    },
+    {
+      "ep_ml": 0.037,
+      "ep_quant": 0.766,
+      "fpl_element_id": 555,
+      "ml_residual": -0.729,
+      "name": "Remi Matthews",
+      "player_uid": "player_remi_matthews"
+    },
+    {
+      "ep_ml": 0.037,
+      "ep_quant": 0.0,
+      "fpl_element_id": 590,
+      "ml_residual": 0.037,
+      "name": "Steven Benda",
+      "player_uid": "player_steven_benda"
+    },
+    {
+      "ep_ml": 0.037,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.037,
+      "name": "Konstantinos Tsimikas",
+      "player_uid": "player_konstantinos_tsimikas"
+    },
+    {
+      "ep_ml": 0.037,
+      "ep_quant": 0.0,
+      "fpl_element_id": 476,
+      "ml_residual": 0.037,
+      "name": "Omar Richards",
+      "player_uid": "player_omar_richards"
+    },
+    {
+      "ep_ml": 0.036,
+      "ep_quant": 0.0,
+      "fpl_element_id": 458,
+      "ml_residual": 0.036,
+      "name": "Joelinton C\u00e1ssio Apolin\u00e1rio de Lira",
+      "player_uid": "player_joelinton_cassio_apolinario_de_lira"
+    },
+    {
+      "ep_ml": 0.036,
+      "ep_quant": 0.0,
+      "fpl_element_id": 378,
+      "ml_residual": 0.036,
+      "name": "James McConnell",
+      "player_uid": "player_james_mcconnell"
+    },
+    {
+      "ep_ml": 0.034,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.034,
+      "name": "Benjamin Arthur",
+      "player_uid": "player_benjamin_arthur"
+    },
+    {
+      "ep_ml": 0.034,
+      "ep_quant": 0.0,
+      "fpl_element_id": 382,
+      "ml_residual": 0.034,
+      "name": "Jayden Danns",
+      "player_uid": "player_jayden_danns"
+    },
+    {
+      "ep_ml": 0.033,
+      "ep_quant": 0.755,
+      "fpl_element_id": 66,
+      "ml_residual": -0.722,
+      "name": "Julio Soler Barreto",
+      "player_uid": "player_julio_soler_barreto"
+    },
+    {
+      "ep_ml": 0.033,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.033,
+      "name": "Roman Dixon",
+      "player_uid": "player_roman_dixon"
+    },
+    {
+      "ep_ml": 0.033,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.033,
+      "name": "Lucas Tolentino Coelho de Lima",
+      "player_uid": "player_lucas_tolentino_coelho_de_lima"
+    },
+    {
+      "ep_ml": 0.031,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.031,
+      "name": "\u00c1lex Jim\u00e9nez S\u00e1nchez",
+      "player_uid": "player_alex_jimenez_sanchez"
+    },
+    {
+      "ep_ml": 0.031,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.031,
+      "name": "Nayef Aguerd",
+      "player_uid": "player_nayef_aguerd"
+    },
+    {
+      "ep_ml": 0.03,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.03,
+      "name": "Son Heung-min",
+      "player_uid": "player_son_heung_min"
+    },
+    {
+      "ep_ml": 0.029,
+      "ep_quant": 0.0,
+      "fpl_element_id": 92,
+      "ml_residual": 0.029,
+      "name": "Kim Ji-soo",
+      "player_uid": "player_kim_ji_soo"
+    },
+    {
+      "ep_ml": 0.028,
+      "ep_quant": 0.855,
+      "fpl_element_id": 425,
+      "ml_residual": -0.828,
+      "name": "Tyler Fredricson",
+      "player_uid": "player_tyler_fredricson"
+    },
+    {
+      "ep_ml": 0.027,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.027,
+      "name": "Andreas Hoelgebaum Pereira",
+      "player_uid": "player_andreas_hoelgebaum_pereira"
+    },
+    {
+      "ep_ml": 0.026,
+      "ep_quant": 0.0,
+      "fpl_element_id": 121,
+      "ml_residual": 0.026,
+      "name": "Mitoma Kaoru",
+      "player_uid": "player_mitoma_kaoru"
+    },
+    {
+      "ep_ml": 0.025,
+      "ep_quant": 0.0,
+      "fpl_element_id": 513,
+      "ml_residual": 0.025,
+      "name": "Xavi Simons",
+      "player_uid": "player_xavi_simons"
+    },
+    {
+      "ep_ml": 0.024,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.024,
+      "name": "Donyell Malen",
+      "player_uid": "player_donyell_malen"
+    },
+    {
+      "ep_ml": 0.024,
+      "ep_quant": 0.0,
+      "fpl_element_id": 137,
+      "ml_residual": 0.024,
+      "name": "Stefanos Tzimas",
+      "player_uid": "player_stefanos_tzimas"
+    },
+    {
+      "ep_ml": 0.023,
+      "ep_quant": 0.764,
+      "fpl_element_id": 511,
+      "ml_residual": -0.742,
+      "name": "Jo\u00e3o Victor de Souza Menezes",
+      "player_uid": "player_joao_victor_de_souza_menezes"
+    },
+    {
+      "ep_ml": 0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.023,
+      "name": "Josh Cullen",
+      "player_uid": "player_josh_cullen"
+    },
+    {
+      "ep_ml": 0.022,
+      "ep_quant": 0.0,
+      "fpl_element_id": 416,
+      "ml_residual": 0.022,
+      "name": "Matthijs de Ligt",
+      "player_uid": "player_matthijs_de_ligt"
+    },
+    {
+      "ep_ml": 0.022,
+      "ep_quant": 0.323,
+      "fpl_element_id": 374,
+      "ml_residual": -0.301,
+      "name": "Endo Wataru",
+      "player_uid": "player_endo_wataru"
+    },
+    {
+      "ep_ml": 0.022,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.022,
+      "name": "Edson \u00c1lvarez Vel\u00e1zquez",
+      "player_uid": "player_edson_alvarez_velazquez"
+    },
+    {
+      "ep_ml": 0.021,
+      "ep_quant": 0.594,
+      "fpl_element_id": 227,
+      "ml_residual": -0.573,
+      "name": "Mark Travers",
+      "player_uid": "player_mark_travers"
+    },
+    {
+      "ep_ml": 0.02,
+      "ep_quant": 0.927,
+      "fpl_element_id": 50,
+      "ml_residual": -0.908,
+      "name": "Bradley Burrowes",
+      "player_uid": "player_bradley_burrowes"
+    },
+    {
+      "ep_ml": 0.017,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.017,
+      "name": "Oliver Sonne",
+      "player_uid": "player_oliver_sonne"
+    },
+    {
+      "ep_ml": 0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": 560,
+      "ml_residual": 0.016,
+      "name": "Mike Penders",
+      "player_uid": "player_mike_penders"
+    },
+    {
+      "ep_ml": 0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.016,
+      "name": "Marshall Munetsi",
+      "player_uid": "player_marshall_munetsi"
+    },
+    {
+      "ep_ml": 0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.016,
+      "name": "Fer L\u00f3pez Gonz\u00e1lez",
+      "player_uid": "player_fer_lopez_gonzalez"
+    },
+    {
+      "ep_ml": 0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.016,
+      "name": "Christopher Nkunku",
+      "player_uid": "player_christopher_nkunku"
+    },
+    {
+      "ep_ml": 0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": 606,
+      "ml_residual": 0.016,
+      "name": "Triston Rowe",
+      "player_uid": "player_triston_rowe"
+    },
+    {
+      "ep_ml": 0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.016,
+      "name": "\u00c1lex Moreno Lopera",
+      "player_uid": "player_alex_moreno_lopera"
+    },
+    {
+      "ep_ml": 0.015,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.015,
+      "name": "Gon\u00e7alo Manuel Ganchinho Guedes",
+      "player_uid": "player_goncalo_manuel_ganchinho_guedes"
+    },
+    {
+      "ep_ml": 0.015,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.015,
+      "name": "Emerson Palmieri dos Santos",
+      "player_uid": "player_emerson_palmieri_dos_santos"
+    },
+    {
+      "ep_ml": 0.014,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.014,
+      "name": "Oleksandr Zinchenko",
+      "player_uid": "player_oleksandr_zinchenko"
+    },
+    {
+      "ep_ml": 0.013,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.013,
+      "name": "Tariq Lamptey",
+      "player_uid": "player_tariq_lamptey"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Ki-Jana Hoever",
+      "player_uid": "player_ki_jana_hoever"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Matt Doherty",
+      "player_uid": "player_matt_doherty"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Jhon Arias",
+      "player_uid": "player_jhon_arias"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Philip Billing",
+      "player_uid": "player_philip_billing"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Emil Krafth",
+      "player_uid": "player_emil_krafth"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Callum Marshall",
+      "player_uid": "player_callum_marshall"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Luis Guilherme Lira dos Santos",
+      "player_uid": "player_luis_guilherme_lira_dos_santos"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Maxwel Cornet",
+      "player_uid": "player_maxwel_cornet"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Patrick Roberts",
+      "player_uid": "player_patrick_roberts"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Niclas F\u00fcllkrug",
+      "player_uid": "player_niclas_fullkrug"
+    },
+    {
+      "ep_ml": 0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.011,
+      "name": "Brajan Gruda",
+      "player_uid": "player_brajan_gruda"
+    },
+    {
+      "ep_ml": 0.01,
+      "ep_quant": 0.0,
+      "fpl_element_id": 23,
+      "ml_residual": 0.01,
+      "name": "F\u00e1bio Ferreira Vieira",
+      "player_uid": "player_fabio_ferreira_vieira"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Albert Sambi Lokonga",
+      "player_uid": "player_albert_sambi_lokonga"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Luis Sinisterra Lucum\u00ed",
+      "player_uid": "player_luis_sinisterra_lucumi"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Yasin \u00d6zcan",
+      "player_uid": "player_yasin_ozcan"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Harrison Ashby",
+      "player_uid": "player_harrison_ashby"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Bastien Meupiyou Menadjou",
+      "player_uid": "player_bastien_meupiyou_menadjou"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Isaac Heath",
+      "player_uid": "player_isaac_heath"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Charlie Crew",
+      "player_uid": "player_charlie_crew"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Dominic Sadi",
+      "player_uid": "player_dominic_sadi"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Benjamin Fredrick",
+      "player_uid": "player_benjamin_fredrick"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Chris Mepham",
+      "player_uid": "player_chris_mepham"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Maldini Kacurri",
+      "player_uid": "player_maldini_kacurri"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "S\u00e9kou Kon\u00e9",
+      "player_uid": "player_sekou_kone"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Matthew Cox",
+      "player_uid": "player_matthew_cox"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": 450,
+      "ml_residual": 0.002,
+      "name": "Tino Livramento",
+      "player_uid": "player_tino_livramento"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Jenson Metcalfe",
+      "player_uid": "player_jenson_metcalfe"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Garang Kuol",
+      "player_uid": "player_garang_kuol"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Isaac Hayden",
+      "player_uid": "player_isaac_hayden"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Leander Dendoncker",
+      "player_uid": "player_leander_dendoncker"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Anto\u00f1ito Cordero Campillo",
+      "player_uid": "player_antonito_cordero_campillo"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Ethan Wheatley",
+      "player_uid": "player_ethan_wheatley"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Joe White",
+      "player_uid": "player_joe_white"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Kendry P\u00e1ez Andrade",
+      "player_uid": "player_kendry_paez_andrade"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Harry Tyrer",
+      "player_uid": "player_harry_tyrer"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Temple Ojinnaka",
+      "player_uid": "player_temple_ojinnaka"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Patrick Bamford",
+      "player_uid": "player_patrick_bamford"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Filip Marschall",
+      "player_uid": "player_filip_marschall"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Martin Sherif",
+      "player_uid": "player_martin_sherif"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "F\u00e1bio Soares Silva",
+      "player_uid": "player_fabio_soares_silva"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Ismeal Kabia",
+      "player_uid": "player_ismeal_kabia"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Elijah Campbell",
+      "player_uid": "player_elijah_campbell"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Alex Paulsen",
+      "player_uid": "player_alex_paulsen"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Iwan Morgan",
+      "player_uid": "player_iwan_morgan"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Tyler Onyango",
+      "player_uid": "player_tyler_onyango"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Antony dos Santos",
+      "player_uid": "player_antony_dos_santos"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Joe Hodge",
+      "player_uid": "player_joe_hodge"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Harry Gray",
+      "player_uid": "player_harry_gray"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Elyh Harrison",
+      "player_uid": "player_elyh_harrison"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Largie Ramazani",
+      "player_uid": "player_largie_ramazani"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Karl Hein",
+      "player_uid": "player_karl_hein"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Lewis Dobbin",
+      "player_uid": "player_lewis_dobbin"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Sam Greenwood",
+      "player_uid": "player_sam_greenwood"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Enzo Barrenechea",
+      "player_uid": "player_enzo_barrenechea"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Isaac Schmidt",
+      "player_uid": "player_isaac_schmidt"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Lino da Cruz Sousa",
+      "player_uid": "player_lino_da_cruz_sousa"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Odysseas Vlachodimos",
+      "player_uid": "player_odysseas_vlachodimos"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Yusuf Akhamrich",
+      "player_uid": "player_yusuf_akhamrich"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Z\u00e9piqueno Redmond",
+      "player_uid": "player_zepiqueno_redmond"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "David Ozoh",
+      "player_uid": "player_david_ozoh"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Daniel Adu-Adjei",
+      "player_uid": "player_daniel_adu_adjei"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Joe Gauci",
+      "player_uid": "player_joe_gauci"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Romain Faivre",
+      "player_uid": "player_romain_faivre"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Naouirou Ahamada",
+      "player_uid": "player_naouirou_ahamada"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Kadan Young",
+      "player_uid": "player_kadan_young"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Jay Matete",
+      "player_uid": "player_jay_matete"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Marko Stameni\u0107",
+      "player_uid": "player_marko_stamenic"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Alan Browne",
+      "player_uid": "player_alan_browne"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Luca Koleosho",
+      "player_uid": "player_luca_koleosho"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Ben Broggio",
+      "player_uid": "player_ben_broggio"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Pervis Estupi\u00f1\u00e1n Tenorio",
+      "player_uid": "player_pervis_estupinan_tenorio"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Lewis O'Brien",
+      "player_uid": "player_lewis_o_brien"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Owen Dodgson",
+      "player_uid": "player_owen_dodgson"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Carlos Miguel dos Santos Pereira",
+      "player_uid": "player_carlos_miguel_dos_santos_pereira"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Blondy Nna Noukeu",
+      "player_uid": "player_blondy_nna_noukeu"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Aaron Ramsey",
+      "player_uid": "player_aaron_ramsey"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Franco Umeh-Chibueze",
+      "player_uid": "player_franco_umeh_chibueze"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Malcolm Ebiowei",
+      "player_uid": "player_malcolm_ebiowei"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Lewis Orford",
+      "player_uid": "player_lewis_orford"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Nazarii Rusyn",
+      "player_uid": "player_nazarii_rusyn"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Luis D\u00edaz Marulanda",
+      "player_uid": "player_luis_diaz_marulanda"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Manor Solomon",
+      "player_uid": "player_manor_solomon"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Michael Obafemi",
+      "player_uid": "player_michael_obafemi"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Rob Holding",
+      "player_uid": "player_rob_holding"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Abdallah Sima",
+      "player_uid": "player_abdallah_sima"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Julio Enciso Esp\u00ednola",
+      "player_uid": "player_julio_enciso_espinola"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Luke Harris",
+      "player_uid": "player_luke_harris"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Oluwaseun Adewumi",
+      "player_uid": "player_oluwaseun_adewumi"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Jordan Beyer",
+      "player_uid": "player_jordan_beyer"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Etienne Green",
+      "player_uid": "player_etienne_green"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Jacob Slater",
+      "player_uid": "player_jacob_slater"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Matt Turner",
+      "player_uid": "player_matt_turner"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Yang Min-hyeok",
+      "player_uid": "player_yang_min_hyeok"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": 475,
+      "ml_residual": 0.002,
+      "name": "Nicol\u00f2 Savona",
+      "player_uid": "player_nicolo_savona"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Niall Huggins",
+      "player_uid": "player_niall_huggins"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Darwin N\u00fa\u00f1ez Ribeiro",
+      "player_uid": "player_darwin_nunez_ribeiro"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Danny Imray",
+      "player_uid": "player_danny_imray"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Kriszti\u00e1n Hegyi",
+      "player_uid": "player_krisztian_hegyi"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Darko Churlinov",
+      "player_uid": "player_darko_churlinov"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Shurandy Sambo",
+      "player_uid": "player_shurandy_sambo"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Andrew Moran",
+      "player_uid": "player_andrew_moran"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Nectarios Triantis",
+      "player_uid": "player_nectarios_triantis"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Bryan Gil Salvatierra",
+      "player_uid": "player_bryan_gil_salvatierra"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Timoth\u00e9e Pemb\u00e9l\u00e9",
+      "player_uid": "player_timothee_pembele"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Wes Foderingham",
+      "player_uid": "player_wes_foderingham"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Luis Eduardo Soares da Silva",
+      "player_uid": "player_luis_eduardo_soares_da_silva"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Joe Anderson",
+      "player_uid": "player_joe_anderson"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Hannes Delcroix",
+      "player_uid": "player_hannes_delcroix"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Tyler Morton",
+      "player_uid": "player_tyler_morton"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Takai K\u014dta",
+      "player_uid": "player_takai_kota"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "David Mota Veiga Teixeira do Carmo",
+      "player_uid": "player_david_mota_veiga_teixeira_do_carmo"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Tymur Tutierov",
+      "player_uid": "player_tymur_tutierov"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Lu\u00eds Hemir Silva Semedo",
+      "player_uid": "player_luis_hemir_silva_semedo"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Pierre Ekwah Elimby",
+      "player_uid": "player_pierre_ekwah_elimby"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Stephen Mfuni",
+      "player_uid": "player_stephen_mfuni"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Manuel Benson Hedilazio",
+      "player_uid": "player_manuel_benson_hedilazio"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Zak Johnson",
+      "player_uid": "player_zak_johnson"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Adrian Mazilu",
+      "player_uid": "player_adrian_mazilu"
+    },
+    {
+      "ep_ml": 0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": 0.002,
+      "name": "Aji Alese",
+      "player_uid": "player_aji_alese"
+    },
+    {
+      "ep_ml": -0.0,
+      "ep_quant": 0.0,
+      "fpl_element_id": 99,
+      "ml_residual": -0.0,
+      "name": "Antoni Milambo",
+      "player_uid": "player_antoni_milambo"
+    },
+    {
+      "ep_ml": -0.0,
+      "ep_quant": 0.0,
+      "fpl_element_id": 500,
+      "ml_residual": -0.0,
+      "name": "Cristian Romero",
+      "player_uid": "player_cristian_romero"
+    },
+    {
+      "ep_ml": -0.001,
+      "ep_quant": 0.0,
+      "fpl_element_id": 65,
+      "ml_residual": -0.001,
+      "name": "Juli\u00e1n Araujo Z\u00fa\u00f1iga",
+      "player_uid": "player_julian_araujo_zuniga"
+    },
+    {
+      "ep_ml": -0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": 22,
+      "ml_residual": -0.002,
+      "name": "Ethan Nwaneri",
+      "player_uid": "player_ethan_nwaneri"
+    },
+    {
+      "ep_ml": -0.002,
+      "ep_quant": 0.951,
+      "fpl_element_id": 252,
+      "ml_residual": -0.953,
+      "name": "Alfie McNally",
+      "player_uid": "player_alfie_mcnally"
+    },
+    {
+      "ep_ml": -0.002,
+      "ep_quant": 0.0,
+      "fpl_element_id": 546,
+      "ml_residual": -0.002,
+      "name": "Simon Adingra",
+      "player_uid": "player_simon_adingra"
+    },
+    {
+      "ep_ml": -0.003,
+      "ep_quant": 0.308,
+      "fpl_element_id": 38,
+      "ml_residual": -0.312,
+      "name": "Andr\u00e9s Garc\u00eda",
+      "player_uid": "player_andres_garcia"
+    },
+    {
+      "ep_ml": -0.003,
+      "ep_quant": 0.955,
+      "fpl_element_id": 414,
+      "ml_residual": -0.958,
+      "name": "Tom Heaton",
+      "player_uid": "player_tom_heaton"
+    },
+    {
+      "ep_ml": -0.004,
+      "ep_quant": 0.0,
+      "fpl_element_id": 49,
+      "ml_residual": -0.004,
+      "name": "Samuel Iling-Junior",
+      "player_uid": "player_samuel_iling_junior"
+    },
+    {
+      "ep_ml": -0.004,
+      "ep_quant": 0.0,
+      "fpl_element_id": 376,
+      "ml_residual": -0.004,
+      "name": "Stefan Baj\u010deti\u0107 Maquieira",
+      "player_uid": "player_stefan_bajcetic_maquieira"
+    },
+    {
+      "ep_ml": -0.004,
+      "ep_quant": 0.0,
+      "fpl_element_id": 540,
+      "ml_residual": -0.004,
+      "name": "Arthur Masuaku",
+      "player_uid": "player_arthur_masuaku"
+    },
+    {
+      "ep_ml": -0.004,
+      "ep_quant": 0.0,
+      "fpl_element_id": 537,
+      "ml_residual": -0.004,
+      "name": "Jenson Seelt",
+      "player_uid": "player_jenson_seelt"
+    },
+    {
+      "ep_ml": -0.005,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.005,
+      "name": "Tawanda Chirewa",
+      "player_uid": "player_tawanda_chirewa"
+    },
+    {
+      "ep_ml": -0.005,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.005,
+      "name": "Sa\u0161a Kalajd\u017ei\u0107",
+      "player_uid": "player_sasa_kalajdzic"
+    },
+    {
+      "ep_ml": -0.005,
+      "ep_quant": 0.0,
+      "fpl_element_id": 363,
+      "ml_residual": -0.005,
+      "name": "Giovanni Leoni",
+      "player_uid": "player_giovanni_leoni"
+    },
+    {
+      "ep_ml": -0.005,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.005,
+      "name": "Jo\u00e3o Pedro Ferreira da Silva",
+      "player_uid": "player_joao_pedro_ferreira_da_silva"
+    },
+    {
+      "ep_ml": -0.006,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.006,
+      "name": "Paris Maghoma",
+      "player_uid": "player_paris_maghoma"
+    },
+    {
+      "ep_ml": -0.006,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.006,
+      "name": "Youssef Ramalho Chermiti",
+      "player_uid": "player_youssef_ramalho_chermiti"
+    },
+    {
+      "ep_ml": -0.006,
+      "ep_quant": 0.0,
+      "fpl_element_id": 408,
+      "ml_residual": -0.006,
+      "name": "Kalvin Phillips",
+      "player_uid": "player_kalvin_phillips"
+    },
+    {
+      "ep_ml": -0.006,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.006,
+      "name": "Martial Godo",
+      "player_uid": "player_martial_godo"
+    },
+    {
+      "ep_ml": -0.006,
+      "ep_quant": 0.0,
+      "fpl_element_id": 139,
+      "ml_residual": -0.006,
+      "name": "Evan Ferguson",
+      "player_uid": "player_evan_ferguson"
+    },
+    {
+      "ep_ml": -0.007,
+      "ep_quant": 0.0,
+      "fpl_element_id": 409,
+      "ml_residual": -0.007,
+      "name": "Divine Mukasa",
+      "player_uid": "player_divine_mukasa"
+    },
+    {
+      "ep_ml": -0.009,
+      "ep_quant": 0.0,
+      "fpl_element_id": 297,
+      "ml_residual": -0.009,
+      "name": "Darko Gyabi",
+      "player_uid": "player_darko_gyabi"
+    },
+    {
+      "ep_ml": -0.009,
+      "ep_quant": 0.0,
+      "fpl_element_id": 349,
+      "ml_residual": -0.009,
+      "name": "Mateo Joseph Fern\u00e1ndez-Regatillo",
+      "player_uid": "player_mateo_joseph_fernandez_regatillo"
+    },
+    {
+      "ep_ml": -0.009,
+      "ep_quant": 0.0,
+      "fpl_element_id": 507,
+      "ml_residual": -0.009,
+      "name": "Ashley Phillips",
+      "player_uid": "player_ashley_phillips"
+    },
+    {
+      "ep_ml": -0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.011,
+      "name": "Jamaal Lascelles",
+      "player_uid": "player_jamaal_lascelles"
+    },
+    {
+      "ep_ml": -0.011,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.011,
+      "name": "Guido Rodr\u00edguez",
+      "player_uid": "player_guido_rodriguez"
+    },
+    {
+      "ep_ml": -0.012,
+      "ep_quant": 0.117,
+      "fpl_element_id": null,
+      "ml_residual": -0.13,
+      "name": "Adama Traor\u00e9 Diarra",
+      "player_uid": "player_adama_traore_diarra"
+    },
+    {
+      "ep_ml": -0.012,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.012,
+      "name": "Eiran Cashin",
+      "player_uid": "player_eiran_cashin"
+    },
+    {
+      "ep_ml": -0.013,
+      "ep_quant": 0.0,
+      "fpl_element_id": 538,
+      "ml_residual": -0.013,
+      "name": "Leo Fuhr Hjelde",
+      "player_uid": "player_leo_fuhr_hjelde"
+    },
+    {
+      "ep_ml": -0.014,
+      "ep_quant": 0.0,
+      "fpl_element_id": 436,
+      "ml_residual": -0.014,
+      "name": "Toby Collyer",
+      "player_uid": "player_toby_collyer"
+    },
+    {
+      "ep_ml": -0.015,
+      "ep_quant": 0.0,
+      "fpl_element_id": 344,
+      "ml_residual": -0.015,
+      "name": "Ilia Gruev",
+      "player_uid": "player_ilia_gruev"
+    },
+    {
+      "ep_ml": -0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.016,
+      "name": "Jamaldeen Jimoh-Aloba",
+      "player_uid": "player_jamaldeen_jimoh_aloba"
+    },
+    {
+      "ep_ml": -0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.016,
+      "name": "Odsonne Edouard",
+      "player_uid": "player_odsonne_edouard"
+    },
+    {
+      "ep_ml": -0.016,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.016,
+      "name": "Jaydon Banel",
+      "player_uid": "player_jaydon_banel"
+    },
+    {
+      "ep_ml": -0.017,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.017,
+      "name": "Jeremy Sarmiento Morante",
+      "player_uid": "player_jeremy_sarmiento_morante"
+    },
+    {
+      "ep_ml": -0.021,
+      "ep_quant": 0.95,
+      "fpl_element_id": 625,
+      "ml_residual": -0.971,
+      "name": "Alex Cairns",
+      "player_uid": "player_alex_cairns"
+    },
+    {
+      "ep_ml": -0.021,
+      "ep_quant": 0.0,
+      "fpl_element_id": 528,
+      "ml_residual": -0.021,
+      "name": "Dane Scarlett",
+      "player_uid": "player_dane_scarlett"
+    },
+    {
+      "ep_ml": -0.022,
+      "ep_quant": 0.782,
+      "fpl_element_id": 477,
+      "ml_residual": -0.804,
+      "name": "Zach Abbott",
+      "player_uid": "player_zach_abbott"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Yunus Emre Konak",
+      "player_uid": "player_yunus_emre_konak"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Jack Moorhouse",
+      "player_uid": "player_jack_moorhouse"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Gustavo Nunes Fernandes Gomes",
+      "player_uid": "player_gustavo_nunes_fernandes_gomes"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Boubacar Traor\u00e9",
+      "player_uid": "player_boubacar_traore"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Zain Silcott-Duberry",
+      "player_uid": "player_zain_silcott_duberry"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Ryan Trevitt",
+      "player_uid": "player_ryan_trevitt"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Jayden Meghoma",
+      "player_uid": "player_jayden_meghoma"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Sam Johnstone",
+      "player_uid": "player_sam_johnstone"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Ben Winterburn",
+      "player_uid": "player_ben_winterburn"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Alfie Pond",
+      "player_uid": "player_alfie_pond"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Myles Peart-Harris",
+      "player_uid": "player_myles_peart_harris"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Kaelan Casey",
+      "player_uid": "player_kaelan_casey"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "George Earthy",
+      "player_uid": "player_george_earthy"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Andy Irving",
+      "player_uid": "player_andy_irving"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Dan Neil",
+      "player_uid": "player_dan_neil"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Joe Knight",
+      "player_uid": "player_joe_knight"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Willy Boly",
+      "player_uid": "player_willy_boly"
+    },
+    {
+      "ep_ml": -0.023,
+      "ep_quant": 0.0,
+      "fpl_element_id": null,
+      "ml_residual": -0.023,
+      "name": "Will Lankshear",
+      "player_uid": "player_will_lankshear"
+    },
+    {
+      "ep_ml": -0.024,
+      "ep_quant": 0.0,
+      "fpl_element_id": 216,
+      "ml_residual": -0.024,
+      "name": "Romain Esse",
+      "player_uid": "player_romain_esse"
+    },
+    {
+      "ep_ml": -0.034,
+      "ep_quant": 0.0,
+      "fpl_element_id": 342,
+      "ml_residual": -0.034,
+      "name": "Jack Harrison",
+      "player_uid": "player_jack_harrison"
+    },
+    {
+      "ep_ml": -0.035,
+      "ep_quant": 0.0,
+      "fpl_element_id": 59,
+      "ml_residual": -0.035,
+      "name": "Will Dennis",
+      "player_uid": "player_will_dennis"
+    },
+    {
+      "ep_ml": -0.038,
+      "ep_quant": 0.0,
+      "fpl_element_id": 530,
+      "ml_residual": -0.038,
+      "name": "Anthony Patterson",
+      "player_uid": "player_anthony_patterson"
+    },
+    {
+      "ep_ml": -0.039,
+      "ep_quant": 0.0,
+      "fpl_element_id": 133,
+      "ml_residual": -0.039,
+      "name": "Tom Watson",
+      "player_uid": "player_tom_watson"
+    },
+    {
+      "ep_ml": -0.04,
+      "ep_quant": 0.941,
+      "fpl_element_id": 443,
+      "ml_residual": -0.981,
+      "name": "Mark Gillespie",
+      "player_uid": "player_mark_gillespie"
+    },
+    {
+      "ep_ml": -0.04,
+      "ep_quant": 0.0,
+      "fpl_element_id": 407,
+      "ml_residual": -0.04,
+      "name": "Claudio Echeverri",
+      "player_uid": "player_claudio_echeverri"
+    },
+    {
+      "ep_ml": -0.047,
+      "ep_quant": 0.541,
+      "fpl_element_id": 199,
+      "ml_residual": -0.588,
+      "name": "Walter Ben\u00edtez",
+      "player_uid": "player_walter_benitez"
+    },
+    {
+      "ep_ml": -0.051,
+      "ep_quant": 0.55,
+      "fpl_element_id": 83,
+      "ml_residual": -0.601,
+      "name": "H\u00e1kon Rafn Valdimarsson",
+      "player_uid": "player_hakon_rafn_valdimarsson"
+    },
+    {
+      "ep_ml": -0.053,
+      "ep_quant": 0.548,
+      "fpl_element_id": 451,
+      "ml_residual": -0.601,
+      "name": "Alex Murphy",
+      "player_uid": "player_alex_murphy"
+    },
+    {
+      "ep_ml": -0.067,
+      "ep_quant": 0.503,
+      "fpl_element_id": 111,
+      "ml_residual": -0.57,
+      "name": "Jason Steele",
+      "player_uid": "player_jason_steele"
+    },
+    {
+      "ep_ml": -0.09,
+      "ep_quant": 0.823,
+      "fpl_element_id": 468,
+      "ml_residual": -0.913,
+      "name": "John Victor Maciel Furtado",
+      "player_uid": "player_john_victor_maciel_furtado"
+    },
+    {
+      "ep_ml": -0.09,
+      "ep_quant": 0.418,
+      "fpl_element_id": 495,
+      "ml_residual": -0.508,
+      "name": "Brandon Austin",
+      "player_uid": "player_brandon_austin"
+    },
+    {
+      "ep_ml": -0.091,
+      "ep_quant": 0.363,
+      "fpl_element_id": 205,
+      "ml_residual": -0.453,
+      "name": "Borna Sosa",
+      "player_uid": "player_borna_sosa"
+    },
+    {
+      "ep_ml": -0.101,
+      "ep_quant": 0.412,
+      "fpl_element_id": 251,
+      "ml_residual": -0.513,
+      "name": "Benjamin Lecomte",
+      "player_uid": "player_benjamin_lecomte"
+    },
+    {
+      "ep_ml": -0.141,
+      "ep_quant": 0.893,
+      "fpl_element_id": 3,
+      "ml_residual": -1.034,
+      "name": "Illan Meslier",
+      "player_uid": "player_illan_meslier"
+    },
+    {
+      "ep_ml": -0.183,
+      "ep_quant": 0.534,
+      "fpl_element_id": 2,
+      "ml_residual": -0.717,
+      "name": "Kepa Arrizabalaga Revuelta",
+      "player_uid": "player_kepa_arrizabalaga_revuelta"
+    }
+  ],
+  "status": "ok",
   "target_gameweek": 38,
-  "target_season": "2026-2027"
+  "target_season": "2026-2027",
+  "train_seasons": [
+    "2024-2025",
+    "2025-2026"
+  ]
 }
