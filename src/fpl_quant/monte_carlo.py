@@ -39,6 +39,28 @@ single defender's CBI count the way it inflates goal-scoring), and inventing a s
 untested scaling channel beyond what spec actually states would be a bigger simplification
 than leaving them at their M3 rate, not a smaller one.
 
+Fixture-strength scaling (M3 parity, #131/#134) is a SEPARATE, deterministic channel from the
+per-realization Z_fixture latent above, and simulate_fixture() now applies it exactly where --
+and only where -- M3's analytic engine (expected_points.compute_player_fixture_components) does:
+  * goal + assist rates  x  ep._fixture_attack_multiplier(team, fixture)   [attack_sensitivity]
+  * DefCon rate           x  ep._fixture_defensive_multiplier(..., "defcon_sensitivity")  (v1 0.5, damped)
+  * GK saves rate         x  ep._fixture_defensive_multiplier(..., "save_sensitivity")    (v1 1.0)
+These multipliers are per-team-per-fixture constants ("how favourable is THIS opponent vs the
+team's average fixture"), reused verbatim from expected_points.py -- not re-derived here. They
+compose multiplicatively with Z_fixture (mean 1), so a category's simulated mean picks up the
+M3 multiplier while its Z_fixture-driven cross-player correlation is untouched. So DefCon and
+saves still do not see Z_fixture, but they DO see fixture strength -- matching M3. Clean sheet /
+goals-conceded stay unscaled by any multiplier: they are read off the (home_goals, away_goals)
+draw, whose lambdas already come from ep._fixture_lambdas() (opponent-aware by construction),
+exactly as M3 uses lambda_against directly rather than a multiplier. Bonus-rank strengths
+inherit all of M3's scaling for free -- they are built from ep_outputs.expected_bps, which M3
+already computed with every fixture-scaled e_* term.
+
+Before this change, simulate_fixture() left all four rates at their flat season value while M3
+scaled them, so for a big favourite the MC mean compressed a premium attacker's ceiling ~1pt
+and a besieged keeper/defender's saves/DefCon sat below M3's -- distorting M4 risk, M6-derived
+Triple Captain scoring and chip timing (documented verbatim in reporting.build_captain_recommendation).
+
 Clean sheet and goals-conceded are NOT independently redrawn from lambda_against -- they are
 read directly off the same joint (home_goals, away_goals) draw already sampled for the
 fixture's Dixon-Coles bivariate Poisson. This is a strictly more correct generative link than
@@ -54,6 +76,14 @@ Poissons on their sum; here the "sum" is instead the real, correlated Dixon-Cole
 conditioning is the same construction applied to a more realistic team total than a plain
 Poisson sum would give). This makes summed squad goals on a side never exceed that side's own
 drawn home_goals/away_goals, which the prior independent-per-player draw did not guarantee.
+The absolute goal LEVEL is therefore already opponent-aware via that team total (ep._fixture_lambdas
+feeds lam_home/lam_away), so scaling lambda_i by the attack multiplier does NOT re-scale it --
+no double count. lambda_i IS scaled anyway, purely for the SPLIT: the "rest of team" pool it is
+weighed against (rest_of_team_lambda) is built from non-squad players' M3 ep_goals, which are
+already attack-scaled, so leaving the squad players' own lambda_i flat made a favourite's squad
+attacker take too small a share of the (correctly large) team total. Since the multiplier is a
+single per-team constant, scaling every same-side player's lambda_i by it leaves the relative
+split among them identical and only realigns squad-vs-rest onto one consistent footing.
 ASSISTS remain independent per-player Poisson draws, not conditioned on anything -- an assist
 isn't a component of the team's own goal TOTAL the way a goal is (an assist is credited to a
 different player than the one who scored, so there's no analogous "sum equals a drawn total"
@@ -303,7 +333,7 @@ def simulate_fixture(
     con: duckdb.DuckDBPyConnection, match_id: str, home_uid: str, away_uid: str, target_season: str,
     season_priority: list[str], squad_uids: set, ep_model_version: int, mm_model_version: int, ts_model_version: int,
     scoring_params_version: int, tau_val: float, sigma_z_sq: float, mean_minutes: dict,
-    rng: np.random.Generator, n_pairs: int,
+    rng: np.random.Generator, n_pairs: int, fixture_params_version: int | None = 1,
 ) -> dict:
     """Returns {player_uid: {category: array of shape (2*n_pairs,)}} for every squad player
     present in this fixture (empty dict if none). One call = one fixture's contribution to
@@ -319,6 +349,26 @@ def simulate_fixture(
         "SELECT rho_params_version FROM team_strength_model_versions WHERE model_version = ?", [ts_model_version]
     ).fetchone()[0]
     rho_dc, _ = params_mod.resolve_param(con, "model_decay_params", "rho", ts_rho_params_version)
+
+    # M3-parity fixture-strength multipliers: deterministic, one per team-side, reused verbatim
+    # from expected_points.py (NOT re-derived). attack -> goal/assist rates; the two defensive
+    # channels -> DefCon and GK saves, each at M3's own sensitivity. fixture_params_version=None
+    # reproduces the pre-#131/#134 flat-rate behaviour exactly (every multiplier == 1.0), the
+    # same opt-out compute_player_fixture_components() offers. See module docstring.
+    attack_mult = {home_uid: 1.0, away_uid: 1.0}
+    defcon_mult = {home_uid: 1.0, away_uid: 1.0}
+    saves_mult = {home_uid: 1.0, away_uid: 1.0}
+    if fixture_params_version is not None:
+        for _side_uid in (home_uid, away_uid):
+            attack_mult[_side_uid] = ep._fixture_attack_multiplier(
+                con, _side_uid, match_id, target_season, ts_model_version, fixture_params_version,
+            )
+            defcon_mult[_side_uid] = ep._fixture_defensive_multiplier(
+                con, _side_uid, match_id, ts_model_version, fixture_params_version, "defcon_sensitivity",
+            )
+            saves_mult[_side_uid] = ep._fixture_defensive_multiplier(
+                con, _side_uid, match_id, ts_model_version, fixture_params_version, "save_sensitivity",
+            )
 
     def _u_pair():
         u = rng.random(n_pairs)
@@ -386,13 +436,21 @@ def simulate_fixture(
         rates = ep.player_rates_shrunk(con, player_uid, position, season_priority)
         def_rates = ep._defensive_action_rates_per_90(con, player_uid, position, season_priority)
 
+        # M3-parity fixture-strength multipliers for this player's side (see module docstring):
+        # attack scales goals+assists, the two defensive channels scale DefCon and GK saves.
+        atk_mult = attack_mult.get(team_uid, 1.0)
+        dfc_mult = defcon_mult.get(team_uid, 1.0)
+        sv_mult = saves_mult.get(team_uid, 1.0)
+
         # goals are NOT drawn here -- lam_goals is this player's own per-realization rate, but
         # the actual draw is deferred to the goal-allocation section below, which conditions
         # every squad player on a side jointly on that side's own drawn home_goals/away_goals
-        # (see module docstring's "Per-player GOALS are conditioned..." paragraph).
-        lam_goals = rates["expected_goals_per_90"] * mean_min / 90.0 * z_fixture
+        # (see module docstring's "Per-player GOALS are conditioned..." paragraph). It is
+        # fixture-scaled here only so the squad-vs-rest-of-team SPLIT stays consistent with the
+        # already-scaled rest_of_team_lambda pool -- the absolute team total is untouched.
+        lam_goals = rates["expected_goals_per_90"] * mean_min / 90.0 * z_fixture * atk_mult
         lam_goals_by_uid[player_uid] = lam_goals
-        lam_assists = rates["expected_assists_per_90"] * mean_min / 90.0 * z_fixture
+        lam_assists = rates["expected_assists_per_90"] * mean_min / 90.0 * z_fixture * atk_mult
         assists = sample_poisson_vec(lam_assists, _u_pair())
 
         clean_sheet = (own_goals_against == 0) & (state == "60plus")
@@ -402,13 +460,13 @@ def simulate_fixture(
         if position != "Goalkeeper":
             defcon_rate90 = def_rates["cbi_per_90"] + def_rates["recoveries_per_90"]
             threshold = ep._sm(con, "defcon_threshold", scoring_params_version, position)
-            lam_defcon = defcon_rate90 * mean_min / 90.0
+            lam_defcon = defcon_rate90 * mean_min / 90.0 * dfc_mult
             defcon_count = sample_poisson_vec(lam_defcon, _u_pair())
             defcon_hit = defcon_count >= threshold
 
         saves_count = np.zeros(state.shape, dtype=int)
         if position == "Goalkeeper":
-            lam_saves = rates["saves_per_90"] * mean_min / 90.0
+            lam_saves = rates["saves_per_90"] * mean_min / 90.0 * sv_mult
             saves_count = sample_poisson_vec(lam_saves, _u_pair())
 
         strength = np.exp(r["expected_bps"] * z_fixture / tau_val) * played
@@ -505,7 +563,14 @@ def run(
     rho_residual_params_version: int,
     n_antithetic_pairs: int = 5000,
     season_priority: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
+    fixture_params_version: int | None = 1,
 ) -> int:
+    # fixture_params_version: the fixture_strength_params version M3 scaled e_goals/e_assists/
+    # DefCon/saves with -- v1 by default, matching expected_points.run()'s own default, so M6
+    # stays at parity with M3 out of the box. ep_model_versions does not persist which version
+    # M3 used, so if M3 is ever run with a non-default fixture_strength_params version this must
+    # be passed the matching value. Pass None to opt out entirely (flat season rates, the
+    # pre-#131/#134 behaviour).
     squad_run = con.execute(
         "SELECT target_season, target_gameweek FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id]
     ).fetchone()
@@ -563,6 +628,7 @@ def run(
             con, match_id, home_uid, away_uid, target_season, list(season_priority), squad_uids,
             ep_model_version, mm_model_version, ts_model_version, scoring_params_version,
             tau_val, sigma_z_sq, mean_minutes, rng, n_antithetic_pairs,
+            fixture_params_version=fixture_params_version,
         )
         if not fixture_result:
             continue

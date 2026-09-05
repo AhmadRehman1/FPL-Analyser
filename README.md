@@ -92,6 +92,12 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   comes out far below 0.15 (0.02-0.08, not ~0.15) even though the underlying goals+assists
   mechanism is calibrated exactly to 0.15 -- see Design notes for why this is real dilution,
   not a bug, and what it implies for M4's blanket `rho_residual` application.
+  `simulate_fixture()` now applies the same fixture-strength scaling M3 does (attack
+  multiplier on goals/assists, the two defensive multipliers on DefCon/GK saves --
+  `#131`/`#134` parity); it previously left all four at the flat season rate, compressing a
+  strong favourite's premium ~1pt below the analytic `ep_total`. The Bruno/Steele
+  verification numbers above predate that fix and should be refreshed on the next real
+  backtest run.
 - **M7 (Walk-Forward Backtesting Framework): done.** Full M1-M6 pipeline re-run against every
   historical 2024-25/2025-26 gameweek under a real `data_asof` cutoff -- the first genuine
   exercise of the snapshot-discipline guarantee every module has carried since M0 (confirmed
