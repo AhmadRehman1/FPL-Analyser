@@ -722,10 +722,11 @@ def build_captain_recommendation(
     the SAME number M9's explain_player_ep() breakdown and projections_latest.json's
     captain_ranking already show) is used when supplied, per player, falling back to M6's
     Monte-Carlo mean_total for any candidate missing from it (a blank/edge gameweek). M6's
-    simulate_fixture() has not yet absorbed M3's fixture-strength scaling (#131/#134), so for a
-    big favourite the MC mean compresses the premium ~1pt and a flat clean-sheet defender can
-    edge it -- ranking by the analytic EP keeps this directive consistent with its own "Explain
-    this" breakdown. The MC spread (var_total) still breaks a near-tie toward the higher ceiling.
+    simulate_fixture() now applies the same fixture-strength scaling as M3 (#131/#134 parity),
+    so the MC mean no longer structurally compresses a big favourite's premium ~1pt below the
+    analytic value; ranking by the analytic EP is still preferred here purely to keep this
+    directive consistent with its own "Explain this" breakdown (M3's ep_total). The MC spread
+    (var_total) still breaks a near-tie toward the higher ceiling.
 
     tc_detail: the parsed chip_evaluations.detail JSON for this run's 'triple_captain' row.
     actual_captain_uid: the manager's real current captain (from manager_squad_holdings), or
