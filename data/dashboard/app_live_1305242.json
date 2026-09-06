@@ -4,7 +4,7 @@
   "gameweek": 3,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 53,
+  "live_total": 59,
   "players": [
     {
       "player_id": 109,
@@ -30,16 +30,16 @@
     {
       "player_id": 423,
       "web_name": "Shaw",
-      "live_points": 0,
+      "live_points": 4,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 4
     },
     {
       "player_id": 426,
       "web_name": "B.Fernandes",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 368,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 82.5,
-    "estimated_rank": 1837649
+    "percentile": 89.5,
+    "estimated_rank": 1104849
   },
   "fixtures": [
     {
@@ -225,6 +225,23 @@
         "name": "Aston Villa",
         "score": 0
       }
+    },
+    {
+      "id": 30,
+      "kickoff": "2026-09-06T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "EVE",
+        "name": "Everton",
+        "score": 2
+      },
+      "away": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 2
+      }
     }
   ],
   "events": [
@@ -301,6 +318,22 @@
       "fixture_id": 24
     },
     {
+      "player_id": 242,
+      "web_name": "George",
+      "team": 9,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 30
+    },
+    {
+      "player_id": 247,
+      "web_name": "Hackney",
+      "team": 9,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 30
+    },
+    {
       "player_id": 268,
       "web_name": "King",
       "team": 10,
@@ -355,6 +388,38 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 26
+    },
+    {
+      "player_id": 423,
+      "web_name": "Shaw",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 30
+    },
+    {
+      "player_id": 427,
+      "web_name": "Mbeumo",
+      "team": 16,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 30
+    },
+    {
+      "player_id": 432,
+      "web_name": "Mainoo",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 30
+    },
+    {
+      "player_id": 439,
+      "web_name": "\u0160e\u0161ko",
+      "team": 16,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 30
     },
     {
       "player_id": 445,
@@ -435,7 +500,15 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 24
+    },
+    {
+      "player_id": 649,
+      "web_name": "Maitland-Niles",
+      "team": 9,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 30
     }
   ],
-  "generated_at": "2026-09-06T00:10:55.571677+00:00"
+  "generated_at": "2026-09-06T15:01:24.189992+00:00"
 }
