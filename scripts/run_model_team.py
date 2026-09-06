@@ -49,11 +49,15 @@ def main() -> None:
         for ev in bootstrap.get("events", [])
         if ev.get("average_entry_score") is not None and ev.get("finished")
     }
+    # Only lock a gameweek's realised score once the FPL API reports it finished -- a still-in-
+    # progress gameweek is scored to a provisional figure and re-scored next run, never frozen
+    # at a mid-match partial.
+    finished_gameweeks = {ev["id"] for ev in bootstrap.get("events", []) if ev.get("finished")}
 
     state = model_team.advance(
         con, current_event=current_event, state_dir=STATE_DIR, active_versions=active, season=SEASON,
     )
-    realized = model_team.realize(con, STATE_DIR, season=SEASON)
+    realized = model_team.realize(con, STATE_DIR, season=SEASON, finished_gameweeks=finished_gameweeks)
     print(f"[model_team] advanced to GW{state['current_gameweek']}; {len(state['ledger'])} ledger rows; "
           f"realized {realized['realized']} newly-scored gameweeks")
 

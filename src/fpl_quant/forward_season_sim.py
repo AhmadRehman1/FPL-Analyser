@@ -62,11 +62,27 @@ class GameweekResult:
     # Step 3) off the hold-Wildcard arm alone.
     free_hit_gain: float | None = None
     free_hit_recommended: bool = False
-    # The squad this gameweek scored (post-decision holdings) -- so a stateful caller (the
-    # model-managed team track record) can persist the evolving 15 without re-deriving them.
+    # evaluate_free_hit()'s own gain threshold this gameweek (free_hit_gain_threshold_params.
+    # min_horizon_gain) and the squad_optimizer_runs row its one-off rebuild solved -- so a
+    # caller can audit the Free Hit decision (gain vs threshold) and read back the exact fresh
+    # 15/XI/captain that was scored. None on a non-Free-Hit week.
+    free_hit_threshold: float | None = None
+    free_hit_fresh_run_id: int | None = None
+    # The squad this gameweek SCORED. On a Free Hit week this is the one-off fresh 15 (which is
+    # correct for scoring that gameweek) -- NOT the squad that persists afterward. A stateful
+    # caller (the model-managed team track record) must carry forward `carryforward_*` below,
+    # never these, or a Free Hit week silently overwrites the real long-term squad.
     squad_uids: list[str] = field(default_factory=list)
     xi_uids: list[str] = field(default_factory=list)
     captain_uid: str | None = None
+    # The real persisted post-decision holdings -- the squad to CARRY FORWARD into the next
+    # gameweek. Equal to squad_uids/xi_uids/captain_uid on every non-Free-Hit week; on a Free
+    # Hit week these stay the pre-chip 15 (apply_recommendation deliberately leaves holdings
+    # untouched for Free Hit -- see its docstring), while squad_uids/xi_uids/captain_uid record
+    # the one-off fresh XI that was scored.
+    carryforward_squad_uids: list[str] = field(default_factory=list)
+    carryforward_xi_uids: list[str] = field(default_factory=list)
+    carryforward_captain_uid: str | None = None
     # The true starting XI (the 11-man formation), always -- unlike xi_uids, which on a
     # bench_boost week is all 15 (everyone scores). Display uses this so the pitch stays a
     # legal formation; scoring uses xi_uids. Equal to xi_uids on every non-bench-boost week.
@@ -102,6 +118,11 @@ class GameweekResult:
             "chips_used": self.chips_used,
             "free_hit_gain": None if self.free_hit_gain is None else round(self.free_hit_gain, 2),
             "free_hit_recommended": self.free_hit_recommended,
+            "free_hit_threshold": None if self.free_hit_threshold is None else round(self.free_hit_threshold, 2),
+            "free_hit_fresh_run_id": self.free_hit_fresh_run_id,
+            "carryforward_squad_uids": self.carryforward_squad_uids,
+            "carryforward_xi_uids": self.carryforward_xi_uids,
+            "carryforward_captain_uid": self.carryforward_captain_uid,
             "transfers": self.transfers,
         }
 
@@ -263,6 +284,7 @@ def run_forward_season_sim(
     active_versions: dict,
     hold_wildcard: bool = False,
     force_wildcard_at: int | None = None,
+    force_free_hit_at: int | None = None,
     real_chips_used_set1: list[str] | None = None,
     real_chips_used_set2: list[str] | None = None,
     score_realized: bool = False,
@@ -281,7 +303,12 @@ def run_forward_season_sim(
     horizon_gameweeks = int(params_mod.resolve_param(
         con, "planning_horizon_params", "horizon_gameweeks", versions["horizon_params_version"])[0])
 
-    mode = "hold_wildcard" if hold_wildcard else (f"force_wildcard_gw{force_wildcard_at}" if force_wildcard_at else "model_choice")
+    mode = (
+        "hold_wildcard" if hold_wildcard
+        else f"force_wildcard_gw{force_wildcard_at}" if force_wildcard_at
+        else f"force_free_hit_gw{force_free_hit_at}" if force_free_hit_at
+        else "model_choice"
+    )
 
     if not bt.has_fittable_history(con, target_season, start_gameweek):
         raise ValueError(f"{target_season} GW{start_gameweek} has insufficient prior history to simulate from")
@@ -352,13 +379,17 @@ def run_forward_season_sim(
             fh = _read_free_hit_eval(con, plan_run_id)
             fh_gain = fh.get("gain")
             fh_reco = bool(fh.get("recommended", False))
+            fh_threshold = fh.get("threshold")
 
             # ---- decide the action ----
-            forced = force_wildcard_at == gw and "wildcard" not in (chips_set1 | chips_set2)
+            forced_wildcard = force_wildcard_at == gw and "wildcard" not in (chips_set1 | chips_set2)
+            forced_free_hit = force_free_hit_at == gw and "free_hit" not in (chips_set1 | chips_set2)
             accept_rank: int | None
             accept_chip: str | None
-            if forced:
+            if forced_wildcard:
                 accept_rank, accept_chip = None, "wildcard"
+            elif forced_free_hit:
+                accept_rank, accept_chip = None, "free_hit"
             else:
                 accept_rank, accept_chip = bt._decide_gameweek_action(
                     con, plan_run_id, chips_set1, chips_set2, gw, accept_transfer_if_net_value_above=0.0,
@@ -434,7 +465,13 @@ def run_forward_season_sim(
         detail = ""
         transfers: list[dict] = []
         if accept_chip == "wildcard":
-            detail = "forced" if forced else "model chose wildcard"
+            detail = "forced" if forced_wildcard else "model chose wildcard"
+        elif accept_chip == "free_hit":
+            detail = "forced" if forced_free_hit else "model chose free hit"
+        elif accept_chip == "bench_boost":
+            detail = "bench boost (all 15 score)"
+        elif accept_chip == "triple_captain":
+            detail = "triple captain"
         elif accept_rank is not None:
             tr = con.execute(
                 "SELECT player_out, player_in, net_value FROM transfer_recommendations WHERE run_id = ? AND rank = ?",
@@ -445,6 +482,9 @@ def run_forward_season_sim(
                 transfers = [{"out_uid": tr[0], "in_uid": tr[1], "net": round(float(tr[2]), 2)}]
 
         scored_squad = free_hit_squad if (accept_chip == "free_hit" and free_hit_squad is not None) else holdings
+        # `holdings` is the real persisted post-decision squad (state_version after
+        # apply_recommendation) -- the squad that carries forward. On a Free Hit week it is the
+        # pre-chip 15 (holdings untouched), NOT `scored_squad`.
         rows.append(GameweekResult(
             gameweek=gw, projected_points=mean, band_low=mean - _Z80 * std, band_high=mean + _Z80 * std,
             action=action, action_detail=detail,
@@ -452,10 +492,15 @@ def run_forward_season_sim(
             current_squad_horizon_value=cur_horizon_val,
             chips_used=sorted(chips_set1 | chips_set2 | ({accept_chip} if accept_chip else set())),
             free_hit_gain=fh_gain, free_hit_recommended=fh_reco,
+            free_hit_threshold=(fh_threshold if accept_chip == "free_hit" else None),
+            free_hit_fresh_run_id=(fh.get("fresh_run_id") if accept_chip == "free_hit" else None),
             squad_uids=sorted(h["player_uid"] for h in scored_squad),
             xi_uids=sorted(xi),
             formation_xi_uids=sorted(h["player_uid"] for h in scored_squad if h["in_xi"]),
             captain_uid=cap, realized_points=realized,
+            carryforward_squad_uids=sorted(h["player_uid"] for h in holdings),
+            carryforward_xi_uids=sorted(h["player_uid"] for h in holdings if h["in_xi"]),
+            carryforward_captain_uid=next((h["player_uid"] for h in holdings if h["is_captain"]), None),
             transfers=transfers,
         ))
 
