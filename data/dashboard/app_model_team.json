@@ -2,10 +2,10 @@
   "ready": true,
   "season": "2026-2027",
   "current_gameweek": 3,
-  "n_gameweeks_scored": 3,
+  "n_gameweeks_scored": 2,
   "n_gameweeks_simulated": 1,
-  "total_realized_points": 106.0,
-  "total_vs_field": -25.0,
+  "total_realized_points": 93.0,
+  "total_vs_field": -38.0,
   "chips_used": [
     "free_hit"
   ],
@@ -17,6 +17,7 @@
       "action_detail": "from-scratch GW1 optimal squad",
       "projected_points": null,
       "realized_points": 42.0,
+      "provisional": false,
       "field_average": 50,
       "delta_vs_field": -8.0,
       "cumulative_points": 42.0,
@@ -29,6 +30,7 @@
       "action_detail": "player_maxence_lacroix -> player_pascal_struijk (net +3.72)",
       "projected_points": 43.55,
       "realized_points": 51.0,
+      "provisional": false,
       "field_average": 81,
       "delta_vs_field": -30.0,
       "cumulative_points": 93.0,
@@ -40,22 +42,50 @@
       "action": "free_hit",
       "action_detail": "",
       "projected_points": 78.23,
-      "realized_points": 13.0,
+      "realized_points": 53.0,
+      "provisional": true,
       "field_average": null,
       "delta_vs_field": null,
-      "cumulative_points": 106.0,
-      "cumulative_vs_field": -25.0
+      "cumulative_points": null,
+      "cumulative_vs_field": null
     }
   ],
+  "free_hit_audit": {
+    "gameweek": 3,
+    "projected_gain_vs_current_xi": 22.12,
+    "gain_threshold": null,
+    "recommended": true,
+    "projected_points": 78.23,
+    "realized_points": 53.0,
+    "counterfactual_hold_realized_points": 11.0,
+    "realized_minus_hold": 42.0,
+    "gameweek_final": false,
+    "note": "gameweek still in progress -- realised and counterfactual figures are provisional"
+  },
   "current_squad": [
     {
-      "name": "Alexander Isak",
-      "in_xi": true,
+      "name": "Bart Verbruggen",
+      "in_xi": false,
       "is_captain": false
     },
     {
       "name": "Bernd Leno",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Bruno Borges Fernandes",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Cody Gakpo",
       "in_xi": false,
+      "is_captain": false
+    },
+    {
+      "name": "Dara O'Shea",
+      "in_xi": true,
       "is_captain": false
     },
     {
@@ -64,63 +94,48 @@
       "is_captain": false
     },
     {
-      "name": "Erling Haaland",
+      "name": "Elliot Anderson",
       "in_xi": true,
       "is_captain": false
     },
     {
       "name": "Ethan Ampadu",
       "in_xi": true,
-      "is_captain": true
-    },
-    {
-      "name": "Gianluigi Donnarumma",
-      "in_xi": true,
       "is_captain": false
     },
     {
-      "name": "Granit Xhaka",
-      "in_xi": true,
-      "is_captain": false
-    },
-    {
-      "name": "Igor Thiago Nascimento Rodrigues",
-      "in_xi": true,
-      "is_captain": false
-    },
-    {
-      "name": "James Garner",
-      "in_xi": true,
-      "is_captain": false
-    },
-    {
-      "name": "Luke Shaw",
+      "name": "Igor Jesus Maciel da Cruz",
       "in_xi": false,
       "is_captain": false
     },
     {
-      "name": "Marc Gu\u00e9hi",
+      "name": "James Tarkowski",
       "in_xi": true,
       "is_captain": false
     },
     {
       "name": "Marcos Senesi Bar\u00f3n",
       "in_xi": true,
-      "is_captain": false
+      "is_captain": true
     },
     {
-      "name": "Neco Williams",
+      "name": "Morgan Rogers",
       "in_xi": false,
       "is_captain": false
     },
     {
-      "name": "Nikola Milenkovi\u0107",
+      "name": "Nathan Collins",
       "in_xi": true,
       "is_captain": false
     },
     {
-      "name": "Will Hughes",
-      "in_xi": false,
+      "name": "Ollie Watkins",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Pascal Struijk",
+      "in_xi": true,
       "is_captain": false
     }
   ],
@@ -129,6 +144,6 @@
     "action": "free_hit",
     "detail": ""
   },
-  "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark.",
-  "generated_at": "2026-09-05T20:40:14.107936+00:00"
+  "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
+  "generated_at": "2026-09-06T08:23:50.535354+00:00"
 }
