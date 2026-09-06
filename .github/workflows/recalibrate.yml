@@ -96,6 +96,16 @@ jobs:
         run: PYTHONPATH=src python scripts/run_recalibrate.py --stage kappa_tc
 
       # --- expensive refits -- may hit the timeout; the cheap proposals above are already in ---
+      # Re-runs expected_points.run() (no SCIP, but a real per-fixture loop -- same cost class as
+      # minutes_model.run() below) per candidate k per gameweek. docs/plans/2026-09_ep_attacker_
+      # defender_imbalance.md, Lead B: this is the walk-forward's own evidence the model
+      # under-predicts premiums (ep_total_calibration_mean_resid grows from -0.24 at <£5.0m to
+      # +0.84 at £9.0m+) -- RATE_SHRINKAGE_K_MINUTES was flagged for M7 recalibration since its
+      # introduction but never wired into a technique until this stage.
+      - name: Refit rate_shrinkage (EP goals/assists/CBI shrinkage k)
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/run_recalibrate.py --stage rate_shrinkage
+
       - name: Refit minutes / evidence params (coordinate descent)
         continue-on-error: true
         run: PYTHONPATH=src python scripts/run_recalibrate.py --stage minutes

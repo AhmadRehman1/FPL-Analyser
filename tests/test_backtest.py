@@ -1078,6 +1078,7 @@ def test_active_recalibratable_versions_matches_known_confirmed_state():
     assert versions["adjustment_params_version"] == 1
     assert versions["lambda_params_version"] == 1
     assert versions["kappa_tc_params_version"] == 1
+    assert versions["rate_shrinkage_params_version"] == 1
 
 
 def _pending_proposal(con, backtest_run_id, *, param_family, param_key, new_value, metric_name, metric_before, metric_after, old_params_version=1):
@@ -2449,3 +2450,113 @@ def test_xi_uids_by_step_excludes_bench_players(con):
 
     xi_by_step = bt._xi_uids_by_step(con, backtest_run_id)
     assert xi_by_step[("2025-2026", 10)] == {"p1", "p2"}
+
+
+# ============================================================
+# refit_rate_shrinkage -- docs/plans/2026-09_ep_attacker_defender_imbalance.md, Lead B: a
+# grid search over RATE_SHRINKAGE_K_MINUTES candidates. score_fn is injected in every test here
+# rather than exercising the real _ep_calibration_mae_for_step() end to end (that needs a full
+# expected_points.run() fixture -- team_strength/minutes-model/roster/fixture scaffolding this
+# project's own test suite doesn't build even for expected_points.run() itself, see
+# tests/test_expected_points.py's own scope) -- the real function is exercised for real by the
+# nightly walk-forward, same as every other refit technique's real numbers.
+# ============================================================
+
+def test_refit_rate_shrinkage_picks_the_minimizing_k(con):
+    def fake_score(con, season, gw, original_ep_mv, rate_shrinkage_params_version):
+        from fpl_quant import params
+        k, _ = params.resolve_param(con, "rate_shrinkage_params", "k_minutes", rate_shrinkage_params_version)
+        return (k - 250.0) ** 2 / 1000.0  # synthetic objective, minimized at k=250
+
+    eval_steps = [("2025-2026", 1), ("2025-2026", 2)]
+    ep_by_step = {("2025-2026", 1): 10, ("2025-2026", 2): 11}
+    result = bt.refit_rate_shrinkage(
+        con, eval_steps, ep_by_step, k_minutes_grid=(150.0, 250.0, 450.0), score_fn=fake_score,
+    )
+    assert result["best_k_minutes"] == 250.0
+    assert result["grid"][250.0]["ep_total_calibration_mae"] == pytest.approx(0.0)
+    assert result["grid"][250.0]["n_gameweeks"] == 2
+    assert result["grid"][150.0]["ep_total_calibration_mae"] > 0
+
+
+def test_refit_rate_shrinkage_reports_inf_and_zero_gameweeks_when_no_step_has_an_ep_model_version(con):
+    result = bt.refit_rate_shrinkage(
+        con, [("2025-2026", 1)], {}, k_minutes_grid=(450.0,),
+        score_fn=lambda *a, **k: 1.0,
+    )
+    assert result["grid"][450.0] == {"ep_total_calibration_mae": float("inf"), "n_gameweeks": 0, "params_version": result["grid"][450.0]["params_version"]}
+
+
+def test_refit_rate_shrinkage_skips_a_step_whose_score_fn_returns_none(con):
+    def fake_score(con, season, gw, original_ep_mv, rate_shrinkage_params_version):
+        return None if gw == 1 else 2.0
+
+    result = bt.refit_rate_shrinkage(
+        con, [("2025-2026", 1), ("2025-2026", 2)], {("2025-2026", 1): 1, ("2025-2026", 2): 1},
+        k_minutes_grid=(450.0,), score_fn=fake_score,
+    )
+    assert result["grid"][450.0]["n_gameweeks"] == 1
+    assert result["grid"][450.0]["ep_total_calibration_mae"] == pytest.approx(2.0)
+
+
+def test_recalibrate_proposes_rate_shrinkage_when_the_winning_k_differs_from_current(con, monkeypatch, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "rate_shrinkage_params", 1, "2026-08-10", "k_minutes", value_numeric=450.0)
+    backtest_run_id = _seed_backtest_run(con)
+
+    def fake_refit(con, eval_steps, ep_model_version_by_step, k_minutes_grid=None, **kwargs):
+        return {
+            "best_k_minutes": 250.0,
+            "grid": {450.0: {"ep_total_calibration_mae": 1.2}, 250.0: {"ep_total_calibration_mae": 0.9}},
+        }
+
+    monkeypatch.setattr(bt, "refit_rate_shrinkage", fake_refit)
+    proposal_ids = bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+        refit_minutes_flag=False, refit_lambda_flag=False,
+        current_rate_shrinkage_version=1, refit_rate_shrinkage_flag=True, seed_dir=tmp_path,
+    )
+    assert len(proposal_ids) == 1
+    row = con.execute(
+        "SELECT param_family, param_key, new_value, metric_name, metric_before, metric_after "
+        "FROM recalibration_proposals WHERE proposal_id = ?", [proposal_ids[0]],
+    ).fetchone()
+    assert row == ("rate_shrinkage_params", "k_minutes", 250.0, "ep_total_calibration_mae", 1.2, 0.9)
+
+
+def test_recalibrate_proposes_nothing_for_rate_shrinkage_when_current_k_already_wins(con, monkeypatch):
+    from fpl_quant import params
+
+    params.write_param(con, "rate_shrinkage_params", 1, "2026-08-10", "k_minutes", value_numeric=450.0)
+    backtest_run_id = _seed_backtest_run(con)
+
+    def fake_refit(con, eval_steps, ep_model_version_by_step, k_minutes_grid=None, **kwargs):
+        return {"best_k_minutes": 450.0, "grid": {450.0: {"ep_total_calibration_mae": 1.0}}}
+
+    monkeypatch.setattr(bt, "refit_rate_shrinkage", fake_refit)
+    proposal_ids = bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+        refit_minutes_flag=False, refit_lambda_flag=False,
+        current_rate_shrinkage_version=1, refit_rate_shrinkage_flag=True,
+    )
+    assert proposal_ids == []
+
+
+def test_recalibrate_raises_when_rate_shrinkage_flag_set_without_current_version(con):
+    backtest_run_id = _seed_backtest_run(con)
+    with pytest.raises(ValueError):
+        bt.recalibrate(
+            con, backtest_run_id,
+            current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+            current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+            minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+            refit_minutes_flag=False, refit_lambda_flag=False,
+            refit_rate_shrinkage_flag=True,
+        )

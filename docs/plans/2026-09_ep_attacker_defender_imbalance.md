@@ -1,7 +1,9 @@
 # EP model: the attacker/defender imbalance
 
-**Status:** diagnosis + first fix (PR: `claude/ep-attacker-defender-imbalance`). The rest is
-gated on the walk-forward backtest carrying PR #124's position/price calibration segments.
+**Status:** diagnosis + first fix shipped (Lead A). Lead B's measurement plan is now unblocked
+(PR #124's segments landed in `backtest_run_id=1`) and its recalibration wiring is shipped
+(`claude/nightly-progress-model-points-cx2yds`) -- but no value has actually been recalibrated
+yet; see Lead B below for what's still needed.
 
 ## The problem, and why it matters
 
@@ -70,7 +72,49 @@ Watkins 3.84→**4.04**; Van Dijk 4.67→**4.48**. Premiums up, over-rated defen
 This is **one contributing factor**, not the whole fix — measure it via the walk-forward
 before merge (does `ep_total_calibration_mean_resid:position=Forward` move toward 0?).
 
-## Lead B — needs #124's backtest data: defensive-points magnitude
+## Lead B — SHIPPED (recalibration wiring only, not a confirmed value yet)
+
+The measurement plan below is now unblocked: `data/dashboard/app_track_record.json`
+(`backtest_run_id=1`, generated 2026-09-05) carries #124's segment_calibration, and it confirms
+the imbalance survives Lead A: `ep_total_calibration_mean_resid` is **-0.1033 for Defender,
++0.1512 for Forward, -0.2793 for Goalkeeper**, and by price band it's monotonic and much
+starker -- **-0.24 at <£5.0m growing to +0.84 at £9.0m+** (0/71 model parameters have ever been
+confirmed via M7, so none of this has ever actually been corrected).
+
+`RATE_SHRINKAGE_K_MINUTES` was flagged for M7 recalibration since its own introduction but was
+never actually wired into any refit technique -- `recalibrate()`'s `MINUTES_PARAM_GRIDS` covers
+`fact_type_multiplier_params`/`minutes_model_shrinkage_params`/`minutes_adjustment_params`, none
+of which is this constant. Closed by:
+
+- `rate_shrinkage_params`/`k_minutes` is now a real versioned param (`expected_points.seed_v1_params()`,
+  v1 = 450.0, byte-identical to the old hardcoded constant) with a new optional
+  `rate_shrinkage_params_version` argument threaded through `player_rates_shrunk()`,
+  `_defensive_action_rates_per_90()`, `compute_player_fixture_components()`, and
+  `expected_points.run()` -- `None` (every existing caller) preserves the exact old behavior.
+- `backtest.refit_rate_shrinkage()`: a grid search over candidate k values, minimizing mean
+  `ep_total_calibration_mae` (the same metric segment_calibration already tracks) across the
+  walk-forward's eval_steps -- re-runs `expected_points.run()` per candidate per gameweek (no
+  SCIP, but a real per-fixture loop, so opt-in via `refit_rate_shrinkage_flag`/
+  `current_rate_shrinkage_version`, same shape as `refit_kappa_tc_flag`). Wired into
+  `recalibrate()`, `RECALIBRATABLE_VERSION_ARGS`, `run_backtest.py`, and a new
+  `--stage rate_shrinkage` in `run_recalibrate.py` / `recalibrate.yml`.
+- The one live (non-backtest) production call site, `scripts/run_ingestion.py`'s
+  `expected_points.run()` call, now passes `ACTIVE["rate_shrinkage_params_version"]` -- so a
+  future confirmed recalibration actually takes effect live, closing the exact drift
+  `resolve_active_version()`'s own docstring warns about. `transfer_planner.compute_horizon_ep()`
+  also accepts the new argument (opt-in, default `None`), but its own ~10 callers (grade_squad,
+  chip_timing_analysis, run_scenarios, elite_tracking, projections, etc.) are **not yet updated**
+  to pass it -- a disclosed, scoped follow-up (matches the "~14 files, not 2" scope-creep the
+  roadmap plan already flagged once for Track B; deliberately not done as a blind full sweep in
+  the same PR that introduces the mechanism).
+
+**Not done yet, and this is the actual next step:** no value has ever been recalibrated -- this
+PR only gives M7 the ABILITY to. The nightly walk-forward / a `recalibrate.yml` dispatch needs to
+actually run the `rate_shrinkage` stage, and a human (or `review_recalibration.yml`) needs to
+confirm whatever it proposes, before `ep_total_calibration_mean_resid`'s premium/cheap imbalance
+can actually move.
+
+## Lead B (original) — needs #124's backtest data: defensive-points magnitude
 
 `ep_clean_sheet` and `ep_defcon` are principled calcs (`exp(-lambda_against) * p_60plus * 4`
 and `P(CBIT >= threshold) * 2`), but they rest on invented v1 params (`defcon_threshold` per

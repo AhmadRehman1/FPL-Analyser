@@ -229,10 +229,19 @@ def main() -> None:
     )
 
     t0 = time.time()
+    # ACTIVE["rate_shrinkage_params_version"] resolves to v1 (RATE_SHRINKAGE_K_MINUTES=450.0,
+    # the honest, un-recalibrated default) until a real confirmed seed exists -- same status as
+    # shrinkage_params_version/fact_multiplier_params_version above. See
+    # docs/plans/2026-09_ep_attacker_defender_imbalance.md, Lead B: this is the lever the
+    # walk-forward's segment_calibration flags for the premium-player under-prediction, and
+    # without wiring it in here a confirmed recalibration would silently never take live effect
+    # (the exact drift resolve_active_version()'s own docstring already warns this mechanism
+    # exists to close).
     ep_model_version = expected_points.run(
         con, CALIBRATION_ASOF_DATE, TARGET_SEASON, TARGET_GAMEWEEK,
         ts_model_version=ts_model_version, mm_model_version=mm_model_version,
         scoring_params_version=1, bps_params_version=1, tau_params_version=1,
+        rate_shrinkage_params_version=ACTIVE["rate_shrinkage_params_version"],
     )
     n_ep_rows = con.execute(
         "SELECT count(*) FROM ep_outputs WHERE model_version = ?", [ep_model_version]
