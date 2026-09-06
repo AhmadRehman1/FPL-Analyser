@@ -133,6 +133,7 @@ def main() -> None:
         evidence_fact_multiplier_params_version=_ACTIVE["fact_multiplier_params_version"],
         bench_quality_params_version=1,
         confidence_score_params_version=1,
+        role_change_flag_params_version=1,
         report_asof=datetime.now(),
     )
     print(reporting.render_report_text(report))
