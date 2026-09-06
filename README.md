@@ -604,7 +604,9 @@ set of rival squads from FPL's own public API (Priority 10 Phase A). The schedul
 Actions workflow (`.github/workflows/scheduled_pipeline.yml`, Priority 8a/8b) runs the
 ingestion+report steps above automatically -- see its own comments for the two Google Drive
 files (set to "Anyone with the link") it needs before it can actually run. No repo secrets
-are required.
+are required. Rival-squad sampling itself now has its own, deliberately lower-cadence schedule
+(`.github/workflows/rival_squad_sample.yml`, daily, at Phase A-1's scaled-up default of 2,000
+entries) rather than running only on manual dispatch.
 
 ## Hosting (free, GitHub Pages)
 

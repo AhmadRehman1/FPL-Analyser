@@ -193,6 +193,7 @@ def ingest_rival_squad_sample(
     return {
         "status": "ingested", "entries_sampled": len(entries) - entries_skipped,
         "picks_inserted": picks_inserted, "entries_skipped": entries_skipped,
+        "error_rate": (entries_skipped / len(entries)) if entries else 0.0,
     }
 
 
@@ -215,3 +216,21 @@ def most_owned_players(con: duckdb.DuckDBPyConnection, season: str, event: int, 
         {"player_uid": uid, "name": name, "n_owners": n_owners, "n_captains": n_captains}
         for uid, name, n_owners, n_captains in rows
     ]
+
+
+# ============================================================
+# retention -- Phase A-1 [A9]: bound the volume of real people's picks retained over time as
+# sampling scales up. Only ever deletes rows tagged with a season strictly earlier than the
+# current one (never the current season), so it can't race with a same-season Phase D backtest
+# validation job reading this table concurrently -- see the design doc's own edge-case note.
+# ============================================================
+
+def purge_prior_season_rival_squad_sample(con: duckdb.DuckDBPyConnection, current_season: str) -> int:
+    """Deletes every fact_rival_squad_sample row NOT tagged with current_season. Safe to call
+    on every run, not just at a season rollover: a no-op once only the current season's rows
+    remain. Returns the number of rows deleted."""
+    deleted = con.execute(
+        "SELECT count(*) FROM fact_rival_squad_sample WHERE season <> ?", [current_season],
+    ).fetchone()[0]
+    con.execute("DELETE FROM fact_rival_squad_sample WHERE season <> ?", [current_season])
+    return deleted
