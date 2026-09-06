@@ -4,7 +4,7 @@
   "gameweek": 3,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 52,
+  "live_total": 61,
   "players": [
     {
       "player_id": 496,
@@ -16,9 +16,9 @@
     {
       "player_id": 4,
       "web_name": "Gabriel",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 534,
@@ -51,9 +51,9 @@
     {
       "player_id": 557,
       "web_name": "Tzolis",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 6,
+      "provisional_bonus": 1,
+      "contribution": 6
     },
     {
       "player_id": 124,
@@ -79,15 +79,15 @@
     {
       "player_id": 165,
       "web_name": "Jo\u00e3o Pedro",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 71.0,
-    "estimated_rank": 3051488
+    "percentile": 79.0,
+    "estimated_rank": 2212254
   },
   "fixtures": [
     {
@@ -242,9 +242,58 @@
         "name": "Man Utd",
         "score": 2
       }
+    },
+    {
+      "id": 29,
+      "kickoff": "2026-09-06T15:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "ARS",
+        "name": "Arsenal",
+        "score": 2
+      },
+      "away": {
+        "short_name": "CHE",
+        "name": "Chelsea",
+        "score": 1
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 13,
+      "web_name": "Rice",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 29
+    },
+    {
+      "player_id": 15,
+      "web_name": "\u00d8degaard",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 29
+    },
+    {
+      "player_id": 26,
+      "web_name": "Havertz",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 29
+    },
+    {
+      "player_id": 40,
+      "web_name": "Rogers",
+      "team": 6,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 29
+    },
     {
       "player_id": 68,
       "web_name": "Tavernier",
@@ -284,6 +333,14 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 23
+    },
+    {
+      "player_id": 148,
+      "web_name": "Hato",
+      "team": 6,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 29
     },
     {
       "player_id": 204,
@@ -486,6 +543,14 @@
       "fixture_id": 22
     },
     {
+      "player_id": 557,
+      "web_name": "Tzolis",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 29
+    },
+    {
       "player_id": 570,
       "web_name": "Palacios",
       "team": 10,
@@ -510,5 +575,5 @@
       "fixture_id": 30
     }
   ],
-  "generated_at": "2026-09-06T15:00:51.631958+00:00"
+  "generated_at": "2026-09-06T17:36:18.789559+00:00"
 }
