@@ -16,7 +16,7 @@ This NEVER auto-promotes. Activation stays the human gate (scripts/review_recali
 consistent with data/recalibration/seeds_1.json being parked pending the owner's review.
 
 Usage (from repo root, walk-forward already in the DB):
-    PYTHONPATH=src python scripts/run_recalibrate.py --stage {xi_rho|rho_residual|kappa_tc|minutes|lambda}
+    PYTHONPATH=src python scripts/run_recalibrate.py --stage {xi_rho|rho_residual|kappa_tc|rate_shrinkage|minutes|lambda}
 """
 
 import argparse
@@ -41,6 +41,7 @@ STAGE_FLAGS = {
     "minutes": "refit_minutes_flag",
     "lambda": "refit_lambda_flag",
     "kappa_tc": "refit_kappa_tc_flag",
+    "rate_shrinkage": "refit_rate_shrinkage_flag",
 }
 PROPOSALS_JSON = REPO_ROOT / "data" / "recalibration" / f"proposals_{date.today().isoformat()}.json"
 
@@ -134,6 +135,7 @@ def main() -> None:
         guardrail_cap=3,
         minutes_param_grids=MINUTES_PARAM_GRIDS,
         current_kappa_tc_version=active["kappa_tc_params_version"],
+        current_rate_shrinkage_version=active["rate_shrinkage_params_version"],
         seed_dir=RECALIBRATION_SEED_DIR,
         **flags, **kwargs,
     )

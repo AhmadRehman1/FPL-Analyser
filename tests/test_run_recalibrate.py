@@ -16,7 +16,7 @@ from fpl_quant import backtest as bt  # noqa: E402
 def test_every_stage_maps_to_a_real_recalibrate_flag():
     import inspect
     params = inspect.signature(bt.recalibrate).parameters
-    assert set(rr.STAGE_FLAGS) == {"xi_rho", "rho_residual", "kappa_tc", "minutes", "lambda"}
+    assert set(rr.STAGE_FLAGS) == {"xi_rho", "rho_residual", "kappa_tc", "minutes", "lambda", "rate_shrinkage"}
     for flag in rr.STAGE_FLAGS.values():
         assert flag in params, flag
         assert params[flag].annotation is bool

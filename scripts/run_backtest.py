@@ -129,6 +129,8 @@ def main() -> None:
         minutes_param_grids=MINUTES_PARAM_GRIDS,
         current_kappa_tc_version=active["kappa_tc_params_version"],
         refit_kappa_tc_flag=True,
+        current_rate_shrinkage_version=active["rate_shrinkage_params_version"],
+        refit_rate_shrinkage_flag=True,
         seed_dir=RECALIBRATION_SEED_DIR,
     )
     print(f"[recalibrate] {time.time() - t0:.1f}s -> {len(proposal_ids)} pending proposals: {proposal_ids}")

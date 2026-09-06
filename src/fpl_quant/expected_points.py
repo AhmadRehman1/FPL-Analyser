@@ -110,6 +110,15 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     params_mod.write_param(con, "fixture_strength_params", 1, "2026-08-10", "save_sensitivity", value_numeric=1.0)
     params_mod.write_param(con, "fixture_strength_params", 1, "2026-08-10", "defcon_sensitivity", value_numeric=0.5)
 
+    # Invented v1 default (was a bare module constant, RATE_SHRINKAGE_K_MINUTES, until this --
+    # see that name's own docstring history), now a real recalibratable param so M7 can actually
+    # tune it: the walk-forward's segment_calibration shows ep_total_calibration_mean_resid
+    # growing monotonically with price (£9.0m+ under-predicted by +0.84 pts/GW vs <£5.0m at
+    # -0.24), i.e. exactly the "premiums shrunk hardest toward the position average" failure
+    # this constant was already flagged (but never wired) for -- see
+    # docs/plans/2026-09_ep_attacker_defender_imbalance.md, Lead B.
+    params_mod.write_param(con, "rate_shrinkage_params", 1, "2026-08-10", "k_minutes", value_numeric=RATE_SHRINKAGE_K_MINUTES)
+
 
 def _sm(con, key, params_version, position=None):
     dims = {"position": position} if position else None
@@ -131,13 +140,26 @@ def _bp(con, key, params_version, position=None):
 # shrinkage briefly made him rank above Haaland for a gameweek's expected goals.
 # ============================================================
 
-# Invented v1 default (no literature to cite, same status as every other invented constant
-# in this project): the sample-minutes point at which a player's own rate and the position
-# average get equal weight. Flagged for M7 recalibration.
-RATE_SHRINKAGE_K_MINUTES = 450.0
+# Invented v1 default -- now also the "rate_shrinkage_params"/"k_minutes" v1 row (seed_v1_params()
+# above), so M7 can recalibrate it. This module constant remains the fallback used whenever no
+# rate_shrinkage_params_version is supplied (every pre-existing caller), so the two stay in sync
+# by construction: DEFAULT_RATE_SHRINKAGE_K_MINUTES is what v1 is seeded to equal.
+DEFAULT_RATE_SHRINKAGE_K_MINUTES = 450.0
+RATE_SHRINKAGE_K_MINUTES = DEFAULT_RATE_SHRINKAGE_K_MINUTES  # back-compat alias; prefer the DEFAULT_ name in new code
 
 
-def _shrink_rate(own_rate: float, sample_minutes: float, position_avg_rate: float, k: float = RATE_SHRINKAGE_K_MINUTES) -> float:
+def _resolve_shrinkage_k(con: duckdb.DuckDBPyConnection, rate_shrinkage_params_version: int | None) -> float:
+    """None means "no version pinned" -- every caller before this param existed, and still the
+    default for run()/compute_player_fixture_components() -- so behavior for them is byte-for-byte
+    unchanged: the same hardcoded constant as before. A real version resolves the versioned param
+    instead, which is what backtest.refit_rate_shrinkage() pins to search candidate k values."""
+    if rate_shrinkage_params_version is None:
+        return DEFAULT_RATE_SHRINKAGE_K_MINUTES
+    value, _ = params_mod.resolve_param(con, "rate_shrinkage_params", "k_minutes", rate_shrinkage_params_version)
+    return value
+
+
+def _shrink_rate(own_rate: float, sample_minutes: float, position_avg_rate: float, k: float = DEFAULT_RATE_SHRINKAGE_K_MINUTES) -> float:
     weight_own = sample_minutes / (sample_minutes + k)
     return weight_own * own_rate + (1 - weight_own) * position_avg_rate
 
@@ -264,16 +286,23 @@ def _position_average_rates(con: duckdb.DuckDBPyConnection, position: str, seaso
     }
 
 
-def player_rates_shrunk(con: duckdb.DuckDBPyConnection, player_uid: str, position: str, season_priority: list[str]) -> dict:
+def player_rates_shrunk(
+    con: duckdb.DuckDBPyConnection, player_uid: str, position: str, season_priority: list[str],
+    rate_shrinkage_params_version: int | None = None,
+) -> dict:
     own = _player_rate_pool(con, player_uid, season_priority)
     pos_avg = _position_average_rates(con, position, season_priority)
+    k = _resolve_shrinkage_k(con, rate_shrinkage_params_version)
     return {
-        key: _shrink_rate(own[key], own["sample_minutes"], pos_avg[key])
+        key: _shrink_rate(own[key], own["sample_minutes"], pos_avg[key], k=k)
         for key in ("expected_goals_per_90", "expected_assists_per_90", "saves_per_90")
     }
 
 
-def _defensive_action_rates_per_90(con: duckdb.DuckDBPyConnection, player_uid: str, position: str, seasons: list[str]) -> dict:
+def _defensive_action_rates_per_90(
+    con: duckdb.DuckDBPyConnection, player_uid: str, position: str, seasons: list[str],
+    rate_shrinkage_params_version: int | None = None,
+) -> dict:
     """CBI (tackles+clearances+interceptions+blocks) and recoveries, per 90 minutes, from
     fact_player_match_stats -- the only place these are reconciled at per-match grain.
     Shrunk toward the position average the same way and for the same reason as the goals/
@@ -310,9 +339,10 @@ def _defensive_action_rates_per_90(con: duckdb.DuckDBPyConnection, player_uid: s
     pos_avg_recoveries = (pos_recoveries_total or 0) / pos_minutes_total * 90 if pos_minutes_total else 0.0
 
     sample_minutes = minutes_total or 0.0
+    k = _resolve_shrinkage_k(con, rate_shrinkage_params_version)
     return {
-        "cbi_per_90": _shrink_rate(own_cbi, sample_minutes, pos_avg_cbi),
-        "recoveries_per_90": _shrink_rate(own_recoveries, sample_minutes, pos_avg_recoveries),
+        "cbi_per_90": _shrink_rate(own_cbi, sample_minutes, pos_avg_cbi, k=k),
+        "recoveries_per_90": _shrink_rate(own_recoveries, sample_minutes, pos_avg_recoveries, k=k),
     }
 
 
@@ -639,9 +669,10 @@ def compute_player_fixture_components(
     season_priority: list[str], mean_minutes: dict,
     *, asof: datetime | None = None, set_piece_params_version: int | None = None,
     fixture_params_version: int | None = 1, target_season: str | None = None,
+    rate_shrinkage_params_version: int | None = None,
 ) -> dict:
-    rates = player_rates_shrunk(con, player_uid, position, season_priority)
-    def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority)
+    rates = player_rates_shrunk(con, player_uid, position, season_priority, rate_shrinkage_params_version)
+    def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority, rate_shrinkage_params_version)
     e_min_played = expected_minutes_given_played(p_1_59, p_60plus, mean_minutes)
     p_played = p_1_59 + p_60plus
 
@@ -766,6 +797,7 @@ def run(
     lookback_seasons: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
     set_piece_params_version: int | None = 1,
     fixture_params_version: int | None = 1,
+    rate_shrinkage_params_version: int | None = None,
 ) -> int:
     # set_piece_params_version defaults to 1 (was None): the confirmed-primary penalty/free-kick
     # taker e_goals/e_assists uplift (_set_piece_goal_uplift_multiplier, built as Priority 7b but
@@ -832,6 +864,7 @@ def run(
                     list(lookback_seasons), mean_minutes,
                     asof=asof, set_piece_params_version=set_piece_params_version,
                     fixture_params_version=fixture_params_version, target_season=target_season,
+                    rate_shrinkage_params_version=rate_shrinkage_params_version,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

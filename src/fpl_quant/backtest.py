@@ -1648,6 +1648,12 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     "adjustment_params_version": ("minutes_adjustment_params", ("magnitude", "cap")),
     "lambda_params_version": ("risk_aversion_params", "lambda_value"),
     "kappa_tc_params_version": ("tc_risk_aversion_params", "kappa_tc"),
+    # docs/plans/2026-09_ep_attacker_defender_imbalance.md, Lead B: RATE_SHRINKAGE_K_MINUTES
+    # was flagged for M7 recalibration since its own introduction but never actually wired in
+    # here -- the walk-forward's own segment_calibration is the evidence this closes
+    # (ep_total_calibration_mean_resid grows from -0.24 at <£5.0m to +0.84 at £9.0m+, i.e.
+    # premiums shrunk hardest toward the position average). See refit_rate_shrinkage().
+    "rate_shrinkage_params_version": ("rate_shrinkage_params", "k_minutes"),
 }
 
 
@@ -1677,6 +1683,7 @@ _METRIC_DIRECTION = {
     "log_score_minutes_mean": "higher_is_better",
     "log_score_minutes_mean_holdout": "higher_is_better",
     "realized_sharpe": "higher_is_better",
+    "ep_total_calibration_mae": "lower_is_better",
 }
 _NOT_A_SCORE_METRICS = {"rho_hat"}
 
@@ -1907,6 +1914,98 @@ def _minutes_log_score_for_step(
         state = _minutes_state(outcome["minutes_played"])
         scores.append(log_score_categorical({"0": p0, "1_59": p1, "60plus": p2}, state))
     return sum(scores) / len(scores) if scores else None
+
+
+def _ep_calibration_mae_for_step(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, original_ep_model_version: int,
+    rate_shrinkage_params_version: int,
+) -> float | None:
+    """Re-runs only expected_points.run() (no SCIP/MIQP -- a per-fixture Python/SQL loop, same
+    cost class as minutes_model.run()) inside a fresh asof_scope for this one step, with a
+    candidate rate_shrinkage_params_version, and returns the mean absolute ep_total calibration
+    error (realized event_points - predicted ep_total) against that gameweek's now-real
+    outcome -- the SAME metric score_gameweek() already records as ep_total_calibration_mae, so
+    a candidate k's score here is directly comparable to the walk-forward's own recorded
+    baseline (see docs/plans/2026-09_ep_attacker_defender_imbalance.md, Lead B).
+
+    Reuses the ORIGINAL walk-forward pass's upstream team_strength/minutes-model versions (read
+    back off ep_model_versions) -- rate_shrinkage_params_version only changes M3's own goals/
+    assists/CBI/recoveries rate shrinkage, not the M1b/M2 models feeding it, so re-running those
+    would be wasted cost, same reasoning as _minutes_log_score_for_step()'s own docstring.
+    set_piece_params_version/fixture_params_version are not persisted on ep_model_versions (see
+    run()'s own docstring on that gap) so this defaults to the same v1 every other refit
+    function in this project defaults to when it can't look a value up."""
+    row = con.execute(
+        "SELECT target_season, calibration_asof_date, team_strength_model_version, minutes_model_version, "
+        "scoring_matrix_params_version, bps_params_version, bps_tau_params_version "
+        "FROM ep_model_versions WHERE model_version = ?", [original_ep_model_version],
+    ).fetchone()
+    if row is None:
+        return None
+    _, _, ts_mv, mm_mv, scoring_pv, bps_pv, tau_pv = row
+    with asof_scope(con, season, gameweek):
+        candidate_ep_mv = ep.run(
+            con, gameweek_deadline(con, season, gameweek).date(), season, gameweek, ts_mv, mm_mv,
+            scoring_pv, bps_pv, tau_pv, rate_shrinkage_params_version=rate_shrinkage_params_version,
+        )
+    event_points_of = dict(con.execute(
+        "SELECT player_uid, event_points FROM fact_player_season_stats WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+        [season, gameweek],
+    ).fetchall())
+    abs_resid = []
+    for player_uid, ep_total in con.execute(
+        "SELECT player_uid, ep_total FROM ep_outputs WHERE model_version = ?", [candidate_ep_mv],
+    ).fetchall():
+        realized = event_points_of.get(player_uid)
+        if realized is not None and ep_total is not None:
+            abs_resid.append(abs(realized - ep_total))
+    return sum(abs_resid) / len(abs_resid) if abs_resid else None
+
+
+def refit_rate_shrinkage(
+    con: duckdb.DuckDBPyConnection, eval_steps: list[tuple[str, int]],
+    ep_model_version_by_step: dict[tuple[str, int], int],
+    k_minutes_grid: tuple[float, ...] = (150.0, 250.0, 350.0, 450.0, 600.0, 900.0),
+    *, score_fn=_ep_calibration_mae_for_step,
+) -> dict:
+    """Grid search over candidate RATE_SHRINKAGE_K_MINUTES ("rate_shrinkage_params"/"k_minutes")
+    values, minimizing mean ep_total_calibration_mae across eval_steps -- a single parameter, so
+    a plain grid search (unlike refit_minutes_and_evidence_params()'s multi-block coordinate
+    descent, needed there because several interacting parameters are searched together).
+
+    Same real overfitting risk as every other grid search in this module, disclosed rather than
+    hidden: picking the candidate that minimizes eval_steps and reporting that same eval_steps
+    score is optimistic by construction (see refit_minutes_and_evidence_params()'s own docstring
+    for the fuller framing) -- the caller can pass a subset of eval_steps and separately score
+    the winner against a held-out subset, same pattern recalibrate() already applies to the
+    minutes descent via minutes_holdout_flag.
+
+    score_fn is injectable (default _ep_calibration_mae_for_step) purely for unit testing --
+    real callers never need to override it. Each candidate gets its own immutable
+    param_versions row (written here via write_param(), same as
+    _write_family_version_with_override()'s trial-version pattern above) so score_fn can
+    resolve it; only the winning value is ever turned into a real proposal, by the caller in
+    recalibrate() via propose_recalibration() -- mirrors refit_lambda()/refit_kappa_tc()'s own
+    shape exactly (grid search returns raw values, never writes recalibration_proposals itself).
+    """
+    grid_results = {}
+    for k in k_minutes_grid:
+        trial_version = _next_param_version(con, "rate_shrinkage_params")
+        params_mod.write_param(con, "rate_shrinkage_params", trial_version, "2026-09-06", "k_minutes", value_numeric=float(k))
+        maes = []
+        for season, gw in eval_steps:
+            original_ep_mv = ep_model_version_by_step.get((season, gw))
+            if original_ep_mv is None:
+                continue
+            mae = score_fn(con, season, gw, original_ep_mv, trial_version)
+            if mae is not None:
+                maes.append(mae)
+        grid_results[k] = {
+            "ep_total_calibration_mae": sum(maes) / len(maes) if maes else float("inf"),
+            "n_gameweeks": len(maes), "params_version": trial_version,
+        }
+    best_k = min(grid_results, key=lambda k_val: grid_results[k_val]["ep_total_calibration_mae"])
+    return {"best_k_minutes": best_k, "grid": grid_results}
 
 
 def _write_family_version_with_override(
@@ -2301,6 +2400,9 @@ def recalibrate(
     refit_kappa_tc_flag: bool = False,
     minutes_select_seasons: tuple[str, ...] = ("2024-2025",),
     minutes_holdout_flag: bool = True,
+    current_rate_shrinkage_version: int | None = None,
+    rate_shrinkage_k_grid: tuple[float, ...] = (150.0, 250.0, 350.0, 450.0, 600.0, 900.0),
+    refit_rate_shrinkage_flag: bool = False,
     seed_dir: Path | str | None = None,
 ) -> list[int]:
     """Runs whichever refit techniques are enabled against this backtest_run_id's results and
@@ -2322,6 +2424,15 @@ def recalibrate(
     per step, no re-solving of anything -- see refit_kappa_tc()'s own docstring.
     wildcard_gain_threshold_params is NOT covered by any technique here; see refit_kappa_tc()'s
     docstring for why that is a disclosed scope decision, not an oversight.
+
+    refit_rate_shrinkage_flag (default False, same opt-in shape as refit_kappa_tc_flag, via
+    current_rate_shrinkage_version): re-runs expected_points.run() per candidate k per gameweek
+    (cost class of minutes_model.run() -- no SCIP/MIQP, but a real per-fixture Python/SQL loop,
+    so materially more than the cheap xi/rho/rho_residual/kappa_tc techniques above and worth
+    its own opt-in flag). See refit_rate_shrinkage()'s own docstring and
+    docs/plans/2026-09_ep_attacker_defender_imbalance.md, Lead B, for why this parameter (never
+    previously wired into any recalibration technique despite being flagged for one since its
+    introduction) is the walk-forward's own evidence for the premium-player under-prediction.
 
     minutes_holdout_flag (default True): refit_minutes_and_evidence_params()'s coordinate
     descent is a genuinely larger overfitting risk than the single-dimension grid searches
@@ -2425,6 +2536,21 @@ def recalibrate(
                 con, backtest_run_id, "tc_risk_aversion_params", "kappa_tc", result["best_kappa_tc"],
                 "realized_sharpe", result["grid"][current_kappa_tc]["realized_sharpe"], result["grid"][result["best_kappa_tc"]]["realized_sharpe"],
                 old_params_version=current_kappa_tc_version, effective_date=effective_date,
+            ))
+
+    if refit_rate_shrinkage_flag:
+        if current_rate_shrinkage_version is None:
+            raise ValueError("refit_rate_shrinkage_flag=True requires current_rate_shrinkage_version")
+        current_k, _ = params_mod.resolve_param(con, "rate_shrinkage_params", "k_minutes", current_rate_shrinkage_version)
+        grid = tuple(set(rate_shrinkage_k_grid) | {current_k})
+        result = refit_rate_shrinkage(con, eval_steps, ep_by_step, k_minutes_grid=grid)
+        if result["best_k_minutes"] != current_k:
+            proposal_ids.append(propose_recalibration(
+                con, backtest_run_id, "rate_shrinkage_params", "k_minutes", result["best_k_minutes"],
+                "ep_total_calibration_mae",
+                result["grid"][current_k]["ep_total_calibration_mae"],
+                result["grid"][result["best_k_minutes"]]["ep_total_calibration_mae"],
+                old_params_version=current_rate_shrinkage_version, effective_date=effective_date,
             ))
 
     if seed_dir is not None:

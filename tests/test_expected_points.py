@@ -2,6 +2,7 @@ import pytest
 from scipy.stats import poisson
 
 from fpl_quant import expected_points as ep
+from fpl_quant import params as params_mod
 
 
 def test_seed_v1_params_resolves_expected_values(con):
@@ -14,6 +15,21 @@ def test_seed_v1_params_resolves_expected_values(con):
     assert ep._bp(con, "cbi_per_point", 1) == 3.0  # 2026/27 change from 1-per-2
     assert ep._bp(con, "being_tackled", 1) == 0.0  # penalty removed for 2026/27
     assert ep._bp(con, "penalty_save", 1) == 7  # reduced from 8
+
+
+def test_seed_v1_params_registers_rate_shrinkage_k_minutes(con):
+    ep.seed_v1_params(con)
+    value, _ = params_mod.resolve_param(con, "rate_shrinkage_params", "k_minutes", 1)
+    assert value == ep.DEFAULT_RATE_SHRINKAGE_K_MINUTES
+
+
+def test_resolve_shrinkage_k_falls_back_to_the_module_default_when_no_version_given(con):
+    assert ep._resolve_shrinkage_k(con, None) == ep.DEFAULT_RATE_SHRINKAGE_K_MINUTES
+
+
+def test_resolve_shrinkage_k_resolves_a_pinned_recalibrated_version(con):
+    params_mod.write_param(con, "rate_shrinkage_params", 2, "2026-09-06", "k_minutes", value_numeric=150.0)
+    assert ep._resolve_shrinkage_k(con, 2) == 150.0
 
 
 def test_shrink_rate_pure_position_average_at_zero_sample():
@@ -606,6 +622,26 @@ def test_player_rate_pool_recovers_a_snapshot_only_season(con):
     assert pool["expected_goals_per_90"] == pytest.approx(26.0 / 3300 * 90, rel=1e-6)
     # old behaviour (2025-26 only) would have been 0.30 with just 600 sample minutes -- far
     # lower rate AND far more shrinkage toward the position average.
+
+
+def test_player_rates_shrunk_honors_a_pinned_rate_shrinkage_params_version(con):
+    """A premium with a real but moderate sample (900 min) should be shrunk LESS toward the
+    (deliberately low) position average once a recalibrated, smaller k is pinned -- the exact
+    lever docs/plans/2026-09_ep_attacker_defender_imbalance.md's Lead B names for de-compressing
+    the premium ceiling. With no version pinned, behavior is unchanged (the module default)."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('premium', 'premium', 'Forward')")
+    _fps(con, "premium", "2025-2026", 38, xg=9.0, xa=0.0, saves_p90=0, minutes=900)  # 0.90 xG/90
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('filler', 'filler', 'Forward')")
+    _fps(con, "filler", "2025-2026", 38, xg=3.0, xa=0.0, saves_p90=0, minutes=3000)  # low 0.09 xG/90 anchor
+
+    default_rates = ep.player_rates_shrunk(con, "premium", "Forward", ["2025-2026"])
+
+    params_mod.write_param(con, "rate_shrinkage_params", 2, "2026-09-06", "k_minutes", value_numeric=150.0)
+    recalibrated_rates = ep.player_rates_shrunk(con, "premium", "Forward", ["2025-2026"], rate_shrinkage_params_version=2)
+
+    assert recalibrated_rates["expected_goals_per_90"] > default_rates["expected_goals_per_90"]
+    # the smaller k trusts the 900-minute sample enough to land noticeably closer to the raw 0.90
+    assert recalibrated_rates["expected_goals_per_90"] > 0.7
 
 
 def test_player_rate_pool_drops_a_snapshot_season_with_no_match_minutes(con):

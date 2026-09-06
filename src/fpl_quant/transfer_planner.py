@@ -284,6 +284,7 @@ def compute_horizon_ep(
     rho_residual_params_version: int,
     corr_params_version: int,
     set_piece_params_version: int | None = 1,
+    rate_shrinkage_params_version: int | None = None,
 ) -> dict[int, tuple[int, int]]:
     """One ep.run() + uncertainty.run() pair per gameweek in [start_gameweek,
     start_gameweek+horizon_gameweeks), reusing the same ts_model_version/mm_model_version
@@ -294,6 +295,13 @@ def compute_horizon_ep(
 
     set_piece_params_version defaults to 1 so the planner's EP horizon matches ep.run()'s own
     new default (the confirmed-penalty-taker uplift) -- see expected_points.run().
+
+    rate_shrinkage_params_version defaults to None (ep.run()'s own default -- the unrecalibrated
+    RATE_SHRINKAGE_K_MINUTES=450.0), same as ep.run() itself; the caller should pass
+    active_recalibratable_versions()['rate_shrinkage_params_version'] once a real recalibration
+    is confirmed, same as it already does for rho_residual_params_version above -- otherwise
+    the multi-gameweek horizon that actually drives transfer/captain recommendations would
+    silently keep using the stale default even after a recalibration lands.
     """
     out = {}
     for gw in range(start_gameweek, start_gameweek + horizon_gameweeks):
@@ -302,6 +310,7 @@ def compute_horizon_ep(
                 con, calibration_asof_date, target_season, gw, ts_model_version, mm_model_version,
                 scoring_params_version, bps_params_version, tau_params_version,
                 set_piece_params_version=set_piece_params_version,
+                rate_shrinkage_params_version=rate_shrinkage_params_version,
             )
         except ValueError:
             continue
