@@ -63,6 +63,30 @@ def test_fetch_top_entries_empty_league():
     assert entries == []
 
 
+@pytest.mark.parametrize("n_entries", [200, 2000])
+def test_fetch_top_entries_scales_across_many_pages(n_entries):
+    # Real FPL standings pages are fixed-size (50 results/page) -- build enough of them to
+    # cover n_entries, matching Phase A-1's scale-up from 200 to 2,000 entries.
+    page_size = 50
+    n_pages = -(-n_entries // page_size)  # ceil
+    pages = [
+        {
+            "standings": {
+                "has_next": page_num < n_pages,
+                "results": [
+                    {"entry": page_num * page_size + i, "rank": page_num * page_size + i + 1}
+                    for i in range(page_size)
+                ],
+            },
+        }
+        for page_num in range(n_pages)
+    ]
+    entries = ifp.fetch_top_entries(314, n_entries, pages=pages)
+    assert len(entries) == n_entries
+    assert entries[0] == {"entry_id": 0, "rank": 1}
+    assert entries[-1]["rank"] == n_entries
+
+
 # ============================================================
 # fetch_entry_picks
 # ============================================================
@@ -99,7 +123,7 @@ def test_ingest_rival_squad_sample_inserts_resolved_picks(con):
         con, "2025-2026", 5, datetime(2026, 8, 10),
         element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
     )
-    assert result == {"status": "ingested", "entries_sampled": 2, "picks_inserted": 3, "entries_skipped": 0}
+    assert result == {"status": "ingested", "entries_sampled": 2, "picks_inserted": 3, "entries_skipped": 0, "error_rate": 0.0}
 
     rows = con.execute(
         "SELECT entry_id, player_uid, is_captain, multiplier, league_rank FROM fact_rival_squad_sample "
@@ -119,7 +143,7 @@ def test_ingest_rival_squad_sample_skips_entries_with_no_picks(con):
         con, "2025-2026", 5, datetime(2026, 8, 10),
         element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
     )
-    assert result == {"status": "ingested", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 2}
+    assert result == {"status": "ingested", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 2, "error_rate": 1.0}
 
 
 def test_ingest_rival_squad_sample_skips_unresolvable_players(con):
@@ -130,7 +154,7 @@ def test_ingest_rival_squad_sample_skips_unresolvable_players(con):
         con, "2025-2026", 5, datetime(2026, 8, 10),
         element_names={1: "Alan Test"}, entries=entries, entry_picks_by_id=entry_picks_by_id,
     )
-    assert result == {"status": "ingested", "entries_sampled": 1, "picks_inserted": 0, "entries_skipped": 0}
+    assert result == {"status": "ingested", "entries_sampled": 1, "picks_inserted": 0, "entries_skipped": 0, "error_rate": 0.0}
     assert con.execute("SELECT count(*) FROM fact_rival_squad_sample").fetchone()[0] == 0
 
 
@@ -188,6 +212,37 @@ def test_most_owned_players_excludes_zero_multiplier_bench_picks(con):
         entry_picks_by_id={100: [{"element": 1, "is_captain": False, "multiplier": 0}]},
     )
     assert ifp.most_owned_players(con, "2025-2026", 5) == []
+
+
+# ============================================================
+# purge_prior_season_rival_squad_sample -- Phase A-1 [A9] retention policy
+# ============================================================
+
+def test_purge_prior_season_deletes_only_older_seasons(con):
+    element_names, entries, entry_picks_by_id = _standard_scenario(con)
+    ifp.ingest_rival_squad_sample(
+        con, "2024-2025", 38, datetime(2025, 5, 1),
+        element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
+    )
+    ifp.ingest_rival_squad_sample(
+        con, "2025-2026", 5, datetime(2026, 8, 10),
+        element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
+    )
+    deleted = ifp.purge_prior_season_rival_squad_sample(con, "2025-2026")
+    assert deleted == 3
+    remaining = con.execute("SELECT DISTINCT season FROM fact_rival_squad_sample").fetchall()
+    assert remaining == [("2025-2026",)]
+
+
+def test_purge_prior_season_is_a_noop_when_only_current_season_present(con):
+    element_names, entries, entry_picks_by_id = _standard_scenario(con)
+    ifp.ingest_rival_squad_sample(
+        con, "2025-2026", 5, datetime(2026, 8, 10),
+        element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
+    )
+    deleted = ifp.purge_prior_season_rival_squad_sample(con, "2025-2026")
+    assert deleted == 0
+    assert con.execute("SELECT count(*) FROM fact_rival_squad_sample").fetchone()[0] == 3
 
 
 # ============================================================

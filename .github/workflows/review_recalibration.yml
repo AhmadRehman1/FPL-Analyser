@@ -1,0 +1,110 @@
+name: Manual recalibration review
+
+# The human review gate for M7's recalibration_proposals (scripts/review_recalibration.py) --
+# see that script's own module docstring for the full mechanism. That gate is deliberately
+# manual by design (docs/plans/2026-08_roadmap_plan.md, Track B: "Automate confirm too" was
+# considered and explicitly NOT built as an unconditional default -- see that doc's Risks &
+# Landmines section) -- this workflow does not change that. It only relocates WHERE a human can
+# invoke the existing --confirm/--reject commands: review_recalibration.py needs
+# db/fpl_quant_v2.duckdb, which only durably exists inside this project's own CI cache (the
+# walk-forward DB nightly_backtest.yml/recalibrate.yml build and cache under the
+# "walkforward-v1-" prefix), not on a contributor's or an agent's local machine.
+#
+# Every dispatch still requires an explicit proposal id list and a named reviewer, typed by a
+# human (or on a human's explicit instruction) at dispatch time -- the same information
+# review_recalibration.py's CLI already requires locally. Nothing here evaluates a proposal's
+# metric or decides confirm-vs-reject on its own.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_ids:
+        description: "Comma-separated recalibration_proposals.proposal_id values to CONFIRM"
+        required: false
+        default: ""
+      reject_ids:
+        description: "Comma-separated recalibration_proposals.proposal_id values to REJECT"
+        required: false
+        default: ""
+      reviewed_by:
+        description: "Name/handle of the human who reviewed these proposals"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      # Same restore pattern as recalibrate.yml -- the bare "walkforward-v1-" prefix fallback
+      # means this still finds the most recent walk-forward DB even when this branch's own
+      # src/fpl_quant/**/*.py hash doesn't match exactly what produced the cached entry.
+      - name: Restore the walk-forward DB
+        id: wfcache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-none
+          restore-keys: |
+            walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-
+            walkforward-v1-
+
+      - name: Fail fast if no walk-forward DB was ever cached
+        if: steps.wfcache.outputs.cache-matched-key == ''
+        run: |
+          echo "::error::no walkforward-v1- cache found -- nightly_backtest.yml/recalibrate.yml must run at least once before this workflow has a DB to review against"
+          exit 1
+
+      - name: Apply confirm/reject decisions
+        run: |
+          set -e
+          IFS=',' read -ra CONFIRM_IDS <<< "${{ inputs.confirm_ids }}"
+          for id in "${CONFIRM_IDS[@]}"; do
+            id="$(echo "$id" | xargs)"
+            [ -z "$id" ] && continue
+            PYTHONPATH=src python scripts/review_recalibration.py --confirm "$id" --reviewed-by "${{ inputs.reviewed_by }}"
+          done
+          IFS=',' read -ra REJECT_IDS <<< "${{ inputs.reject_ids }}"
+          for id in "${REJECT_IDS[@]}"; do
+            id="$(echo "$id" | xargs)"
+            [ -z "$id" ] && continue
+            PYTHONPATH=src python scripts/review_recalibration.py --reject "$id" --reviewed-by "${{ inputs.reviewed_by }}"
+          done
+
+      - name: List confirmed proposals (post-review state)
+        run: PYTHONPATH=src python scripts/review_recalibration.py --list-confirmed
+
+      # Committed to whatever ref this was dispatched on (not hardcoded to master) -- lets this
+      # run against a feature branch/PR and land the seed file there for review, same pattern
+      # ml_experiment.yml/chip_timing_analysis.yml already use for a dispatchable committer.
+      - name: Commit the updated recalibration seed file
+        run: |
+          bash scripts/ci_commit_generated.sh --branch "${{ github.ref_name }}" \
+            "chore: recalibration review -- confirm/reject via workflow_dispatch [skip ci]" \
+            data/recalibration/
+
+      # Re-save so the confirmed status is visible to the NEXT job that restores this DB too
+      # (the git-committed seed file is production's real source of truth per
+      # active_recalibratable_versions()'s own docstring, but keeping the DB's own
+      # recalibration_proposals.status in sync avoids the drift review_recalibration.py's
+      # module docstring warns about).
+      - name: Cache the reviewed DB
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-${{ github.run_id }}

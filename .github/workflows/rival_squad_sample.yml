@@ -1,0 +1,109 @@
+name: Rival squad sampling (Priority 10 Phase A)
+
+# Priority 10 Phase A-1 (docs/plans/2026-08_roadmap_plan.md, Track A): scripts/run_rival_sample_ingestion.py
+# samples real rival squads from FPL's own public API into fact_rival_squad_sample --
+# deliberately its own low-cadence job, not folded into scheduled_pipeline.yml's twice-daily
+# run, because real historical picks for an already-sampled gameweek never change
+# (ingest_rival_squad_sample() is idempotent per (season, event)) and the script's own docstring
+# is explicit that sampling n_entries means that many real HTTP requests to FPL's API per run,
+# which needs its own rate-limiting/caching discipline rather than riding along on every
+# routine ingestion.
+#
+# This is the actual first step toward Track A's Phase B/C (joint field simulation, "what do
+# real winning squads do differently") -- nothing downstream can be built until real rival
+# picks start accumulating in fact_rival_squad_sample. Runs once daily (gameweeks land at most
+# a few times a week; idempotency makes any extra run a cheap no-op) so a stale/failed run
+# self-heals within a day instead of waiting a full week.
+#
+# Writes only to the DB (fact_rival_squad_sample has no git-committed JSON export yet -- that's
+# Phase C's rank-distribution diagnostic, not built here), so this job commits nothing; it only
+# needs to hand its updated DB forward via the same actions/cache "duckdb-" prefix convention
+# scheduled_pipeline.yml already uses for cross-workflow handoff.
+
+on:
+  schedule:
+    - cron: "0 8 * * *"    # 08:00 UTC daily -- after scheduled_pipeline.yml's 06:00 run has had time to finish (~20-25 min) and land a fresh DB
+  workflow_dispatch:
+    inputs:
+      n_entries:
+        description: "Number of top-Overall-league entries to sample (Phase A-1 default: 2000)"
+        required: false
+        default: "2000"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rival-squad-sample
+  cancel-in-progress: false
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout FPL-Analyser
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
+            data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size
+            size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then
+              echo "::error::${out_path} downloaded too small (${size} bytes) -- likely an interstitial/error page, not the real workbook"
+              exit 1
+            fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then
+              echo "::error::${out_path} looks like an HTML page, not an .xlsx workbook (Google Drive virus-scan interstitial?)"
+              exit 1
+            fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6) [cache miss fallback]
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Sample real rival squads (Phase A-1)
+        run: PYTHONPATH=src python scripts/run_rival_sample_ingestion.py "${{ inputs.n_entries || '2000' }}"
+
+      # Hands the updated DB (now including this run's fact_rival_squad_sample rows) forward to
+      # whatever job next restores via the "duckdb-" prefix -- same convention
+      # scheduled_pipeline.yml uses to hand its freshly-ingested DB to on_demand_report.yml.
+      - name: Cache the updated DB
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-${{ github.run_id }}
