@@ -1636,6 +1636,19 @@ def _seed_event_points(con, season, gw, points_by_player):
         )
 
 
+def _seed_event_points_and_minutes(con, season, gw, rows):
+    """rows: {player_uid: (points, minutes)}. Same as _seed_event_points but with a real,
+    explicit minutes value -- needed to exercise the vice-captain armband-transfer fallback,
+    which keys off minutes == 0, not points."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A') ON CONFLICT DO NOTHING")
+    for player_uid, (points, minutes) in rows.items():
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder') ON CONFLICT DO NOTHING", [player_uid, player_uid])
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, minutes, _ingested_at) VALUES (?, ?, ?, ?, ?, current_timestamp)",
+            [player_uid, season, gw, points, minutes],
+        )
+
+
 def test_realized_xi_points_sums_only_the_xi_not_the_bench(con):
     _seed_event_points(con, "2025-2026", 5, {"p1": 10, "p2": 5, "bench1": 100})
     total = bt._realized_xi_points(con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid=None)
@@ -1652,6 +1665,73 @@ def test_realized_xi_points_treats_missing_row_as_zero(con):
     _seed_event_points(con, "2025-2026", 5, {"p1": 10})
     total = bt._realized_xi_points(con, "2025-2026", 5, frozenset({"p1", "p_unscored"}), captain_uid=None)
     assert total == pytest.approx(10.0)
+
+
+# ============================================================
+# _realized_xi_points -- vice-captain armband-transfer fallback (real FPL rule: captain 0
+# minutes -> multiplier moves to the vice). model_team._squad_from_ledger_row()'s own comment
+# flagged this as a disclosed, unfixed gap ("never silently wrong: _realized_xi_points just
+# doubles the captain's real points") -- this closes it.
+# ============================================================
+
+def test_realized_xi_points_no_fallback_when_vice_captain_uid_not_given(con):
+    """Default None (every pre-existing caller): byte-identical to the old behavior -- the
+    captain's real (zero) points still get doubled, no fallback, even though a real armband
+    transfer would have applied here."""
+    _seed_event_points_and_minutes(con, "2025-2026", 5, {"p1": (0, 0), "p2": (5, 90)})
+    total = bt._realized_xi_points(con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid="p1")
+    assert total == pytest.approx(0 * 2 + 5)
+
+
+def test_realized_xi_points_captain_blanks_transfers_the_armband_to_the_vice(con):
+    _seed_event_points_and_minutes(con, "2025-2026", 5, {"p1": (0, 0), "p2": (8, 90)})
+    total = bt._realized_xi_points(
+        con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid="p1", vice_captain_uid="p2",
+    )
+    assert total == pytest.approx(0 + 8 * 2)  # vice doubled instead of captain
+
+
+def test_realized_xi_points_captain_plays_and_scores_zero_keeps_the_armband(con):
+    """A real appearance (minutes > 0) that happens to score 0 points is NOT a blank -- the
+    real rule is about minutes, not points. No fallback."""
+    _seed_event_points_and_minutes(con, "2025-2026", 5, {"p1": (0, 90), "p2": (8, 90)})
+    total = bt._realized_xi_points(
+        con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid="p1", vice_captain_uid="p2",
+    )
+    assert total == pytest.approx(0 * 2 + 8)
+
+
+def test_realized_xi_points_both_captain_and_vice_blank_scores_the_same_either_way(con):
+    """No special-casing needed: doubling 0 is still 0."""
+    _seed_event_points_and_minutes(con, "2025-2026", 5, {"p1": (0, 0), "p2": (0, 0), "p3": (6, 90)})
+    total = bt._realized_xi_points(
+        con, "2025-2026", 5, frozenset({"p1", "p2", "p3"}), captain_uid="p1", vice_captain_uid="p2",
+    )
+    assert total == pytest.approx(0 + 0 + 6)
+
+
+def test_realized_xi_points_null_minutes_is_not_treated_as_a_confirmed_blank(con):
+    """Real gap this closes (found via test_score_gameweek_records_beats_crowd_metrics_when_
+    opted_in): a row with real event_points but NO minutes recorded (NULL, not 0) must NOT be
+    treated as "the captain didn't play" -- only an explicit minutes == 0 does. Conflating
+    "never recorded" with "confirmed blank" would transfer the armband on pure missing-data
+    noise, exactly what this fixture's captain (real points, no minutes column at all) is."""
+    _seed_event_points(con, "2025-2026", 5, {"p1": 10, "p2": 5})  # no minutes column set -> NULL
+    total = bt._realized_xi_points(
+        con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid="p1", vice_captain_uid="p2",
+    )
+    assert total == pytest.approx(10 * 2 + 5)  # captain keeps the armband, exact old behavior
+
+
+def test_realized_xi_points_vice_captain_not_in_xi_is_ignored(con):
+    """A vice-captain uid that isn't even in the scored XI (e.g. benched, or a stale reference)
+    must not crash or silently apply to nothing -- the captain simply keeps the (zero) armband,
+    matching the no-real-vice-available case."""
+    _seed_event_points_and_minutes(con, "2025-2026", 5, {"p1": (0, 0), "p2": (5, 90)})
+    total = bt._realized_xi_points(
+        con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid="p1", vice_captain_uid="bench_uid_not_in_xi",
+    )
+    assert total == pytest.approx(0 * 2 + 5)
 
 
 # ============================================================
