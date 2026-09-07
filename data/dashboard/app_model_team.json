@@ -2,10 +2,10 @@
   "ready": true,
   "season": "2026-2027",
   "current_gameweek": 3,
-  "n_gameweeks_scored": 2,
+  "n_gameweeks_scored": 3,
   "n_gameweeks_simulated": 1,
-  "total_realized_points": 93.0,
-  "total_vs_field": -38.0,
+  "total_realized_points": 153.0,
+  "total_vs_field": -29.0,
   "chips_used": [
     "free_hit"
   ],
@@ -43,11 +43,11 @@
       "action_detail": "",
       "projected_points": 78.23,
       "realized_points": 60.0,
-      "provisional": true,
-      "field_average": null,
-      "delta_vs_field": null,
-      "cumulative_points": null,
-      "cumulative_vs_field": null
+      "provisional": false,
+      "field_average": 51,
+      "delta_vs_field": 9.0,
+      "cumulative_points": 153.0,
+      "cumulative_vs_field": -29.0
     }
   ],
   "free_hit_audit": {
@@ -59,8 +59,8 @@
     "realized_points": 60.0,
     "counterfactual_hold_realized_points": 21.0,
     "realized_minus_hold": 39.0,
-    "gameweek_final": false,
-    "note": "gameweek still in progress -- realised and counterfactual figures are provisional"
+    "gameweek_final": true,
+    "note": "gameweek final"
   },
   "current_squad": [
     {
@@ -145,5 +145,5 @@
     "detail": ""
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-09-07T08:56:27.156025+00:00"
+  "generated_at": "2026-09-07T13:26:39.809519+00:00"
 }
