@@ -110,6 +110,38 @@ jobs:
         continue-on-error: true
         run: PYTHONPATH=src python scripts/run_recalibrate.py --stage minutes
 
+      # Real bug this closes: this workflow only ever RESTORED a walk-forward DB, never saved
+      # its own back -- every proposal/param_versions row every stage above just wrote only
+      # ever existed on this job's own ephemeral runner disk. review_recalibration.py's
+      # --confirm needs those exact DB rows (proposal_id, backtest_run_id) to act on, and
+      # without this step it can only ever find whatever nightly_backtest.yml/ml_experiment.yml
+      # most recently cached under "walkforward-v1-" -- a walk-forward-only DB with NO
+      # recalibration_proposals rows at all. A real confirm attempt hit exactly this ("No
+      # proposal #1-4 found") the same day this was found. Saved here, BEFORE the expensive/
+      # often-timed-out lambda stage, so a durable, confirmable checkpoint exists even when
+      # lambda never finishes -- xi_rho/rho_residual/kappa_tc/rate_shrinkage/minutes' proposals
+      # are the ones actually worth confirming promptly; lambda's own SCIP grid search doesn't
+      # write anything this checkpoint would lose (its own proposal, if any, lands in the
+      # end-of-job save below when it completes).
+      - name: Cache the DB after the cheap+minutes stages (before the often-timed-out lambda stage)
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-${{ github.run_id }}-pre-lambda
+
       - name: Refit lambda (risk aversion, SCIP grid)
         continue-on-error: true
         run: PYTHONPATH=src python scripts/run_recalibrate.py --stage lambda
+
+      # Final save, whether or not lambda actually finished (timeout/failure both leave a real,
+      # usable DB on disk from whatever completed above) -- same "walkforward-v1-" prefix so
+      # review_recalibration.yml's/nightly_backtest.yml's/ml_experiment.yml's own restore-keys
+      # fallback picks up whichever save is newest, this one included.
+      - name: Cache the final DB (all stages that completed)
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: walkforward-v1-${{ hashFiles('src/fpl_quant/**/*.py', 'requirements.lock', 'data/recalibration/*.json') }}-${{ github.run_id }}
