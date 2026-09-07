@@ -414,11 +414,35 @@
   "parameters_still_invented": 71,
   "planner_decision_accuracy": {
     "ready": false,
-    "n_realized": 0,
+    "n_realized": 2,
     "min_gameweeks": 8,
-    "n_uncounterfactualable_weeks": 2
+    "n_uncounterfactualable_weeks": 2,
+    "preliminary": true,
+    "mean_point_delta_if_followed": 6.5,
+    "total_point_delta_if_followed": 13,
+    "n_recommendation_would_have_scored_more": 2,
+    "n_actual_scored_more": 0,
+    "n_tied": 0,
+    "by_gameweek": [
+      {
+        "gameweek": 3,
+        "entry_id": 1305242,
+        "recommended_action": "hold",
+        "actual": 53,
+        "if_followed": 61,
+        "delta": 8
+      },
+      {
+        "gameweek": 3,
+        "entry_id": 7139944,
+        "recommended_action": "hold",
+        "actual": 51,
+        "if_followed": 56,
+        "delta": 5
+      }
+    ]
   },
-  "generated_at": "2026-09-07T13:26:35.649336",
+  "generated_at": "2026-09-07T21:54:35.950936",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": null,
@@ -448,53 +472,20 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 53.88919543097904,
+        "total_projected_ep": 53.854100421056415,
         "captain_name": "Ethan Ampadu",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
     "latest_diff": {
-      "has_previous": true,
-      "previous_gameweek": 2,
-      "current_gameweek": 3,
-      "squad_changes": {
-        "in": [
-          "Igor Thiago Nascimento Rodrigues",
-          "Bart Verbruggen",
-          "James Tarkowski",
-          "Joachim Andersen",
-          "Erling Haaland",
-          "Bruno Borges Fernandes",
-          "Martin D\u00fabravka",
-          "Alexander Isak",
-          "Ryan Yates",
-          "Nikola Milenkovi\u0107",
-          "Darko Gyabi",
-          "Granit Xhaka",
-          "John Egan"
-        ],
-        "out": [
-          "Nathan Collins",
-          "Yankuba Minteh",
-          "Ollie Watkins",
-          "Will Dennis",
-          "Declan Rice",
-          "Mois\u00e9s Caicedo Corozo",
-          "Maxence Lacroix",
-          "Bernd Leno",
-          "William Osula",
-          "Elliot Anderson",
-          "Adrien Truffert",
-          "Igor Jesus Maciel da Cruz",
-          "Omar Alderete"
-        ]
-      },
-      "captain_changed": true,
-      "previous_captain": "Igor Jesus Maciel da Cruz",
-      "current_captain": "Ethan Ampadu",
-      "total_projected_ep_delta": 12.318229438269178,
-      "newly_doubtful_flags": []
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 1,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
     },
     "provenance": {
       "data_asof": "2026-09-07",
@@ -502,8 +493,8 @@
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "b485961178c4e7af13ec48d6bfaa28c79dcca193",
-      "fpl_core_insights_commit_sha": "11fdac375453f5f12ca4c114a3de53f38e1d95fd",
+      "fpl_analyser_commit_sha": "075b483d0e00f98f18278f91e274087591b512db",
+      "fpl_core_insights_commit_sha": "059a701e40d524eaddc259a4223a181b6b115ab5",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -515,7 +506,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-09-07T11:36:41.965475+00:00",
+      "recorded_at": "2026-09-07T20:51:39.000373+00:00",
       "research_pull_workbook": {
         "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
         "size_bytes": 26007
