@@ -97,7 +97,7 @@ def _resolve(con: duckdb.DuckDBPyConnection, names: list[str]) -> dict[str, str]
 
 def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: str, current_event: int) -> dict:
     by_name = _resolve(con, [p["player_name"] for p in seed])
-    squad_uids, xi_uids, captain_uid = [], [], None
+    squad_uids, xi_uids, captain_uid, vice_captain_uid = [], [], None, None
     for p in seed:
         uid = by_name.get(p["player_name"])
         if not uid:
@@ -107,12 +107,16 @@ def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: st
             xi_uids.append(uid)
         if p["is_captain"]:
             captain_uid = uid
+        if p["is_vice"]:
+            vice_captain_uid = uid
     played = con.execute(
         "SELECT count(*) FROM fact_player_season_stats WHERE season = ? AND gw = 1 AND event_points IS NOT NULL",
         [season],
     ).fetchone()[0]
     realized = (
-        round(bt._realized_xi_points(con, season, 1, frozenset(xi_uids), captain_uid), 1) if played else None
+        round(bt._realized_xi_points(
+            con, season, 1, frozenset(xi_uids), captain_uid, vice_captain_uid=vice_captain_uid,
+        ), 1) if played else None
     )
     return {
         "gameweek": 1, "entry_label": "FPL Quant Model Team", "simulated": 1 < current_event,
@@ -120,7 +124,7 @@ def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: st
         "band_low": None, "band_high": None, "wildcard_gain": None, "wildcard_recommended": False,
         "free_hit_gain": None, "free_hit_recommended": False, "current_squad_horizon_value": None,
         "chips_used": [], "squad_uids": sorted(squad_uids), "xi_uids": sorted(xi_uids),
-        "captain_uid": captain_uid, "realized_points": realized,
+        "captain_uid": captain_uid, "vice_captain_uid": vice_captain_uid, "realized_points": realized,
     }
 
 
@@ -157,10 +161,15 @@ def _squad_from_ledger_row(con: duckdb.DuckDBPyConnection, row: dict) -> list[di
     `_carryforward_fields`)."""
     squad_uids, xi, cap = _carryforward_fields(row)
     names = _names(con, squad_uids)
-    # vice: the highest-order non-captain XI player isn't stored; pick any XI non-captain as
-    # vice (only matters if the captain is auto-subbed -- realised scoring below uses FPL's own
-    # entry_history for the real teams, and for the model team a missing-vice edge is rare and
-    # never silently wrong: _realized_xi_points just doubles the captain's real points).
+    # This "vice" is only a bootstrap-shape placeholder for advance()'s next
+    # run_forward_season_sim() call, which re-solves and gets its own REAL,
+    # squad_optimizer-selected vice-captain from that solve -- this guessed value (any XI
+    # non-captain) never reaches scoring. Real, previously-disclosed-but-unfixed gap this
+    # placeholder's own old comment used to describe -- realized scoring (realize(),
+    # _gw1_ledger_row(), _free_hit_audit()) now reads the REAL vice_captain_uid each ledger row
+    # actually carries (see _realized_xi_points()'s own vice_captain_uid param) and applies
+    # FPL's real armband-transfer rule when the captain blanks, instead of always doubling the
+    # captain's own (possibly zero) points.
     vice = next((u for u in sorted(xi) if u != cap), None)
     return [
         {"player_name": names.get(u, u), "in_xi": u in xi, "is_captain": u == cap, "is_vice": u == vice}
@@ -271,7 +280,7 @@ def realize(
         mult = 3 if row.get("action") == "triple_captain" else 2
         new_points = round(
             bt._realized_xi_points(con, season, gw, frozenset(row["xi_uids"]), row.get("captain_uid"),
-                                   captain_multiplier=mult),
+                                   captain_multiplier=mult, vice_captain_uid=row.get("vice_captain_uid")),
             1,
         )
         if new_points != row.get("realized_points"):
@@ -378,6 +387,7 @@ def _free_hit_audit(
     prev = next((r for r in reversed(ordered_ledger) if r["gameweek"] < gw), None)
     hold_xi = fhr.get("carryforward_xi_uids") or (prev["xi_uids"] if prev else None)
     hold_cap = fhr.get("carryforward_captain_uid") or (prev.get("captain_uid") if prev else None)
+    hold_vice = fhr.get("carryforward_vice_captain_uid") or (prev.get("vice_captain_uid") if prev else None)
 
     counterfactual_hold = None
     if hold_xi:
@@ -387,7 +397,7 @@ def _free_hit_audit(
         ).fetchone()[0]
         if played:
             counterfactual_hold = round(
-                bt._realized_xi_points(con, season, gw, frozenset(hold_xi), hold_cap), 1
+                bt._realized_xi_points(con, season, gw, frozenset(hold_xi), hold_cap, vice_captain_uid=hold_vice), 1
             )
 
     realized = fhr.get("realized_points")

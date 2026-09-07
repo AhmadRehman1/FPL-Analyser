@@ -22,12 +22,23 @@ def _seed_points(con, season, gw, points_by_uid):
                     "VALUES (?, ?, ?, ?, current_timestamp)", [u, season, gw, p])
 
 
-def _ledger_row(gw, xi, cap, *, realized=None, action="hold", simulated=False, projected=50.0):
+def _seed_points_and_minutes(con, season, gw, rows):
+    """rows: {player_uid: (points, minutes)} -- needed to exercise the vice-captain
+    armband-transfer fallback, which keys off minutes == 0, not points."""
+    for u, (p, mins) in rows.items():
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, minutes, _ingested_at) "
+            "VALUES (?, ?, ?, ?, ?, current_timestamp)", [u, season, gw, p, mins],
+        )
+
+
+def _ledger_row(gw, xi, cap, *, realized=None, action="hold", simulated=False, projected=50.0, vice=None):
     squad = xi + [f"player_bench{i}" for i in range(4)]
     return {
         "gameweek": gw, "entry_label": "FPL Quant Model Team", "simulated": simulated,
         "action": action, "action_detail": "", "projected_points": projected,
         "realized_points": realized, "squad_uids": sorted(squad), "xi_uids": sorted(xi), "captain_uid": cap,
+        "vice_captain_uid": vice,
         "chips_used": [], "wildcard_gain": None, "wildcard_recommended": False, "free_hit_gain": None,
         "free_hit_recommended": False, "current_squad_horizon_value": None, "band_low": 40.0, "band_high": 60.0,
     }
@@ -84,6 +95,43 @@ def test_realize_triple_captain_uses_a_3x_multiplier(con, tmp_path):
     _seed_points(con, "2026-2027", 4, {u: 2 for u in xi})  # 10*2 + 1*(2*3) = 26
     model_team.realize(con, tmp_path)
     assert model_team.load_state(tmp_path)["ledger"][0]["realized_points"] == 26.0
+
+
+def test_realize_transfers_the_armband_to_the_vice_when_captain_blanks(con, tmp_path):
+    """Real FPL rule: captain records 0 minutes -> the multiplier moves to the vice-captain.
+    Closes the gap model_team._squad_from_ledger_row()'s own comment used to disclose
+    ("never silently wrong: _realized_xi_points just doubles the captain's real points")."""
+    xi = [f"player_v{i}" for i in range(11)]
+    _seed_players(con, xi + [f"player_bench{i}" for i in range(4)])
+    _write_state(tmp_path, [_ledger_row(6, xi, "player_v0", realized=None, vice="player_v1")], gw=6)
+    points = {u: 2 for u in xi}
+    del points["player_v0"]
+    _seed_points_and_minutes(con, "2026-2027", 6, {
+        **{u: (p, 90) for u, p in points.items()},
+        "player_v0": (0, 0),  # captain blanked -- didn't play at all
+    })
+    # without the fallback: 0*2 (captain) + 10*2 (rest, incl. vice at its plain 2) = 20;
+    # with it: 0 (captain, un-doubled) + 9*2 (rest) + 2*2 (vice doubled) = 22
+    model_team.realize(con, tmp_path)
+    assert model_team.load_state(tmp_path)["ledger"][0]["realized_points"] == 22.0
+
+
+def test_realize_keeps_old_behavior_when_ledger_row_has_no_vice_captain_uid(con, tmp_path):
+    """A legacy ledger row written before this field existed (row.get() returns None): the
+    captain's own (zero) points still get doubled, exactly the old behavior."""
+    xi = [f"player_w{i}" for i in range(11)]
+    _seed_players(con, xi + [f"player_bench{i}" for i in range(4)])
+    row = _ledger_row(7, xi, "player_w0", realized=None)
+    del row["vice_captain_uid"]
+    _write_state(tmp_path, [row], gw=7)
+    points = {u: 2 for u in xi}
+    del points["player_w0"]
+    _seed_points_and_minutes(con, "2026-2027", 7, {
+        **{u: (p, 90) for u, p in points.items()},
+        "player_w0": (0, 0),
+    })
+    model_team.realize(con, tmp_path)
+    assert model_team.load_state(tmp_path)["ledger"][0]["realized_points"] == 20.0
 
 
 # ------------------------------------------------------------------ build_summary()
