@@ -75,6 +75,12 @@ class GameweekResult:
     squad_uids: list[str] = field(default_factory=list)
     xi_uids: list[str] = field(default_factory=list)
     captain_uid: str | None = None
+    # The real, MIQP-selected vice-captain (squad_optimizer.solve()'s own "vice" -- not a
+    # reconstructed guess) for the squad that scored this gameweek. Used only for realized
+    # scoring's armband-transfer fallback (backtest._realized_xi_points()'s own
+    # vice_captain_uid param): real FPL moves the multiplier here when the captain records 0
+    # minutes. None on a week with no real vice available (e.g. a legacy carryforward row).
+    vice_captain_uid: str | None = None
     # The real persisted post-decision holdings -- the squad to CARRY FORWARD into the next
     # gameweek. Equal to squad_uids/xi_uids/captain_uid on every non-Free-Hit week; on a Free
     # Hit week these stay the pre-chip 15 (apply_recommendation deliberately leaves holdings
@@ -83,6 +89,7 @@ class GameweekResult:
     carryforward_squad_uids: list[str] = field(default_factory=list)
     carryforward_xi_uids: list[str] = field(default_factory=list)
     carryforward_captain_uid: str | None = None
+    carryforward_vice_captain_uid: str | None = None
     # The true starting XI (the 11-man formation), always -- unlike xi_uids, which on a
     # bench_boost week is all 15 (everyone scores). Display uses this so the pitch stays a
     # legal formation; scoring uses xi_uids. Equal to xi_uids on every non-bench-boost week.
@@ -111,6 +118,7 @@ class GameweekResult:
             "xi_uids": self.xi_uids,
             "formation_xi_uids": self.formation_xi_uids,
             "captain_uid": self.captain_uid,
+            "vice_captain_uid": self.vice_captain_uid,
             "realized_points": None if self.realized_points is None else round(self.realized_points, 1),
             "current_squad_horizon_value": (
                 None if self.current_squad_horizon_value is None else round(self.current_squad_horizon_value, 2)
@@ -123,6 +131,7 @@ class GameweekResult:
             "carryforward_squad_uids": self.carryforward_squad_uids,
             "carryforward_xi_uids": self.carryforward_xi_uids,
             "carryforward_captain_uid": self.carryforward_captain_uid,
+            "carryforward_vice_captain_uid": self.carryforward_vice_captain_uid,
             "transfers": self.transfers,
         }
 
@@ -434,14 +443,17 @@ def run_forward_season_sim(
             if accept_chip == "free_hit" and free_hit_squad is not None:
                 xi = frozenset(h["player_uid"] for h in free_hit_squad if h["in_xi"])
                 cap = next((h["player_uid"] for h in free_hit_squad if h["is_captain"]), None)
+                vice = next((h["player_uid"] for h in free_hit_squad if h["is_vice"]), None)
                 mult = 2
             elif accept_chip == "bench_boost":
                 xi = frozenset(h["player_uid"] for h in holdings)
                 cap = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+                vice = next((h["player_uid"] for h in holdings if h["is_vice"]), None)
                 mult = 2
             else:
                 xi = frozenset(h["player_uid"] for h in holdings if h["in_xi"])
                 cap = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+                vice = next((h["player_uid"] for h in holdings if h["is_vice"]), None)
                 mult = 3 if accept_chip == "triple_captain" else 2
 
             if ep_mv_gw is None or un_mv_gw is None:
@@ -459,7 +471,9 @@ def run_forward_season_sim(
                     [target_season, gw],
                 ).fetchone()[0]
                 if played:
-                    realized = bt._realized_xi_points(con, target_season, gw, frozenset(xi), cap, captain_multiplier=mult)
+                    realized = bt._realized_xi_points(
+                        con, target_season, gw, frozenset(xi), cap, captain_multiplier=mult, vice_captain_uid=vice,
+                    )
 
         action = accept_chip or ("transfer" if accept_rank is not None else "hold")
         detail = ""
@@ -497,10 +511,11 @@ def run_forward_season_sim(
             squad_uids=sorted(h["player_uid"] for h in scored_squad),
             xi_uids=sorted(xi),
             formation_xi_uids=sorted(h["player_uid"] for h in scored_squad if h["in_xi"]),
-            captain_uid=cap, realized_points=realized,
+            captain_uid=cap, vice_captain_uid=vice, realized_points=realized,
             carryforward_squad_uids=sorted(h["player_uid"] for h in holdings),
             carryforward_xi_uids=sorted(h["player_uid"] for h in holdings if h["in_xi"]),
             carryforward_captain_uid=next((h["player_uid"] for h in holdings if h["is_captain"]), None),
+            carryforward_vice_captain_uid=next((h["player_uid"] for h in holdings if h["is_vice"]), None),
             transfers=transfers,
         ))
 

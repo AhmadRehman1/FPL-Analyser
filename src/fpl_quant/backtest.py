@@ -852,7 +852,11 @@ def score_gameweek(
             "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND is_captain", [so_run_id]
         ).fetchone()
         captain_uid = captain_row[0] if captain_row else None
-        model_points = _realized_xi_points(con, season, gameweek, xi_uids, captain_uid)
+        vice_row = con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND is_vice", [so_run_id]
+        ).fetchone()
+        vice_captain_uid = vice_row[0] if vice_row else None
+        model_points = _realized_xi_points(con, season, gameweek, xi_uids, captain_uid, vice_captain_uid=vice_captain_uid)
         avg_manager_points = _avg_manager_benchmark_points(con, season, gameweek, ep_model_version, ownership_params_version)
         if avg_manager_points is not None:
             _record_metric(con, backtest_run_id, season, gameweek, tier, "model_squad_realized_points", model_points)
@@ -1202,17 +1206,23 @@ def run_season_simulation(
         if accept_chip == "free_hit" and free_hit_squad is not None:
             xi_uids = frozenset(h["player_uid"] for h in free_hit_squad if h["in_xi"])
             captain_uid = next((h["player_uid"] for h in free_hit_squad if h["is_captain"]), None)
+            vice_captain_uid = next((h["player_uid"] for h in free_hit_squad if h["is_vice"]), None)
             captain_multiplier = 2
         elif accept_chip == "bench_boost":
             xi_uids = frozenset(h["player_uid"] for h in holdings)  # full 15, not just the XI
             captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+            vice_captain_uid = next((h["player_uid"] for h in holdings if h["is_vice"]), None)
             captain_multiplier = 2
         else:
             xi_uids = frozenset(h["player_uid"] for h in holdings if h["in_xi"])
             captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
+            vice_captain_uid = next((h["player_uid"] for h in holdings if h["is_vice"]), None)
             captain_multiplier = 3 if accept_chip == "triple_captain" else 2
 
-        points = _realized_xi_points(con, season, gw, xi_uids, captain_uid, captain_multiplier=captain_multiplier)
+        points = _realized_xi_points(
+            con, season, gw, xi_uids, captain_uid,
+            captain_multiplier=captain_multiplier, vice_captain_uid=vice_captain_uid,
+        )
         weekly_points.append(points)
         gameweeks_scored.append(gw)
 
@@ -2117,7 +2127,7 @@ def refit_minutes_and_evidence_params(
 
 def _realized_xi_points(
     con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None,
-    captain_multiplier: int = 2,
+    captain_multiplier: int = 2, vice_captain_uid: str | None = None,
 ) -> float:
     """Real FPL scoring: only the starting XI's points count, and the captain's points double
     -- summing the full 15-player squad (bench included) would overstate what a squad actually
@@ -2125,15 +2135,43 @@ def _realized_xi_points(
     reconstruction from raw stats. captain_multiplier defaults to 2 (the real rule for every
     normal gameweek); run_season_simulation() passes 3 for a gameweek Triple Captain was
     accepted on -- the one real FPL rule change captaincy makes to this formula, not a second
-    scoring function."""
-    total = 0.0
+    scoring function.
+
+    vice_captain_uid (default None, exact prior behavior): real FPL's armband-transfer rule --
+    when the captain records 0 minutes this gameweek (didn't play at all; a real appearance
+    that merely scored 0 points still keeps the armband), the multiplier transfers to the
+    vice-captain instead. No special-casing needed for "the vice didn't play either": doubling
+    0 points is still 0, identical to not doubling. A real, previously-disclosed-but-unfixed gap
+    (model_team._squad_from_ledger_row()'s own comment: "never silently wrong: _realized_xi_points
+    just doubles the captain's real points") -- this is what actually closes it, once a caller
+    has a real (not reconstructed-guess) vice_captain_uid to pass.
+
+    Minutes UNKNOWN (no row at all, or a real row with a NULL minutes -- fact_player_season_stats.
+    minutes has no NOT NULL constraint) is deliberately NOT treated as "confirmed blank": only an
+    explicit minutes == 0 triggers the fallback. Conflating "never recorded" with "definitely
+    didn't play" would transfer the armband on pure missing-data noise -- a real fixture-vs-
+    production gap found via test_score_gameweek_records_beats_crowd_metrics_when_opted_in, whose
+    scenario has real event_points but no minutes column at all."""
+    stats = {}
     for player_uid in xi_uids:
         row = con.execute(
-            "SELECT event_points FROM fact_player_season_stats WHERE player_uid = ? AND season = ? AND gw = ?",
+            "SELECT event_points, minutes FROM fact_player_season_stats WHERE player_uid = ? AND season = ? AND gw = ?",
             [player_uid, season, gameweek],
         ).fetchone()
-        pts = row[0] if row and row[0] is not None else 0.0
-        total += pts * captain_multiplier if player_uid == captain_uid else pts
+        stats[player_uid] = (
+            row[0] if row and row[0] is not None else 0.0,
+            row[1] if row else None,  # None = unknown, never inferred as a confirmed blank
+        )
+
+    armband_uid = captain_uid
+    if vice_captain_uid is not None and captain_uid is not None and vice_captain_uid in stats:
+        _captain_pts, captain_minutes = stats.get(captain_uid, (0.0, None))
+        if captain_minutes == 0:
+            armband_uid = vice_captain_uid
+
+    total = 0.0
+    for player_uid, (pts, _minutes) in stats.items():
+        total += pts * captain_multiplier if player_uid == armband_uid else pts
     return total
 
 
