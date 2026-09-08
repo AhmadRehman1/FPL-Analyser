@@ -522,7 +522,7 @@ def test_captain_differential_caveat_is_always_present_and_honest():
 # SQL joins/param resolution around it).
 # ============================================================
 
-def _seed_run_for_captain_differential(con):
+def _seed_run_for_captain_differential(con, captain_uid="B", extra_players=None):
     con.execute(
         "INSERT INTO dim_team (team_uid, canonical_name) VALUES ('club_a', 'A'), ('club_b', 'B') ON CONFLICT DO NOTHING"
     )
@@ -555,9 +555,11 @@ def _seed_run_for_captain_differential(con):
     )
     un_mv = con.execute("SELECT max(model_version) FROM uncertainty_model_versions").fetchone()[0]
 
-    xi_players = {"A": (5.0, 5.0), "B": (5.02, 80.0), "C": (3.0, 1.0)}  # uid -> (mu, ownership)
-    for uid, (mu, ownership) in xi_players.items():
-        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    # uid -> (position, mu, ownership)
+    xi_players = {"A": ("Midfielder", 5.0, 5.0), "B": ("Midfielder", 5.02, 80.0), "C": ("Midfielder", 3.0, 1.0)}
+    xi_players.update(extra_players or {})
+    for uid, (position, mu, ownership) in xi_players.items():
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, position])
         con.execute(
             "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
             "VALUES (?, ?, '1', '2026-2027', ?)", [uid, uid.lower(), uid],
@@ -588,7 +590,7 @@ def _seed_run_for_captain_differential(con):
     for uid in xi_players:
         con.execute(
             "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
-            "VALUES (?, ?, TRUE, TRUE, ?, FALSE)", [run_id, uid, uid == "B"],
+            "VALUES (?, ?, TRUE, TRUE, ?, FALSE)", [run_id, uid, uid == captain_uid],
         )
     return run_id
 
@@ -608,6 +610,65 @@ def test_recommend_captain_with_differential_raises_on_unknown_run(con):
     so.seed_v1_params(con)
     with pytest.raises(ValueError):
         so.recommend_captain_with_differential(con, 999, differential_tiebreak_params_version=1)
+
+
+# ============================================================
+# explain_run()'s captain_ep_gap diagnostic -- flag-only, never touches
+# squad_optimizer_selections (see its own docstring in squad_optimizer.py). Built after finding
+# a live, real example in production: the model-managed team's own GW4 squad captained a
+# defender (Marcos Senesi) with two higher-raw-EP attacking players in the XI.
+# ============================================================
+
+def test_explain_run_captain_ep_gap_is_zero_when_captain_is_the_highest_ep_xi_player(con):
+    so.seed_v1_params(con)
+    run_id = _seed_run_for_captain_differential(con, captain_uid="B")  # B has the highest mu (5.02)
+
+    audit = so.explain_run(con, run_id)
+    gap = audit["captain_ep_gap"]
+    assert gap["captain_ep"] == pytest.approx(5.02)
+    assert gap["highest_xi_ep_uid"] == "B"
+    assert gap["gap"] == pytest.approx(0.0)
+    assert gap["captain_is_highest_ep"] is True
+
+
+def test_explain_run_captain_ep_gap_is_positive_when_captain_is_not_the_highest_ep_xi_player(con):
+    so.seed_v1_params(con)
+    # C (mu=3.0) captained instead of B (mu=5.02, the real highest-EP XI player) -- the exact
+    # shape of the live Senesi-over-Bruno-Fernandes case this diagnostic was built to surface.
+    run_id = _seed_run_for_captain_differential(con, captain_uid="C")
+
+    audit = so.explain_run(con, run_id)
+    gap = audit["captain_ep_gap"]
+    assert gap["captain_ep"] == pytest.approx(3.0)
+    assert gap["highest_xi_ep_uid"] == "B"
+    assert gap["highest_xi_ep"] == pytest.approx(5.02)
+    assert gap["gap"] == pytest.approx(2.02)
+    assert gap["captain_is_highest_ep"] is False
+
+
+def test_explain_run_captain_ep_gap_excludes_goalkeepers_from_the_comparison_pool(con):
+    so.seed_v1_params(con)
+    # A goalkeeper can never be captain (solve()'s own unconditional guardrail) -- a GK with
+    # the highest raw EP in the XI must not count as "the player the captain should have been."
+    run_id = _seed_run_for_captain_differential(
+        con, captain_uid="B", extra_players={"gk1": ("Goalkeeper", 9.0, 1.0)},
+    )
+
+    audit = so.explain_run(con, run_id)
+    gap = audit["captain_ep_gap"]
+    assert gap["highest_xi_ep_uid"] == "B"  # not gk1, despite its higher raw EP
+    assert gap["captain_is_highest_ep"] is True
+
+
+def test_explain_run_captain_ep_gap_is_none_when_no_captain_is_recorded(con):
+    so.seed_v1_params(con)
+    # No XI player matches "nobody" -- squad_optimizer_selections ends up with no is_captain
+    # row at all, the same real shape a run stored before a captain was ever chosen would have.
+    run_id = _seed_run_for_captain_differential(con, captain_uid="nobody")
+
+    audit = so.explain_run(con, run_id)
+    assert audit["captain_uid"] is None
+    assert audit["captain_ep_gap"] is None
 
 
 # ============================================================

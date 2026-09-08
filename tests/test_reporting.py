@@ -152,6 +152,24 @@ def test_compute_automated_flags_catches_captained_goalkeeper(con):
     assert by_name["captained_goalkeeper"]["passed"] is False
 
 
+def test_compute_automated_flags_captain_ep_gap_passes_when_captain_has_the_highest_xi_ep(con):
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")  # p1=5.0 (captain) vs p2=4.0
+    flags = reporting.compute_automated_flags(con, run_id)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["captain_ep_gap"]["passed"] is True
+
+
+def test_compute_automated_flags_catches_a_captain_ep_gap(con):
+    run_id, ep_mv, _un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    # p1 (captain) stays at ep_total=5.0; boost p2 (Forward, also in the XI) well past it -- the
+    # same shape as the live GW4 Senesi-over-Bruno-Fernandes example this flag was built to catch.
+    con.execute("UPDATE ep_outputs SET ep_total = 9.0 WHERE model_version = ? AND player_uid = 'p2'", [ep_mv])
+    flags = reporting.compute_automated_flags(con, run_id)
+    by_name = {f["name"]: f for f in flags}
+    assert by_name["captain_ep_gap"]["passed"] is False
+    assert "p2" in by_name["captain_ep_gap"]["detail"]
+
+
 def test_compute_automated_flags_catches_club_at_cap(con):
     run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con)
     params.write_param(con, "squad_optimizer_guardrail_params", 2, "2026-08-10", "xi_club_concentration_cap", value_numeric=1)

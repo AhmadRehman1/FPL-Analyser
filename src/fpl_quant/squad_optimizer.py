@@ -711,13 +711,13 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
     """
     run_row = con.execute(
         "SELECT target_season, divergence_check_passed, divergence_check_note, "
-        "guardrail_params_version, lambda_value, is_manager_snapshot, solver_status, mip_gap "
+        "guardrail_params_version, lambda_value, is_manager_snapshot, solver_status, mip_gap, ep_model_version "
         "FROM squad_optimizer_runs WHERE run_id = ?", [run_id],
     ).fetchone()
     if not run_row:
         raise ValueError(f"no squad_optimizer_runs row for run_id={run_id}")
     (target_season, divergence_passed, divergence_note, guardrail_params_version, lambda_value,
-     is_snapshot, solver_status, mip_gap) = run_row
+     is_snapshot, solver_status, mip_gap, ep_model_version) = run_row
 
     xi_cap = None
     if guardrail_params_version:
@@ -736,6 +736,38 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
         [run_id],
     ).fetchone()
     captain_uid, captain_position = captain_row if captain_row else (None, None)
+
+    # Captain EP-gap diagnostic (flag-only -- never touches squad_optimizer_selections, same
+    # "M2 role-change-flag"/advisory-overlay precedent as captain_choice_with_differential()
+    # above): is the risk-adjusted captain ALSO the highest-raw-EP eligible (non-GK) XI pick?
+    # A live, real example this was built to surface: the model-managed team's own GW4 captain
+    # was Marcos Senesi (a defender) with both Bruno Fernandes and Ollie Watkins in the XI --
+    # captain_choice_with_differential()'s ownership tie-break never mutates
+    # squad_optimizer_selections (see its own docstring), so it can't explain that; solve()'s
+    # own risk-adjusted objective genuinely picked it, which only leaves lambda
+    # (risk_aversion_params -- un-recalibrated as of this writing) or the EP model itself as
+    # the real explanation. Surfaced for every run, not just chased for one live case, so a
+    # future lambda recalibration (or EP fix) has real before/after evidence to check against.
+    captain_ep_gap = None
+    if captain_uid is not None:
+        xi_ep_rows = con.execute(
+            "SELECT s.player_uid, dp.position, sum(o.ep_total) FROM squad_optimizer_selections s "
+            "JOIN dim_player dp ON dp.player_uid = s.player_uid "
+            "JOIN ep_outputs o ON o.model_version = ? AND o.player_uid = s.player_uid "
+            "WHERE s.run_id = ? AND s.in_xi AND dp.position <> 'Goalkeeper' "
+            "GROUP BY s.player_uid, dp.position",
+            [ep_model_version, run_id],
+        ).fetchall()
+        ep_by_uid = {uid: ep for uid, _, ep in xi_ep_rows}
+        captain_ep = ep_by_uid.get(captain_uid)
+        if xi_ep_rows and captain_ep is not None:
+            best_uid, best_position, best_ep = max(xi_ep_rows, key=lambda r: r[2])
+            captain_ep_gap = {
+                "captain_ep": captain_ep,
+                "highest_xi_ep_uid": best_uid, "highest_xi_ep_position": best_position, "highest_xi_ep": best_ep,
+                "gap": round(best_ep - captain_ep, 4),
+                "captain_is_highest_ep": best_uid == captain_uid,
+            }
 
     from . import reconcile as reconcile_mod
     found = reconcile_mod._season_root_table(con, target_season, "teams.csv")
@@ -776,6 +808,7 @@ def explain_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict:
         "clubs_at_squad_cap": clubs_at_squad_cap, "clubs_at_xi_cap": clubs_at_xi_cap,
         "captain_uid": captain_uid, "captain_position": captain_position,
         "captain_is_goalkeeper": captain_position == "Goalkeeper",
+        "captain_ep_gap": captain_ep_gap,
         # Priority 2 -- solve-quality transparency: proved_optimal is derived from
         # solver_status (SCIP only ever reports "optimal" for a proven 0%-gap solution) rather
         # than re-deriving it from mip_gap's own value, since mip_gap can be NULL for a run
