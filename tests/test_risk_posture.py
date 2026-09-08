@@ -67,6 +67,42 @@ def test_posture_meta_shape():
     assert isinstance(m["blurb"], str) and m["blurb"]
 
 
+def test_posture_meta_balanced_without_con_or_active_falls_back_to_the_frozen_v1_literals(con):
+    # Exact prior behavior when either is omitted -- no live-recalibration state to resolve.
+    m = risk_posture.posture_meta("balanced")
+    assert m["lambda_value"] == pytest.approx(0.15)
+    assert m["kappa_tc"] == pytest.approx(0.15)
+
+
+def test_posture_meta_balanced_resolves_the_real_current_active_versions(con):
+    # Regression test for the real incident this closes: run_transfer_planner_for_real_squad.py's
+    # actual solve for 'balanced' already overrides kappa_tc_params_version with active[...]
+    # (never the frozen v1 literal) -- posture_meta() must report the SAME resolved value, or the
+    # exported dashboard's "risk_posture" block silently disagrees with the recommendation
+    # computed right next to it in the same file. Simulates a real recalibration having moved
+    # kappa_tc away from v1 (e.g. data/recalibration/seeds_1.json's confirmed v1->v3, 0.15->0.2).
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.15)
+    params.write_param(con, "risk_aversion_params", 5, "2026-08-10", "lambda_value", value_numeric=0.10)
+    params.write_param(con, "tc_risk_aversion_params", 1, "2026-08-10", "kappa_tc", value_numeric=0.15)
+    params.write_param(con, "tc_risk_aversion_params", 3, "2026-08-10", "kappa_tc", value_numeric=0.2)
+    active = {"lambda_params_version": 5, "kappa_tc_params_version": 3}
+
+    m = risk_posture.posture_meta("balanced", con=con, active=active)
+
+    assert m["lambda_value"] == pytest.approx(0.10)
+    assert m["kappa_tc"] == pytest.approx(0.2)
+
+
+def test_posture_meta_attack_ignores_con_and_active_since_its_snapshot_is_pinned(con):
+    params.write_param(con, "tc_risk_aversion_params", 1, "2026-08-10", "kappa_tc", value_numeric=0.15)
+    params.write_param(con, "tc_risk_aversion_params", 3, "2026-08-10", "kappa_tc", value_numeric=0.2)
+    active = {"lambda_params_version": 1, "kappa_tc_params_version": 3}
+
+    m = risk_posture.posture_meta("attack", con=con, active=active)
+
+    assert m["kappa_tc"] == pytest.approx(0.5)
+
+
 def test_the_planner_script_feeds_resolve_versions_into_transfer_planner_run():
     """Wiring guard: the real-squad planner script must resolve lambda/kappa_tc from the posture
     and pass those exact versions to tp.run() -- not the hardcoded active ones -- so the attack
