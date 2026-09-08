@@ -1,9 +1,17 @@
 # EP model: the attacker/defender imbalance
 
-**Status:** diagnosis + first fix shipped (Lead A). Lead B's measurement plan is now unblocked
+**Status:** diagnosis + first fix shipped (Lead A). Lead B's measurement plan is unblocked
 (PR #124's segments landed in `backtest_run_id=1`) and its recalibration wiring is shipped
-(`claude/nightly-progress-model-points-cx2yds`) -- but no value has actually been recalibrated
-yet; see Lead B below for what's still needed.
+(`claude/nightly-progress-model-points-cx2yds`). Update 2026-09-08: a `recalibrate.yml`
+dispatch (run 34220621168) + `review_recalibration.yml` confirmations have now actually moved
+`fact_type_multiplier_params.multiplier` (1.2 -> 1.0, v8) and `minutes_adjustment_params`'s
+`magnitude`/`cap` pair (-4.0 -> -3.0 / 6.0 -> 6.0, both v18, the first time this pair was ever
+confirmed at a SHARED version -- see `resolve_active_version()`'s own docstring on why the
+earlier v8/v16 vs v9/v17 mismatch left it inert) live in `data/recalibration/seeds_1.json`,
+alongside the already-confirmed `kappa_tc` (v3), `rho_residual` (v4), and
+`minutes_model_shrinkage_params` (v11). `rate_shrinkage_params` -- the constant this section's
+own Lead B write-up was actually about -- has NOT been recalibrated yet; see below for what's
+still needed there.
 
 ## The problem, and why it matters
 
@@ -78,8 +86,13 @@ The measurement plan below is now unblocked: `data/dashboard/app_track_record.js
 (`backtest_run_id=1`, generated 2026-09-05) carries #124's segment_calibration, and it confirms
 the imbalance survives Lead A: `ep_total_calibration_mean_resid` is **-0.1033 for Defender,
 +0.1512 for Forward, -0.2793 for Goalkeeper**, and by price band it's monotonic and much
-starker -- **-0.24 at <£5.0m growing to +0.84 at £9.0m+** (0/71 model parameters have ever been
-confirmed via M7, so none of this has ever actually been corrected).
+starker -- **-0.24 at <£5.0m growing to +0.84 at £9.0m+** (as measured against `backtest_run_id=1`
+before any M7 confirmation existed). Update 2026-09-08: five parameters are now confirmed and
+live (`fact_type_multiplier_params`, `minutes_adjustment_params.magnitude`/`.cap`, `kappa_tc`,
+`rho_residual`, `minutes_model_shrinkage_params` -- see Status above) -- `rate_shrinkage_params`,
+the one this section's segment-calibration evidence actually motivated, is still unconfirmed.
+The mean_resid numbers above have not been re-measured since; a fresh walk-forward is needed to
+see whether the now-live confirmations moved them.
 
 `RATE_SHRINKAGE_K_MINUTES` was flagged for M7 recalibration since its own introduction but was
 never actually wired into any refit technique -- `recalibrate()`'s `MINUTES_PARAM_GRIDS` covers
