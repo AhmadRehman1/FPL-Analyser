@@ -13,9 +13,9 @@
       "param_family": "correlation_params",
       "param_key": "rho_residual",
       "proposal_id": 1,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:16:33.576571",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": null,
@@ -29,9 +29,9 @@
       "param_family": "tc_risk_aversion_params",
       "param_key": "kappa_tc",
       "proposal_id": 2,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:16:40.862760",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": null,
@@ -45,9 +45,9 @@
       "param_family": "minutes_model_shrinkage_params",
       "param_key": "competitive_matches_threshold",
       "proposal_id": 3,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:16:45.348082",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": {
@@ -64,9 +64,9 @@
       "param_family": "minutes_adjustment_params",
       "param_key": "magnitude",
       "proposal_id": 4,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:16:49.972290",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": {
@@ -82,9 +82,9 @@
       "param_family": "minutes_adjustment_params",
       "param_key": "cap",
       "proposal_id": 5,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:16:54.448273",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": null,
@@ -98,9 +98,9 @@
       "param_family": "correlation_params",
       "param_key": "rho_residual",
       "proposal_id": 6,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:16:59.034379",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": null,
@@ -114,9 +114,9 @@
       "param_family": "tc_risk_aversion_params",
       "param_key": "kappa_tc",
       "proposal_id": 7,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:17:03.553223",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": null,
@@ -130,9 +130,9 @@
       "param_family": "minutes_model_shrinkage_params",
       "param_key": "competitive_matches_threshold",
       "proposal_id": 8,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:17:08.157915",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": {
@@ -149,9 +149,9 @@
       "param_family": "minutes_adjustment_params",
       "param_key": "magnitude",
       "proposal_id": 9,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:17:12.725686",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     },
     {
       "dimensions": {
@@ -167,95 +167,10 @@
       "param_family": "minutes_adjustment_params",
       "param_key": "cap",
       "proposal_id": 10,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
-    },
-    {
-      "dimensions": null,
-      "metric_after": 1.2791735227188274,
-      "metric_before": 1.2431108370340345,
-      "metric_name": "realized_sharpe",
-      "new_params_version": 4,
-      "new_value": 0.2,
-      "old_params_version": 1,
-      "old_value": 0.15,
-      "param_family": "tc_risk_aversion_params",
-      "param_key": "kappa_tc",
-      "proposal_id": 11,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
-    },
-    {
-      "dimensions": null,
-      "metric_after": -1.8787601645729577,
-      "metric_before": -1.8806214822395662,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 8,
-      "new_value": 1.0,
-      "old_params_version": 1,
-      "old_value": 1.2,
-      "param_family": "fact_type_multiplier_params",
-      "param_key": "multiplier",
-      "proposal_id": 12,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
-    },
-    {
-      "dimensions": null,
-      "metric_after": -1.8787601645729577,
-      "metric_before": -1.8806214822395662,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 14,
-      "new_value": 15.0,
-      "old_params_version": 1,
-      "old_value": 10.0,
-      "param_family": "minutes_model_shrinkage_params",
-      "param_key": "competitive_matches_threshold",
-      "proposal_id": 13,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
-    },
-    {
-      "dimensions": {
-        "category": "Out",
-        "claim_type": "injury_status"
-      },
-      "metric_after": -1.8787601645729577,
-      "metric_before": -1.8806214822395662,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 18,
-      "new_value": -3.0,
-      "old_params_version": 1,
-      "old_value": -4.0,
-      "param_family": "minutes_adjustment_params",
-      "param_key": "magnitude",
-      "proposal_id": 14,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
-    },
-    {
-      "dimensions": {
-        "scope": "global"
-      },
-      "metric_after": -1.8787601645729577,
-      "metric_before": -1.8806214822395662,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 18,
-      "new_value": 6.0,
-      "old_params_version": 1,
-      "old_value": 6.0,
-      "param_family": "minutes_adjustment_params",
-      "param_key": "cap",
-      "proposal_id": 15,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T01:17:17.358690",
+      "reviewed_by": "ahmadrehman1-via-claude",
+      "status": "confirmed"
     }
   ],
-  "written_at": "2026-09-08T13:02:44.025336+00:00"
+  "written_at": "2026-09-08T01:17:17.361472+00:00"
 }
