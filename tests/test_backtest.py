@@ -1292,9 +1292,15 @@ def test_resolve_active_version_shared_keys_only_activates_when_all_confirmed_at
 
 
 def test_resolve_active_version_shared_keys_holds_at_default_when_only_one_key_confirmed(con, tmp_path):
-    # The REAL scenario propose_recalibration()'s per-family versioning produces: magnitude and
-    # cap proposed together get two DIFFERENT new_params_version numbers (both scoped to the
-    # same family via _next_param_version()). If only magnitude gets confirmed, activating its
+    # propose_recalibration()'s DEFAULT path (no explicit new_params_version -- what every
+    # technique except recalibrate()'s own minutes-block loop uses) mints magnitude and cap
+    # each their own next-available new_params_version, scoped to the family via
+    # _next_param_version(), so calling it this way gets two DIFFERENT version numbers. This is
+    # exactly what happened in production before recalibrate()'s minutes loop was fixed to pass
+    # new_params_version explicitly (data/recalibration/seeds_1.json's #4/5/9/10, confirmed
+    # 2026-09-08) -- this test now documents the general defensive guard (propose_recalibration()
+    # is a public function; anything calling it this way still needs this protection), not the
+    # minutes loop's own current behavior. If only magnitude gets confirmed, activating its
     # version would make resolve_param() hard-error looking up 'cap' at a version that was never
     # written for it -- the exact crash this guards against.
     backtest_run_id = _seed_backtest_run(con)
@@ -1310,7 +1316,7 @@ def test_resolve_active_version_shared_keys_holds_at_default_when_only_one_key_c
         "SELECT param_key, new_params_version FROM recalibration_proposals WHERE proposal_id IN (?, ?)",
         [mag_id, cap_id],
     ).fetchall())
-    assert versions["magnitude"] != versions["cap"], "expected magnitude/cap to land on different versions, matching production"
+    assert versions["magnitude"] != versions["cap"], "expected propose_recalibration()'s default path to land magnitude/cap on different versions"
     _confirm(con, mag_id, backtest_run_id, tmp_path)
 
     assert bt.resolve_active_version("minutes_adjustment_params", 1, tmp_path, param_key=("magnitude", "cap")) == 1
@@ -2647,3 +2653,66 @@ def test_recalibrate_raises_when_rate_shrinkage_flag_set_without_current_version
             refit_minutes_flag=False, refit_lambda_flag=False,
             refit_rate_shrinkage_flag=True,
         )
+
+
+def test_recalibrate_minutes_proposals_sharing_a_version_field_share_one_new_params_version(con, monkeypatch, tmp_path):
+    """Regression test for the real incident data/recalibration/seeds_1.json's proposals
+    #4/5/9/10 (confirmed 2026-09-08) hit in production: minutes_adjustment_params' magnitude
+    and cap share one version-argument (adjustment_params_version), but before this fix,
+    recalibrate()'s minutes-block loop proposed each at its OWN freshly-minted new_params_version
+    (propose_recalibration()'s default path), so resolve_active_version()'s shared-key
+    intersection check could never activate either one. refit_minutes_and_evidence_params()'s
+    real coordinate descent always lands both blocks on ONE shared, already-complete version
+    (every block under a version_field copies the other's row forward via
+    _write_family_version_with_override()) -- this proves recalibrate() now reuses that shared
+    version for both proposals instead of minting two separate ones."""
+    from fpl_quant import params
+
+    magnitude_dims = {"category": "Out", "claim_type": "injury_status"}
+    cap_dims = {"scope": "global"}
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "magnitude", value_numeric=-4.0, dimensions=magnitude_dims)
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions=cap_dims)
+    # The shared "winning" version the real descent would have produced -- both keys present together.
+    params.write_param(con, "minutes_adjustment_params", 5, "2026-08-10", "magnitude", value_numeric=-3.0, dimensions=magnitude_dims)
+    params.write_param(con, "minutes_adjustment_params", 5, "2026-08-10", "cap", value_numeric=6.0, dimensions=cap_dims)
+    backtest_run_id = _seed_backtest_run(con)
+
+    magnitude_block = {
+        "param_family": "minutes_adjustment_params", "param_key": "magnitude", "dimensions": magnitude_dims,
+        "candidates": [-3.0], "version_field": "adjustment_params_version",
+    }
+    cap_block = {
+        "param_family": "minutes_adjustment_params", "param_key": "cap", "dimensions": cap_dims,
+        "candidates": [6.0], "version_field": "adjustment_params_version",
+    }
+
+    def fake_refit(con, eval_steps, ep_model_version_by_step, base_versions, param_grids, holdout_steps=None):
+        return {
+            "versions": {"adjustment_params_version": 5},
+            "log_score": -1.0,
+            "history": [{"round": 0, "log_score": -1.1, "versions": dict(base_versions)}],
+        }
+
+    monkeypatch.setattr(bt, "refit_minutes_and_evidence_params", fake_refit)
+    proposal_ids = bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={"adjustment_params_version": 1},
+        current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[magnitude_block, cap_block],
+        refit_xi_rho_flag=False, refit_rho_residual_flag=False,
+        refit_minutes_flag=True, refit_lambda_flag=False,
+        seed_dir=tmp_path,
+    )
+
+    assert len(proposal_ids) == 2
+    versions = {row[0] for row in con.execute(
+        "SELECT new_params_version FROM recalibration_proposals WHERE proposal_id IN (?, ?)", proposal_ids,
+    ).fetchall()}
+    assert versions == {5}, "magnitude and cap must share the SAME new_params_version"
+
+    for proposal_id in proposal_ids:
+        con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [proposal_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    assert bt.resolve_active_version("minutes_adjustment_params", 1, tmp_path, param_key=("magnitude", "cap")) == 5
