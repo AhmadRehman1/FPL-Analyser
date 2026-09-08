@@ -102,11 +102,17 @@ of which is this constant. Closed by:
   `expected_points.run()` call, now passes `ACTIVE["rate_shrinkage_params_version"]` -- so a
   future confirmed recalibration actually takes effect live, closing the exact drift
   `resolve_active_version()`'s own docstring warns about. `transfer_planner.compute_horizon_ep()`
-  also accepts the new argument (opt-in, default `None`), but its own ~10 callers (grade_squad,
-  chip_timing_analysis, run_scenarios, elite_tracking, projections, etc.) are **not yet updated**
-  to pass it -- a disclosed, scoped follow-up (matches the "~14 files, not 2" scope-creep the
-  roadmap plan already flagged once for Track B; deliberately not done as a blind full sweep in
-  the same PR that introduces the mechanism).
+  also accepts the new argument (opt-in, default `None`).
+- **[CLOSED]** The scoped follow-up above -- `compute_horizon_ep()`'s other real callers not yet
+  passing `rate_shrinkage_params_version` -- is done: `compute_shared_horizon.py`, `grade_squad.py`,
+  `print_chip_timing_roadmap.py`, `run_transfer_planner_for_real_squad.py`'s ML-lane helper, and
+  `export_projections.py` (via `projections.build_projections()`, which needed the same optional
+  kwarg threaded one level deeper) all now pass it through `active["rate_shrinkage_params_version"]`.
+  `run_scenarios.py`/`explain_my_move.py` needed care since their broader `_param_versions()` dict
+  is also unpacked into `decision_engine.recommend_best_move()`, which has no such argument --
+  passed directly to their own `compute_horizon_ep()` call instead. Still a pure no-op today (see
+  below), but the threading gap that made this session's live `kappa_tc`/`minutes_model_shrinkage`
+  recalibration bugs possible (PRs #154-157) can no longer repeat itself for `rate_shrinkage`.
 
 **Not done yet, and this is the actual next step:** no value has ever been recalibrated -- this
 PR only gives M7 the ABILITY to. The nightly walk-forward / a `recalibrate.yml` dispatch needs to
