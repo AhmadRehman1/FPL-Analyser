@@ -1555,7 +1555,7 @@ def propose_recalibration(
 
 def write_recalibration_seed_file(
     con: duckdb.DuckDBPyConnection, backtest_run_id: int, seed_dir: Path | str,
-    *, preserve_existing_confirmed: bool = False,
+    *, preserve_existing_confirmed: bool = False, authoritative_keys: set[tuple] | None = None,
 ) -> Path:
     """Writes every recalibration_proposals row for this backtest_run_id to a committed JSON
     file (seed_dir/seeds_<backtest_run_id>.json) -- a durable copy of what a real backtest run
@@ -1595,13 +1595,20 @@ def write_recalibration_seed_file(
     coincidentally-identical version number), so (family, key, dimensions) plus "was it THIS
     call's own DB that confirmed it" is the only reliable signal.
 
-    ONLY safe to pass True from a caller that exclusively ADDS or PROMOTES proposals
-    (recalibrate() itself, evaluate_and_promote_proposal()) -- never from review_recalibration.py's
-    set_status(), which is the one legitimate path where an ALREADY-confirmed entry's status is
-    meant to change (including the --reject rollback path: rejecting a just-confirmed proposal
-    updates that SAME row in the SAME DB session, so its status must be trusted as-is, not
-    overridden by carrying the stale 'confirmed' copy back in from the file). set_status() keeps
-    the default False for exactly this reason.
+    authoritative_keys (only meaningful alongside preserve_existing_confirmed=True): a set of
+    (param_family, param_key, dimensions-as-sorted-json-or-None) tuples -- matching this
+    function's own _key() helper below -- that are exempt from old-file carryforward regardless
+    of their resulting status. This is what makes preserve_existing_confirmed safe for
+    set_status()'s own rollback case too (2026-09-08, same-day follow-up to the incident above):
+    set_status() can run against a DB that's disconnected from the lineage that confirmed OTHER
+    proposals (the exact cross-lineage cache-restore scenario described above), so it needs
+    preserve_existing_confirmed=True to avoid wiping THEIR confirmations -- but the ONE row it
+    just changed (e.g. a --reject on an already-confirmed proposal) must never be silently
+    reverted by carrying the stale 'confirmed' copy of that SAME key back in from the file. Pass
+    that row's own key here so it's always trusted as freshly written, whatever its resulting
+    status, while every other key's confirmed entry from disk still gets the usual protection.
+    recalibrate() and evaluate_and_promote_proposal() don't need this (they only ever add/promote,
+    never change an existing row's status), so they pass it as None.
     """
     rows = con.execute(
         "SELECT proposal_id, param_family, param_key, dimensions, old_params_version, new_params_version, "
@@ -1639,9 +1646,10 @@ def write_recalibration_seed_file(
         # same or a different candidate value) must NOT suppress the old confirmed carryforward;
         # the two coexist (a confirmed historical fact, plus a new pending one awaiting review).
         freshly_confirmed_keys = {_key(p) for p in proposals if p.get("status") == "confirmed"}
+        skip_keys = freshly_confirmed_keys | (authoritative_keys or set())
         proposals.extend(
             old_p for old_p in existing_proposals
-            if old_p.get("status") == "confirmed" and _key(old_p) not in freshly_confirmed_keys
+            if old_p.get("status") == "confirmed" and _key(old_p) not in skip_keys
         )
 
     out_path.write_text(json.dumps(

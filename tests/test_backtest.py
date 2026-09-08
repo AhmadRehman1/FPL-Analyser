@@ -963,11 +963,12 @@ def _write_seed_file_by_hand(seed_dir, backtest_run_id, proposals):
 
 
 def test_write_recalibration_seed_file_default_overwrites_an_existing_confirmed_entry(con, tmp_path):
-    """Documents the real 2026-09-08 incident this session hit: the DEFAULT (False) behavior --
-    used only by review_recalibration.py's set_status(), where it's required for --reject
-    rollback to work -- still silently drops an existing confirmed entry a caller doesn't ask to
-    preserve. preserve_existing_confirmed=True (the next test) is the actual fix for every OTHER
-    caller."""
+    """Documents the real 2026-09-08 incident this session hit: the DEFAULT (False) behavior
+    still silently drops an existing confirmed entry a caller doesn't ask to preserve.
+    preserve_existing_confirmed=True (the next tests) is the actual fix -- every real caller,
+    including review_recalibration.py's set_status(), now opts into it (set_status() pairs it
+    with authoritative_keys so its own rollback path still works; see the dedicated tests
+    below)."""
     from fpl_quant import params
 
     _write_seed_file_by_hand(tmp_path, 1, [{
@@ -1034,10 +1035,13 @@ def test_write_recalibration_seed_file_preserve_existing_confirmed_coexists_with
     assert bt.resolve_active_version("tc_risk_aversion_params", 1, tmp_path, param_key="kappa_tc") == 3
 
 
-def test_write_recalibration_seed_file_preserve_existing_confirmed_still_allows_rollback(con, tmp_path):
-    """preserve_existing_confirmed=True must never be used on review_recalibration.py's own
-    set_status() path -- confirm this session's actual rollback test still passes unaffected by
-    this function gaining the new parameter (default False preserves exact prior behavior)."""
+def test_write_recalibration_seed_file_authoritative_keys_still_allows_rollback(con, tmp_path):
+    """review_recalibration.py's set_status() now calls this with preserve_existing_confirmed=True
+    (it can run against a DB disconnected from the lineage that confirmed OTHER proposals, so it
+    needs the same protection every other caller gets) plus authoritative_keys={this proposal's
+    own key} -- confirm a --reject rollback of an already-confirmed proposal still takes effect
+    under that exact call shape, rather than being reverted by carrying the stale 'confirmed'
+    copy of that same key back in from the file it just wrote."""
     from fpl_quant import params
 
     params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.5)
@@ -1050,8 +1054,50 @@ def test_write_recalibration_seed_file_preserve_existing_confirmed_still_allows_
     assert bt.active_recalibratable_versions(tmp_path)["lambda_params_version"] == 2
 
     con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [proposal_id])
-    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)  # set_status()'s own call shape: default False
+    this_key = ("risk_aversion_params", "lambda_value", None)
+    bt.write_recalibration_seed_file(  # set_status()'s own call shape
+        con, backtest_run_id, tmp_path, preserve_existing_confirmed=True, authoritative_keys={this_key},
+    )
 
+    assert bt.active_recalibratable_versions(tmp_path)["lambda_params_version"] == 1
+
+
+def test_write_recalibration_seed_file_authoritative_keys_protects_unrelated_confirmed_entries(con, tmp_path):
+    """The cross-lineage scenario set_status() actually needs to survive: a --reject on one
+    proposal must roll THAT key back, while an unrelated key's confirmed entry -- contributed to
+    the same committed seed file by a different, now-disconnected DB lineage this session's `con`
+    has no record of -- must NOT be wiped out just because this call's own DB doesn't know about
+    it."""
+    from fpl_quant import params
+
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.5)
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="realized_sharpe", metric_before=0.5, metric_after=1.0,
+    )
+    bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+
+    seed_path = tmp_path / f"seeds_{backtest_run_id}.json"
+    payload = json.loads(seed_path.read_text())
+    payload["proposals"].append({
+        "proposal_id": 999, "param_family": "tc_risk_aversion_params", "param_key": "kappa_tc", "dimensions": None,
+        "old_params_version": 1, "new_params_version": 3, "old_value": 0.15, "new_value": 0.2,
+        "metric_name": "realized_sharpe", "metric_before": 1.0, "metric_after": 1.1,
+        "status": "confirmed", "reviewed_by": "a-human", "reviewed_at": "2026-09-07T00:00:00",
+    })
+    seed_path.write_text(json.dumps(payload))
+
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [proposal_id])
+    this_key = ("risk_aversion_params", "lambda_value", None)
+    bt.write_recalibration_seed_file(
+        con, backtest_run_id, tmp_path, preserve_existing_confirmed=True, authoritative_keys={this_key},
+    )
+
+    payload = json.loads(seed_path.read_text())
+    by_key = {p["param_key"]: p for p in payload["proposals"]}
+    assert by_key["lambda_value"]["status"] == "rejected"
+    assert by_key["kappa_tc"]["status"] == "confirmed"
     assert bt.active_recalibratable_versions(tmp_path)["lambda_params_version"] == 1
 
 
