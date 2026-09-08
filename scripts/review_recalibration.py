@@ -31,6 +31,7 @@ Usage (from repo root):
 """
 
 import argparse
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,17 +88,29 @@ def list_confirmed(con) -> None:
 
 def set_status(con, proposal_id: int, status: str, reviewed_by: str | None) -> None:
     row = con.execute(
-        "SELECT status, backtest_run_id FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]
+        "SELECT status, backtest_run_id, param_family, param_key, dimensions "
+        "FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id]
     ).fetchone()
     if row is None:
         print(f"No proposal #{proposal_id} found.")
         return
-    old_status, backtest_run_id = row
+    old_status, backtest_run_id, param_family, param_key, dimensions = row
     con.execute(
         "UPDATE recalibration_proposals SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE proposal_id = ?",
         [status, reviewed_by, datetime.now(timezone.utc), proposal_id],
     )
-    seed_path = backtest.write_recalibration_seed_file(con, backtest_run_id, SEED_DIR)
+    # preserve_existing_confirmed=True: this DB session may be disconnected from the lineage
+    # that confirmed OTHER proposals (recalibrate.yml / review_recalibration.yml don't share a
+    # persistent DB -- see write_recalibration_seed_file()'s own docstring on the 2026-09-08
+    # incident), so a plain overwrite here could silently un-confirm them. authoritative_keys
+    # marks THIS proposal's own (family, key, dimensions) as always trusted as freshly written,
+    # so a --reject rollback of an already-confirmed proposal still takes effect rather than
+    # being reverted by carrying the stale 'confirmed' copy of that same key back in from disk.
+    dims_parsed = json.loads(dimensions) if dimensions else None
+    this_key = (param_family, param_key, json.dumps(dims_parsed, sort_keys=True) if dims_parsed else None)
+    seed_path = backtest.write_recalibration_seed_file(
+        con, backtest_run_id, SEED_DIR, preserve_existing_confirmed=True, authoritative_keys={this_key},
+    )
     print(f"#{proposal_id} -> {status} (was {old_status}). Seed file updated: {seed_path}")
     if status == "confirmed":
         print(
