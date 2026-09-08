@@ -118,8 +118,17 @@ def compute_alerts(
                 "kind": "pending_transfer", "priority": "high", "entry_id": entry_id,
                 "title": f"Deadline in ~{h}h — transfer still recommended", "body": body,
             })
-        rec_chip = next((c for c in (real_squad or {}).get("chip_evaluations") or [] if c.get("recommended")), None)
-        if rec_chip:
+        # Real FPL rule: chips are drawn from two independent sets (Wildcard/Free Hit vs. Bench
+        # Boost/Triple Captain), and a manager can legally play one from EACH set in the same
+        # gameweek -- chip_evaluations' own "recommended" bool is likewise computed
+        # independently per chip (each evaluator checks its own gain threshold), so more than
+        # one can be true at once. One alert per recommended chip, not just the first found --
+        # build_push_payload() below already collapses multiple alerts into one notification
+        # (highest priority first, "+N more"), so this only fixes what gets counted, not how
+        # many pushes are sent.
+        for rec_chip in (real_squad or {}).get("chip_evaluations") or []:
+            if not rec_chip.get("recommended"):
+                continue
             label = _CHIP_LABELS.get(rec_chip.get("chip_type"), rec_chip.get("chip_type"))
             alerts.append({
                 "kind": "pending_chip", "priority": "high", "entry_id": entry_id,

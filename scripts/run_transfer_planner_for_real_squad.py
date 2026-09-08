@@ -53,7 +53,9 @@ def _order_chip_evaluations(chips_out: list[dict]) -> list[dict]:
     return sorted(chips_out, key=lambda c: order.get(c["chip_type"], len(order)))
 
 
-def build_ml_horizon_ep_versions(con, plan_for_gameweek: int, rho_residual_params_version: int):
+def build_ml_horizon_ep_versions(
+    con, plan_for_gameweek: int, rho_residual_params_version: int, rate_shrinkage_params_version: int | None = None,
+):
     """D-full ML lane: compute the quant multi-gameweek EP horizon, then a shadow copy of each
     gameweek's ep_outputs scaled to the Huber δ=4 residual model's ep_total_ml. Returns the
     {gw: (ml_ep_model_version, un_model_version)} map for tp.run(horizon_ep_versions=...), or
@@ -70,6 +72,7 @@ def build_ml_horizon_ep_versions(con, plan_for_gameweek: int, rho_residual_param
         con, date.today(), TARGET_SEASON, plan_for_gameweek, ts_model_version=1, mm_model_version=1,
         horizon_gameweeks=int(horizon_gameweeks), scoring_params_version=1, bps_params_version=1,
         tau_params_version=1, rho_residual_params_version=rho_residual_params_version, corr_params_version=1,
+        rate_shrinkage_params_version=rate_shrinkage_params_version,
     )
     if not quant_horizon:
         return None
@@ -440,7 +443,7 @@ def main() -> None:
     ml_horizon_versions = None
     if ml_mode:
         ml_horizon_versions = build_ml_horizon_ep_versions(
-            con, plan_for_gameweek, active["rho_residual_params_version"],
+            con, plan_for_gameweek, active["rho_residual_params_version"], active["rate_shrinkage_params_version"],
         )
         if ml_horizon_versions is None:
             print("::warning::run_transfer_planner_for_real_squad: ML horizon unavailable "
