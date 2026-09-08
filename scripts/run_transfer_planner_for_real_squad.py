@@ -416,8 +416,12 @@ def main() -> None:
 
     # App gap 6: the risk posture overrides ONLY lambda_value + kappa_tc (squad-concentration
     # aversion + captaincy-variance tolerance); every other family still resolves exactly as
-    # before. balanced -> {v1, v1}, identical to active[...] today, so an unflagged run is a
-    # true no-op. See src/fpl_quant/risk_posture.py.
+    # before. balanced -> active[...]'s CURRENT live version (not risk_posture.py's frozen v1
+    # spec literal below), so an unflagged run always tracks whatever's actually been confirmed
+    # -- e.g. data/recalibration/seeds_1.json's kappa_tc v1->v3 (0.15->0.2), confirmed
+    # 2026-09-08. See risk_posture.py's own module docstring and posture_meta()'s docstring
+    # (the exported dashboard display must resolve the same way, or it silently disagrees with
+    # what this run actually used).
     posture_versions = risk_posture.resolve_versions(con, posture)
     lambda_params_version = posture_versions["lambda_params_version"] if posture != risk_posture.DEFAULT_POSTURE else active["lambda_params_version"]
     kappa_tc_params_version = posture_versions["kappa_tc_params_version"] if posture != risk_posture.DEFAULT_POSTURE else active["kappa_tc_params_version"]
@@ -643,6 +647,11 @@ def main() -> None:
     print(f"[explain] +captain_breakdown={bool(explain.get('captain_breakdown'))}, "
           f"transfer_breakdowns={len(explain['transfer_breakdowns'])} (GW{plan_for_gameweek})")
 
+    # Computed before con.close() below -- posture_meta() needs a live connection to resolve
+    # "balanced"'s real current lambda_value/kappa_tc (see its own docstring for why these can no
+    # longer be assumed to equal the frozen v1 spec literals).
+    risk_posture_meta = risk_posture.posture_meta(posture, con=con, active=active)
+
     con.close()
 
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
@@ -653,7 +662,7 @@ def main() -> None:
         "current_gameweek": current_event,
         "plan_for_gameweek": plan_for_gameweek,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "risk_posture": risk_posture.posture_meta(posture),
+        "risk_posture": risk_posture_meta,
         "transfer_recommendations": recs_out,
         "hold_vs_transfer_now": hold_out,
         "chip_evaluations": _order_chip_evaluations(chips_out),
