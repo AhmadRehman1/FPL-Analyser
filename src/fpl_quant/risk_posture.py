@@ -5,9 +5,15 @@ untested optimizer behaviour -- see the app-feature-gaps prompt's own constraint
 
 Two postures ship now:
 
-  balanced  lambda_value v1 (0.15), kappa_tc v1 (0.15). The project's own default calibration
-            (the frozen M5/M8 spec values) -- identical to what every other pipeline path
-            already resolves, so "balanced" is a genuine no-op relative to today.
+  balanced  Tracks the project's own current default calibration -- run_transfer_planner_for_
+            real_squad.py resolves it from active_recalibratable_versions() (the same
+            git-committed confirmed-seed files every other real-data script reads), NOT this
+            module's own frozen v1 (0.15, 0.15) spec literals below. Those literals are the
+            fallback only for a caller with no live connection/active dict (posture_meta()'s
+            own docstring) -- when this WAS written, active[...] and v1 were identical, but a
+            real recalibration (e.g. kappa_tc v1->v3, 0.15->0.2, confirmed 2026-09-08) can move
+            them apart at any time. "balanced" is a no-op relative to whatever's currently
+            active, not to these fixed numbers.
 
   attack    lambda_value v2 (0.05), kappa_tc v2 (0.5). A LOWER squad-concentration penalty (the
             MIQP is freer to stack correlated premium picks) plus a HIGHER captaincy-variance
@@ -62,14 +68,34 @@ def normalize(posture: str | None) -> str:
     return posture if posture in _POSTURES else DEFAULT_POSTURE
 
 
-def posture_meta(posture: str) -> dict:
-    p = _POSTURES[normalize(posture)]
+def posture_meta(
+    posture: str, *, con: duckdb.DuckDBPyConnection | None = None, active: dict | None = None,
+) -> dict:
+    """con/active (both optional, default None -- exact prior behavior when either is omitted):
+    for the DEFAULT_POSTURE ('balanced') only, resolves lambda_value/kappa_tc from the CURRENT
+    live active_recalibratable_versions() versions instead of this module's frozen v1 (0.15,
+    0.15) spec literals. Needed because run_transfer_planner_for_real_squad.py's own real solve
+    already does exactly this override (this module's docstring's "balanced -> {v1, v1},
+    identical to active[...] today" was true when written, but stopped being true the moment
+    lambda_params_version/kappa_tc_params_version were ever recalibrated away from v1 --
+    data/recalibration/seeds_1.json's confirmed kappa_tc v1->v3 (0.15->0.2), 2026-09-08, is
+    exactly that: without this, the exported real_squad_<id>.json's own "risk_posture" display
+    block would keep showing the stale 0.15 kappa_tc as "the model's calibration" while the
+    transfer/captain recommendations right next to it in the same file were actually computed
+    with 0.2). 'attack' is unaffected -- it's an intentionally pinned, pre-validated snapshot
+    (see this module's own docstring), not meant to track live recalibration."""
+    resolved = normalize(posture)
+    p = _POSTURES[resolved]
+    lambda_value, kappa_tc = p["lambda_value"][1], p["kappa_tc"][1]
+    if resolved == DEFAULT_POSTURE and con is not None and active is not None:
+        lambda_value, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", active["lambda_params_version"])
+        kappa_tc, _ = params_mod.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", active["kappa_tc_params_version"])
     return {
-        "posture": normalize(posture),
+        "posture": resolved,
         "label": p["label"],
         "blurb": p["blurb"],
-        "lambda_value": p["lambda_value"][1],
-        "kappa_tc": p["kappa_tc"][1],
+        "lambda_value": lambda_value,
+        "kappa_tc": kappa_tc,
     }
 
 
