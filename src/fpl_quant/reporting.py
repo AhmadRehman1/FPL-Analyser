@@ -94,6 +94,24 @@ def compute_automated_flags(
         "name": "captained_goalkeeper", "passed": not audit["captain_is_goalkeeper"],
         "detail": f"captain={audit['captain_uid']} position={audit['captain_position']}",
     })
+    # Diagnostic-only, matching every other flag here ("worth a human look," not "confirmed
+    # broken"): is the risk-adjusted captain ALSO the highest-raw-EP eligible XI pick? Built
+    # after a live, real example: the model-managed team's own GW4 captain was a defender
+    # (Marcos Senesi) with two higher-raw-EP attackers (Bruno Fernandes, Ollie Watkins) in the
+    # XI. 1.0 pt is a hardcoded literal (same status as solve()'s own squad_cap=3 in
+    # squad_optimizer.py -- a simple guardrail threshold, not a versioned recalibratable param):
+    # small enough that a genuine risk/EP tradeoff within noise doesn't trip it, large enough to
+    # have caught the live example above (a multi-point gap).
+    captain_ep_gap = audit["captain_ep_gap"]
+    if captain_ep_gap is not None:
+        flags.append({
+            "name": "captain_ep_gap", "passed": captain_ep_gap["gap"] <= 1.0,
+            "detail": (
+                f"captain_ep={captain_ep_gap['captain_ep']:.2f} vs "
+                f"highest_xi_ep={captain_ep_gap['highest_xi_ep']:.2f} "
+                f"({captain_ep_gap['highest_xi_ep_uid']}, gap={captain_ep_gap['gap']:.2f})"
+            ),
+        })
     concentration_hit = bool(audit["clubs_at_squad_cap"] or audit["clubs_at_xi_cap"])
     flags.append({
         "name": "club_concentration", "passed": not concentration_hit,
