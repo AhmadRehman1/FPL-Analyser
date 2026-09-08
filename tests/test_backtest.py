@@ -953,6 +953,108 @@ def test_write_recalibration_seed_file_captures_proposal_fields(con, tmp_path):
     assert proposal["status"] == "pending"
 
 
+def _write_seed_file_by_hand(seed_dir, backtest_run_id, proposals):
+    """Simulates a committed seeds_<id>.json produced by a DIFFERENT, now-gone DB lineage --
+    e.g. review_recalibration.yml's own cached DB, disconnected from a fresh recalibrate.yml
+    dispatch's DB (rebuilt from nightly_backtest.yml's latest walk-forward run)."""
+    path = Path(seed_dir) / f"seeds_{backtest_run_id}.json"
+    path.write_text(json.dumps({"backtest_run_id": backtest_run_id, "proposals": proposals}))
+    return path
+
+
+def test_write_recalibration_seed_file_default_overwrites_an_existing_confirmed_entry(con, tmp_path):
+    """Documents the real 2026-09-08 incident this session hit: the DEFAULT (False) behavior --
+    used only by review_recalibration.py's set_status(), where it's required for --reject
+    rollback to work -- still silently drops an existing confirmed entry a caller doesn't ask to
+    preserve. preserve_existing_confirmed=True (the next test) is the actual fix for every OTHER
+    caller."""
+    from fpl_quant import params
+
+    _write_seed_file_by_hand(tmp_path, 1, [{
+        "proposal_id": 1, "param_family": "tc_risk_aversion_params", "param_key": "kappa_tc", "dimensions": None,
+        "old_params_version": 1, "new_params_version": 3, "old_value": 0.15, "new_value": 0.2,
+        "metric_name": "realized_sharpe", "metric_before": 1.0, "metric_after": 1.1,
+        "status": "confirmed", "reviewed_by": "a-human", "reviewed_at": "2026-09-07T00:00:00",
+    }])
+    params.write_param(con, "tc_risk_aversion_params", 1, "2026-08-10", "kappa_tc", value_numeric=0.15)
+    backtest_run_id = _seed_backtest_run(con, notes="fresh disconnected DB")
+
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)  # no proposals in THIS DB at all
+
+    payload = json.loads((tmp_path / "seeds_1.json").read_text())
+    assert payload["proposals"] == []
+
+
+def test_write_recalibration_seed_file_preserve_existing_confirmed_keeps_it(con, tmp_path):
+    from fpl_quant import params
+
+    _write_seed_file_by_hand(tmp_path, 1, [{
+        "proposal_id": 1, "param_family": "tc_risk_aversion_params", "param_key": "kappa_tc", "dimensions": None,
+        "old_params_version": 1, "new_params_version": 3, "old_value": 0.15, "new_value": 0.2,
+        "metric_name": "realized_sharpe", "metric_before": 1.0, "metric_after": 1.1,
+        "status": "confirmed", "reviewed_by": "a-human", "reviewed_at": "2026-09-07T00:00:00",
+    }])
+    params.write_param(con, "tc_risk_aversion_params", 1, "2026-08-10", "kappa_tc", value_numeric=0.15)
+    backtest_run_id = _seed_backtest_run(con, notes="fresh disconnected DB")
+
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path, preserve_existing_confirmed=True)
+
+    payload = json.loads((tmp_path / "seeds_1.json").read_text())
+    [carried] = payload["proposals"]
+    assert carried["status"] == "confirmed"
+    assert carried["param_key"] == "kappa_tc"
+    assert carried["new_value"] == pytest.approx(0.2)
+    assert bt.resolve_active_version("tc_risk_aversion_params", 1, tmp_path, param_key="kappa_tc") == 3
+
+
+def test_write_recalibration_seed_file_preserve_existing_confirmed_coexists_with_a_fresh_pending_proposal(con, tmp_path):
+    """The exact incident shape: a fresh, disconnected DB independently re-discovers the SAME
+    (or a different) candidate for a key that's already confirmed elsewhere. The new pending
+    proposal must be recorded for review WITHOUT suppressing the still-active old confirmation."""
+    from fpl_quant import params
+
+    _write_seed_file_by_hand(tmp_path, 1, [{
+        "proposal_id": 1, "param_family": "tc_risk_aversion_params", "param_key": "kappa_tc", "dimensions": None,
+        "old_params_version": 1, "new_params_version": 3, "old_value": 0.15, "new_value": 0.2,
+        "metric_name": "realized_sharpe", "metric_before": 1.0, "metric_after": 1.1,
+        "status": "confirmed", "reviewed_by": "a-human", "reviewed_at": "2026-09-07T00:00:00",
+    }])
+    params.write_param(con, "tc_risk_aversion_params", 1, "2026-08-10", "kappa_tc", value_numeric=0.15)
+    backtest_run_id = _seed_backtest_run(con, notes="fresh disconnected DB")
+    bt.propose_recalibration(
+        con, backtest_run_id, "tc_risk_aversion_params", "kappa_tc", 0.2,
+        metric_name="realized_sharpe", metric_before=1.0, metric_after=1.1, old_params_version=1,
+    )
+
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path, preserve_existing_confirmed=True)
+
+    payload = json.loads((tmp_path / "seeds_1.json").read_text())
+    statuses = sorted(p["status"] for p in payload["proposals"])
+    assert statuses == ["confirmed", "pending"]
+    assert bt.resolve_active_version("tc_risk_aversion_params", 1, tmp_path, param_key="kappa_tc") == 3
+
+
+def test_write_recalibration_seed_file_preserve_existing_confirmed_still_allows_rollback(con, tmp_path):
+    """preserve_existing_confirmed=True must never be used on review_recalibration.py's own
+    set_status() path -- confirm this session's actual rollback test still passes unaffected by
+    this function gaining the new parameter (default False preserves exact prior behavior)."""
+    from fpl_quant import params
+
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.5)
+    backtest_run_id = _seed_backtest_run(con)
+    proposal_id = _pending_proposal(
+        con, backtest_run_id, param_family="risk_aversion_params", param_key="lambda_value", new_value=0.7,
+        metric_name="realized_sharpe", metric_before=0.5, metric_after=1.0,
+    )
+    bt.evaluate_and_promote_proposal(con, proposal_id, tmp_path)
+    assert bt.active_recalibratable_versions(tmp_path)["lambda_params_version"] == 2
+
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [proposal_id])
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)  # set_status()'s own call shape: default False
+
+    assert bt.active_recalibratable_versions(tmp_path)["lambda_params_version"] == 1
+
+
 def test_load_confirmed_recalibration_seeds_excludes_pending_and_rejected(con, tmp_path):
     from fpl_quant import params
 

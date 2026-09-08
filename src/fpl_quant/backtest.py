@@ -1553,7 +1553,10 @@ def propose_recalibration(
     ).fetchone()[0]
 
 
-def write_recalibration_seed_file(con: duckdb.DuckDBPyConnection, backtest_run_id: int, seed_dir: Path | str) -> Path:
+def write_recalibration_seed_file(
+    con: duckdb.DuckDBPyConnection, backtest_run_id: int, seed_dir: Path | str,
+    *, preserve_existing_confirmed: bool = False,
+) -> Path:
     """Writes every recalibration_proposals row for this backtest_run_id to a committed JSON
     file (seed_dir/seeds_<backtest_run_id>.json) -- a durable copy of what a real backtest run
     found, independent of the DuckDB file itself.
@@ -1566,11 +1569,39 @@ def write_recalibration_seed_file(con: duckdb.DuckDBPyConnection, backtest_run_i
 
     Written status is a live read of recalibration_proposals.status at call time, not frozen at
     'pending' -- review_recalibration.py's set_status() re-calls this after a human
-    confirms/rejects a proposal, so the committed file and the DB never drift out of sync.
-    load_confirmed_recalibration_seeds() only ever reads 'confirmed' entries back out, so a
-    'pending' or 'rejected' proposal captured here is disclosed provenance, not an activated
-    default -- the same human-gate discipline recalibration_proposals.status already enforces
-    in the DB, applied identically to its file-backed copy.
+    confirms/rejects a proposal, so the committed file and the DB never drift out of sync
+    -- WITHIN one continuous DB lineage.
+
+    Real, observed incident preserve_existing_confirmed closes (2026-09-08): recalibrate.yml and
+    review_recalibration.yml do NOT share a persistent DB -- each restores its own cached
+    snapshot, and recalibrate.yml's own DB is periodically rebuilt fresh from
+    nightly_backtest.yml's latest walk-forward run, whose recalibration_proposals table starts
+    empty, with no memory of any prior confirmation. A fresh recalibrate.yml dispatch's own
+    proposals for the SAME (family, key, dimensions) as an already-confirmed entry therefore
+    have their OWN local status='pending' -- and since this function used to overwrite the
+    entire committed file from ONLY the calling DB's own rows, that fresh 'pending' row silently
+    replaced the git file's already-'confirmed' one, which active_recalibratable_versions()
+    reads as "never confirmed" and reverted three live parameters (kappa_tc, minutes-model
+    shrinkage, rho_residual) back to their defaults with no human action and no error --
+    confirmed live: a same-day `bt.active_recalibratable_versions()` call after that dispatch
+    returned kappa_tc_params_version=1 (0.15) instead of the human-confirmed 3 (0.2).
+
+    preserve_existing_confirmed (default False -- exact prior overwrite behavior): when True,
+    reads whatever is ALREADY committed at this path first and carries forward every 'confirmed'
+    entry whose (param_family, param_key, dimensions) isn't ALSO freshly 'confirmed' among the
+    rows this call is about to write. Deliberately does NOT key on new_params_version or
+    proposal_id -- both are per-DB auto-increment counters that collide across independent
+    lineages (the incident's own fresh DB proposed a coincidentally-identical value at a
+    coincidentally-identical version number), so (family, key, dimensions) plus "was it THIS
+    call's own DB that confirmed it" is the only reliable signal.
+
+    ONLY safe to pass True from a caller that exclusively ADDS or PROMOTES proposals
+    (recalibrate() itself, evaluate_and_promote_proposal()) -- never from review_recalibration.py's
+    set_status(), which is the one legitimate path where an ALREADY-confirmed entry's status is
+    meant to change (including the --reject rollback path: rejecting a just-confirmed proposal
+    updates that SAME row in the SAME DB session, so its status must be trusted as-is, not
+    overridden by carrying the stale 'confirmed' copy back in from the file). set_status() keeps
+    the default False for exactly this reason.
     """
     rows = con.execute(
         "SELECT proposal_id, param_family, param_key, dimensions, old_params_version, new_params_version, "
@@ -1593,6 +1624,26 @@ def write_recalibration_seed_file(con: duckdb.DuckDBPyConnection, backtest_run_i
     seed_dir = Path(seed_dir)
     seed_dir.mkdir(parents=True, exist_ok=True)
     out_path = seed_dir / f"seeds_{backtest_run_id}.json"
+
+    def _key(p: dict) -> tuple:
+        dims = p["dimensions"]
+        return (p["param_family"], p["param_key"], json.dumps(dims, sort_keys=True) if dims else None)
+
+    if preserve_existing_confirmed and out_path.exists():
+        try:
+            existing_proposals = json.loads(out_path.read_text()).get("proposals") or []
+        except (OSError, json.JSONDecodeError):
+            existing_proposals = []
+        # Only THIS run's own 'confirmed' rows count as a real replacement -- a fresh 'pending'
+        # proposal for the same key (recalibrate.yml's own DB independently re-discovering the
+        # same or a different candidate value) must NOT suppress the old confirmed carryforward;
+        # the two coexist (a confirmed historical fact, plus a new pending one awaiting review).
+        freshly_confirmed_keys = {_key(p) for p in proposals if p.get("status") == "confirmed"}
+        proposals.extend(
+            old_p for old_p in existing_proposals
+            if old_p.get("status") == "confirmed" and _key(old_p) not in freshly_confirmed_keys
+        )
+
     out_path.write_text(json.dumps(
         {"backtest_run_id": backtest_run_id, "written_at": datetime.now(timezone.utc).isoformat(), "proposals": proposals},
         indent=2, sort_keys=True,
@@ -1791,7 +1842,12 @@ def evaluate_and_promote_proposal(
         "UPDATE recalibration_proposals SET status = 'confirmed', reviewed_by = ?, reviewed_at = ? WHERE proposal_id = ?",
         [reviewed_by, datetime.now(timezone.utc), proposal_id],
     )
-    write_recalibration_seed_file(con, backtest_run_id, seed_dir)
+    # preserve_existing_confirmed=True: this function only ever promotes pending -> confirmed,
+    # never reverses an existing confirmation, so it's always safe here -- see
+    # write_recalibration_seed_file()'s own docstring for the incident this guards against (a
+    # fresh, disconnected DB lineage's own proposals silently overwriting a confirmation that
+    # only the git file, not this DB, remembers).
+    write_recalibration_seed_file(con, backtest_run_id, seed_dir, preserve_existing_confirmed=True)
     return {"proposal_id": proposal_id, "action": "promoted", "reason": reason}
 
 
@@ -2629,7 +2685,12 @@ def recalibrate(
             ))
 
     if seed_dir is not None:
-        write_recalibration_seed_file(con, backtest_run_id, seed_dir)
+        # preserve_existing_confirmed=True: recalibrate() only ever creates 'pending' proposals
+        # (never confirms/rejects), so it's always safe here -- see
+        # write_recalibration_seed_file()'s own docstring for the incident this guards against
+        # (this function's own fresh, disconnected DB lineage otherwise silently overwrote a
+        # confirmation that only the git file, not this DB, remembers).
+        write_recalibration_seed_file(con, backtest_run_id, seed_dir, preserve_existing_confirmed=True)
 
     return proposal_ids
 
