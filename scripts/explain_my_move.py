@@ -111,7 +111,8 @@ def main() -> None:
 
     con = db.connect()
     tp.seed_v1_params(con)
-    PARAM_VERSIONS = _param_versions(backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR))
+    active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+    PARAM_VERSIONS = _param_versions(active)
 
     print(f"[fetch] pulling real picks for entry_id={entry_id}, GW{current_event}...")
     squad = _fetch_real_squad(entry_id, current_event)
@@ -137,6 +138,10 @@ def main() -> None:
             con, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, 1,
             PARAM_VERSIONS["scoring_params_version"], PARAM_VERSIONS["bps_params_version"], PARAM_VERSIONS["tau_params_version"],
             PARAM_VERSIONS["rho_residual_params_version"], PARAM_VERSIONS["corr_params_version"],
+            # rate_shrinkage_params_version is NOT part of PARAM_VERSIONS above -- that dict is
+            # also unpacked (**PARAM_VERSIONS) straight into de.recommend_best_move() below,
+            # whose signature has no such argument; passed here directly instead.
+            rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
         )
         shared_horizon_for_recommend = None
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]

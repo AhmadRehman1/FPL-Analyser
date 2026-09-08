@@ -2538,11 +2538,20 @@ def recalibrate(
     if refit_rho_residual_flag:
         current_rho_residual, _ = params_mod.resolve_param(con, "correlation_params", "rho_residual", current_rho_residual_version)
         result = refit_rho_residual(con, backtest_run_id)
-        proposal_ids.append(propose_recalibration(
-            con, backtest_run_id, "correlation_params", "rho_residual", result["rho_residual"],
-            "rho_hat", current_rho_residual, result["rho_residual"],
-            old_params_version=current_rho_residual_version, effective_date=effective_date,
-        ))
+        # Real, observed churn this guard closes: two separate recalibrate() runs before either
+        # got reviewed each proposed rho_residual 0.0 -> 0.0 (data/recalibration/seeds_1.json's
+        # proposals #1 and #6, confirmed 2026-09-08) -- a human had to review and confirm the
+        # exact same no-op twice. evaluate_and_promote_proposal() already refuses to
+        # AUTO-promote an unchanged rho_residual value (see its own 'holds_when_value_unchanged'
+        # test), but recalibrate() itself had no matching guard at proposal-creation time, unlike
+        # every other technique below (xi/rho/lambda/kappa_tc/rate_shrinkage all check
+        # `if result[...] != current[...]`) -- this makes rho_residual consistent with them.
+        if result["rho_residual"] != current_rho_residual:
+            proposal_ids.append(propose_recalibration(
+                con, backtest_run_id, "correlation_params", "rho_residual", result["rho_residual"],
+                "rho_hat", current_rho_residual, result["rho_residual"],
+                old_params_version=current_rho_residual_version, effective_date=effective_date,
+            ))
 
     if refit_minutes_flag:
         minutes_select_steps = [s for s in eval_steps if s[0] in minutes_select_seasons]
