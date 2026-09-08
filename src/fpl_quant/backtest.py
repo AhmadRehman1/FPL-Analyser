@@ -1507,6 +1507,7 @@ def propose_recalibration(
     dimensions: dict | None = None,
     old_params_version: int | None = None,
     effective_date: str = "2026-08-11",
+    new_params_version: int | None = None,
 ) -> int:
     """Writes a candidate value as a normal new immutable param_versions row (write_param() is
     unchanged -- writing a version never activates it, resolve_param() is explicit-version-only
@@ -1515,8 +1516,19 @@ def propose_recalibration(
     confirmed proposal still means a human editing the explicit version-number argument
     scripts/run_ingestion.py passes for that family -- the same discipline as every other
     version bump in this project, not a new mechanism.
+
+    new_params_version (optional): when given, records the proposal against this ALREADY-
+    WRITTEN version instead of minting a fresh one via _next_param_version()/write_param().
+    Needed by refit_minutes_and_evidence_params()'s block loop: its coordinate descent already
+    produces ONE shared version per version_field group with every key's row present together
+    (via _write_family_version_with_override()'s full-family-copy semantics), so minting a
+    SEPARATE fresh version per key here -- like every other technique's default path does --
+    would silently split a group's keys back apart onto orphaned single-key versions that
+    resolve_active_version()'s shared-key intersection check (see its own CRITICAL correctness
+    note) can then never re-align, permanently stranding minutes_adjustment_params at its
+    default version. This is exactly the incident docs/plans/2026-08_roadmap_plan.md's Open
+    Items previously disclosed as unfixed; passing the descent's own version here is the fix.
     """
-    new_params_version = _next_param_version(con, param_family)
     old_value = None
     if old_params_version is not None:
         try:
@@ -1524,7 +1536,9 @@ def propose_recalibration(
         except params_mod.ParamNotFoundError:
             old_value = None
 
-    params_mod.write_param(con, param_family, new_params_version, effective_date, param_key, value_numeric=new_value, dimensions=dimensions)
+    if new_params_version is None:
+        new_params_version = _next_param_version(con, param_family)
+        params_mod.write_param(con, param_family, new_params_version, effective_date, param_key, value_numeric=new_value, dimensions=dimensions)
 
     return con.execute(
         """
@@ -1607,22 +1621,29 @@ def resolve_active_version(
     correctness note below for why that distinction is load-bearing.
 
     CRITICAL correctness note for the tuple case (found in review before this shipped):
-    propose_recalibration() assigns each (family, key) proposal its own next-available
-    new_params_version via _next_param_version(), which is scoped to the FAMILY, not the
-    (family, key) pair -- so when magnitude and cap are proposed together (recalibrate()'s own
-    MINUTES_PARAM_GRIDS loop does exactly this), they get two DIFFERENT version numbers (e.g. N
-    and N+1), even though minutes_model.run() resolves both keys at the SAME
-    adjustment_params_version. Matching "any confirmed key present" -- or even "every key
-    confirmed so far agrees," if one of the two has simply never been proposed yet -- would
-    therefore often pick a version where the OTHER key has no row at all, and resolve_param()
-    hard-errors (no fallback) on it, crashing the whole real-data pipeline the first time this
-    family is ever confirmed. So this only returns a version that is confirmed for EVERY key in
-    the caller's supplied param_key tuple (never a version safe for only some of them). In
-    practice this means adjustment_params_version stays at default_version until both magnitude
-    and cap have been confirmed at the same version number -- which propose_recalibration()'s
-    current per-family (not per-family-per-shared-arg) versioning never produces on its own; a
-    real, disclosed limitation (docs/plans/2026-08_roadmap_plan.md's Open Items), not silently
-    papered over.
+    propose_recalibration()'s DEFAULT path (no explicit new_params_version) assigns each
+    (family, key) proposal its own next-available new_params_version via _next_param_version(),
+    which is scoped to the FAMILY, not the (family, key) pair -- so if magnitude and cap were
+    ever proposed that way, they'd get two DIFFERENT version numbers (e.g. N and N+1), even
+    though minutes_model.run() resolves both keys at the SAME adjustment_params_version.
+    Matching "any confirmed key present" -- or even "every key confirmed so far agrees," if one
+    of the two has simply never been proposed yet -- would therefore often pick a version where
+    the OTHER key has no row at all, and resolve_param() hard-errors (no fallback) on it,
+    crashing the whole real-data pipeline the first time this family is ever confirmed. So this
+    only returns a version that is confirmed for EVERY key in the caller's supplied param_key
+    tuple (never a version safe for only some of them) -- a real safety net this function keeps
+    regardless of who's calling propose_recalibration() and how.
+
+    recalibrate()'s own minutes-block loop (inside refit_minutes_and_evidence_params()'s caller)
+    no longer hits the buggy default path: it now passes propose_recalibration()'s own
+    new_params_version explicitly, reusing the shared, already-complete version the coordinate
+    descent produced for every block under one version_field -- see that call site and
+    propose_recalibration()'s own docstring for why. This closes the root cause going forward
+    (a future minutes recalibration round proposes magnitude/cap at the SAME version), but does
+    NOT retroactively fix data/recalibration/seeds_1.json's existing proposals #4/5/9/10
+    (confirmed 2026-09-08 at mismatched v8/v16 vs v9/v17, before this fix existed) --
+    adjustment_params_version stays at its default until a fresh recalibration round is run and
+    its (now correctly shared) proposal is reviewed and confirmed.
 
     Fixes a real, already-existing inconsistency this project had before Track B: several
     scripts already hand-updated to xi_params_version=2/rho_residual_params_version=2 after
@@ -2548,6 +2569,13 @@ def recalibrate(
                 con, backtest_run_id, block["param_family"], block["param_key"], new_value,
                 metric_name, score_before, score_after,
                 dimensions=block.get("dimensions"), old_params_version=old_version, effective_date=effective_date,
+                # The descent already wrote new_version as one COMPLETE row set for this
+                # version_field (every block sharing it copied forward via
+                # _write_family_version_with_override()) -- reuse it here instead of minting a
+                # fresh one per key, so blocks that share a version_field (minutes_adjustment_params'
+                # magnitude/cap) land on the SAME new_params_version and can actually be activated
+                # together. See propose_recalibration()'s own docstring for the incident this fixes.
+                new_params_version=new_version,
             ))
 
     if refit_lambda_flag:
