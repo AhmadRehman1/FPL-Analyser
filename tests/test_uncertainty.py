@@ -1,9 +1,11 @@
 import math
 
+import numpy as np
 import pytest
 from scipy.stats import norm
 
 from fpl_quant import expected_points as ep
+from fpl_quant import params as params_mod
 from fpl_quant import uncertainty as un
 
 
@@ -92,7 +94,17 @@ def test_total_variance_is_positive_and_at_least_sum_of_category_variances(con):
     assert var_total < 1000
 
 
-def test_cross_player_covariance_teammates_positive_opponents_negative(con):
+def test_cross_player_covariance_teammates_positive_opponents_smaller_positive(con):
+    # Real bug fix (2026-09-08): the previous implementation gave opponents a NEGATIVE
+    # cross-team covariance via an ad hoc clean_sheet-vs-goals_conceded cross-category term
+    # that could not be derived from any consistent joint model of the categories this
+    # function otherwise correlates -- and at real-data scale reliably pushed the assembled
+    # Sigma non-PSD (squad_optimizer's SCIP solve then timed out proving optimality, which is
+    # exactly what broke nightly_backtest.yml for several consecutive days). The fix models
+    # each category as its own two-team shared-factor system: opponents now get the SAME SIGN
+    # as teammates, just weaker -- matching seed_v1_params()'s own long-standing comment
+    # ("opponents get a materially smaller version of the same two effects"), which the old
+    # code never actually implemented.
     a = {"player_uid": "p_a", "team_uid": "team_1", "var_clean_sheet": 1.0, "var_goals_conceded": 0.5,
          "var_goals": 0.3, "var_assists": 0.1, "var_bonus": 0.2}
     b = {"player_uid": "p_b", "team_uid": "team_1", "var_clean_sheet": 1.0, "var_goals_conceded": 0.5,
@@ -107,7 +119,110 @@ def test_cross_player_covariance_teammates_positive_opponents_negative(con):
     assert ab[2] == "teammate"
     assert ab[3] > 0
     assert ac[2] == "opponent"
-    assert ac[3] < 0
+    assert 0 < ac[3] < ab[3]
+
+
+def test_cross_player_covariance_rejects_opponent_corr_exceeding_teammate_corr(con):
+    # |opponent_corr| > teammate_corr admits no valid shared-factor model at all (see
+    # _validate_shared_factor_corr's own docstring) -- must fail loudly, not silently produce
+    # a non-PSD Sigma the way the pre-fix formula could.
+    for key, value in {"teammate_attacking": 0.1, "opponent_attacking": 0.5,
+                        "teammate_defensive": 0.9, "opponent_defensive": 0.5}.items():
+        params_mod.write_param(con, "cross_player_correlation_params", 1, "2026-08-10", key, value_numeric=value)
+    a = {"player_uid": "p_a", "team_uid": "team_1", "var_clean_sheet": 0.0, "var_goals_conceded": 0.0,
+         "var_goals": 0.3, "var_assists": 0.1, "var_bonus": 0.2}
+    b = {"player_uid": "p_b", "team_uid": "team_2", "var_clean_sheet": 0.0, "var_goals_conceded": 0.0,
+         "var_goals": 0.3, "var_assists": 0.1, "var_bonus": 0.2}
+    with pytest.raises(ValueError, match="attacking"):
+        un.cross_player_covariance_for_fixture(con, [a, b], "team_1", "team_2", corr_params_version=1)
+
+
+def test_cross_player_covariance_sigma_is_psd_for_a_real_size_multi_fixture_pool(con):
+    # The actual real-data failure mode this whole redesign closes: a large candidate pool
+    # (500+ players is typical) spanning many simultaneous fixtures, assembled into one Sigma
+    # exactly the way squad_optimizer.solve()/_warn_if_sigma_not_psd() do. Different fixtures
+    # never share a nonzero pair (per this module's own docstring), so Sigma is block-diagonal
+    # by fixture -- this builds several fixtures' worth of players and checks the WHOLE
+    # assembled matrix, not just one block, has no negative eigenvalue.
+    un.seed_v1_params(con)
+    rng = np.random.default_rng(0)
+    players = []
+    sigma_pairs = {}
+    for fixture_idx in range(8):
+        home, away = f"team_{fixture_idx}_h", f"team_{fixture_idx}_a"
+        fixture_rows = []
+        for side in (home, away):
+            for k in range(11):
+                uid = f"{side}_p{k}"
+                row = {
+                    "player_uid": uid, "team_uid": side,
+                    "var_goals": rng.uniform(0, 0.3), "var_assists": rng.uniform(0, 0.2),
+                    "var_bonus": rng.uniform(0, 0.5), "var_clean_sheet": rng.uniform(0, 0.25),
+                    "var_goals_conceded": rng.uniform(0, 1.5),
+                }
+                fixture_rows.append(row)
+                players.append(row)
+        pairs = un.cross_player_covariance_for_fixture(con, fixture_rows, home, away, corr_params_version=1)
+        for a_uid, b_uid, _rel, cov in pairs:
+            sigma_pairs[(a_uid, b_uid)] = cov
+
+    uid_list = [p["player_uid"] for p in players]
+    idx = {u: i for i, u in enumerate(uid_list)}
+    var_by_uid = {p["player_uid"]: p["var_goals"] + p["var_assists"] + p["var_bonus"]
+                  + p["var_clean_sheet"] + p["var_goals_conceded"] for p in players}
+    n = len(uid_list)
+    sigma = np.zeros((n, n))
+    for u in uid_list:
+        sigma[idx[u], idx[u]] = var_by_uid[u]
+    for (a_uid, b_uid), cov in sigma_pairs.items():
+        sigma[idx[a_uid], idx[b_uid]] = cov
+        sigma[idx[b_uid], idx[a_uid]] = cov
+
+    min_eig = float(np.linalg.eigvalsh(sigma).min())
+    assert min_eig >= -1e-8, f"assembled Sigma is not PSD: most negative eigenvalue {min_eig}"
+
+
+@pytest.mark.parametrize("teammate_attacking,opponent_attacking,teammate_defensive,opponent_defensive", [
+    (0.25, 0.08, 0.9, 0.5),   # real v1 defaults
+    (0.01, 0.01, 0.01, 0.01),  # near-zero loadings
+    (1.0, 1.0, 1.0, 1.0),      # maximal loadings, opponent == teammate
+    (0.5, -0.4, 0.6, -0.6),    # negative opponent correlation, still |opponent| <= teammate
+])
+def test_cross_player_covariance_sigma_is_psd_across_param_grid(
+    con, teammate_attacking, opponent_attacking, teammate_defensive, opponent_defensive,
+):
+    # Property test: the PSD guarantee must hold for the whole valid parameter region
+    # (|opponent| <= teammate), not just today's specific seeded v1 values.
+    for key, value in {
+        "teammate_attacking": teammate_attacking, "opponent_attacking": opponent_attacking,
+        "teammate_defensive": teammate_defensive, "opponent_defensive": opponent_defensive,
+    }.items():
+        params_mod.write_param(con, "cross_player_correlation_params", 1, "2026-08-10", key, value_numeric=value)
+    rng = np.random.default_rng(hash((teammate_attacking, opponent_attacking, teammate_defensive, opponent_defensive)) % (2**32))
+    home, away = "team_h", "team_a"
+    fixture_rows = []
+    for side in (home, away):
+        for k in range(11):
+            fixture_rows.append({
+                "player_uid": f"{side}_p{k}", "team_uid": side,
+                "var_goals": rng.uniform(0, 0.3), "var_assists": rng.uniform(0, 0.2),
+                "var_bonus": rng.uniform(0, 0.5), "var_clean_sheet": rng.uniform(0, 0.25),
+                "var_goals_conceded": rng.uniform(0, 1.5),
+            })
+    pairs = un.cross_player_covariance_for_fixture(con, fixture_rows, home, away, corr_params_version=1)
+    uid_list = [r["player_uid"] for r in fixture_rows]
+    idx = {u: i for i, u in enumerate(uid_list)}
+    var_by_uid = {r["player_uid"]: r["var_goals"] + r["var_assists"] + r["var_bonus"]
+                  + r["var_clean_sheet"] + r["var_goals_conceded"] for r in fixture_rows}
+    n = len(uid_list)
+    sigma = np.zeros((n, n))
+    for u in uid_list:
+        sigma[idx[u], idx[u]] = var_by_uid[u]
+    for a_uid, b_uid, _rel, cov in pairs:
+        sigma[idx[a_uid], idx[b_uid]] = cov
+        sigma[idx[b_uid], idx[a_uid]] = cov
+    min_eig = float(np.linalg.eigvalsh(sigma).min())
+    assert min_eig >= -1e-8, f"non-PSD at params={(teammate_attacking, opponent_attacking, teammate_defensive, opponent_defensive)}: min_eig={min_eig}"
 
 
 def _seed_uncertainty_run_scaffold(con, *, transferred_season_club):

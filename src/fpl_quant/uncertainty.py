@@ -17,11 +17,13 @@ reasonable given rho_residual is itself already an invented placeholder explicit
 for full replacement (not mere recalibration) once M6's Monte Carlo engine exists, per
 spec. Not a hidden shortcut -- named here and in the README.
 
-Cross-player Sigma is built block-wise by fixture: teammates correlate positively through
-the shared lambda_for draw (attacking) and the shared clean-sheet Bernoulli outcome
-(defensive); opposing-fixture players correlate negatively on the clean-sheet/goals-
-conceded axis; different-fixture players in the same gameweek are a confirmed zero
-covariance, per spec -- not stored at all.
+Cross-player Sigma is built block-wise by fixture, each category block (attacking,
+clean_sheet, goals_conceded) its own independent two-team shared-factor model: teammates
+correlate positively and strongly through the shared match/team draw, opposing-fixture
+players correlate positively but more weakly through the same match's shared tempo/story
+(see cross_player_covariance_for_fixture()'s own docstring for why this replaced an earlier,
+not-actually-PSD cross-category negative-correlation formula); different-fixture players in
+the same gameweek are a confirmed zero covariance, per spec -- not stored at all.
 
 Cornish-Fisher quantiles are reporting/explainability output only (feeds M9) -- confirmed
 NOT wired into M5's optimization objective, which works directly off Sigma (this module)
@@ -314,14 +316,73 @@ def cornish_fisher_quantile(mean: float, var: float, skew: float, excess_kurtosi
 # cross-player covariance, block-wise by fixture
 # ============================================================
 
+def _validate_shared_factor_corr(teammate_corr: float, opponent_corr: float, *, label: str) -> None:
+    """Every block below (attacking / clean_sheet / goals_conceded) is built as a real
+    two-team shared-latent-factor model, not an independently-picked pairwise formula: each
+    team's players load sqrt(teammate_corr) onto their OWN team's factor (which by itself
+    already guarantees the observed same-team pairwise correlation is exactly
+    teammate_corr), and the two teams' factors are themselves correlated at
+    opponent_corr / teammate_corr (which makes the observed cross-team pairwise correlation
+    come out to exactly opponent_corr). The covariance formulas below are this factor
+    model's closed form -- the factors themselves are never sampled -- but the model is only
+    a legitimate (positive-semidefinite) one when that inter-factor correlation is a real
+    correlation, i.e. |opponent_corr| <= teammate_corr. That is not a tuning choice; it is
+    the Cauchy-Schwarz condition every common-factor model must satisfy (two players who
+    share a factor only through an intermediate cross-team link can never end up MORE
+    correlated than two players who share that same factor directly), so a param pair that
+    violates it cannot be turned into ANY valid joint covariance and must be rejected rather
+    than silently producing a non-PSD Sigma -- see this function's own callers' docstring for
+    the real incident (repeated squad_optimizer SCIP timeouts, nightly_backtest.yml failing
+    for days) this closes.
+    """
+    if not (0.0 <= teammate_corr <= 1.0):
+        raise ValueError(f"cross_player_correlation_params.{label}: teammate correlation {teammate_corr} must be in [0, 1]")
+    if abs(opponent_corr) > teammate_corr + 1e-12:
+        raise ValueError(
+            f"cross_player_correlation_params.{label}: |opponent|={abs(opponent_corr)} exceeds "
+            f"teammate={teammate_corr} -- no shared-factor model can make two teams' players more "
+            "correlated across teams than two teammates are within one team"
+        )
+
+
 def cross_player_covariance_for_fixture(
     con, fixture_rows: list[dict], home_uid: str, away_uid: str, corr_params_version: int,
 ) -> list[tuple[str, str, str, float]]:
     """Returns (player_uid_a, player_uid_b, relationship, covariance) for every nonzero
-    pair within one fixture. Teammates: positive via shared attacking (lambda_for) and
-    defensive (clean-sheet) structure. Opponents: negative on the clean-sheet/goals-
-    conceded axis. Different fixtures within a gameweek: zero, confirmed -- never called
-    for those pairs at all."""
+    pair within one fixture. Different fixtures within a gameweek: zero, confirmed -- never
+    called for those pairs at all.
+
+    Real bug this closes (found 2026-09-08 while trying to run a fresh recalibration: the
+    walk-forward backtest had in fact been failing this same way for days, in
+    nightly_backtest.yml, with `squad_optimizer.solve: assembled Sigma ... is not PSD` warnings
+    immediately followed by `RuntimeError: solver did not reach optimality: status=timelimit`
+    -- a non-PSD Sigma makes SCIP's epigraph relaxation invalid, so the solver has to work far
+    harder, or outright fails, to prove optimality). The PREVIOUS version built attacking,
+    clean_sheet, and goals_conceded covariance as three independently-invented pairwise
+    formulas -- critically, its one CROSS-team term paired ONE side's clean_sheet against the
+    OTHER side's goals_conceded (a genuinely different category on a genuinely different
+    team) with a bare negative sign. That is not derivable from any consistent joint
+    covariance model of the categories actually being correlated elsewhere in this same
+    function, and at real-data scale (500+ candidates, many shared fixtures) the accumulated
+    inconsistency reliably pushed the assembled Sigma's minimum eigenvalue negative.
+
+    THE FIX: attacking, clean_sheet, and goals_conceded are each modeled as their OWN
+    independent two-team shared-factor system (see _validate_shared_factor_corr's own
+    docstring) -- teammates share their team's factor directly (correlation exactly
+    teammate_*), opponents share it through the two teams' own factor correlation
+    (correlation exactly opponent_*, same sign as teammate_* -- matching seed_v1_params()'s
+    own stated intent, "opponents get a materially smaller version of the SAME effect", which
+    the old cross-category negative term never actually implemented). No cross-category term
+    is modeled (a clean_sheet-vs-goals_conceded relationship between two DIFFERENT players is
+    a real but separately-scoped effect, not something this closed set of 4 parameters can
+    represent consistently). Each of the 3 blocks is individually PSD by construction
+    (a valid 2x2 factor covariance matrix congruence-transformed by each block's own loadings
+    -- see test_uncertainty.py's randomized PSD property test), and summing several
+    independent PSD blocks' pairwise covariances into one aggregate per-pair total is itself
+    still exactly the true Cov(total_points_a, total_points_b) under that independence
+    assumption (linearity of covariance) -- so the aggregate Sigma this function's caller
+    assembles is PSD too, not just each block in isolation.
+    """
     def _corr(key):
         v, _ = params_mod.resolve_param(con, "cross_player_correlation_params", key, corr_params_version)
         return v
@@ -330,6 +391,8 @@ def cross_player_covariance_for_fixture(
     opponent_attacking = _corr("opponent_attacking")
     teammate_defensive = _corr("teammate_defensive")
     opponent_defensive = _corr("opponent_defensive")
+    _validate_shared_factor_corr(teammate_attacking, opponent_attacking, label="attacking")
+    _validate_shared_factor_corr(teammate_defensive, opponent_defensive, label="defensive")
 
     out = []
     n = len(fixture_rows)
@@ -339,35 +402,28 @@ def cross_player_covariance_for_fixture(
             is_teammate = a["team_uid"] == b["team_uid"]
             cov = 0.0
 
-            # attacking co-movement: both teams' expected attacking returns share the same
-            # match-tempo/goal-environment realization -- teammates share it directly
-            # (same lambda_for), opponents share it more weakly and on the same sign
-            # (a high-scoring match lifts both sides' attacking categories together) EXCEPT
-            # on the clean-sheet/goals-conceded axis where one side's goal is the other's
-            # concession -- handled as its own explicit term below.
+            # attacking: both teams' attacking returns share the same match-tempo/goal-
+            # environment realization -- teammates share it directly, opponents share it
+            # more weakly (same sign: a high-scoring match lifts both sides' attacking
+            # categories together).
             attack_a = a["var_goals"] + a["var_assists"] + a["var_bonus"]
             attack_b = b["var_goals"] + b["var_assists"] + b["var_bonus"]
             if attack_a > 0 and attack_b > 0:
-                shared_tempo_corr = teammate_attacking if is_teammate else opponent_attacking
-                cov += shared_tempo_corr * math.sqrt(attack_a * attack_b)
+                corr = teammate_attacking if is_teammate else opponent_attacking
+                cov += corr * math.sqrt(attack_a * attack_b)
 
-            # defensive: teammates' clean-sheet outcomes are the *same* Bernoulli draw
-            # (same match, same team) -- strongly positively correlated.
-            if is_teammate and a["var_clean_sheet"] > 0 and b["var_clean_sheet"] > 0:
-                cov += teammate_defensive * math.sqrt(a["var_clean_sheet"] * b["var_clean_sheet"])
-            # goals-conceded, same reasoning (same team, same match, shared concession count)
-            if is_teammate and a["var_goals_conceded"] > 0 and b["var_goals_conceded"] > 0:
-                cov += teammate_defensive * math.sqrt(a["var_goals_conceded"] * b["var_goals_conceded"])
-
-            # opponents: team A's goals directly reduce team B's clean-sheet probability --
-            # negative correlation on exactly this axis.
-            if not is_teammate:
-                cs_a, gc_b = a["var_clean_sheet"], b["var_goals_conceded"]
-                cs_b, gc_a = b["var_clean_sheet"], a["var_goals_conceded"]
-                if cs_a > 0 and gc_b > 0:
-                    cov -= opponent_defensive * math.sqrt(cs_a * gc_b)
-                if cs_b > 0 and gc_a > 0:
-                    cov -= opponent_defensive * math.sqrt(cs_b * gc_a)
+            # clean_sheet: teammates share the *same* Bernoulli draw (same match, same team)
+            # -- strongly positively correlated; opponents share the same match's overall
+            # defensive story more weakly (a low-scoring match makes clean sheets likelier for
+            # BOTH sides at once, a high-scoring one likelier for neither).
+            if a["var_clean_sheet"] > 0 and b["var_clean_sheet"] > 0:
+                corr = teammate_defensive if is_teammate else opponent_defensive
+                cov += corr * math.sqrt(a["var_clean_sheet"] * b["var_clean_sheet"])
+            # goals_conceded: same reasoning, its own independent factor (kept separate from
+            # clean_sheet's -- no clean_sheet-vs-goals_conceded cross term, see docstring).
+            if a["var_goals_conceded"] > 0 and b["var_goals_conceded"] > 0:
+                corr = teammate_defensive if is_teammate else opponent_defensive
+                cov += corr * math.sqrt(a["var_goals_conceded"] * b["var_goals_conceded"])
 
             if abs(cov) > 1e-9:
                 out.append((a["player_uid"], b["player_uid"], "teammate" if is_teammate else "opponent", cov))
