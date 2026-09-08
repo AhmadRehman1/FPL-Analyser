@@ -234,9 +234,9 @@
       "param_family": "minutes_adjustment_params",
       "param_key": "magnitude",
       "proposal_id": 14,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T17:14:59.566491",
+      "reviewed_by": "claude-code",
+      "status": "confirmed"
     },
     {
       "dimensions": {
@@ -252,9 +252,9 @@
       "param_family": "minutes_adjustment_params",
       "param_key": "cap",
       "proposal_id": 15,
-      "reviewed_at": null,
-      "reviewed_by": null,
-      "status": "pending"
+      "reviewed_at": "2026-09-08T17:15:06.224976",
+      "reviewed_by": "claude-code",
+      "status": "confirmed"
     },
     {
       "dimensions": null,
@@ -305,43 +305,6 @@
       "status": "confirmed"
     },
     {
-      "dimensions": {
-        "category": "Out",
-        "claim_type": "injury_status"
-      },
-      "metric_after": -1.8787601645729584,
-      "metric_before": -1.8806214822395657,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 8,
-      "new_value": -4.0,
-      "old_params_version": 1,
-      "old_value": -4.0,
-      "param_family": "minutes_adjustment_params",
-      "param_key": "magnitude",
-      "proposal_id": 4,
-      "reviewed_at": "2026-09-08T01:16:49.972290",
-      "reviewed_by": "ahmadrehman1-via-claude",
-      "status": "confirmed"
-    },
-    {
-      "dimensions": {
-        "scope": "global"
-      },
-      "metric_after": -1.8787601645729584,
-      "metric_before": -1.8806214822395657,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 9,
-      "new_value": 6.0,
-      "old_params_version": 1,
-      "old_value": 6.0,
-      "param_family": "minutes_adjustment_params",
-      "param_key": "cap",
-      "proposal_id": 5,
-      "reviewed_at": "2026-09-08T01:16:54.448273",
-      "reviewed_by": "ahmadrehman1-via-claude",
-      "status": "confirmed"
-    },
-    {
       "dimensions": null,
       "metric_after": 0.0,
       "metric_before": 0.0,
@@ -388,44 +351,7 @@
       "reviewed_at": "2026-09-08T01:17:08.157915",
       "reviewed_by": "ahmadrehman1-via-claude",
       "status": "confirmed"
-    },
-    {
-      "dimensions": {
-        "category": "Out",
-        "claim_type": "injury_status"
-      },
-      "metric_after": -1.8787601645729577,
-      "metric_before": -1.8806214822395657,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 16,
-      "new_value": -3.0,
-      "old_params_version": 1,
-      "old_value": -4.0,
-      "param_family": "minutes_adjustment_params",
-      "param_key": "magnitude",
-      "proposal_id": 9,
-      "reviewed_at": "2026-09-08T01:17:12.725686",
-      "reviewed_by": "ahmadrehman1-via-claude",
-      "status": "confirmed"
-    },
-    {
-      "dimensions": {
-        "scope": "global"
-      },
-      "metric_after": -1.8787601645729577,
-      "metric_before": -1.8806214822395657,
-      "metric_name": "log_score_minutes_mean_holdout",
-      "new_params_version": 17,
-      "new_value": 6.0,
-      "old_params_version": 1,
-      "old_value": 6.0,
-      "param_family": "minutes_adjustment_params",
-      "param_key": "cap",
-      "proposal_id": 10,
-      "reviewed_at": "2026-09-08T01:17:17.358690",
-      "reviewed_by": "ahmadrehman1-via-claude",
-      "status": "confirmed"
     }
   ],
-  "written_at": "2026-09-08T17:07:50.034796+00:00"
+  "written_at": "2026-09-08T17:15:06.228616+00:00"
 }
