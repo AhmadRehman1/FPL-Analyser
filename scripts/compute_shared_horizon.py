@@ -67,7 +67,8 @@ def main() -> None:
 
     con = db.connect()
     tp.seed_v1_params(con)
-    rho_residual_params_version = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)["rho_residual_params_version"]
+    active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
+    rho_residual_params_version = active["rho_residual_params_version"]
 
     ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
     mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
@@ -80,6 +81,7 @@ def main() -> None:
         con, date.today(), TARGET_SEASON, plan_for_gameweek, ts_mv, mm_mv, int(horizon_gameweeks),
         SCORING_PARAMS_VERSION, BPS_PARAMS_VERSION, TAU_PARAMS_VERSION,
         rho_residual_params_version, CORR_PARAMS_VERSION,
+        rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
     )
     if plan_for_gameweek not in horizon_ep_versions:
         raise SystemExit(f"no fixtures found for {TARGET_SEASON} GW{plan_for_gameweek} -- cannot compute a shared horizon")

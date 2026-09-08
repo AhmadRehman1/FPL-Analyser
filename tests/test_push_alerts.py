@@ -125,6 +125,22 @@ def test_recommended_chip_near_deadline_is_alerted():
     assert "Wildcard recommended" in alerts[0]["title"]
 
 
+def test_two_simultaneously_recommended_chips_are_both_alerted():
+    # Real FPL rule: chips are drawn from two independent sets (Wildcard/Free Hit vs. Bench
+    # Boost/Triple Captain) -- a manager can legally play one from EACH set the same gameweek,
+    # and chip_evaluations' own "recommended" bool is computed independently per chip, so both
+    # can be true at once. Regression test: this used to silently drop every chip after the
+    # first one found.
+    rs = {"chip_evaluations": [{"chip_type": "wildcard", "recommended": True},
+                               {"chip_type": "triple_captain", "recommended": True}]}
+    alerts = pa.compute_alerts(real_squad=rs, team=_team(), players_by_id=_players(), price_watch={},
+                               next_deadline_utc=NOW + timedelta(hours=1), now_utc=NOW)
+    assert [a["kind"] for a in alerts] == ["pending_chip", "pending_chip"]
+    assert {a["title"] for a in alerts} == {
+        "Deadline in ~1h — Wildcard recommended", "Deadline in ~1h — Triple Captain recommended",
+    }
+
+
 def test_deadline_already_passed_is_not_within_lead():
     rs = {"hold_vs_transfer_now": {"recommended_action": "transfer_now"}, "transfer_recommendations": []}
     alerts = pa.compute_alerts(real_squad=rs, team=_team(), players_by_id=_players(), price_watch={},
