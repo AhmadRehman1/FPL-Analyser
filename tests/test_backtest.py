@@ -1065,19 +1065,26 @@ def test_resolve_active_version_ignores_pending_and_rejected(con, tmp_path):
 
 
 def test_active_recalibratable_versions_matches_known_confirmed_state():
-    # Mirrors this project's real, committed data/recalibration/ state: only xi and
-    # rho_residual have ever been confirmed (both v1 -> v2); everything else stays at default.
+    # Mirrors this project's real, committed data/recalibration/ state as of seeds_1.json's
+    # 2026-09-08 confirm run (proposals #1-10, reviewed via review_recalibration.yml): xi is
+    # still the pre-existing historical confirm (v1 -> v2); rho_residual and kappa_tc each got
+    # two confirms this round, so the active version is the higher of the two (rho_residual
+    # v3 and v4 -> 4; kappa_tc v2 and v3 -> 3); minutes_model_shrinkage_params similarly landed
+    # at its higher confirm (v6 and v11 -> 11). adjustment_params_version stays at default even
+    # though both minutes_adjustment_params keys were confirmed, because magnitude and cap were
+    # never confirmed at the SAME version together (magnitude: v8/v16, cap: v9/v17, no overlap)
+    # -- see resolve_active_version()'s own CRITICAL correctness note for why that's required.
     real_seed_dir = Path(__file__).resolve().parents[1] / "data" / "recalibration"
 
     versions = bt.active_recalibratable_versions(real_seed_dir)
     assert versions["xi_params_version"] == 2
-    assert versions["rho_residual_params_version"] == 2
+    assert versions["rho_residual_params_version"] == 4
     assert versions["rho_params_version"] == 1
     assert versions["fact_multiplier_params_version"] == 1
-    assert versions["shrinkage_params_version"] == 1
+    assert versions["shrinkage_params_version"] == 11
     assert versions["adjustment_params_version"] == 1
     assert versions["lambda_params_version"] == 1
-    assert versions["kappa_tc_params_version"] == 1
+    assert versions["kappa_tc_params_version"] == 3
     assert versions["rate_shrinkage_params_version"] == 1
 
 
