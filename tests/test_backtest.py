@@ -1465,6 +1465,53 @@ def test_refit_rho_residual_raises_when_no_data_recorded(con):
         bt.refit_rho_residual(con, backtest_run_id)
 
 
+def test_recalibrate_proposes_nothing_for_rho_residual_when_the_refit_value_is_unchanged(con, monkeypatch, tmp_path):
+    """Regression test for real proposal churn: data/recalibration/seeds_1.json's #1 and #6
+    (confirmed 2026-09-08) were the SAME no-op rho_residual 0.0 -> 0.0 proposal, created by two
+    separate recalibrate() runs before either got reviewed, because this technique (unlike
+    xi/rho/lambda/kappa_tc/rate_shrinkage) had no 'only propose if the value actually changed'
+    guard -- see recalibrate()'s own comment at this call site."""
+    from fpl_quant import params
+
+    params.write_param(con, "correlation_params", 1, "2026-08-10", "rho_residual", value_numeric=0.0)
+    backtest_run_id = _seed_backtest_run(con)
+
+    monkeypatch.setattr(bt, "refit_rho_residual", lambda con, backtest_run_id: {"rho_residual": 0.0})
+    proposal_ids = bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=True,
+        refit_minutes_flag=False, refit_lambda_flag=False, seed_dir=tmp_path,
+    )
+
+    assert proposal_ids == []
+    assert con.execute("SELECT count(*) FROM recalibration_proposals").fetchone()[0] == 0
+
+
+def test_recalibrate_still_proposes_rho_residual_when_the_refit_value_changed(con, monkeypatch, tmp_path):
+    from fpl_quant import params
+
+    params.write_param(con, "correlation_params", 1, "2026-08-10", "rho_residual", value_numeric=0.15)
+    backtest_run_id = _seed_backtest_run(con)
+
+    monkeypatch.setattr(bt, "refit_rho_residual", lambda con, backtest_run_id: {"rho_residual": 0.05})
+    proposal_ids = bt.recalibrate(
+        con, backtest_run_id,
+        current_xi_version=1, current_rho_version=1, current_rho_residual_version=1,
+        current_minutes_versions={}, current_lambda_version=1, guardrail_cap=3.0,
+        minutes_param_grids=[], refit_xi_rho_flag=False, refit_rho_residual_flag=True,
+        refit_minutes_flag=False, refit_lambda_flag=False, seed_dir=tmp_path,
+    )
+
+    assert len(proposal_ids) == 1
+    row = con.execute(
+        "SELECT param_family, param_key, old_value, new_value FROM recalibration_proposals WHERE proposal_id = ?",
+        [proposal_ids[0]],
+    ).fetchone()
+    assert row == ("correlation_params", "rho_residual", 0.15, 0.05)
+
+
 # ============================================================
 # refit_minutes_and_evidence_params -- block coordinate descent
 # ============================================================
