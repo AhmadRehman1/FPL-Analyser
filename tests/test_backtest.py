@@ -1214,15 +1214,20 @@ def test_resolve_active_version_ignores_pending_and_rejected(con, tmp_path):
 
 def test_active_recalibratable_versions_matches_known_confirmed_state():
     # Mirrors this project's real, committed data/recalibration/ state as of seeds_1.json's
-    # 2026-09-08 confirm runs (proposals #1-15, reviewed via review_recalibration.yml): xi is
-    # still the pre-existing historical confirm (v1 -> v2); rho_residual and kappa_tc each got
-    # two confirms this round, so the active version is the higher of the two (rho_residual
-    # v3 and v4 -> 4; kappa_tc v2 and v3 -> 3); minutes_model_shrinkage_params similarly landed
-    # at its higher confirm (v6 and v11 -> 11). fact_multiplier_params_version moved to 8 (the
-    # holdout-validated 1.2 -> 1.0 confirm). adjustment_params_version moved to 18: proposals
-    # #14/#15 are the first time magnitude and cap were ever confirmed at the SAME version
-    # together (unlike the earlier #4/#5 v8/v9 and #9/#10 v16/v17 pairs, which never overlapped)
-    # -- see resolve_active_version()'s own CRITICAL correctness note for why that's required.
+    # 2026-09-08/09 confirm runs (proposals #1-15 on the 8th, #1-3 on the 9th, reviewed via
+    # review_recalibration.yml): xi is still the pre-existing historical confirm (v1 -> v2);
+    # rho_residual and kappa_tc each got multiple confirms across these rounds, so the active
+    # version is the highest of them (rho_residual -> 4; kappa_tc -> 3); minutes_model_shrinkage_
+    # params similarly landed at its higher confirm (-> 11). fact_multiplier_params_version
+    # moved to 8 (the holdout-validated 1.2 -> 1.0 confirm). adjustment_params_version moved to
+    # 18: proposals #14/#15 are the first time magnitude and cap were ever confirmed at the SAME
+    # version together (unlike the earlier #4/#5 v8/v9 and #9/#10 v16/v17 pairs, which never
+    # overlapped) -- see resolve_active_version()'s own CRITICAL correctness note for why that's
+    # required. rate_shrinkage_params_version moved to 8 on the 9th: the first successful
+    # nightly_backtest.yml walk-forward after PR #163's Sigma PSD fix (which had been failing
+    # for 3+ consecutive days) finally seeded rate_shrinkage_params, letting the grid search
+    # actually run -- it picked k_minutes=900.0 (up from the 450.0 default), a real if modest
+    # improvement in ep_total_calibration_mae (1.1457 -> 1.1454).
     real_seed_dir = Path(__file__).resolve().parents[1] / "data" / "recalibration"
 
     versions = bt.active_recalibratable_versions(real_seed_dir)
@@ -1234,7 +1239,7 @@ def test_active_recalibratable_versions_matches_known_confirmed_state():
     assert versions["adjustment_params_version"] == 18
     assert versions["lambda_params_version"] == 1
     assert versions["kappa_tc_params_version"] == 3
-    assert versions["rate_shrinkage_params_version"] == 1
+    assert versions["rate_shrinkage_params_version"] == 8
 
 
 def _pending_proposal(con, backtest_run_id, *, param_family, param_key, new_value, metric_name, metric_before, metric_after, old_params_version=1):

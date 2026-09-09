@@ -35,6 +35,22 @@
     },
     {
       "dimensions": null,
+      "metric_after": 1.1453659985877347,
+      "metric_before": 1.1456995269035073,
+      "metric_name": "ep_total_calibration_mae",
+      "new_params_version": 8,
+      "new_value": 900.0,
+      "old_params_version": 1,
+      "old_value": 450.0,
+      "param_family": "rate_shrinkage_params",
+      "param_key": "k_minutes",
+      "proposal_id": 3,
+      "reviewed_at": "2026-09-09T07:52:34.581900",
+      "reviewed_by": "claude-code",
+      "status": "confirmed"
+    },
+    {
+      "dimensions": null,
       "metric_after": -1.8787601645729577,
       "metric_before": -1.8806214822395662,
       "metric_name": "log_score_minutes_mean_holdout",
@@ -183,5 +199,5 @@
       "status": "confirmed"
     }
   ],
-  "written_at": "2026-09-09T03:15:47.133868+00:00"
+  "written_at": "2026-09-09T07:52:34.585649+00:00"
 }
