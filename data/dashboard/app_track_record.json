@@ -442,5 +442,100 @@
       }
     ]
   },
-  "generated_at": "2026-09-09T09:44:42.140184"
+  "generated_at": "2026-09-09T12:25:34.330175",
+  "transparency_log": {
+    "backtest": {
+      "n_gameweek_steps": null,
+      "seasons_covered": [],
+      "headline": null,
+      "metrics": [],
+      "parameters_total": 62,
+      "parameters_backtested": 0
+    },
+    "snapshots": [
+      {
+        "season": "2026-2027",
+        "gameweek": 3,
+        "total_projected_ep": 53.20394529713449,
+        "captain_name": "Ethan Ampadu",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 2,
+        "total_projected_ep": 42.71257365366756,
+        "captain_name": "Igor Jesus Maciel da Cruz",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 1,
+        "total_projected_ep": 53.89924598244331,
+        "captain_name": "Ethan Ampadu",
+        "squad_size": 15,
+        "in_xi_count": 11
+      }
+    ],
+    "latest_diff": {
+      "has_previous": true,
+      "previous_gameweek": 2,
+      "current_gameweek": 3,
+      "squad_changes": {
+        "in": [
+          "Igor Thiago Nascimento Rodrigues",
+          "James Tarkowski",
+          "Erling Haaland",
+          "Alexander Isak",
+          "Adam Aznou",
+          "Alex Cairns",
+          "Alfie Cresswell",
+          "Granit Xhaka",
+          "Nobel Mendy"
+        ],
+        "out": [
+          "Nathan Collins",
+          "Yankuba Minteh",
+          "Ollie Watkins",
+          "Will Dennis",
+          "Mois\u00e9s Caicedo Corozo",
+          "Maxence Lacroix",
+          "William Osula",
+          "Igor Jesus Maciel da Cruz",
+          "Omar Alderete"
+        ]
+      },
+      "captain_changed": true,
+      "previous_captain": "Igor Jesus Maciel da Cruz",
+      "current_captain": "Ethan Ampadu",
+      "total_projected_ep_delta": 10.491371643466927,
+      "newly_doubtful_flags": []
+    },
+    "provenance": {
+      "data_asof": "2026-09-09",
+      "evidence_workbook": {
+        "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
+        "size_bytes": 695705
+      },
+      "fpl_analyser_commit_sha": "1aadc877b270ad7c92e3a8f305f5e18330c8abad",
+      "fpl_core_insights_commit_sha": "cd802ee1f4a388ba9bc7e300988976701363b695",
+      "installed_packages": {
+        "duckdb": "1.5.5",
+        "numpy": "2.4.6",
+        "openpyxl": "3.1.5",
+        "pandas": "3.0.5",
+        "pyscipopt": "6.2.1",
+        "pytest": "9.1.1",
+        "python-dateutil": "2.9.0.post0",
+        "requests": "2.34.2",
+        "scipy": "1.17.1"
+      },
+      "recorded_at": "2026-09-09T10:47:00.632810+00:00",
+      "research_pull_workbook": {
+        "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
+        "size_bytes": 26007
+      }
+    }
+  }
 }
