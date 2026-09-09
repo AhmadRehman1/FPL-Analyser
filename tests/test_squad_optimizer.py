@@ -238,6 +238,29 @@ def test_invalid_posture_raises():
         so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="bogus", eo_weight_kappa=0.5)
 
 
+def test_eo_term_weighs_captain_double():
+    """The captain's points count double towards the manager's actual realized total (the
+    same reasoning risk_expr already applies to variance -- see solve()'s own w_i comment),
+    so eo_by_uid[captain_uid] must contribute 2x to the objective, not a flat 1x. Isolates the
+    term's own coefficient by giving exactly one candidate (fwd3) a dominant mu -- certain to
+    be both selected and captained regardless of the (tiny) eo_weight_kappa -- and nonzero EO,
+    so the objective delta versus a kappa=0 baseline on the identical squad is exactly
+    kappa * w_fwd3 * eo_fwd3 with w_fwd3 = 2 (xi + captain)."""
+    pool = _synthetic_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    by_uid["fwd3"]["mu"] = 1000.0
+    eo_by_uid = {c["player_uid"]: 0.0 for c in pool}
+    eo_by_uid["fwd3"] = 10.0
+
+    result = so.solve(
+        pool, {}, lam=0.0, guardrail_cap=3, posture="protect", eo_by_uid=eo_by_uid, eo_weight_kappa=0.01,
+    )
+    baseline = so.solve(pool, {}, lam=0.0, guardrail_cap=3)
+    assert result["captain"] == "fwd3"
+    assert baseline["squad"] == result["squad"]
+    assert result["objective"] - baseline["objective"] == pytest.approx(0.01 * 2 * 10.0)
+
+
 # ============================================================
 # Priority 1 -- field-covariance term (linear coefficient, same posture-sign convention)
 # ============================================================
@@ -267,6 +290,31 @@ def test_field_cov_kappa_requires_posture():
     pool = _synthetic_pool()
     with pytest.raises(ValueError):
         so.solve(pool, {}, lam=0.0, guardrail_cap=3, field_cov_by_uid={}, field_cov_kappa=0.1, posture=None)
+
+
+def test_field_cov_term_weighs_captain_double():
+    """Same captaincy-weighting requirement as the EO term above: field_cov_by_uid[uid]
+    approximates Cov(player_i, field), and the rank-relative-variance argument is about
+    Cov(you, field) where "you" is the manager's actual realized total -- the captain's
+    points count double towards that, so a flat xi[uid] weight would under-count exactly the
+    highest-stakes decision in the squad. Same isolation technique as the EO version: one
+    dominant-mu candidate (certain captain regardless of the tiny kappa) carries all the
+    nonzero field-covariance signal, so the objective delta versus a kappa=0 baseline on the
+    identical squad is exactly kappa * w_fwd3 * field_cov_fwd3 with w_fwd3 = 2."""
+    pool = _synthetic_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    by_uid["fwd3"]["mu"] = 1000.0
+    field_cov_by_uid = {c["player_uid"]: 0.0 for c in pool}
+    field_cov_by_uid["fwd3"] = 10.0
+
+    result = so.solve(
+        pool, {}, lam=0.0, guardrail_cap=3, posture="protect",
+        field_cov_by_uid=field_cov_by_uid, field_cov_kappa=0.01,
+    )
+    baseline = so.solve(pool, {}, lam=0.0, guardrail_cap=3)
+    assert result["captain"] == "fwd3"
+    assert baseline["squad"] == result["squad"]
+    assert result["objective"] - baseline["objective"] == pytest.approx(0.01 * 2 * 10.0)
 
 
 # ============================================================
