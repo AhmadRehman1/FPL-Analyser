@@ -9,9 +9,19 @@ dispatch (run 34220621168) + `review_recalibration.yml` confirmations have now a
 confirmed at a SHARED version -- see `resolve_active_version()`'s own docstring on why the
 earlier v8/v16 vs v9/v17 mismatch left it inert) live in `data/recalibration/seeds_1.json`,
 alongside the already-confirmed `kappa_tc` (v3), `rho_residual` (v4), and
-`minutes_model_shrinkage_params` (v11). `rate_shrinkage_params` -- the constant this section's
-own Lead B write-up was actually about -- has NOT been recalibrated yet; see below for what's
-still needed there.
+`minutes_model_shrinkage_params` (v11). Update 2026-09-09: `rate_shrinkage_params` -- the
+constant this section's own Lead B write-up was actually about -- is now confirmed and live too
+(v8, `k_minutes` 450.0 -> 900.0). Getting there required a real, separate fix first:
+`nightly_backtest.yml` had been failing for 3+ consecutive days on a `squad_optimizer` SCIP
+timeout, root-caused to a non-PSD cross-player Sigma bug in `uncertainty.py` (PR #163) --
+without a fresh walk-forward DB, `rate_shrinkage_params` (added after the last successful
+build) had no seeded v1 row to recalibrate against at all. Once PR #163 unblocked the walk-
+forward, the grid search picked `k_minutes=900.0` (the top of the tested grid `{150, 250, 350,
+450, 600, 900}`), a real but modest improvement in `ep_total_calibration_mae` (1.1457 ->
+1.1454, ~0.03% relative) -- confirmed via `review_recalibration.yml`. Landing on the grid's own
+upper boundary is worth flagging for a future round: it means the search never bracketed an
+interior optimum, so a wider grid (testing values above 900) is worth trying to check whether
+an even larger k does better still.
 
 ## The problem, and why it matters
 
@@ -127,11 +137,14 @@ of which is this constant. Closed by:
   below), but the threading gap that made this session's live `kappa_tc`/`minutes_model_shrinkage`
   recalibration bugs possible (PRs #154-157) can no longer repeat itself for `rate_shrinkage`.
 
-**Not done yet, and this is the actual next step:** no value has ever been recalibrated -- this
-PR only gives M7 the ABILITY to. The nightly walk-forward / a `recalibrate.yml` dispatch needs to
-actually run the `rate_shrinkage` stage, and a human (or `review_recalibration.yml`) needs to
-confirm whatever it proposes, before `ep_total_calibration_mean_resid`'s premium/cheap imbalance
-can actually move.
+**[CLOSED] 2026-09-09:** `rate_shrinkage_params.k_minutes` is confirmed and live (v8, 450.0 ->
+900.0) -- see the Status section above for the full story (it took fixing a separate,
+independently-discovered 3-day `nightly_backtest.yml` outage first, PR #163). Next actual step:
+re-measure `ep_total_calibration_mean_resid` by price band against a fresh walk-forward to see
+whether this -- combined with the other confirmations landed the same week -- actually moved
+the premium/cheap imbalance the original diagnosis found; and consider widening the
+`k_minutes` grid above 900 (the search hit that value at the edge of the tested range, so a
+still-larger k was never ruled out).
 
 ## Lead B (original) — needs #124's backtest data: defensive-points magnitude
 
