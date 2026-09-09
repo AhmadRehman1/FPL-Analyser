@@ -44,6 +44,32 @@ FPL_API_BASE = "https://fantasy.premierleague.com/api"
 # Python packages, etc. all key off 314 for the game-wide Overall league).
 FPL_OVERALL_LEAGUE_ID = 314
 
+# FPL's leagues-classic standings return a fixed 50 results per page -- a stable, years-old
+# public constant (every open-source FPL tool paginates on it). Used to turn a target overall
+# rank into a page number for fetch_entries_in_rank_bands().
+STANDINGS_PAGE_SIZE = 50
+
+# Never fetch more than this many standings pages for one band, however wide the band --
+# fetch_entries_in_rank_bands() spreads this budget evenly across the band's page range rather
+# than reading a contiguous block, so a wide band stays representative without a runaway
+# request count. 10 pages x 50 = up to 500 candidates per band, downsampled to the band's
+# requested n.
+BAND_PAGES_MAX = 10
+
+# The stratified rival-sample shape for the model-managed team's top-100k goal (Priority 10
+# Phase B, docs/priority10_field_simulator_design.md): a versioned constant, list of
+# (start_rank, end_rank, n_wanted). ~120 around the 100k target band, plus a small elite slice
+# (ceiling reference) and a mid-field slice (margin-over-median reference). ~200 entries total
+# -- deliberately far below run_rival_sample_ingestion.py's old aspirational n_entries=2000
+# ([A1]): this is the FIRST wiring of rival sampling into a real scheduled workflow, so it
+# starts at a volume whose deep-pagination reach is actually observable (achieved bands are
+# reported, never assumed) and whose request count is respectful of FPL's own API.
+DEFAULT_RANK_BANDS = [
+    (1, 10_000, 40),
+    (60_000, 140_000, 120),
+    (400_000, 600_000, 40),
+]
+
 # See app_export._fetch_json's own docstring -- same retry rationale, duplicated rather than
 # shared per this project's established one-fetch-function-per-ingestion-module convention
 # (this module's own docstring: "_fetch_json() is isolated specifically so verification is a
@@ -122,6 +148,99 @@ def fetch_top_entries(league_id: int, n_entries: int, *, pages: list[dict] | Non
 
 
 # ============================================================
+# stratified sampling by overall-rank band -- for the top-100k rank instrumentation
+# ============================================================
+
+def _page_for_rank(rank: int) -> int:
+    """1-indexed standings page holding a given 1-indexed overall rank (page 1 = ranks 1-50)."""
+    return (max(1, rank) - 1) // STANDINGS_PAGE_SIZE + 1
+
+
+def _evenly_sample(items: list, n_wanted: int) -> list:
+    """Down to n_wanted items, evenly spaced across the (rank-ordered) list -- keeps the spread
+    across the band rather than taking the first n. Returns all items when there are already
+    n_wanted or fewer."""
+    if n_wanted <= 0 or not items:
+        return []
+    if len(items) <= n_wanted:
+        return list(items)
+    if n_wanted == 1:
+        return [items[len(items) // 2]]
+    step = (len(items) - 1) / (n_wanted - 1)
+    return [items[round(i * step)] for i in range(n_wanted)]
+
+
+def _fetch_standings_page(league_id: int, page_num: int, pages_by_num: dict[int, dict] | None) -> dict | None:
+    """One standings page, or None when the real API won't serve it. pages_by_num injects
+    pages for tests (keyed by 1-indexed page number). A live HTTPError on a deep page is
+    treated as the pagination frontier and returned as None rather than raised: the Overall
+    league is millions of entries deep and whether page_standings paginates arbitrarily far is
+    NOT verifiable from this sandbox (fantasy.premierleague.com is network-blocked here, same
+    as every other live-fetch module). fetch_entries_in_rank_bands() records how far each band
+    actually reached, so a band truncated by the frontier is visible in its result, never
+    silently presented as complete. Transient 5xx are still retried inside _fetch_json first."""
+    if pages_by_num is not None:
+        return pages_by_num.get(page_num)
+    try:
+        return _fetch_json(f"{FPL_API_BASE}/leagues-classic/{league_id}/standings/?page_standings={page_num}")
+    except requests.HTTPError:
+        return None
+
+
+def fetch_entries_in_rank_bands(
+    league_id: int, bands: list[tuple[int, int, int]], *, pages_by_num: dict[int, dict] | None = None,
+) -> tuple[list[dict], list[list[int]]]:
+    """A stratified sample of entries across several overall-rank bands, e.g.
+    [(1, 10_000, 40), (60_000, 140_000, 120)] -> ~40 entries from the top 10k plus ~120 spread
+    across ranks 60k-140k. For each band, spreads BAND_PAGES_MAX standings-page fetches evenly
+    over the band's page range (not a contiguous block -- ranks 60_000-60_600 is not a sample
+    "around 100k"), keeps the results whose rank falls inside the band, and evenly downsamples
+    to the requested count.
+
+    Returns (entries, achieved_bands): entries is [{"entry_id", "rank"}, ...] de-duplicated by
+    entry_id and rank-sorted; achieved_bands is [[real_min_rank, real_max_rank, n_kept], ...]
+    parallel to `bands` -- what the sample ACTUALLY covers, which can be narrower than asked if
+    the standings API stopped serving pages partway through a band (see
+    _fetch_standings_page)."""
+    seen: set[int] = set()
+    entries: list[dict] = []
+    achieved: list[list[int]] = []
+
+    for start_rank, end_rank, n_wanted in bands:
+        start_page, end_page = _page_for_rank(start_rank), _page_for_rank(end_rank)
+        span = end_page - start_page + 1
+        # ceil(n_wanted / 15) pages, spread across the band -> ~15 candidates per page, then
+        # evenly downsampled. More pages than the minimum for the count so a wide band is
+        # genuinely spread, not two clusters at its ends; still bounded by BAND_PAGES_MAX.
+        n_pages = min(BAND_PAGES_MAX, span, max(1, -(-n_wanted // 15)))
+        if n_pages == 1:
+            page_nums = [start_page]
+        else:
+            page_step = (span - 1) / (n_pages - 1)
+            page_nums = sorted({start_page + round(i * page_step) for i in range(n_pages)})
+
+        band_hits: list[dict] = []
+        for page_num in page_nums:
+            page = _fetch_standings_page(league_id, page_num, pages_by_num)
+            results = (page or {}).get("standings", {}).get("results") or []
+            if not results:
+                break  # pagination frontier or an empty page -- stop this band, keep what we have
+            for r in results:
+                if start_rank <= r["rank"] <= end_rank and r["entry"] not in seen:
+                    band_hits.append({"entry_id": r["entry"], "rank": r["rank"]})
+
+        band_hits.sort(key=lambda e: e["rank"])
+        kept = _evenly_sample(band_hits, n_wanted)
+        for e in kept:
+            seen.add(e["entry_id"])
+        entries.extend(kept)
+        achieved.append([kept[0]["rank"], kept[-1]["rank"], len(kept)] if kept else [start_rank, end_rank, 0])
+
+    entries.sort(key=lambda e: e["rank"])
+    return entries, achieved
+
+
+# ============================================================
 # entry picks for one gameweek
 # ============================================================
 
@@ -149,6 +268,7 @@ def fetch_entry_picks(entry_id: int, event: int, *, payload: dict | None = None)
 def ingest_rival_squad_sample(
     con: duckdb.DuckDBPyConnection, season: str, event: int, ingested_date: datetime,
     *, league_id: int = FPL_OVERALL_LEAGUE_ID, n_entries: int = 200,
+    bands: list[tuple[int, int, int]] | None = None,
     element_names: dict[int, str] | None = None, entries: list[dict] | None = None,
     entry_picks_by_id: dict[int, list[dict] | None] | None = None,
 ) -> dict:
@@ -157,17 +277,28 @@ def ingest_rival_squad_sample(
     instead of a live fetch. Idempotent per (season, event): real historical picks for an
     already-sampled gameweek never change, so a second call for the same one is a genuine
     no-op -- unlike this project's other "latest snapshot wins" model-version tables, there is
-    no newer version of the past to overwrite with."""
+    no newer version of the past to overwrite with.
+
+    `bands` (a list of (start_rank, end_rank, n_wanted)) selects the stratified rank-band
+    sampler (fetch_entries_in_rank_bands) instead of the top-N-by-rank default -- the shape the
+    rank instrumentation needs (see DEFAULT_RANK_BANDS). When `entries` is injected directly,
+    both `bands` and `n_entries` are ignored. The result carries `achieved_bands` (what the
+    band sampler actually reached) for the caller to log; it is not persisted here -- the
+    league_rank column on each stored row already records the sample's real shape."""
     already = con.execute(
         "SELECT 1 FROM fact_rival_squad_sample WHERE season = ? AND event = ? LIMIT 1", [season, event],
     ).fetchone()
     if already:
-        return {"status": "unchanged", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 0}
+        return {"status": "unchanged", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 0, "achieved_bands": None}
 
     if element_names is None:
         element_names = fetch_bootstrap_elements()
+    achieved_bands: list[list[int]] | None = None
     if entries is None:
-        entries = fetch_top_entries(league_id, n_entries)
+        if bands is not None:
+            entries, achieved_bands = fetch_entries_in_rank_bands(league_id, bands)
+        else:
+            entries = fetch_top_entries(league_id, n_entries)
 
     picks_inserted, entries_skipped = 0, 0
     for entry in entries:
@@ -194,6 +325,7 @@ def ingest_rival_squad_sample(
         "status": "ingested", "entries_sampled": len(entries) - entries_skipped,
         "picks_inserted": picks_inserted, "entries_skipped": entries_skipped,
         "error_rate": (entries_skipped / len(entries)) if entries else 0.0,
+        "achieved_bands": achieved_bands,
     }
 
 

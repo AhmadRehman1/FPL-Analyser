@@ -2,13 +2,37 @@
 
 Status: **Phase A implemented** (`ingest_fpl_entry_picks.py`, `fact_rival_squad_sample`,
 `scripts/run_rival_sample_ingestion.py`) with conservative defaults (FPL's Overall league,
-n_entries=200, minimal fields — no manager/team names stored). Phases B/C/D below are still
-**design only, not implemented**. Per the roadmap's own explicit instruction:
-"this is a serious standalone project — do not start it until Priorities 0-6 are solid, and
-scope it as its own multi-PR effort with its own design doc reviewed... before
-implementation, not a single PR." Priorities 0-9 (excluding 7d, deliberately skipped — see
-the session notes) are now merged or in review; this doc is that required review artifact,
-written before any Priority 10 code exists.
+n_entries=200, minimal fields — no manager/team names stored).
+
+**Phase B started (rank instrumentation, 2026-09).** Not the full joint simulator described
+in §3–4 — that is still §4's Phase B/C. This first slice is the *measurement* half, built
+because the model-managed team's real goal was pinned down as **overall rank ≈ top 100k** and
+nothing in the stack measured rank (`nightly_backtest.yml` scores a synthetic points delta).
+What shipped:
+
+- **Stratified sampling.** `ingest_fpl_entry_picks.fetch_entries_in_rank_bands()` +
+  `DEFAULT_RANK_BANDS` — ~120 entries around the target band (ranks 60k–140k) plus a ~40
+  elite slice and a ~40 mid-field slice, replacing the top-200-by-rank scaffold (which
+  measured the model against the 200 best managers alive — the wrong bar for a top-100k
+  goal). Answers §5's "sampling source" open question: **stratified around the user's rank
+  target**, not the leaderboard top. Degrades gracefully at the standings API's
+  deep-pagination frontier and reports the bands actually reached.
+- **`field_rank.py`** — places any squad in that settled field (percentile + projected rank,
+  reusing `live_tracking.estimate_live_rank`) and decomposes the rank gap into captaincy /
+  template-coverage / differential / bench.
+- **`fact_squad_rank_score`** (`schema/0018`), **`scripts/rank_autopsy.py`**,
+  **`.github/workflows/rank_tracking.yml`** (weekly) — scores the model's optimal squad and
+  the two tracked accounts each completed gameweek → `data/dashboard/rank_autopsy.json`.
+- Forward-only, as §4's Phase D anticipated: no historical rival data exists, so scoring
+  begins at 2026-27 GW1.
+
+It does **not** touch the optimiser — that is Phase C (joint simulation as a solve input),
+still design-only below.
+
+Phases C/D below are **design only, not implemented**. Per the roadmap's own explicit
+instruction: "this is a serious standalone project — do not start it until Priorities 0-6 are
+solid, and scope it as its own multi-PR effort with its own design doc reviewed... before
+implementation, not a single PR." This doc is that review artifact.
 
 ## 1. What exists today (Priority 1) and why it's a real limitation
 
@@ -110,11 +134,15 @@ others' groundwork, though C depends on A and B.
 
 ## 5. Open risks and questions — need your input before Phase A starts
 
-- **Sampling source and size.** "Overall top-N" (some hundreds) is the most representative of
-  genuine competitive rivals but requires paginating the real leaderboard API; a specific
-  mini-league you're in is smaller, more directly relevant to your own rank, but less
-  representative of the whole field. Which one Priority 10 samples from is a real product
-  decision, not something to default silently.
+- **Sampling source and size.** ~~"Overall top-N" (some hundreds)...~~ **Resolved (2026-09,
+  Phase B rank instrumentation).** The top-N-by-rank scaffold measured the model against the
+  200 best managers alive — the wrong bar for a top-100k goal. `DEFAULT_RANK_BANDS` now takes
+  a **stratified** sample: ~120 around the target band (ranks 60k–140k), ~40 elite (top 10k,
+  a ceiling reference), ~40 mid-field (400k–600k, a margin-over-median reference). ~200
+  entries total, well below the old aspirational `n_entries=2000` — deliberately a volume
+  whose deep-pagination reach is observable (`fetch_entries_in_rank_bands` reports the bands
+  it actually reached) rather than assumed. Mini-league sampling is still available via
+  `fetch_top_entries`/`ingest_rival_squad_sample(n_entries=)` but is not the default.
 - **Rate limiting and respectful use.** Sampling even a few hundred real entries means a few
   hundred real HTTP requests per gameweek to FPL's own API — needs real backoff/caching
   discipline (fetch once per gameweek, cache the sample, never re-fetch on every report run),
