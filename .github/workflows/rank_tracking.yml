@@ -23,7 +23,15 @@ name: Weekly rank autopsy (top-100k instrumentation)
 on:
   schedule:
     - cron: "0 8 * * 2"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      replace_events:
+        description: >-
+          Comma-separated gameweeks to re-sample even though they're already stored
+          (e.g. "1,2,3") -- for samples built with an older/wrong strategy. ~200 FPL API
+          requests per gameweek. Leave blank for the normal idempotent run.
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -96,6 +104,8 @@ jobs:
       # ~200 real requests to FPL's own API per not-yet-sampled completed gameweek. Idempotent
       # per (season, event); a first run backfills the season (bounded by MAX_GAMEWEEKS_PER_RUN).
       - name: Sample rival squads for completed gameweeks
+        env:
+          RIVAL_SAMPLE_REPLACE_EVENTS: ${{ github.event.inputs.replace_events }}
         run: PYTHONPATH=src python scripts/run_rival_sample_ingestion.py
 
       - name: Run the rank autopsy

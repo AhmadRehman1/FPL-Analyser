@@ -11,12 +11,24 @@ nothing in the stack measured rank (`nightly_backtest.yml` scores a synthetic po
 What shipped:
 
 - **Stratified sampling.** `ingest_fpl_entry_picks.fetch_entries_in_rank_bands()` +
-  `DEFAULT_RANK_BANDS` — ~120 entries around the target band (ranks 60k–140k) plus a ~40
-  elite slice and a ~40 mid-field slice, replacing the top-200-by-rank scaffold (which
+  `DEFAULT_RANK_BANDS` — ~120 entries around the target band (ranks 60k–140k), a ~40
+  elite slice, a ~40 mid-field slice, and a ~50 `(600k, 2M)` tail slice (added 2026-09-09
+  after the first autopsy — see below), replacing the top-200-by-rank scaffold (which
   measured the model against the 200 best managers alive — the wrong bar for a top-100k
   goal). Answers §5's "sampling source" open question: **stratified around the user's rank
   target**, not the leaderboard top. Degrades gracefully at the standings API's
-  deep-pagination frontier and reports the bands actually reached.
+  deep-pagination frontier and reports the bands actually reached. A gameweek whose stored
+  sample used an older strategy is re-sampled via `ingest_rival_squad_sample(replace=True)`
+  (`RIVAL_SAMPLE_REPLACE_EVENTS` on the script; `replace_events` dispatch input on the
+  workflow), old rows dropped only once the fresh sample lands.
+
+  *First autopsy (2026-27 GW1–3, 2026-09-09):* `estimate_live_rank` reads
+  `n_beaten / n_sample` as a percentile, so a quota sample skewed to the top of the table
+  projected every low-scoring gameweek to ~last place (GW3: real overall rank ~2.6M vs
+  projected ~10.5M). The tail band widens the field the estimate sees; a representative or
+  band-weighted resample is the real fix and stays a Phase B/C follow-up. The autopsy's
+  consistent attribution finding across all three subjects: **template coverage** — the
+  model held 2–8 of the 15 highest-EO players and bled the rest.
 - **`field_rank.py`** — places any squad in that settled field (percentile + projected rank,
   reusing `live_tracking.estimate_live_rank`) and decomposes the rank gap into captaincy /
   template-coverage / differential / bench.
@@ -138,10 +150,12 @@ others' groundwork, though C depends on A and B.
   Phase B rank instrumentation).** The top-N-by-rank scaffold measured the model against the
   200 best managers alive — the wrong bar for a top-100k goal. `DEFAULT_RANK_BANDS` now takes
   a **stratified** sample: ~120 around the target band (ranks 60k–140k), ~40 elite (top 10k,
-  a ceiling reference), ~40 mid-field (400k–600k, a margin-over-median reference). ~200
-  entries total, well below the old aspirational `n_entries=2000` — deliberately a volume
-  whose deep-pagination reach is observable (`fetch_entries_in_rank_bands` reports the bands
-  it actually reached) rather than assumed. Mini-league sampling is still available via
+  a ceiling reference), ~40 mid-field (400k–600k, a margin-over-median reference), ~50 tail
+  (600k–2M, added 2026-09-09 so the rank estimate isn't extrapolating a 10M-manager tail from
+  the 600k band). ~250 entries total, well below the old aspirational `n_entries=2000` —
+  deliberately a volume whose deep-pagination reach is observable
+  (`fetch_entries_in_rank_bands` reports the bands it actually reached) rather than assumed.
+  Mini-league sampling is still available via
   `fetch_top_entries`/`ingest_rival_squad_sample(n_entries=)` but is not the default.
 - **Rate limiting and respectful use.** Sampling even a few hundred real entries means a few
   hundred real HTTP requests per gameweek to FPL's own API — needs real backoff/caching
