@@ -1,0 +1,53 @@
+{
+  "backtest_run_id": 1,
+  "generated_at": "2026-09-09",
+  "n_proposals": 3,
+  "note": "Proposals only -- nothing is activated. Review and confirm with scripts/review_recalibration.py. Every proposal must improve its own out-of-sample metric to be listed here (recalibrate() writes a row only on a strict improvement).",
+  "proposals": [
+    {
+      "dimensions": null,
+      "metric": "rho_hat",
+      "metric_after": 0.003813670206643798,
+      "metric_before": 0.0,
+      "metric_delta": 0.00381,
+      "new_params_version": 5,
+      "new_value": 0.003813670206643798,
+      "old_params_version": 4,
+      "old_value": 0.0,
+      "param_family": "correlation_params",
+      "param_key": "rho_residual",
+      "proposal_id": 1,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
+      "metric": "realized_sharpe",
+      "metric_after": 1.2333464244716716,
+      "metric_before": 1.20702433789618,
+      "metric_delta": 0.02632,
+      "new_params_version": 4,
+      "new_value": 0.3,
+      "old_params_version": 3,
+      "old_value": 0.2,
+      "param_family": "tc_risk_aversion_params",
+      "param_key": "kappa_tc",
+      "proposal_id": 2,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
+      "metric": "ep_total_calibration_mae",
+      "metric_after": 1.1453659985877347,
+      "metric_before": 1.1456995269035073,
+      "metric_delta": -0.00033,
+      "new_params_version": 8,
+      "new_value": 900.0,
+      "old_params_version": 1,
+      "old_value": 450.0,
+      "param_family": "rate_shrinkage_params",
+      "param_key": "k_minutes",
+      "proposal_id": 3,
+      "status": "pending"
+    }
+  ]
+}
