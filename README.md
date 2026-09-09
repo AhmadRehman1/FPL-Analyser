@@ -237,9 +237,10 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   momentum signal's real-data assumption was checked as far as this environment allows and its
   docstring corrected to say so honestly. See "Season-long objective: design notes" below for
   all three, with real evidence.
-- **FPL Quant v2 roadmap, Priorities 0-10: done** (Priority 7d deliberately skipped, Priority
-  10 is design-only — see below). A second, later build phase on top of the frozen M0-M9
-  spec, merged in stages (PR #4: Priorities 0-4; PR #5: Priorities 5-6; PR #6: the rest).
+- **FPL Quant v2 roadmap, Priorities 0-10: done** (Priority 7d deliberately skipped; Priority
+  10 was design-only, now has a first implemented slice — see below). A second, later build
+  phase on top of the frozen M0-M9 spec, merged in stages (PR #4: Priorities 0-4; PR #5:
+  Priorities 5-6; PR #6: the rest).
   - **Priority 0 (blocking):** root-caused and fixed `squad_optimizer`'s cross-run
     nondeterminism (order-dependent tie-breaking during the MIQP solve, not either of the two
     hypotheses the roadmap itself suggested — a real repro script found the actual cause).
@@ -283,14 +284,29 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     discipline. Wired into `scripts/run_season_simulation.py` so a real run prints a real
     verdict per baseline (beats/loses to/ties, by how much), not just an architecture
     disclosure with no evidence either way attached to it.
-  - **Priority 10 (field simulator):** a design doc, not code, per the roadmap's own explicit
-    instruction (`docs/priority10_field_simulator_design.md`). Its key finding: unlike every
-    other rival/field signal in this project, the public FPL API exposes real individual
-    managers' picks directly — Phase A (`ingest_fpl_entry_picks.py`) samples a real, bounded,
-    minimal-fields set of rival squads from it. The joint-simulation engine and rank-
-    distribution output (Phases B/C) remain undesigned-in-detail, explicitly gated on
-    real product decisions (which field to sample, how much rival-squad data is comfortable
-    to collect) rather than built speculatively.
+  - **Priority 10 (field simulator):** started as a design doc, not code, per the roadmap's
+    own explicit instruction (`docs/priority10_field_simulator_design.md`). Its key finding:
+    unlike every other rival/field signal in this project, the public FPL API exposes real
+    individual managers' picks directly — Phase A (`ingest_fpl_entry_picks.py`) samples a
+    real, bounded, minimal-fields set of rival squads from it.
+  - **Priority 10 Phase B — rank instrumentation (2026-09).** The measurement half of the
+    field simulator, built once the model-managed team's goal was pinned as **overall rank ≈
+    top 100k** and it became clear nothing in the stack measured rank —
+    `nightly_backtest.yml` scores `model_squad_realized_points − avg_manager_points`, a
+    synthetic *points* delta, and a squad that is +2 pts/GW but owns the template lands
+    ~500k. New: `fetch_entries_in_rank_bands()` takes a **stratified** rival sample (~120
+    around ranks 60k–140k + elite and mid-field slices) instead of the top-200-by-rank
+    scaffold, which measured the model against the 200 best managers alive; `field_rank.py`
+    places any squad in that settled field (percentile + projected rank via
+    `live_tracking.estimate_live_rank`) and decomposes the gap into captaincy /
+    template-coverage / differential / bench; `scripts/rank_autopsy.py` +
+    `.github/workflows/rank_tracking.yml` (weekly) score the model's optimal squad and the
+    two tracked accounts each completed gameweek → `data/dashboard/rank_autopsy.json` +
+    `fact_squad_rank_score` (`schema/0018`). **Forward-only**: FPL's API serves only
+    current-season picks, so the 2024-25/2025-26 walk-forward cannot be rank-scored — this
+    accumulates from 2026-27 GW1. It does **not** change the optimiser (that is Phase C —
+    joint simulation as a solve input, still design-only): it measures and attributes, so the
+    weekly model fix targets the real leak.
 - **Multi-gameweek transfer planner ("Plan" tab, new frontend feature, not part of the frozen
   M0-M9 build).** A "draft" -- a hypothetical future squad state, entirely separate from the
   live squad and never submitted anywhere -- with up to 5 saved per account (localStorage, no

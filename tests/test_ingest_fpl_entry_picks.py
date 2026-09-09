@@ -88,6 +88,81 @@ def test_fetch_top_entries_scales_across_many_pages(n_entries):
 
 
 # ============================================================
+# fetch_entries_in_rank_bands -- stratified sampling for the rank instrument
+# ============================================================
+
+def _standings_universe(n_total: int, page_size: int = 50) -> dict[int, dict]:
+    """{page_num: page_payload} for a synthetic Overall league of n_total entries. rank R is
+    on page ceil(R / 50); entry_id = R + 1_000_000, deliberately != rank so a test catches a
+    rank/entry mix-up."""
+    n_pages = -(-n_total // page_size)
+    universe = {}
+    for page_num in range(1, n_pages + 1):
+        start = (page_num - 1) * page_size
+        universe[page_num] = {"standings": {
+            "has_next": page_num < n_pages,
+            "results": [
+                {"entry": 1_000_000 + start + i + 1, "rank": start + i + 1}
+                for i in range(page_size) if start + i + 1 <= n_total
+            ],
+        }}
+    return universe
+
+
+def test_evenly_sample_keeps_all_when_not_over_target():
+    assert ifp._evenly_sample([1, 2, 3], 5) == [1, 2, 3]
+    assert ifp._evenly_sample([], 5) == []
+    assert ifp._evenly_sample([1, 2, 3], 0) == []
+
+
+def test_evenly_sample_spreads_across_the_list():
+    assert ifp._evenly_sample(list(range(100)), 1) == [50]
+    assert ifp._evenly_sample(list(range(100)), 5) == [0, 25, 50, 74, 99]
+
+
+def test_fetch_entries_in_rank_bands_samples_across_the_whole_band():
+    universe = _standings_universe(150_000)
+    entries, achieved = ifp.fetch_entries_in_rank_bands(314, [(60_000, 140_000, 120)], pages_by_num=universe)
+
+    assert len(entries) == 120
+    assert all(60_000 <= e["rank"] <= 140_000 for e in entries)
+    assert all(e["entry_id"] == e["rank"] + 1_000_000 for e in entries)  # no rank/entry mix-up
+    assert entries == sorted(entries, key=lambda e: e["rank"])
+    assert entries[0]["rank"] < 62_000 and entries[-1]["rank"] > 138_000  # genuinely spread, not a contiguous block
+    assert achieved == [[entries[0]["rank"], entries[-1]["rank"], 120]]
+
+
+def test_fetch_entries_in_rank_bands_multiple_bands_deduped_and_sorted():
+    universe = _standings_universe(120_000)
+    bands = [(1, 10_000, 40), (20_000, 40_000, 60), (80_000, 110_000, 40)]
+    entries, achieved = ifp.fetch_entries_in_rank_bands(314, bands, pages_by_num=universe)
+
+    assert [a[2] for a in achieved] == [40, 60, 40]
+    assert len({e["entry_id"] for e in entries}) == len(entries) == 140
+    assert entries == sorted(entries, key=lambda e: e["rank"])
+    assert entries[0]["rank"] <= 10_000
+    assert any(80_000 <= e["rank"] <= 110_000 for e in entries)
+
+
+def test_fetch_entries_in_rank_bands_stops_at_the_pagination_frontier():
+    # The synthetic league only goes 62k deep -- the 60k-140k band's later page fetches return
+    # nothing, so the band is truncated and that truncation is visible in `achieved`, never
+    # silently reported as a full sample.
+    universe = _standings_universe(62_000)
+    entries, achieved = ifp.fetch_entries_in_rank_bands(314, [(60_000, 140_000, 120)], pages_by_num=universe)
+
+    assert all(e["rank"] <= 62_000 for e in entries)
+    assert achieved[0][1] <= 62_000 and achieved[0][2] == len(entries) < 120
+
+
+def test_fetch_entries_in_rank_bands_empty_band_records_a_zero():
+    universe = _standings_universe(5_000)  # nothing as deep as the band
+    entries, achieved = ifp.fetch_entries_in_rank_bands(314, [(60_000, 140_000, 120)], pages_by_num=universe)
+    assert entries == []
+    assert achieved == [[60_000, 140_000, 0]]
+
+
+# ============================================================
 # fetch_entry_picks
 # ============================================================
 
@@ -123,7 +198,8 @@ def test_ingest_rival_squad_sample_inserts_resolved_picks(con):
         con, "2025-2026", 5, datetime(2026, 8, 10),
         element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
     )
-    assert result == {"status": "ingested", "entries_sampled": 2, "picks_inserted": 3, "entries_skipped": 0, "error_rate": 0.0}
+    assert result == {"status": "ingested", "entries_sampled": 2, "picks_inserted": 3,
+                      "entries_skipped": 0, "error_rate": 0.0, "achieved_bands": None}
 
     rows = con.execute(
         "SELECT entry_id, player_uid, is_captain, multiplier, league_rank FROM fact_rival_squad_sample "
@@ -143,7 +219,8 @@ def test_ingest_rival_squad_sample_skips_entries_with_no_picks(con):
         con, "2025-2026", 5, datetime(2026, 8, 10),
         element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
     )
-    assert result == {"status": "ingested", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 2, "error_rate": 1.0}
+    assert result == {"status": "ingested", "entries_sampled": 0, "picks_inserted": 0,
+                      "entries_skipped": 2, "error_rate": 1.0, "achieved_bands": None}
 
 
 def test_ingest_rival_squad_sample_skips_unresolvable_players(con):
@@ -154,7 +231,8 @@ def test_ingest_rival_squad_sample_skips_unresolvable_players(con):
         con, "2025-2026", 5, datetime(2026, 8, 10),
         element_names={1: "Alan Test"}, entries=entries, entry_picks_by_id=entry_picks_by_id,
     )
-    assert result == {"status": "ingested", "entries_sampled": 1, "picks_inserted": 0, "entries_skipped": 0, "error_rate": 0.0}
+    assert result == {"status": "ingested", "entries_sampled": 1, "picks_inserted": 0,
+                      "entries_skipped": 0, "error_rate": 0.0, "achieved_bands": None}
     assert con.execute("SELECT count(*) FROM fact_rival_squad_sample").fetchone()[0] == 0
 
 
@@ -168,7 +246,8 @@ def test_ingest_rival_squad_sample_idempotent_for_an_already_sampled_gameweek(co
         con, "2025-2026", 5, datetime(2026, 8, 17),
         element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
     )
-    assert second == {"status": "unchanged", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 0}
+    assert second == {"status": "unchanged", "entries_sampled": 0, "picks_inserted": 0,
+                      "entries_skipped": 0, "achieved_bands": None}
     assert con.execute("SELECT count(*) FROM fact_rival_squad_sample").fetchone()[0] == 3
 
 
