@@ -45,7 +45,12 @@ _CUMULATIVE_KEYS = {
 
 _LIMITATIONS = [
     "Forward-only: FPL's API serves only current-season picks, so 2024-25/2025-26 cannot be rank-scored.",
-    "estimated_rank is a sample projection (percentile x total_players), not an official FPL figure.",
+    "estimated_rank is a band-weighted sample projection, not an official FPL figure: rivals are "
+    "Horvitz-Thompson-weighted by their slice of the rank axis, and the unsampled tail below the "
+    "deepest band is modelled with that band's score distribution (conservative -- real tail "
+    "managers score worse than the rivals standing in for them).",
+    "estimated_rank is a single-gameweek projection; an account's real_overall_rank is its "
+    "cumulative season rank, so the two only align loosely week to week.",
     "Auto-substitution is not modelled -- bench_points_left is an upper bound on bench cost.",
     "Double/blank-gameweek rival squads are scored with realized points as-is.",
     "The rival sample's deep-rank reach depends on FPL's standings pagination -- see sample_shape_by_gameweek.",
@@ -65,12 +70,12 @@ def _persist(con, event, subject, score, attribution, sample_bands, real_overall
     con.execute(
         "INSERT INTO fact_squad_rank_score (season, event, subject, subject_id, realized_points, "
         "n_rivals, n_beaten, n_tied, percentile, estimated_rank, total_players, real_overall_rank, "
-        "sample_bands, attribution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "sample_bands, attribution, scoring_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             TARGET_SEASON, event, subject, score["subject_id"], score["realized_points"],
             score["n_rivals"], score["n_beaten"], score["n_tied"], score["percentile"],
             score["estimated_rank"], score["total_players"], real_overall_rank,
-            json.dumps(sample_bands), json.dumps(attribution),
+            json.dumps(sample_bands), json.dumps(attribution), score.get("method"),
         ],
     )
 
@@ -96,6 +101,7 @@ def score_subject(con, event, subject_key, squad, real_overall_rank, total_playe
         "gameweek": event, "realized_points": score["realized_points"],
         "percentile": score["percentile"], "estimated_rank": score["estimated_rank"],
         "n_rivals": score["n_rivals"], "n_beaten": score["n_beaten"],
+        "scoring_method": score.get("method"),
         "real_overall_rank": real_overall_rank, "attribution": attribution,
     }
 
@@ -120,9 +126,9 @@ def finding(subject_label, event, row):
     worst_key = min(contributions, key=lambda k: contributions[k])
     worst = contributions[worst_key]
     rank_txt = f"~{row['estimated_rank']:,}" if row["estimated_rank"] else "n/a"
-    head = (f"GW{event} ({subject_label}): {row['percentile']:.0f}th pctile of the sample, "
-            f"projected rank {rank_txt} ({row['realized_points']} pts, beat "
-            f"{row['n_beaten']}/{row['n_rivals']} rivals).")
+    head = (f"GW{event} ({subject_label}): {row['percentile']:.0f}th pctile of the field "
+            f"(band-weighted), projected rank {rank_txt} ({row['realized_points']} pts, raw "
+            f"beat {row['n_beaten']}/{row['n_rivals']} sampled rivals).")
     cap = attribution.get("captaincy", {})
     tmpl = attribution.get("template_coverage", {})
     if worst_key.startswith("captaincy") and worst < -1:

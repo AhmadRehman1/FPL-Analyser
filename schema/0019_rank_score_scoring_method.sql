@@ -1,0 +1,12 @@
+-- Priority 10 Phase B -- record which rank-scoring method produced each fact_squad_rank_score
+-- row. schema/0018's docstring already anticipates this ("a rank score is a DERIVED quantity
+-- -- the attribution logic here will improve over time"): the first weekly autopsy exposed
+-- that a flat `n_beaten / n_sample` count over a stratified quota sample is not a population
+-- percentile, so field_rank.estimate_population_rank() moved to a Horvitz-Thompson
+-- band-weighted estimate. Old rows carry NULL; re-scoring backfills 'band_weighted' (or
+-- 'flat_count' when the sample has no usable rank axis).
+--
+-- With band weighting the `percentile` column is now the weighted fraction of the whole
+-- field beaten -- it no longer equals (n_beaten + 0.5*n_tied) / n_rivals, and n_beaten /
+-- n_tied stay as raw sample counts for reference only.
+ALTER TABLE fact_squad_rank_score ADD COLUMN IF NOT EXISTS scoring_method VARCHAR;
