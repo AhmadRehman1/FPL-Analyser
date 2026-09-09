@@ -1,0 +1,918 @@
+{
+  "season": "2026-2027",
+  "generated_at": "2026-09-09T17:27:28.237799",
+  "goal": "overall rank top 100k",
+  "total_players": 10633096,
+  "gameweeks_scored": [
+    1,
+    2,
+    3
+  ],
+  "sample_shape_by_gameweek": {
+    "1": {
+      "n_entries": 2000,
+      "rank_min": 1,
+      "rank_max": 1934,
+      "rank_p50": 996,
+      "buckets": {
+        "top_10k": 2000
+      }
+    },
+    "2": {
+      "n_entries": 200,
+      "rank_min": 1,
+      "rank_max": 590252,
+      "rank_p50": 105663,
+      "buckets": {
+        "top_10k": 40,
+        "60k_140k": 120,
+        "400k_600k": 40
+      }
+    },
+    "3": {
+      "n_entries": 200,
+      "rank_min": 1,
+      "rank_max": 590252,
+      "rank_p50": 105663,
+      "buckets": {
+        "top_10k": 40,
+        "60k_140k": 120,
+        "400k_600k": 40
+      }
+    }
+  },
+  "subjects": {
+    "model_optimal": {
+      "label": "model optimal",
+      "by_gameweek": [
+        {
+          "gameweek": 1,
+          "realized_points": 42,
+          "percentile": 0.0,
+          "estimated_rank": 10633096,
+          "n_rivals": 2000,
+          "n_beaten": 0,
+          "real_overall_rank": null,
+          "attribution": {
+            "captaincy": {
+              "captain": "Ethan Ampadu",
+              "captain_points": 5,
+              "field_captain": "Bruno Borges Fernandes",
+              "field_captain_points": 2,
+              "field_captain_pct": 60.4,
+              "vs_field_captain": 3,
+              "best_in_xi": "Bart Verbruggen",
+              "vs_best_in_xi": -1
+            },
+            "template_coverage": {
+              "template_owned": 2,
+              "template_size": 15,
+              "missed": [
+                {
+                  "name": "Jo\u00e3o Pedro Junqueira de Jesus",
+                  "eo": 97.4,
+                  "points": 11,
+                  "eo_weighted_points": 10.71
+                },
+                {
+                  "name": "Riccardo Calafiori",
+                  "eo": 87.4,
+                  "points": 9,
+                  "eo_weighted_points": 7.87
+                },
+                {
+                  "name": "Bryan Mbeumo",
+                  "eo": 77.8,
+                  "points": 2,
+                  "eo_weighted_points": 1.56
+                },
+                {
+                  "name": "Dominic Calvert-Lewin",
+                  "eo": 59.0,
+                  "points": 1,
+                  "eo_weighted_points": 0.59
+                },
+                {
+                  "name": "David Raya Martin",
+                  "eo": 47.1,
+                  "points": 6,
+                  "eo_weighted_points": 2.83
+                },
+                {
+                  "name": "Alexander Isak",
+                  "eo": 47.0,
+                  "points": 2,
+                  "eo_weighted_points": 0.94
+                },
+                {
+                  "name": "Benjamin White",
+                  "eo": 45.5,
+                  "points": 11,
+                  "eo_weighted_points": 5.0
+                },
+                {
+                  "name": "Dominik Szoboszlai",
+                  "eo": 42.9,
+                  "points": 8,
+                  "eo_weighted_points": 3.43
+                },
+                {
+                  "name": "Iliman Ndiaye",
+                  "eo": 42.6,
+                  "points": 9,
+                  "eo_weighted_points": 3.83
+                },
+                {
+                  "name": "Harry Maguire",
+                  "eo": 41.5,
+                  "points": 1,
+                  "eo_weighted_points": 0.41
+                },
+                {
+                  "name": "Cole Palmer",
+                  "eo": 40.7,
+                  "points": 13,
+                  "eo_weighted_points": 5.29
+                },
+                {
+                  "name": "Anton\u00edn Kinsky",
+                  "eo": 35.9,
+                  "points": 2,
+                  "eo_weighted_points": 0.72
+                },
+                {
+                  "name": "Maxim De Cuyper",
+                  "eo": 31.3,
+                  "points": 17,
+                  "eo_weighted_points": 5.32
+                }
+              ],
+              "eo_weighted_points_bled": -48.51
+            },
+            "differentials": {
+              "n": 10,
+              "players": [
+                {
+                  "name": "Declan Rice",
+                  "owned_pct": 0.6,
+                  "in_xi": true,
+                  "points": 3,
+                  "ep": 4.16,
+                  "surprise": -1.16
+                },
+                {
+                  "name": "Elliot Anderson",
+                  "owned_pct": 0.9,
+                  "in_xi": true,
+                  "points": 2,
+                  "ep": 4.31,
+                  "surprise": -2.31
+                },
+                {
+                  "name": "Enzo Le F\u00e9e",
+                  "owned_pct": 8.7,
+                  "in_xi": true,
+                  "points": 2,
+                  "ep": 4.46,
+                  "surprise": -2.46
+                },
+                {
+                  "name": "Ethan Ampadu",
+                  "owned_pct": 0.7,
+                  "in_xi": true,
+                  "points": 5,
+                  "ep": 3.93,
+                  "surprise": 1.07
+                },
+                {
+                  "name": "Marcos Senesi Bar\u00f3n",
+                  "owned_pct": 0.6,
+                  "in_xi": true,
+                  "points": 3,
+                  "ep": 4.0,
+                  "surprise": -1.0
+                },
+                {
+                  "name": "Maxence Lacroix",
+                  "owned_pct": 1.5,
+                  "in_xi": true,
+                  "points": 6,
+                  "ep": 3.95,
+                  "surprise": 2.05
+                },
+                {
+                  "name": "Sean Neave",
+                  "owned_pct": 0.2,
+                  "in_xi": false,
+                  "points": 0,
+                  "ep": 0.0,
+                  "surprise": 0.0
+                },
+                {
+                  "name": "Wellity Lucky",
+                  "owned_pct": 0.0,
+                  "in_xi": false,
+                  "points": 0,
+                  "ep": 1.23,
+                  "surprise": -1.23
+                },
+                {
+                  "name": "Will Dennis",
+                  "owned_pct": 0.0,
+                  "in_xi": false,
+                  "points": 0,
+                  "ep": 0.0,
+                  "surprise": 0.0
+                },
+                {
+                  "name": "Zach Abbott",
+                  "owned_pct": 0.1,
+                  "in_xi": false,
+                  "points": 0,
+                  "ep": 0.0,
+                  "surprise": 0.0
+                }
+              ],
+              "net_surprise": -5.05
+            },
+            "bench": {
+              "points_left": 0,
+              "note": "auto-substitution not modelled -- an upper bound on bench cost"
+            }
+          }
+        }
+      ],
+      "cumulative_attribution": {
+        "captaincy_vs_best_in_xi": -1.0,
+        "captaincy_vs_field_captain": 3.0,
+        "template_eo_weighted_points_bled": -48.51,
+        "differentials_net_surprise": -5.05,
+        "bench_points_left": 0.0
+      },
+      "latest_percentile": 0.0,
+      "latest_estimated_rank": 10633096
+    },
+    "account:7139944": {
+      "label": "ChatGPT template team",
+      "by_gameweek": [
+        {
+          "gameweek": 1,
+          "realized_points": 38,
+          "percentile": 0.0,
+          "estimated_rank": 10633096,
+          "n_rivals": 2000,
+          "n_beaten": 0,
+          "real_overall_rank": 7485068,
+          "attribution": {
+            "captaincy": {
+              "captain": "Erling Haaland",
+              "captain_points": 2,
+              "field_captain": "Bruno Borges Fernandes",
+              "field_captain_points": 2,
+              "field_captain_pct": 60.4,
+              "vs_field_captain": 0,
+              "best_in_xi": "Jo\u00e3o Pedro Junqueira de Jesus",
+              "vs_best_in_xi": -9
+            },
+            "template_coverage": {
+              "template_owned": 6,
+              "template_size": 15,
+              "missed": [
+                {
+                  "name": "Riccardo Calafiori",
+                  "eo": 87.4,
+                  "points": 9,
+                  "eo_weighted_points": 7.87
+                },
+                {
+                  "name": "Bart Verbruggen",
+                  "eo": 57.4,
+                  "points": 6,
+                  "eo_weighted_points": 3.44
+                },
+                {
+                  "name": "David Raya Martin",
+                  "eo": 47.1,
+                  "points": 6,
+                  "eo_weighted_points": 2.83
+                },
+                {
+                  "name": "Alexander Isak",
+                  "eo": 47.0,
+                  "points": 2,
+                  "eo_weighted_points": 0.94
+                },
+                {
+                  "name": "Benjamin White",
+                  "eo": 45.5,
+                  "points": 11,
+                  "eo_weighted_points": 5.0
+                },
+                {
+                  "name": "Dominik Szoboszlai",
+                  "eo": 42.9,
+                  "points": 8,
+                  "eo_weighted_points": 3.43
+                },
+                {
+                  "name": "Iliman Ndiaye",
+                  "eo": 42.6,
+                  "points": 9,
+                  "eo_weighted_points": 3.83
+                },
+                {
+                  "name": "Cole Palmer",
+                  "eo": 40.7,
+                  "points": 13,
+                  "eo_weighted_points": 5.29
+                },
+                {
+                  "name": "Maxim De Cuyper",
+                  "eo": 31.3,
+                  "points": 17,
+                  "eo_weighted_points": 5.32
+                }
+              ],
+              "eo_weighted_points_bled": -37.96
+            },
+            "differentials": {
+              "n": 4,
+              "players": [
+                {
+                  "name": "Martin D\u00fabravka",
+                  "owned_pct": 3.3,
+                  "in_xi": false,
+                  "points": 0,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Bobby Thomas",
+                  "owned_pct": 9.7,
+                  "in_xi": false,
+                  "points": 3,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Regan Slater",
+                  "owned_pct": 1.1,
+                  "in_xi": false,
+                  "points": 6,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Leif Davis",
+                  "owned_pct": 8.7,
+                  "in_xi": false,
+                  "points": 2,
+                  "ep": null,
+                  "surprise": null
+                }
+              ],
+              "net_surprise": 0
+            },
+            "bench": {
+              "points_left": -11,
+              "note": "auto-substitution not modelled -- an upper bound on bench cost"
+            }
+          }
+        },
+        {
+          "gameweek": 2,
+          "realized_points": 109,
+          "percentile": 37.8,
+          "estimated_rank": 6619102,
+          "n_rivals": 200,
+          "n_beaten": 74,
+          "real_overall_rank": 2320860,
+          "attribution": {
+            "captaincy": {
+              "captain": "Erling Haaland",
+              "captain_points": 13,
+              "field_captain": "Bruno Borges Fernandes",
+              "field_captain_points": 23,
+              "field_captain_pct": 73.5,
+              "vs_field_captain": -10,
+              "best_in_xi": "Bruno Borges Fernandes",
+              "vs_best_in_xi": -10
+            },
+            "template_coverage": {
+              "template_owned": 8,
+              "template_size": 15,
+              "missed": [
+                {
+                  "name": "Riccardo Calafiori",
+                  "eo": 87.0,
+                  "points": 11,
+                  "eo_weighted_points": 9.57
+                },
+                {
+                  "name": "Dominik Szoboszlai",
+                  "eo": 46.5,
+                  "points": 4,
+                  "eo_weighted_points": 1.86
+                },
+                {
+                  "name": "David Raya Martin",
+                  "eo": 29.5,
+                  "points": 6,
+                  "eo_weighted_points": 1.77
+                },
+                {
+                  "name": "Luke Shaw",
+                  "eo": 28.0,
+                  "points": 2,
+                  "eo_weighted_points": 0.56
+                },
+                {
+                  "name": "Benjamin White",
+                  "eo": 26.0,
+                  "points": 7,
+                  "eo_weighted_points": 1.82
+                },
+                {
+                  "name": "Iliman Ndiaye",
+                  "eo": 25.0,
+                  "points": 4,
+                  "eo_weighted_points": 1.0
+                },
+                {
+                  "name": "Alexander Isak",
+                  "eo": 19.0,
+                  "points": 8,
+                  "eo_weighted_points": 1.52
+                }
+              ],
+              "eo_weighted_points_bled": -18.1
+            },
+            "differentials": {
+              "n": 2,
+              "players": [
+                {
+                  "name": "Regan Slater",
+                  "owned_pct": 7.0,
+                  "in_xi": false,
+                  "points": 2,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Leif Davis",
+                  "owned_pct": 8.5,
+                  "in_xi": false,
+                  "points": 6,
+                  "ep": null,
+                  "surprise": null
+                }
+              ],
+              "net_surprise": 0
+            },
+            "bench": {
+              "points_left": -16,
+              "note": "auto-substitution not modelled -- an upper bound on bench cost"
+            }
+          }
+        },
+        {
+          "gameweek": 3,
+          "realized_points": 42,
+          "percentile": 1.5,
+          "estimated_rank": 10473600,
+          "n_rivals": 200,
+          "n_beaten": 2,
+          "real_overall_rank": 2580351,
+          "attribution": {
+            "captaincy": {
+              "captain": "Erling Haaland",
+              "captain_points": 9,
+              "field_captain": "Erling Haaland",
+              "field_captain_points": 9,
+              "field_captain_pct": 95.0,
+              "vs_field_captain": 0,
+              "best_in_xi": "Erling Haaland",
+              "vs_best_in_xi": 0
+            },
+            "template_coverage": {
+              "template_owned": 5,
+              "template_size": 15,
+              "missed": [
+                {
+                  "name": "Riccardo Calafiori",
+                  "eo": 63.5,
+                  "points": 2,
+                  "eo_weighted_points": 1.27
+                },
+                {
+                  "name": "Dominik Szoboszlai",
+                  "eo": 44.0,
+                  "points": 3,
+                  "eo_weighted_points": 1.32
+                },
+                {
+                  "name": "Bart Verbruggen",
+                  "eo": 40.5,
+                  "points": 3,
+                  "eo_weighted_points": 1.22
+                },
+                {
+                  "name": "Bryan Mbeumo",
+                  "eo": 38.5,
+                  "points": 8,
+                  "eo_weighted_points": 3.08
+                },
+                {
+                  "name": "Maxim De Cuyper",
+                  "eo": 36.0,
+                  "points": 4,
+                  "eo_weighted_points": 1.44
+                },
+                {
+                  "name": "Alexander Isak",
+                  "eo": 34.5,
+                  "points": 13,
+                  "eo_weighted_points": 4.48
+                },
+                {
+                  "name": "Jo\u0161ko Gvardiol",
+                  "eo": 33.0,
+                  "points": 8,
+                  "eo_weighted_points": 2.64
+                },
+                {
+                  "name": "Dominic Calvert-Lewin",
+                  "eo": 32.0,
+                  "points": 1,
+                  "eo_weighted_points": 0.32
+                },
+                {
+                  "name": "Mamadou Sangar\u00e9",
+                  "eo": 22.5,
+                  "points": 0,
+                  "eo_weighted_points": 0.0
+                },
+                {
+                  "name": "Kristoffer Ajer",
+                  "eo": 21.5,
+                  "points": 2,
+                  "eo_weighted_points": 0.43
+                }
+              ],
+              "eo_weighted_points_bled": -16.2
+            },
+            "differentials": {
+              "n": 2,
+              "players": [
+                {
+                  "name": "Gabriel dos Santos Magalh\u00e3es",
+                  "owned_pct": 5.5,
+                  "in_xi": true,
+                  "points": 2,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Trai Hume",
+                  "owned_pct": 7.5,
+                  "in_xi": true,
+                  "points": 1,
+                  "ep": null,
+                  "surprise": null
+                }
+              ],
+              "net_surprise": 0
+            },
+            "bench": {
+              "points_left": -8,
+              "note": "auto-substitution not modelled -- an upper bound on bench cost"
+            }
+          }
+        }
+      ],
+      "cumulative_attribution": {
+        "captaincy_vs_best_in_xi": -19.0,
+        "captaincy_vs_field_captain": -10.0,
+        "template_eo_weighted_points_bled": -72.26,
+        "differentials_net_surprise": 0.0,
+        "bench_points_left": -35.0
+      },
+      "latest_percentile": 1.5,
+      "latest_estimated_rank": 10473600
+    },
+    "account:1305242": {
+      "label": "Matippy toes",
+      "by_gameweek": [
+        {
+          "gameweek": 1,
+          "realized_points": 44,
+          "percentile": 0.0,
+          "estimated_rank": 10630438,
+          "n_rivals": 2000,
+          "n_beaten": 0,
+          "real_overall_rank": 6124832,
+          "attribution": {
+            "captaincy": {
+              "captain": "Erling Haaland",
+              "captain_points": 2,
+              "field_captain": "Bruno Borges Fernandes",
+              "field_captain_points": 2,
+              "field_captain_pct": 60.4,
+              "vs_field_captain": 0,
+              "best_in_xi": "Jo\u00e3o Pedro Junqueira de Jesus",
+              "vs_best_in_xi": -9
+            },
+            "template_coverage": {
+              "template_owned": 8,
+              "template_size": 15,
+              "missed": [
+                {
+                  "name": "David Raya Martin",
+                  "eo": 47.1,
+                  "points": 6,
+                  "eo_weighted_points": 2.83
+                },
+                {
+                  "name": "Alexander Isak",
+                  "eo": 47.0,
+                  "points": 2,
+                  "eo_weighted_points": 0.94
+                },
+                {
+                  "name": "Benjamin White",
+                  "eo": 45.5,
+                  "points": 11,
+                  "eo_weighted_points": 5.0
+                },
+                {
+                  "name": "Iliman Ndiaye",
+                  "eo": 42.6,
+                  "points": 9,
+                  "eo_weighted_points": 3.83
+                },
+                {
+                  "name": "Harry Maguire",
+                  "eo": 41.5,
+                  "points": 1,
+                  "eo_weighted_points": 0.41
+                },
+                {
+                  "name": "Cole Palmer",
+                  "eo": 40.7,
+                  "points": 13,
+                  "eo_weighted_points": 5.29
+                },
+                {
+                  "name": "Maxim De Cuyper",
+                  "eo": 31.3,
+                  "points": 17,
+                  "eo_weighted_points": 5.32
+                }
+              ],
+              "eo_weighted_points_bled": -23.63
+            },
+            "differentials": {
+              "n": 4,
+              "players": [
+                {
+                  "name": "Virgil van Dijk",
+                  "owned_pct": 3.8,
+                  "in_xi": true,
+                  "points": 2,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Joe Rodon",
+                  "owned_pct": 7.5,
+                  "in_xi": false,
+                  "points": 6,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Bobby Thomas",
+                  "owned_pct": 9.7,
+                  "in_xi": false,
+                  "points": 3,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Regan Slater",
+                  "owned_pct": 1.1,
+                  "in_xi": false,
+                  "points": 6,
+                  "ep": null,
+                  "surprise": null
+                }
+              ],
+              "net_surprise": 0
+            },
+            "bench": {
+              "points_left": -21,
+              "note": "auto-substitution not modelled -- an upper bound on bench cost"
+            }
+          }
+        },
+        {
+          "gameweek": 2,
+          "realized_points": 109,
+          "percentile": 37.8,
+          "estimated_rank": 6619102,
+          "n_rivals": 200,
+          "n_beaten": 74,
+          "real_overall_rank": 1667220,
+          "attribution": {
+            "captaincy": {
+              "captain": "Erling Haaland",
+              "captain_points": 13,
+              "field_captain": "Bruno Borges Fernandes",
+              "field_captain_points": 23,
+              "field_captain_pct": 73.5,
+              "vs_field_captain": -10,
+              "best_in_xi": "Bruno Borges Fernandes",
+              "vs_best_in_xi": -10
+            },
+            "template_coverage": {
+              "template_owned": 9,
+              "template_size": 15,
+              "missed": [
+                {
+                  "name": "Harry Maguire",
+                  "eo": 40.5,
+                  "points": 4,
+                  "eo_weighted_points": 1.62
+                },
+                {
+                  "name": "Christos Tzolis",
+                  "eo": 38.5,
+                  "points": 0,
+                  "eo_weighted_points": 0.0
+                },
+                {
+                  "name": "David Raya Martin",
+                  "eo": 29.5,
+                  "points": 6,
+                  "eo_weighted_points": 1.77
+                },
+                {
+                  "name": "Benjamin White",
+                  "eo": 26.0,
+                  "points": 7,
+                  "eo_weighted_points": 1.82
+                },
+                {
+                  "name": "Iliman Ndiaye",
+                  "eo": 25.0,
+                  "points": 4,
+                  "eo_weighted_points": 1.0
+                },
+                {
+                  "name": "Jo\u0161ko Gvardiol",
+                  "eo": 19.0,
+                  "points": 5,
+                  "eo_weighted_points": 0.95
+                }
+              ],
+              "eo_weighted_points_bled": -7.16
+            },
+            "differentials": {
+              "n": 2,
+              "players": [
+                {
+                  "name": "Virgil van Dijk",
+                  "owned_pct": 2.5,
+                  "in_xi": true,
+                  "points": 1,
+                  "ep": null,
+                  "surprise": null
+                },
+                {
+                  "name": "Regan Slater",
+                  "owned_pct": 7.0,
+                  "in_xi": false,
+                  "points": 2,
+                  "ep": null,
+                  "surprise": null
+                }
+              ],
+              "net_surprise": 0
+            },
+            "bench": {
+              "points_left": -11,
+              "note": "auto-substitution not modelled -- an upper bound on bench cost"
+            }
+          }
+        },
+        {
+          "gameweek": 3,
+          "realized_points": 44,
+          "percentile": 5.2,
+          "estimated_rank": 10074858,
+          "n_rivals": 200,
+          "n_beaten": 8,
+          "real_overall_rank": 1684830,
+          "attribution": {
+            "captaincy": {
+              "captain": "Erling Haaland",
+              "captain_points": 9,
+              "field_captain": "Erling Haaland",
+              "field_captain_points": 9,
+              "field_captain_pct": 95.0,
+              "vs_field_captain": 0,
+              "best_in_xi": "Erling Haaland",
+              "vs_best_in_xi": 0
+            },
+            "template_coverage": {
+              "template_owned": 9,
+              "template_size": 15,
+              "missed": [
+                {
+                  "name": "Bryan Mbeumo",
+                  "eo": 38.5,
+                  "points": 8,
+                  "eo_weighted_points": 3.08
+                },
+                {
+                  "name": "Maxim De Cuyper",
+                  "eo": 36.0,
+                  "points": 4,
+                  "eo_weighted_points": 1.44
+                },
+                {
+                  "name": "Alexander Isak",
+                  "eo": 34.5,
+                  "points": 13,
+                  "eo_weighted_points": 4.48
+                },
+                {
+                  "name": "Jo\u0161ko Gvardiol",
+                  "eo": 33.0,
+                  "points": 8,
+                  "eo_weighted_points": 2.64
+                },
+                {
+                  "name": "Mamadou Sangar\u00e9",
+                  "eo": 22.5,
+                  "points": 0,
+                  "eo_weighted_points": 0.0
+                },
+                {
+                  "name": "Kristoffer Ajer",
+                  "eo": 21.5,
+                  "points": 2,
+                  "eo_weighted_points": 0.43
+                }
+              ],
+              "eo_weighted_points_bled": -12.07
+            },
+            "differentials": {
+              "n": 1,
+              "players": [
+                {
+                  "name": "Joe Rodon",
+                  "owned_pct": 6.5,
+                  "in_xi": false,
+                  "points": 0,
+                  "ep": null,
+                  "surprise": null
+                }
+              ],
+              "net_surprise": 0
+            },
+            "bench": {
+              "points_left": -13,
+              "note": "auto-substitution not modelled -- an upper bound on bench cost"
+            }
+          }
+        }
+      ],
+      "cumulative_attribution": {
+        "captaincy_vs_best_in_xi": -19.0,
+        "captaincy_vs_field_captain": -10.0,
+        "template_eo_weighted_points_bled": -42.86,
+        "differentials_net_surprise": 0.0,
+        "bench_points_left": -45.0
+      },
+      "latest_percentile": 5.2,
+      "latest_estimated_rank": 10074858
+    }
+  },
+  "findings": [
+    "GW1 (model optimal): 0th pctile of the sample, projected rank ~10,633,096 (42 pts, beat 0/2000 rivals). Biggest leak: template -- owned 2/15, missed Jo\u00e3o Pedro Junqueira de Jesus (97% EO, 11 pts).",
+    "GW1 (ChatGPT template team): 0th pctile of the sample, projected rank ~10,633,096 (38 pts, beat 0/2000 rivals). Biggest leak: template -- owned 6/15, missed Riccardo Calafiori (87% EO, 9 pts).",
+    "GW2 (ChatGPT template team): 38th pctile of the sample, projected rank ~6,619,102 (109 pts, beat 74/200 rivals). Biggest leak: template -- owned 8/15, missed Riccardo Calafiori (87% EO, 11 pts).",
+    "GW3 (ChatGPT template team): 2th pctile of the sample, projected rank ~10,473,600 (42 pts, beat 2/200 rivals). Biggest leak: template -- owned 5/15, missed Alexander Isak (34% EO, 13 pts).",
+    "GW1 (Matippy toes): 0th pctile of the sample, projected rank ~10,630,438 (44 pts, beat 0/2000 rivals). Biggest leak: template -- owned 8/15, missed Maxim De Cuyper (31% EO, 17 pts).",
+    "GW2 (Matippy toes): 38th pctile of the sample, projected rank ~6,619,102 (109 pts, beat 74/200 rivals). Biggest leak: -11 left on the bench (auto-subs not modelled).",
+    "GW3 (Matippy toes): 5th pctile of the sample, projected rank ~10,074,858 (44 pts, beat 8/200 rivals). Biggest leak: -13 left on the bench (auto-subs not modelled)."
+  ],
+  "limitations": [
+    "Forward-only: FPL's API serves only current-season picks, so 2024-25/2025-26 cannot be rank-scored.",
+    "estimated_rank is a sample projection (percentile x total_players), not an official FPL figure.",
+    "Auto-substitution is not modelled -- bench_points_left is an upper bound on bench cost.",
+    "Double/blank-gameweek rival squads are scored with realized points as-is.",
+    "The rival sample's deep-rank reach depends on FPL's standings pagination -- see sample_shape_by_gameweek."
+  ]
+}
