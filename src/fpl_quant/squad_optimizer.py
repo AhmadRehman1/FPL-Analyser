@@ -389,6 +389,12 @@ def solve(
 
     linear_ep = scip.quicksum(xi[c["player_uid"]] * c["mu"] for c in candidates)
     linear_ep += scip.quicksum(captain[c["player_uid"]] * c["mu"] for c in candidates)
+    # w_i = xi_i + captain_i -- same effective scoring weight linear_ep and (when lam > 0)
+    # risk_expr below are built from (1 for a normal XI player, 2 for the captain, since
+    # captain[uid] <= xi[uid] is already enforced above). Shared here so every linear term
+    # that represents a real per-player contribution to the manager's actual realized total
+    # -- EO/field-covariance included, not just EP and variance -- weighs the captain double.
+    w = {c["player_uid"]: xi[c["player_uid"]] + captain[c["player_uid"]] for c in candidates}
 
     if lam > 0:
         _warn_if_sigma_not_psd(candidates, sigma_pairs)
@@ -437,8 +443,13 @@ def solve(
             raise ValueError("eo_weight_kappa > 0 requires posture to be set ('protect' or 'chase')")
         if eo_by_uid is None:
             raise ValueError("eo_weight_kappa > 0 requires eo_by_uid to be provided")
+        # w[uid], not a flat xi[uid]: the captain's points count double towards the manager's
+        # actual realized total (linear_ep already reflects this), so a captained template
+        # pick protects/costs rank twice as hard as the same pick started but not captained --
+        # the exact same captaincy-blindness risk_expr was fixed for above, but linear in
+        # eo_i rather than quadratic in var_i.
         eo_terms = [
-            xi[c["player_uid"]] * eo_by_uid[c["player_uid"]]
+            w[c["player_uid"]] * eo_by_uid[c["player_uid"]]
             for c in candidates if eo_by_uid.get(c["player_uid"]) is not None
         ]
         if eo_terms:
@@ -449,8 +460,14 @@ def solve(
             raise ValueError("field_cov_kappa > 0 requires posture to be set ('protect' or 'chase')")
         if field_cov_by_uid is None:
             raise ValueError("field_cov_kappa > 0 requires field_cov_by_uid to be provided")
+        # w[uid]: field_cov_by_uid[uid] approximates Cov(player_i, field), and the
+        # rank-relative-variance argument above is Cov(you, field) where "you" is the
+        # manager's actual realized total -- captain[uid]'s points count double towards that
+        # total (same reasoning as the eo_terms weighting immediately above), so a flat
+        # xi[uid] weight here would under-count exactly the highest-EO, highest-stakes
+        # decision in the squad.
         field_cov_terms = [
-            xi[c["player_uid"]] * field_cov_by_uid[c["player_uid"]]
+            w[c["player_uid"]] * field_cov_by_uid[c["player_uid"]]
             for c in candidates if c["player_uid"] in field_cov_by_uid
         ]
         if field_cov_terms:
