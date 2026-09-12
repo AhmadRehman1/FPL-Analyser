@@ -4,7 +4,7 @@
   "gameweek": 4,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 41,
+  "live_total": 57,
   "players": [
     {
       "player_id": 109,
@@ -16,16 +16,16 @@
     {
       "player_id": 31,
       "web_name": "Konsa",
-      "live_points": 2,
-      "provisional_bonus": 1,
-      "contribution": 2
+      "live_points": 6,
+      "provisional_bonus": 0,
+      "contribution": 6
     },
     {
       "player_id": 8,
       "web_name": "Calafiori",
-      "live_points": 1,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 6
     },
     {
       "player_id": 332,
@@ -37,9 +37,9 @@
     {
       "player_id": 12,
       "web_name": "Saka",
-      "live_points": 1,
+      "live_points": 8,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 8
     },
     {
       "player_id": 368,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 80.5,
-    "estimated_rank": 2090494
+    "percentile": 65.0,
+    "estimated_rank": 3753903
   },
   "fixtures": [
     {
@@ -206,11 +206,35 @@
       "away": {
         "short_name": "ARS",
         "name": "Arsenal",
-        "score": 0
+        "score": 2
       }
     }
   ],
   "events": [
+    {
+      "player_id": 1,
+      "web_name": "Raya",
+      "team": 1,
+      "event": "pen_saved",
+      "count": 1,
+      "fixture_id": 36
+    },
+    {
+      "player_id": 12,
+      "web_name": "Saka",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 36
+    },
+    {
+      "player_id": 13,
+      "web_name": "Rice",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 36
+    },
     {
       "player_id": 40,
       "web_name": "Rogers",
@@ -380,6 +404,14 @@
       "fixture_id": 34
     },
     {
+      "player_id": 452,
+      "web_name": "Bruno G.",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 36
+    },
+    {
       "player_id": 472,
       "web_name": "Murillo",
       "team": 18,
@@ -404,6 +436,14 @@
       "fixture_id": 31
     },
     {
+      "player_id": 542,
+      "web_name": "E.Le F\u00e9e",
+      "team": 20,
+      "event": "pen_missed",
+      "count": 1,
+      "fixture_id": 36
+    },
+    {
       "player_id": 588,
       "web_name": "Khalaili",
       "team": 8,
@@ -420,5 +460,5 @@
       "fixture_id": 34
     }
   ],
-  "generated_at": "2026-09-12T19:19:20.836792+00:00"
+  "generated_at": "2026-09-12T21:31:21.656378+00:00"
 }
