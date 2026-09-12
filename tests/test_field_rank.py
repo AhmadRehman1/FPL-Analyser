@@ -104,6 +104,70 @@ def test_score_squad_rank_no_sample_returns_zero_rivals(con):
 
 
 # ============================================================
+# estimate_population_rank -- band-weighted, corrects for the stratified sample
+# ============================================================
+
+def _rivals(pairs):
+    """pairs: [(league_rank, points), ...] -> settled_rival_totals()-shaped dicts."""
+    return [{"entry_id": i, "league_rank": r, "points": p} for i, (r, p) in enumerate(pairs)]
+
+
+def test_estimate_population_rank_beats_a_top_heavy_sample_by_more_than_the_flat_count():
+    # a below-average score against a sample that is 4/6 elite: the flat count says it beat
+    # ~1/3 of "the field" (really: 1/3 of a room of strong managers). Band-weighting knows the
+    # two weak rivals stand in for millions of real managers, so the population percentile is
+    # far higher and the projected rank far better.
+    total = 10_000_000
+    rivals = _rivals([(4_000, 82), (7_000, 78), (110_000, 61), (130_000, 59),
+                      (1_400_000, 33), (1_900_000, 29)])
+    est = field_rank.estimate_population_rank(48, rivals, total)
+    assert est["method"] == "band_weighted"
+    assert est["n_beaten"] == 2  # raw count unchanged: 48 only outscores the two tail rivals
+    naive_pct = 2 / 6 * 100
+    assert est["percentile"] > naive_pct + 20  # materially higher than the naive count
+    assert est["estimated_rank"] < 0.5 * total  # nowhere near "last place"
+
+
+def test_estimate_population_rank_is_monotonic_in_score():
+    total = 5_000_000
+    rivals = _rivals([(5_000, 70), (80_000, 55), (500_000, 44), (1_800_000, 30)])
+    ranks = [field_rank.estimate_population_rank(s, rivals, total)["estimated_rank"] for s in (20, 40, 60, 90)]
+    assert ranks == sorted(ranks, reverse=True)  # more points -> numerically smaller (better) rank
+
+
+def test_estimate_population_rank_places_an_average_score_mid_field():
+    # a realistic stratified sample (like DEFAULT_RANK_BANDS): ~64% of it in the top 140k, and
+    # each band's scores straddle the subject's 50. An average score must land mid-field, not
+    # near-last the way a flat count over this top-heavy sample would put it.
+    total = 10_633_096
+    rivals = _rivals(
+        [(1_000 + 400 * i, 70 + 10 * (i % 2)) for i in range(40)]        # elite: 70/80
+        + [(60_000 + 650 * i, 52 + 12 * (i % 2)) for i in range(120)]    # target: 52/64
+        + [(400_000 + 5_000 * i, 44 + 12 * (i % 2)) for i in range(40)]  # mid-field: 44/56
+        + [(600_000 + 28_000 * i, 40 + 20 * (i % 2)) for i in range(50)]  # tail: 40/60
+    )
+    est = field_rank.estimate_population_rank(50, rivals, total)
+    assert est["method"] == "band_weighted"
+    assert 30.0 < est["percentile"] < 70.0
+    assert 3_000_000 < est["estimated_rank"] < 8_000_000
+    # the naive flat count would be far more pessimistic (most of this sample outscores 50)
+    flat_pct = est["n_beaten"] / est["sample_size"] * 100
+    assert est["percentile"] > flat_pct
+
+
+def test_estimate_population_rank_falls_back_to_flat_count_without_a_rank_axis():
+    rivals = [{"entry_id": i, "league_rank": None, "points": p} for i, p in enumerate([30, 50, 70])]
+    est = field_rank.estimate_population_rank(60, rivals, 1_000_000)
+    assert est["method"] == "flat_count"
+    assert est["percentile"] == round(2 / 3 * 100, 1)  # beat 2 of 3, no weighting possible
+
+
+def test_estimate_population_rank_empty_sample():
+    est = field_rank.estimate_population_rank(60, [], 1_000_000)
+    assert est["percentile"] is None and est["estimated_rank"] is None and est["method"] is None
+
+
+# ============================================================
 # attribute_rank_gap
 # ============================================================
 

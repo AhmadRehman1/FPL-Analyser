@@ -307,6 +307,13 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
     accumulates from 2026-27 GW1. It does **not** change the optimiser (that is Phase C —
     joint simulation as a solve input, still design-only): it measures and attributes, so the
     weekly model fix targets the real leak.
+    - *Follow-up (2026-09-09).* The first weekly autopsy (2026-27 GW1–3) showed the estimator
+      extrapolating a 10M-manager tail from the 400k–600k band, and GW1's stored sample was
+      still the retired top-2000 cohort. `DEFAULT_RANK_BANDS` gained a fourth `(600k, 2M, 50)`
+      tail slice, and `ingest_rival_squad_sample(..., replace=True)` (surfaced as
+      `RIVAL_SAMPLE_REPLACE_EVENTS` on the script and a `replace_events` dispatch input on
+      `rank_tracking.yml`) re-samples a gameweek whose stored sample used an older strategy —
+      the old rows are dropped only once the fresh sample is in hand.
 - **Multi-gameweek transfer planner ("Plan" tab, new frontend feature, not part of the frozen
   M0-M9 build).** A "draft" -- a hypothetical future squad state, entirely separate from the
   live squad and never submitted anywhere -- with up to 5 saved per account (localStorage, no

@@ -262,6 +262,49 @@ def test_eo_term_weighs_captain_double():
 
 
 # ============================================================
+# Priority 10 Phase C -- the aggressive template anchor (risk_posture_params v2)
+# ============================================================
+
+def test_seed_template_anchor_params_v2_values(con):
+    so.seed_template_anchor_params(con)
+    from fpl_quant import params
+    _, posture = params.resolve_param(con, "risk_posture_params", "posture", 2)
+    kappa, _ = params.resolve_param(con, "risk_posture_params", "eo_weight_kappa", 2)
+    assert posture == "protect"
+    assert kappa == 0.12
+    # v1 is untouched -- the tie-break weight still resolves to its frozen value
+    so.seed_v1_params(con)
+    v1_kappa, _ = params.resolve_param(con, "risk_posture_params", "eo_weight_kappa", 1)
+    assert v1_kappa == 0.02
+
+
+def _template_trap_pool():
+    """A pool where the highest-EO players are also the LOWEST-mu -- 'template traps' a
+    pure EP - lambda*risk solve skips entirely. The anchor is the only thing that can pull
+    them in, so template coverage is a clean readout of the anchor's strength."""
+    pool = _synthetic_pool()
+    eo_by_uid = {c["player_uid"]: 8.0 for c in pool}
+    traps = ["def0", "def1", "mid0", "mid1"]  # cheapest, lowest-mu in their groups
+    for uid in traps:
+        eo_by_uid[uid] = 85.0
+    return pool, eo_by_uid, set(traps)
+
+
+def test_template_anchor_v2_kappa_lifts_template_coverage():
+    pool, eo_by_uid, traps = _template_trap_pool()
+    off = so.solve(pool, {}, lam=0.15, guardrail_cap=3)
+    anchored = so.solve(
+        pool, {}, lam=0.15, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="protect", eo_weight_kappa=0.12,
+    )
+    covered_off = len(set(off["squad"]) & traps)
+    covered_anchored = len(set(anchored["squad"]) & traps)
+    assert covered_anchored > covered_off
+    # and the lambda=0 vs lambda=0.15 divergence signal still holds under the anchor
+    z = so.solve(pool, {}, lam=0.0, guardrail_cap=3, eo_by_uid=eo_by_uid, posture="protect", eo_weight_kappa=0.12)
+    assert z["status"] == "optimal"
+
+
+# ============================================================
 # Priority 1 -- field-covariance term (linear coefficient, same posture-sign convention)
 # ============================================================
 
