@@ -4,14 +4,14 @@
   "gameweek": 4,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 57,
+  "live_total": 86,
   "players": [
     {
       "player_id": 109,
       "web_name": "Verbruggen",
-      "live_points": 0,
+      "live_points": 8,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 8
     },
     {
       "player_id": 31,
@@ -58,9 +58,9 @@
     {
       "player_id": 124,
       "web_name": "Gro\u00df",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 20,
+      "provisional_bonus": 3,
+      "contribution": 20
     },
     {
       "player_id": 40,
@@ -72,9 +72,9 @@
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 165,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 67.0,
-    "estimated_rank": 3540189
+    "percentile": 96.0,
+    "estimated_rank": 429791
   },
   "fixtures": [
     {
@@ -208,6 +208,40 @@
         "name": "Arsenal",
         "score": 2
       }
+    },
+    {
+      "id": 38,
+      "kickoff": "2026-09-13T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "COV",
+        "name": "Coventry City",
+        "score": 0
+      },
+      "away": {
+        "short_name": "BHA",
+        "name": "Brighton",
+        "score": 5
+      }
+    },
+    {
+      "id": 39,
+      "kickoff": "2026-09-13T15:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 0
+      },
+      "away": {
+        "short_name": "MCI",
+        "name": "Man City",
+        "score": 0
+      }
     }
   ],
   "events": [
@@ -298,6 +332,62 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 32
+    },
+    {
+      "player_id": 115,
+      "web_name": "De Cuyper",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 38
+    },
+    {
+      "player_id": 116,
+      "web_name": "Dunk",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 38
+    },
+    {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 38
+    },
+    {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "assist",
+      "count": 2,
+      "fixture_id": 38
+    },
+    {
+      "player_id": 129,
+      "web_name": "Ayari",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 38
+    },
+    {
+      "player_id": 138,
+      "web_name": "Kostoulas",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 38
+    },
+    {
+      "player_id": 138,
+      "web_name": "Kostoulas",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 38
     },
     {
       "player_id": 154,
@@ -452,6 +542,22 @@
       "fixture_id": 34
     },
     {
+      "player_id": 605,
+      "web_name": "Yalcouy\u00e9",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 38
+    },
+    {
+      "player_id": 639,
+      "web_name": "Andr\u00e9s",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 38
+    },
+    {
       "player_id": 640,
       "web_name": "Flemming",
       "team": 12,
@@ -460,5 +566,5 @@
       "fixture_id": 34
     }
   ],
-  "generated_at": "2026-09-12T23:23:02.606261+00:00"
+  "generated_at": "2026-09-13T15:42:49.114197+00:00"
 }
