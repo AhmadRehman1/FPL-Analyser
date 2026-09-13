@@ -16,6 +16,23 @@ production crash in the Attack-rank posture (new, see §9), both downstream of t
 cause as Finding 5: recalibration proposals are confirmed with no effect-size floor and no
 collision check.**
 
+**2026-09-13/14 update — Finding 6 and §9 are now fixed, merged to master:**
+- Finding 6 (broken `parameters_backtested` counter): fixed in
+  [#171](https://github.com/AhmadRehman1/FPL-Analyser/pull/171) —
+  `backtest.load_all_proposed_param_families()` reads the persisted seed files instead of
+  relying solely on a DB table that's structurally always empty in the job that computes this
+  counter.
+- §9 (Attack-posture version collision): fixed in
+  [#170](https://github.com/AhmadRehman1/FPL-Analyser/pull/170) — `params.get_or_create_version()`
+  replaces the hardcoded version literal that collided with a real recalibration.
+- Finding 5's own root cause (no effect-size/collision check on the confirmation gate itself,
+  `evaluate_and_promote_proposal()`'s `min_relative_improvement=0.0` default and
+  `review_recalibration.py --confirm`'s total absence of a check) is **not yet fixed** — #170
+  fixes one *consequence* (the version collision), not the missing gate itself. Real follow-up
+  work, not done this pass.
+- Findings 1-4, 7, 8 and the calibration-objective reweighting work (Phase 2's original #1-2)
+  are **unchanged** — still open, as described below.
+
 ## Methodology note: is `app_track_record.json` stale?
 
 No. `backtest_run_id` has been `1` throughout, but `nightly_backtest.yml` re-runs
@@ -160,6 +177,8 @@ Today's `data/recalibration/seeds_1.json` confirmed rows, cross-checked:
 
 ## Finding 6 — nothing is actually calibrated
 
+**FIXED: [#171](https://github.com/AhmadRehman1/FPL-Analyser/pull/171), 2026-09-13/14.**
+
 **Refuted as written — the counter is broken, not honest, and I can show exactly how.**
 
 `reporting.py:632`: `n_backtested = sum(1 for row in transparency if row["backtested_via_m7"])`.
@@ -245,6 +264,11 @@ forward_test/FROZEN_CONFIG.md`: frozen at 2026-09-02, runs "at least GW19 of 202
 ---
 
 ## §9 — New finding: the Attack-rank posture has likely been silently crashing since 2026-09-08
+
+**FIXED: [#170](https://github.com/AhmadRehman1/FPL-Analyser/pull/170), 2026-09-13/14.** Not
+reproduced live before the fix (sandbox blocked the DB rebuild needed) — worth a human glance
+at the next `scheduled_pipeline.yml` run to confirm `real_squad_*_attack.json` actually starts
+updating again, since the diagnosis here was code + timeline evidence, not a caught exception.
 
 Not one of the original 8, found while tracing Finding 3/5's version-collision thread to
 ground. Confidence: **high (code + timeline evidence), not reproduced end-to-end locally**

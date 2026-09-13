@@ -6,6 +6,25 @@ changed in this pass.
 
 ---
 
+**2026-09-13/14 update — the magnitude-floor half of Workstream B and the cheap-wiring half
+of Workstream C are now fixed, merged to master:**
+- Workstream B's missing gain thresholds for `triple_captain`/`bench_boost`: fixed in
+  [#173](https://github.com/AhmadRehman1/FPL-Analyser/pull/173). **Only the magnitude floor**
+  ("is this worth firing at all") — the fuller ask (a season-horizon option-value estimate,
+  "is this the best week to wait for") is **not built**, flagged as a follow-up task (larger,
+  needs its own walk-forward validation).
+- Workstream C's recalibration-wiring gap (vice-captain fallback missing from
+  `refit_lambda()`/`report_concentration_sensitivity()`): fixed in
+  [#172](https://github.com/AhmadRehman1/FPL-Analyser/pull/172).
+- **Not fixed, deliberately deferred** (both need their own walk-forward validation before
+  going live, unlike the pure wiring/accuracy fixes above): wiring
+  `bench_quality_params_version`/`risk_posture_params_version`/etc. into the walk-forward's own
+  per-step `squad_optimizer.run()` calls; the full real-auto-substitution build (bench order +
+  formation-legality simulation); the stale vice-captain caveat in
+  `docs/reports/2025-26_retrospective_validation.md` (still says "no vice-captain logic
+  anywhere," which stopped being true 2026-09-07) — that report needs regenerating, not just a
+  text correction, so it's left alone rather than hand-edited.
+
 ## Workstream B — the chip policy has no concept of patience
 
 All three of the user's numbered claims **confirmed**, no corrections needed — if anything,
