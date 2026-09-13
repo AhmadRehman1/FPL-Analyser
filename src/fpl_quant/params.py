@@ -139,7 +139,11 @@ def get_or_create_version(
 # M9 adapter -- parameter transparency panel
 # ============================================================
 
-def transparency_panel(con: duckdb.DuckDBPyConnection, active_versions: dict[str, int]) -> list[dict]:
+def transparency_panel(
+    con: duckdb.DuckDBPyConnection,
+    active_versions: dict[str, int],
+    additional_touched_families: set[str] | None = None,
+) -> list[dict]:
     """M9's assumptions/parameter-transparency section: "every versioned parameter active in
     this run, flagged as either backtested/recalibrated via M7 or still literature/invented
     default." active_versions is the caller's explicit statement of which params_version is
@@ -148,13 +152,27 @@ def transparency_panel(con: duckdb.DuckDBPyConnection, active_versions: dict[str
     on versions the caller actually names, never a guess.
 
     A family counts as "backtested_via_m7" iff it has at least one row in
-    recalibration_proposals, regardless of that proposal's status (pending/confirmed/rejected)
-    -- M7 having *attempted* to validate/tune it is the signal this flag reports, not whether
-    a human has since accepted the result.
+    recalibration_proposals (in THIS con -- real when a real recalibrate() ran in this same DB
+    session, e.g. scripts/run_backtest.py's own local flow) OR is named in
+    additional_touched_families (the persisted, cross-run signal -- see
+    backtest.load_all_proposed_param_families(), which reads every committed seeds_*.json
+    regardless of which DB session originally produced the proposal). Either way, regardless
+    of that proposal's status (pending/confirmed/rejected) -- M7 having *attempted* to
+    validate/tune it is the signal this flag reports, not whether a human has since accepted
+    the result.
+
+    additional_touched_families defaults to None (exact prior behavior: DB-only) so existing
+    callers that don't pass it are unaffected. Callers that DO have a recalibration seed
+    directory available (see backtest.load_all_proposed_param_families()) should always pass
+    it -- see this function's own docstring above and
+    docs/reports/2026-09_model_failure_diagnosis.md, Finding 6, for why the DB-only query is
+    structurally wrong on its own for any caller whose DB session never ran recalibrate().
     """
     touched_families = {
         r[0] for r in con.execute("SELECT DISTINCT param_family FROM recalibration_proposals").fetchall()
     }
+    if additional_touched_families:
+        touched_families |= additional_touched_families
 
     panel = []
     for family, version in active_versions.items():

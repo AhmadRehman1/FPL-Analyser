@@ -189,6 +189,7 @@ def build_report(
     confidence_score_params_version: int | None = None,
     role_change_flag_params_version: int | None = None,
     report_asof: datetime | None = None,
+    recalibration_seed_dir: Path | str | None = None,
 ) -> dict:
     """The minimal headline is always present; every other section is a dict key a caller can
     choose to render or not -- that choice is the "expandable on demand" the spec asks for,
@@ -214,7 +215,16 @@ def build_report(
     evidence_decay_params_version/evidence_fact_multiplier_params_version/report_asof
     consensus_divergence needs (an evidence-weight sum is meaningless without an as-of date),
     absent any of which evidence_weight is left None per player -- confidence_score still
-    reports whatever it has (weight_own alone), never silently drops the whole section."""
+    reports whatever it has (weight_own alone), never silently drops the whole section.
+
+    recalibration_seed_dir (optional): when given, parameter_transparency's own
+    "backtested_via_m7" flag additionally counts a family as touched if ANY committed
+    seeds_*.json in this directory has ever recorded a recalibration_proposals row for it
+    (backtest.load_all_proposed_param_families()), not only whatever this call's own DB
+    session's recalibration_proposals table happens to hold. Omitting it reproduces the exact
+    prior (DB-only) behavior -- see params.transparency_panel()'s own docstring for why every
+    caller whose DB session never itself ran recalibrate() (e.g. the nightly walk-forward)
+    needs this to report real recalibration history at all."""
     run_row = con.execute(
         "SELECT target_season, target_gameweek, ep_model_version, uncertainty_model_version "
         "FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id],
@@ -379,7 +389,12 @@ def build_report(
         "guardrail_audit": guardrail_audit,
         "evidence_provenance": evidence_provenance,
         "understat_signal": understat_signal,
-        "parameter_transparency": params_mod.transparency_panel(con, active_param_versions) if active_param_versions else None,
+        "parameter_transparency": (
+            params_mod.transparency_panel(
+                con, active_param_versions,
+                bt.load_all_proposed_param_families(recalibration_seed_dir) if recalibration_seed_dir else None,
+            ) if active_param_versions else None
+        ),
         "backtest_summary": bt.explain_backtest_summary(con, backtest_run_id) if backtest_run_id is not None else None,
         "transfer_chip_rationale": tp.explain_plan(con, transfer_plan_run_id) if transfer_plan_run_id is not None else None,
         "automated_flags": automated_flags,
