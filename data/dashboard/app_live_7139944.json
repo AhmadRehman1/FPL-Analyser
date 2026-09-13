@@ -4,7 +4,7 @@
   "gameweek": 4,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 75,
+  "live_total": 84,
   "players": [
     {
       "player_id": 496,
@@ -72,9 +72,9 @@
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 1,
-      "provisional_bonus": 0,
-      "contribution": 1
+      "live_points": 10,
+      "provisional_bonus": 2,
+      "contribution": 10
     },
     {
       "player_id": 165,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 80.5,
-    "estimated_rank": 2095231
+    "percentile": 84.0,
+    "estimated_rank": 1720521
   },
   "fixtures": [
     {
@@ -240,7 +240,7 @@
       "away": {
         "short_name": "MCI",
         "name": "Man City",
-        "score": 0
+        "score": 1
       }
     }
   ],
@@ -494,6 +494,22 @@
       "fixture_id": 34
     },
     {
+      "player_id": 391,
+      "web_name": "Gvardiol",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 39
+    },
+    {
+      "player_id": 411,
+      "web_name": "Haaland",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 39
+    },
+    {
       "player_id": 452,
       "web_name": "Bruno G.",
       "team": 1,
@@ -566,5 +582,5 @@
       "fixture_id": 34
     }
   ],
-  "generated_at": "2026-09-13T15:42:33.661494+00:00"
+  "generated_at": "2026-09-13T18:21:49.738759+00:00"
 }
