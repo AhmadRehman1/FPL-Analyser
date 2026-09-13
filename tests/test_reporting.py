@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -1059,6 +1060,46 @@ def test_build_track_record_summary_flags_backtested_params(con):
     summary = reporting.build_track_record_summary(con, report, backtest_run_id)
     assert summary["parameters_backtested"] == 1
     assert summary["parameters_still_invented"] == 0
+
+
+def test_build_track_record_summary_flags_backtested_params_via_seed_file_when_db_never_ran_recalibrate(con, tmp_path):
+    # Finding 6 regression test (docs/reports/2026-09_model_failure_diagnosis.md):
+    # nightly_backtest.yml's own DB session never runs recalibrate() (see
+    # backtest.load_all_proposed_param_families()'s own docstring for why), so its
+    # recalibration_proposals table is always empty there -- but real recalibration work is
+    # persisted in the git-committed seed file, which build_report() must now also consult via
+    # recalibration_seed_dir. Without it, this test's own family would wrongly count as
+    # "still invented" despite a real, disclosed M7 proposal existing for it.
+    run_id, *_ = _seed_full_squad_scenario(con)
+    params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    backtest_run_id = _seed_backtest_run(con, steps=[("2025-2026", 10, "warm")], metrics=[])
+    # recalibration_proposals is deliberately left EMPTY in this DB session -- that's the point.
+    (tmp_path / "seeds_1.json").write_text(json.dumps({
+        "backtest_run_id": 1,
+        "proposals": [{
+            "param_family": "squad_optimizer_guardrail_params", "param_key": "xi_club_concentration_cap",
+            "status": "pending", "metric_name": "brier_appearance", "metric_before": 0.3, "metric_after": 0.2,
+            "old_params_version": 1, "new_params_version": 2,
+        }],
+    }))
+
+    report = reporting.build_report(
+        con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1},
+        recalibration_seed_dir=tmp_path,
+    )
+    summary = reporting.build_track_record_summary(con, report, backtest_run_id)
+
+    assert summary["parameters_backtested"] == 1
+    assert summary["parameters_still_invented"] == 0
+
+
+def test_build_report_omitting_recalibration_seed_dir_keeps_prior_db_only_behavior(con):
+    # Backward compatibility: a caller that doesn't pass recalibration_seed_dir gets exactly
+    # the old DB-only signal (a real, empty-recalibration_proposals family stays "invented").
+    run_id, *_ = _seed_full_squad_scenario(con)
+    params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+    assert report["parameter_transparency"][0]["backtested_via_m7"] is False
 
 
 def test_diff_reports_no_previous_snapshot(con):

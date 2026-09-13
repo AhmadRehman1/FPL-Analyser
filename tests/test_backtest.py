@@ -1151,6 +1151,39 @@ def test_load_confirmed_recalibration_seeds_empty_when_dir_missing(tmp_path):
     assert bt.load_confirmed_recalibration_seeds(tmp_path / "does_not_exist") == []
 
 
+def test_load_all_proposed_param_families_includes_pending_and_rejected(con, tmp_path):
+    # Finding 6 (docs/reports/2026-09_model_failure_diagnosis.md): "backtested_via_m7" means
+    # M7 attempted to validate the family at all, regardless of the outcome -- unlike
+    # load_confirmed_recalibration_seeds(), this must NOT drop pending/rejected proposals.
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    confirmed_id = bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    rejected_id = bt.propose_recalibration(
+        con, backtest_run_id, "risk_aversion_params", "lambda_value", 0.5,
+        metric_name="realized_sharpe", metric_before=0.0, metric_after=-1.0, old_params_version=None,
+    )
+    pending_id = bt.propose_recalibration(
+        con, backtest_run_id, "correlation_params", "rho_residual", 0.0,
+        metric_name="rho_hat", metric_before=0.0, metric_after=0.0, old_params_version=None,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [confirmed_id])
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [rejected_id])
+    assert pending_id is not None  # left 'pending' -- the default status propose_recalibration writes
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    families = bt.load_all_proposed_param_families(tmp_path)
+    assert families == {"model_decay_params", "risk_aversion_params", "correlation_params"}
+
+
+def test_load_all_proposed_param_families_empty_when_dir_missing(tmp_path):
+    assert bt.load_all_proposed_param_families(tmp_path / "does_not_exist") == set()
+
+
 def test_resolve_active_version_returns_default_when_never_confirmed(tmp_path):
     assert bt.resolve_active_version("risk_aversion_params", 1, tmp_path, param_key="lambda_value") == 1
 

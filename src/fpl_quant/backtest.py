@@ -1895,6 +1895,39 @@ def load_confirmed_recalibration_seeds(seed_dir: Path | str) -> list[dict]:
     return confirmed
 
 
+def load_all_proposed_param_families(seed_dir: Path | str) -> set[str]:
+    """Every param_family that has EVER had a recalibration_proposals row written for it,
+    across every committed seeds_*.json in seed_dir, regardless of status (pending/confirmed/
+    rejected) -- matching params.transparency_panel()'s own "backtested_via_m7" semantics
+    ("M7 having *attempted* to validate/tune it", not whether a human since accepted the
+    result). This is the persisted, cross-run counterpart to that panel's own DB query
+    (`SELECT DISTINCT param_family FROM recalibration_proposals`), which only sees whatever a
+    recalibrate() call in THIS SAME DB session produced.
+
+    Exists because nightly_backtest.yml's own scripts/run_walkforward.py deliberately never
+    calls recalibrate() (see that script's own docstring -- the recalibration tail is what
+    blows the 6h Actions cap), so the DB session data/dashboard/app_track_record.json's
+    `parameters_backtested` count is computed against has an EMPTY recalibration_proposals
+    table every single night, forever -- even though real recalibration work has genuinely
+    happened and been confirmed via the git-committed seed files this function reads. Without
+    this, the DB-only query in transparency_panel() reports "0 parameters backtested" no
+    matter how much real M7 work has actually landed. See
+    docs/reports/2026-09_model_failure_diagnosis.md, Finding 6, for the incident this fixes.
+
+    Returns an empty set (not an error) when seed_dir doesn't exist yet."""
+    seed_dir = Path(seed_dir)
+    if not seed_dir.is_dir():
+        return set()
+    families = set()
+    for path in sorted(seed_dir.glob("seeds_*.json")):
+        payload = json.loads(path.read_text())
+        for proposal in payload.get("proposals", []):
+            family = proposal.get("param_family")
+            if family:
+                families.add(family)
+    return families
+
+
 def refit_xi_rho(
     con: duckdb.DuckDBPyConnection,
     fit_seasons: tuple[str, ...] = ("2024-2025", "2025-2026"),
