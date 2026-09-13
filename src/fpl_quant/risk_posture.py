@@ -25,6 +25,17 @@ Two postures ship now:
 A third 'protect' posture (a HIGHER lambda_value than 0.15, for rank protection) is deliberately
 NOT shipped: no such version has been backtested yet. It is gated on the lambda-sensitivity
 study (lambda in {0.05 .. 0.30}) already noted as pending elsewhere in this project.
+
+Version numbers for these values are resolved dynamically (params.get_or_create_version()),
+never hardcoded, as of the 2026-09 fix documented in
+docs/reports/2026-09_model_failure_diagnosis.md section 9: a hardcoded "attack" version 2
+collided in production with a later, genuinely-confirmed recalibration proposal that also
+minted tc_risk_aversion_params version 2 (a different value, 0.2) -- write_param()'s
+immutability check raised on every attack-posture solve from the moment that confirmation
+landed, silently, because the scheduled workflow runs that step under continue-on-error. This
+module now only ever asserts VALUES; whatever version number ends up holding them is an
+implementation detail resolve_versions() looks up or mints fresh, and can never collide with
+a version some other lineage already claimed for a different value.
 """
 
 import duckdb
@@ -33,21 +44,21 @@ from . import params as params_mod
 
 DEFAULT_POSTURE = "balanced"
 
-# (param_version, value) per family. The version numbers are what get passed straight through to
-# transfer_planner.run() / squad_optimizer -- the tests assert exactly this mapping.
+# Values per family -- NOT paired with a hardcoded params_version (see this module's own
+# docstring above for why). resolve_versions() looks up or mints the real version dynamically.
 _POSTURES: dict[str, dict] = {
     "balanced": {
         "label": "Balanced",
         "blurb": "The model's default calibration.",
-        "lambda_value": (1, 0.15),
-        "kappa_tc": (1, 0.15),
+        "lambda_value": 0.15,
+        "kappa_tc": 0.15,
     },
     "attack": {
         "label": "Attack rank",
         "blurb": "Lets the squad concentrate more (lower diversification penalty) and tolerates "
                  "a higher-variance captain -- more upside, more downside.",
-        "lambda_value": (2, 0.05),
-        "kappa_tc": (2, 0.5),
+        "lambda_value": 0.05,
+        "kappa_tc": 0.5,
     },
 }
 
@@ -86,7 +97,7 @@ def posture_meta(
     (see this module's own docstring), not meant to track live recalibration."""
     resolved = normalize(posture)
     p = _POSTURES[resolved]
-    lambda_value, kappa_tc = p["lambda_value"][1], p["kappa_tc"][1]
+    lambda_value, kappa_tc = p["lambda_value"], p["kappa_tc"]
     if resolved == DEFAULT_POSTURE and con is not None and active is not None:
         lambda_value, _ = params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", active["lambda_params_version"])
         kappa_tc, _ = params_mod.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", active["kappa_tc_params_version"])
@@ -100,8 +111,10 @@ def posture_meta(
 
 
 def resolve_versions(con: duckdb.DuckDBPyConnection, posture: str) -> dict:
-    """Ensures this posture's parameter versions exist in param_versions (idempotent -- see
-    params.write_param) and returns the versions to hand to transfer_planner.run() /
+    """Ensures this posture's parameter values exist in param_versions under SOME version
+    (looked up if a matching row already exists, minted fresh via
+    params.get_or_create_version() otherwise -- never a hardcoded literal, see this module's
+    own docstring) and returns the versions to hand to transfer_planner.run() /
     squad_optimizer:
 
         {"lambda_params_version": int, "kappa_tc_params_version": int}
@@ -111,8 +124,10 @@ def resolve_versions(con: duckdb.DuckDBPyConnection, posture: str) -> dict:
     if posture not in _POSTURES:
         raise ValueError(f"unknown risk posture {posture!r} -- expected one of {POSTURES}")
     p = _POSTURES[posture]
-    lam_ver, lam_val = p["lambda_value"]
-    kap_ver, kap_val = p["kappa_tc"]
-    params_mod.write_param(con, "risk_aversion_params", lam_ver, _EFFECTIVE_DATE, "lambda_value", value_numeric=lam_val)
-    params_mod.write_param(con, "tc_risk_aversion_params", kap_ver, _EFFECTIVE_DATE, "kappa_tc", value_numeric=kap_val)
+    lam_ver = params_mod.get_or_create_version(
+        con, "risk_aversion_params", "lambda_value", _EFFECTIVE_DATE, value_numeric=p["lambda_value"],
+    )
+    kap_ver = params_mod.get_or_create_version(
+        con, "tc_risk_aversion_params", "kappa_tc", _EFFECTIVE_DATE, value_numeric=p["kappa_tc"],
+    )
     return {"lambda_params_version": lam_ver, "kappa_tc_params_version": kap_ver}
