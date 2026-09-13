@@ -2344,7 +2344,16 @@ def refit_lambda(
             result = squad_optimizer.solve(candidates, sigma_pairs, lam, guardrail_cap)
             if not result["xi"]:
                 continue
-            gameweek_points.append(_realized_xi_points(con, season, gw, result["xi"], result["captain"]))
+            # vice_captain_uid=result["vice"]: 2026-09 fix (docs/reports/2026-09_chip_policy_
+            # and_scoring_diagnosis.md) -- this call predates the 2026-09-07 real-vice-captain
+            # fallback fix (171dc5c) and was never updated to pass it, so lambda recalibration
+            # was still being scored on the stale, no-fallback numbers while the live model
+            # team and the headline walk-forward metric already use the real armband-transfer
+            # rule. Same real FPL rule either way: solve() already returns a real vice pick
+            # (never None once xi is non-empty), so this costs nothing extra to wire in.
+            gameweek_points.append(
+                _realized_xi_points(con, season, gw, result["xi"], result["captain"], vice_captain_uid=result["vice"])
+            )
 
         if len(gameweek_points) >= 2:
             arr = np.array(gameweek_points)
@@ -2464,7 +2473,12 @@ def report_concentration_sensitivity(
             result = squad_optimizer.solve(candidates, sigma_pairs, lambda_value, cap)
             if not result["xi"]:
                 continue
-            gameweek_points.append(_realized_xi_points(con, season, gw, result["xi"], result["captain"]))
+            # vice_captain_uid=result["vice"]: same 2026-09 fix as refit_lambda() above -- this
+            # concentration-cap sensitivity report was likewise still scoring on the pre-
+            # 171dc5c, no-vice-fallback numbers.
+            gameweek_points.append(
+                _realized_xi_points(con, season, gw, result["xi"], result["captain"], vice_captain_uid=result["vice"])
+            )
 
         if len(gameweek_points) >= 2:
             arr = np.array(gameweek_points)
