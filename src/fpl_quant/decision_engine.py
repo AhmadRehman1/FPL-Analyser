@@ -215,6 +215,12 @@ def recommend_best_move(
     active -- reusing a pre-shadow horizon there would silently make the sensitivity toggle a
     no-op instead of a real perturbation.
     """
+    # triple_captain_threshold_params_version/bench_boost_threshold_params_version deliberately
+    # left at tp.run()'s own default (None -- exact prior behavior) here: this is the
+    # interactive "Explain My Move" one-off caller, not one of the two live scheduled paths
+    # (forward_season_sim.py's autonomous walk, scripts/run_transfer_planner_for_real_squad.py)
+    # the 2026-09 chip-threshold fix was activated on. Same documented-no-op convention as
+    # rank_posture above -- a real follow-up, not a silent gap.
     plan_run_id = tp.run(
         con, calibration_asof_date, target_season, target_gameweek, input_state_version,
         ts_model_version, mm_model_version, horizon_params_version, scoring_params_version,

@@ -159,6 +159,13 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         "wildcard_threshold_params_version": 1,
         "free_hit_threshold_params_version": 1,
         "kappa_tc_params_version": active.get("kappa_tc_params_version", 1),
+        # 2026-09 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B):
+        # activates transfer_planner.run()'s new triple-captain/bench-boost gain thresholds for
+        # every real, live forward walk this module drives (model_team.py's autonomous
+        # advance() included) -- see transfer_planner.seed_v1_params()'s own comment for the
+        # incident and the threshold derivation.
+        "triple_captain_threshold_params_version": 1,
+        "bench_boost_threshold_params_version": 1,
     }
 
 
@@ -370,6 +377,8 @@ def run_forward_season_sim(
                 versions["transfer_cost_params_version"], versions["lambda_params_version"],
                 versions["guardrail_params_version"], versions["wildcard_threshold_params_version"],
                 versions["free_hit_threshold_params_version"], versions["kappa_tc_params_version"],
+                triple_captain_threshold_params_version=versions["triple_captain_threshold_params_version"],
+                bench_boost_threshold_params_version=versions["bench_boost_threshold_params_version"],
             )
 
             state_row = con.execute(
