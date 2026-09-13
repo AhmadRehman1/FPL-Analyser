@@ -123,6 +123,28 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # in this project (not derived from data), flagged for its own future M7 recalibration,
     # independent of Wildcard's.
     params_mod.write_param(con, "free_hit_gain_threshold_params", 1, "2026-08-12", "min_horizon_gain", value_numeric=1.5)
+    # 2026-09 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B):
+    # evaluate_triple_captain()/evaluate_bench_boost() had NO gain threshold at all -- unlike
+    # Wildcard/Free Hit above, "recommended" was unconditionally True (past the trivial
+    # no-candidates guard), so the chip fired the moment `_decide_gameweek_action()`'s own
+    # visible-horizon timing check (README's "Follow-up round: chip timing" entry) said "now is
+    # the local peak" -- with no floor on whether firing a once-per-season chip was worth it AT
+    # ALL that week. Both new thresholds are invented v1 defaults, same status and same
+    # scaling-by-ratio derivation as free_hit_gain_threshold_params above (scaled down from
+    # Wildcard's 8.0 by (players_affected x gameweeks_affected) vs Wildcard's own
+    # (15 players x 5 gameweeks)):
+    #   triple_captain: 1 player (the captain), 1 gameweek -> 8.0 * (1x1)/(15x5) ~= 0.107,
+    #   rounded to a clean 0.1 -- deliberately small: tc_score is ALREADY risk-adjusted
+    #   (mean_total - kappa_tc*std, see evaluate_triple_captain()'s own docstring), so this
+    #   floor only excludes a genuinely marginal-or-negative week, not a merely-modest one --
+    #   the missing season-horizon "is this the BEST remaining week" comparison (Workstream B's
+    #   fuller ask) is a separate, larger follow-up, not something this threshold alone claims
+    #   to solve.
+    #   bench_boost: ~4 bench players, 1 gameweek -> 8.0 * (4x1)/(15x5) ~= 0.427, rounded to 0.5.
+    # Both flagged for the same future M7 recalibration extension as every other invented
+    # threshold in this project, not hidden.
+    params_mod.write_param(con, "triple_captain_gain_threshold_params", 1, "2026-09-13", "min_tc_score", value_numeric=0.1)
+    params_mod.write_param(con, "bench_boost_gain_threshold_params", 1, "2026-09-13", "min_bench_ep_sum", value_numeric=0.5)
     # Priority 4 -- price-change-timing: FPL's own price-change algorithm (how large a net-
     # transfer swing at a given ownership level actually triggers a real change) is not
     # public, and this project has not verified what scale transfers_in_event/
@@ -950,7 +972,7 @@ def ensure_squad_simulation(
 
 def evaluate_triple_captain(
     con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int,
-    horizon_ep_map: dict | None = None,
+    horizon_ep_map: dict | None = None, threshold_params_version: int | None = None,
 ) -> dict:
     """TC_score_i = E[marginal_value_i] - kappa_tc * StdDev[marginal_value_i], where
     marginal_value_i is exactly player i's own simulated total_points (captaincy has no other
@@ -968,7 +990,16 @@ def evaluate_triple_captain(
     signal, not a squad-selection decision. mu is the dominant term in tc_score anyway (see
     the formula above), so a per-gw mu trajectory for the SAME candidate is an honest, cheap
     stand-in for "would this player's fixture swing look better later," disclosed as a proxy,
-    not asserted as MC-equivalent precision."""
+    not asserted as MC-equivalent precision.
+
+    threshold_params_version (2026-09 fix, opt-in -- None is the exact prior behavior):
+    unlike evaluate_wildcard()/evaluate_free_hit(), this used to have NO gain threshold at
+    all -- "recommended" was unconditionally True the moment any XI player had simulated
+    results, regardless of how small (or negative) the winning tc_score was (see
+    triple_captain_gain_threshold_params' own seeding comment in seed_v1_params() for the
+    real incident this closes). When given, gates `recommended` on
+    `best["tc_score"] > min_tc_score` -- `all_candidates`/`tc_score`/`captain_candidate` are
+    still populated even when held, so a caller can always see what WOULD have been played."""
     kappa_tc, _ = params_mod.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", kappa_tc_params_version)
     rows = con.execute(
         "SELECT player_uid, mean_total, var_total FROM monte_carlo_player_summary WHERE model_version = ?",
@@ -983,10 +1014,22 @@ def evaluate_triple_captain(
     scored.sort(key=lambda r: r["tc_score"], reverse=True)
     best = scored[0]
     captain_value_per_gw = (horizon_ep_map or {}).get(best["player_uid"], {}).get("per_gw", {})
-    return {
-        "recommended": True, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"],
+    recommended = True
+    reason = None
+    if threshold_params_version is not None:
+        min_tc_score, _ = params_mod.resolve_param(
+            con, "triple_captain_gain_threshold_params", "min_tc_score", threshold_params_version,
+        )
+        recommended = best["tc_score"] > min_tc_score
+        if not recommended:
+            reason = f"best tc_score {best['tc_score']:.3f} does not clear the {min_tc_score:.3f} threshold"
+    result = {
+        "recommended": recommended, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"],
         "all_candidates": scored, "captain_value_per_gw": captain_value_per_gw,
     }
+    if reason is not None:
+        result["reason"] = reason
+    return result
 
 
 def vice_captain_fallback_adjustment(
@@ -1043,7 +1086,7 @@ def vice_captain_fallback_adjustment(
 
 def evaluate_bench_boost(
     con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str],
-    target_season: str | None = None, ts_model_version: int | None = None,
+    target_season: str | None = None, ts_model_version: int | None = None, threshold_params_version: int | None = None,
 ) -> dict:
     """Compares projected bench EP sum (M3's ep_total, not a simulation) across horizon
     gameweeks, recommends the gameweek maximizing it. Bench = squad minus XI.
@@ -1055,6 +1098,15 @@ def evaluate_bench_boost(
     WHICH gameweek is recommended (still the raw EP-maximizing one), only adds context a human
     should weigh about how much of that raw score is likely to translate into RELATIVE rank
     gain if the whole field also picks a good week here.
+
+    threshold_params_version (2026-09 fix, opt-in -- None is the exact prior behavior): unlike
+    evaluate_wildcard()/evaluate_free_hit(), this used to have NO gain threshold at all --
+    "recommended" was unconditionally True whenever there was a non-empty bench with any
+    horizon fixture data, regardless of how small the best gameweek's own bench_ep_sum was
+    (see bench_boost_gain_threshold_params' own seeding comment in seed_v1_params() for the
+    real incident this closes). When given, gates `recommended` on
+    `by_gw[best_gw] > min_bench_ep_sum` -- `all_gameweeks`/`bench_ep_sum`/`target_gameweek`
+    are still populated even when held, so a caller can always see what WOULD have been played.
     """
     bench_uids = squad_uids - xi_uids
     if not bench_uids:
@@ -1070,7 +1122,20 @@ def evaluate_bench_boost(
     if not by_gw:
         return {"recommended": False, "reason": "no horizon gameweeks with fixtures"}
     best_gw = max(by_gw, key=by_gw.get)
-    result = {"recommended": True, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw}
+    recommended = True
+    reason = None
+    if threshold_params_version is not None:
+        min_bench_ep_sum, _ = params_mod.resolve_param(
+            con, "bench_boost_gain_threshold_params", "min_bench_ep_sum", threshold_params_version,
+        )
+        recommended = by_gw[best_gw] > min_bench_ep_sum
+        if not recommended:
+            reason = f"best bench_ep_sum {by_gw[best_gw]:.3f} does not clear the {min_bench_ep_sum:.3f} threshold"
+    result = {
+        "recommended": recommended, "target_gameweek": best_gw, "bench_ep_sum": by_gw[best_gw], "all_gameweeks": by_gw,
+    }
+    if reason is not None:
+        result["reason"] = reason
     if target_season is not None and ts_model_version is not None:
         result["crowded_chip_week"] = crowded_chip_week_score(con, target_season, best_gw, ts_model_version)
     return result
@@ -1388,6 +1453,8 @@ def run(
     price_change_timing_params_version: int | None = None,
     evaluate_chip_combos: bool = False,
     horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
+    triple_captain_threshold_params_version: int | None = None,
+    bench_boost_threshold_params_version: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1420,6 +1487,17 @@ def run(
     the same cost class as evaluate_transfers()'s existing momentum/swing attachments) and
     stays unconditionally on, matching that established convention rather than adding yet
     another flag for a signal this inexpensive.
+
+    triple_captain_threshold_params_version/bench_boost_threshold_params_version (2026-09
+    fix, opt-in like price_change_timing_params_version above): None (the default) reproduces
+    the exact prior behavior -- evaluate_triple_captain()/evaluate_bench_boost() recommend
+    unconditionally past their trivial no-candidates guard. Passing a real params_version
+    activates the new gain-threshold gate on each (see their own docstrings, and
+    triple_captain_gain_threshold_params'/bench_boost_gain_threshold_params' seeding comments
+    in seed_v1_params()). Opt-in for the same reason price_change_timing_params_version is:
+    a caller comparing against unfixed historical behavior (a backtest re-run, a test fixture)
+    should keep getting exactly what it got before this existed, unless it deliberately asks
+    for the new gate.
 
     horizon_ep_versions (opt-in, real perf fix): None (the default) computes it here via
     compute_horizon_ep(), unchanged from before this parameter existed. Passing an
@@ -1502,7 +1580,10 @@ def run(
             mm_model_version, ts_model_version, un_mv, scoring_params_version, tau_params_version,
             rho_residual_params_version,
         )
-        tc_result = evaluate_triple_captain(con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map)
+        tc_result = evaluate_triple_captain(
+            con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map,
+            threshold_params_version=triple_captain_threshold_params_version,
+        )
         # Real gap fixed here, additive only (see vice_captain_fallback_adjustment()'s own
         # docstring for the full "this was never modeled anywhere" account): attaches the real
         # armband-transfers-to-vice-on-DNP correction to every TC candidate as a clearly
@@ -1527,7 +1608,10 @@ def run(
     # crowded_chip_week_score() attachment is unconditional -- see run()'s own docstring on
     # evaluate_chip_combos for why this one signal (cheap) differs from the combo evaluators
     # (expensive, opt-in) below.
-    bb_result = evaluate_bench_boost(con, horizon_ep_versions, squad_uids, xi_uids, target_season=target_season, ts_model_version=ts_model_version)
+    bb_result = evaluate_bench_boost(
+        con, horizon_ep_versions, squad_uids, xi_uids, target_season=target_season, ts_model_version=ts_model_version,
+        threshold_params_version=bench_boost_threshold_params_version,
+    )
 
     # Priority 5 -- chip-combo sequencing, opt-in (see run()'s own docstring).
     wildcard_bb_combo, free_hit_tc_combo = None, None
