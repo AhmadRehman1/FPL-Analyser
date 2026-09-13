@@ -2033,6 +2033,61 @@ def test_season_cumulative_metrics_empty_trajectory_returns_safe_defaults():
 
 
 # ============================================================
+# refit_lambda / report_concentration_sensitivity -- vice-captain threading (2026-09 fix,
+# docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md). Both used to call
+# _realized_xi_points() without the real vice-captain fallback (171dc5c) squad_optimizer.
+# solve() has always returned via its own "vice" key -- so lambda/concentration-cap
+# recalibration was still being scored on stale, no-fallback numbers after the fix landed
+# everywhere else. Spy-based (no real MIQP solve needed): only the wiring is under test here.
+# ============================================================
+
+def test_refit_lambda_threads_the_real_vice_captain_into_realized_xi_points(con, monkeypatch):
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_candidate_pool", lambda *a, **k: [{"player_uid": f"p{i}"} for i in range(15)])
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_sigma_pairs", lambda *a, **k: {})
+    monkeypatch.setattr(
+        bt.squad_optimizer, "solve",
+        lambda *a, **k: {"xi": frozenset({"p1"}), "captain": "p1", "vice": "p2"},
+    )
+    seen_vice_uids = []
+
+    def fake_realized_xi_points(con_arg, season, gw, xi_uids, captain_uid, vice_captain_uid=None, **k):
+        seen_vice_uids.append(vice_captain_uid)
+        return 10.0
+
+    monkeypatch.setattr(bt, "_realized_xi_points", fake_realized_xi_points)
+
+    eval_steps = [("2025-2026", 2), ("2025-2026", 3)]
+    ep_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    un_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    bt.refit_lambda(con, eval_steps, ep_by_step, un_by_step, guardrail_cap=3.0, lambda_grid=(0.15,))
+
+    assert seen_vice_uids == ["p2", "p2"]  # once per eval_step, real vice every time
+
+
+def test_report_concentration_sensitivity_threads_the_real_vice_captain_into_realized_xi_points(con, monkeypatch):
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_candidate_pool", lambda *a, **k: [{"player_uid": f"p{i}"} for i in range(15)])
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_sigma_pairs", lambda *a, **k: {})
+    monkeypatch.setattr(
+        bt.squad_optimizer, "solve",
+        lambda *a, **k: {"xi": frozenset({"p1"}), "captain": "p1", "vice": "p2"},
+    )
+    seen_vice_uids = []
+
+    def fake_realized_xi_points(con_arg, season, gw, xi_uids, captain_uid, vice_captain_uid=None, **k):
+        seen_vice_uids.append(vice_captain_uid)
+        return 10.0
+
+    monkeypatch.setattr(bt, "_realized_xi_points", fake_realized_xi_points)
+
+    eval_steps = [("2025-2026", 2), ("2025-2026", 3)]
+    ep_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    un_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    bt.report_concentration_sensitivity(con, eval_steps, ep_by_step, un_by_step, lambda_value=0.15, cap_grid=(3,))
+
+    assert seen_vice_uids == ["p2", "p2"]
+
+
+# ============================================================
 # run_season_simulation -- a real, evolving M8 manager, not a fresh M5 solve every step.
 #
 # Full end-to-end (real team_strength.calibrate() -> minutes_model.run() -> ep.run() ->
