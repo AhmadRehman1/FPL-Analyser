@@ -86,8 +86,17 @@ def main() -> None:
     # already exists or not.
     tp.seed_v1_params(con)
     t0 = time.time()
+    # simulate_auto_subs=True (2026-09-14 fix, docs/reports/2026-09_model_failure_diagnosis.md's
+    # Workstream C "harder half"): this report's own methodology caveat (e) has always disclosed
+    # that _realized_xi_points() couldn't read a bench player's points at all, making the
+    # engine's simulated total conservative relative to a real manager's actual score. Now that
+    # a real bench-order + formation-legality-preserving auto-sub simulation exists (see
+    # run_season_simulation()'s own docstring), this report should reflect it rather than the
+    # stale, pre-fix number -- opting in here, not by default, since every OTHER caller of
+    # run_season_simulation() (recalibration, the lambda/chip-timing studies) still needs to
+    # decide this independently before opting in themselves.
     result = backtest.run_season_simulation(
-        con, TARGET_SEASON, START_GAMEWEEK, END_GAMEWEEK, **param_versions,
+        con, TARGET_SEASON, START_GAMEWEEK, END_GAMEWEEK, simulate_auto_subs=True, **param_versions,
     )
     elapsed = time.time() - t0
 
@@ -103,6 +112,7 @@ def main() -> None:
         "end_gameweek": END_GAMEWEEK,
         "param_versions_used": param_versions,
         "blind_simulation": True,
+        "simulate_auto_subs": True,
         "bootstrap_run_id": result["bootstrap_run_id"],
         "final_state_version": result["final_state_version"],
         "weekly_points": result["weekly_points"],
