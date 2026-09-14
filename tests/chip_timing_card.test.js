@@ -54,16 +54,28 @@ function nonEarlyTeam() {
   return ranked[0].t;
 }
 
+// 2026-09-14 fix: chipTimingCard()'s own bestGw is `swept_best_gameweek ?? (the swept_table row
+// with the highest delta_vs_hold)` -- swept_best_gameweek is null whenever the sweep concluded
+// NO forced week actually beats holding (compare_wildcard_timing()'s own documented behavior,
+// not a bug), which is exactly the real state both committed teams' sweeps reached once their
+// window matured -- a state these tests never exercised before. Mirrors the card's own fallback
+// exactly, rather than reading swept_best_gameweek directly, so these tests track whatever the
+// card actually renders instead of breaking every time a real sweep concludes "hold is best."
+function cardBestGameweek(comparison) {
+  if (comparison.swept_best_gameweek != null) return comparison.swept_best_gameweek;
+  const swept = (comparison.swept_table || []).slice().sort((a, b) => b.delta_vs_hold - a.delta_vs_hold)[0];
+  return swept ? swept.gameweek : null;
+}
+
 test("real feed: card leads with the swept best Wildcard week and a hold recommendation", () => {
   const h = harness();
   h.state.chipTiming = REAL;
   const team = nonEarlyTeam();
   h.state.accountId = team.entry_id;
-  const best = team.report.comparison.swept_best_gameweek;
+  const best = cardBestGameweek(team.report.comparison);
   // Upcoming gameweek strictly BEFORE the swept best week, so the "hold" branch fires whatever
-  // value the committed sweep currently carries -- swept_best_gameweek moves every re-run
-  // (hardcoding "4" here broke this test on an unrelated chip_timing_latest.json refresh where
-  // a partial sweep landed with best == 4).
+  // value the committed sweep currently carries -- the best GW moves every re-run (hardcoding
+  // "4" here broke this test once already on an unrelated chip_timing_latest.json refresh).
   h.state.realSquad = { plan_for_gameweek: best - 1 };
   h.state.team = { gameweek: best - 2 };
   const card = h.api.chipTimingCard();
@@ -77,7 +89,7 @@ test("real feed: 'play it now' framing when the best week is the upcoming one", 
   const h = harness();
   const doctored = JSON.parse(JSON.stringify(REAL));
   const team = doctored.teams.find((t) => t.entry_id === nonEarlyTeam().entry_id);
-  const best = team.report.comparison.swept_best_gameweek;
+  const best = cardBestGameweek(team.report.comparison);
   h.state.chipTiming = doctored;
   h.state.accountId = team.entry_id;
   h.state.realSquad = { plan_for_gameweek: best }; // upcoming GW == the best week
@@ -99,19 +111,37 @@ test("real feed: partial-window caveat shows when a non-early sweep didn't cover
   assert.strictEqual(h.api.chipTimingCard().includes("Sweep so far covers"), partial);
 });
 
+// 2026-09-14 fix: both real committed teams' sweeps have now matured past FULL_SWEEP_WEEKS/2
+// (15/16 each, as of this fix), so no real team is left in an "early" state to exercise this
+// copy against -- exactly the scenario this test's own prior comment anticipated ("adapt with
+// doctored data if this now fails"). Doctors a real team's own comparison down to a genuinely
+// early sweep (5 of the same real swept_table rows, sweep_gameweeks truncated to match) rather
+// than inventing shapes from scratch, so everything the card reads besides sweep size/coverage
+// stays real.
+function doctorToEarlySweep(team, nSwept) {
+  const doctored = JSON.parse(JSON.stringify(team));
+  const c = doctored.report.comparison;
+  c.sweep_gameweeks = (c.sweep_gameweeks || []).slice(0, nSwept);
+  c.swept_table = (c.swept_table || []).filter((row) => c.sweep_gameweeks.includes(row.gameweek));
+  // An early, thin sweep's own best-so-far is real signal, not a global conclusion -- clearing
+  // swept_best_gameweek here matches compare_wildcard_timing()'s real behavior when the swept
+  // arms haven't settled the question yet (it's None until enough of the window is covered).
+  c.swept_best_gameweek = null;
+  return doctored;
+}
+
 test("real feed: an early sweep (<8 of 16 weeks) gets the honest 'so far' framing, not a confident verdict", () => {
   const h = harness();
-  const early = REAL.teams
-    .map((t) => ({ t, n: (t.report.comparison.sweep_gameweeks || []).length }))
-    .sort((a, b) => a.n - b.n)[0];
-  assert.ok(early.n > 0 && early.n < FULL_SWEEP_WEEKS / 2, "expected a real team with an early (<8/16) committed sweep -- adapt with doctored data if this now fails");
-  h.state.chipTiming = REAL;
-  h.state.accountId = early.t.entry_id;
+  const nSwept = 5;
+  const early = doctorToEarlySweep(nonEarlyTeam(), nSwept);
+  assert.ok(early.report.comparison.swept_table.length > 0, "the real team's swept_table must have rows within the first 5 sweep_gameweeks to doctor from");
+  h.state.chipTiming = { teams: [early] };
+  h.state.accountId = early.entry_id;
   h.state.realSquad = { plan_for_gameweek: 4 };
   h.state.team = { gameweek: 3 };
   const card = h.api.chipTimingCard();
   assert.ok(card.includes("(so far)"), "verdict pill is qualified, not stated as confident fact");
-  assert.ok(card.includes(`Only <b style="color:var(--ink);">${early.n} of ${FULL_SWEEP_WEEKS}</b> candidate weeks`));
+  assert.ok(card.includes(`Only <b style="color:var(--ink);">${nSwept} of ${FULL_SWEEP_WEEKS}</b> candidate weeks`));
   assert.ok(card.includes("too early to call this the best week yet"));
   assert.ok(!card.includes("Hold your Wildcard"), "early sweep must not assert a confident recommendation");
   assert.ok(!card.includes("Sweep so far covers"), "the sweepEarly paragraph replaces, not duplicates, the smaller partial-window caveat");
