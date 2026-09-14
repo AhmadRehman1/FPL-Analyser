@@ -4,7 +4,7 @@
   "gameweek": 4,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 97,
+  "live_total": 99,
   "players": [
     {
       "player_id": 109,
@@ -30,9 +30,9 @@
     {
       "player_id": 332,
       "web_name": "Justin",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 12,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 96.0,
-    "estimated_rank": 430432
+    "percentile": 95.5,
+    "estimated_rank": 485316
   },
   "fixtures": [
     {
@@ -240,6 +240,23 @@
       "away": {
         "short_name": "MCI",
         "name": "Man City",
+        "score": 1
+      }
+    },
+    {
+      "id": 40,
+      "kickoff": "2026-09-14T19:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LEE",
+        "name": "Leeds",
+        "score": 4
+      },
+      "away": {
+        "short_name": "NEW",
+        "name": "Newcastle",
         "score": 1
       }
     }
@@ -494,6 +511,62 @@
       "fixture_id": 34
     },
     {
+      "player_id": 330,
+      "web_name": "Bogle",
+      "team": 13,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
+      "player_id": 334,
+      "web_name": "Muharemovi\u0107",
+      "team": 13,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
+      "player_id": 336,
+      "web_name": "Okafor",
+      "team": 13,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
+      "player_id": 338,
+      "web_name": "Ampadu",
+      "team": 13,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
+      "player_id": 345,
+      "web_name": "Tanaka",
+      "team": 13,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
+      "player_id": 346,
+      "web_name": "Calvert-Lewin",
+      "team": 13,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
+      "player_id": 346,
+      "web_name": "Calvert-Lewin",
+      "team": 13,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
       "player_id": 391,
       "web_name": "Gvardiol",
       "team": 15,
@@ -510,12 +583,36 @@
       "fixture_id": 39
     },
     {
+      "player_id": 450,
+      "web_name": "Livramento",
+      "team": 17,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
       "player_id": 452,
       "web_name": "Bruno G.",
       "team": 1,
       "event": "goal",
       "count": 1,
       "fixture_id": 36
+    },
+    {
+      "player_id": 459,
+      "web_name": "L.Miley",
+      "team": 17,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 40
+    },
+    {
+      "player_id": 461,
+      "web_name": "Tour\u00e9",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 40
     },
     {
       "player_id": 472,
@@ -582,5 +679,5 @@
       "fixture_id": 34
     }
   ],
-  "generated_at": "2026-09-13T23:07:14.191306+00:00"
+  "generated_at": "2026-09-14T21:35:13.916870+00:00"
 }
