@@ -1,0 +1,144 @@
+name: Minutes-model current-season-role sensitivity study
+
+# The walk-forward comparison required before minutes_model.run()'s current_season_role_
+# params_version (see its own docstring: a real live goalkeeper who started every match this
+# season projected p_start_final=0.13 because target_season's own matches never entered the
+# historical rate at all) could ever default on anywhere: "must not regress the headline
+# beats_crowd_points_delta metric" -- same bar scripts/run_squad_optimizer_wiring_sensitivity_
+# arm.py's own study already used for a different param family.
+#
+# Two fixed arms ("off" = current production; "on" = adds the fast-reacting current-season-
+# own-rate blend at its v1 default), each a full M7 walk-forward (backtest.run()), same
+# mechanism + cost class as squad_optimizer_wiring_sensitivity.yml (~1-2h/arm).
+#
+# Commits data/minutes_model_current_season_study/ (SUMMARY.md + the machine-readable json).
+# Activates NOTHING: both arms are read-only backtest.run() calls.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: minutes-model-current-season-sensitivity
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      db_cache_key: minutes-model-cs-study-db-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size; size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6)
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Save one shared DB cache for both arms
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: minutes-model-cs-study-db-${{ github.run_id }}
+
+  sweep:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [off, on]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: ${{ needs.prepare.outputs.db_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Run arm ${{ matrix.arm }}
+        env:
+          MMCS_ARM: ${{ matrix.arm }}
+          MMCS_OUT: data/minutes_model_current_season_study/arms/${{ matrix.arm }}.json
+        run: PYTHONPATH=src python scripts/run_minutes_model_current_season_sensitivity_arm.py
+
+      - name: Upload this arm's artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: minutes-model-cs-arm-${{ matrix.arm }}
+          path: data/minutes_model_current_season_study/arms/${{ matrix.arm }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    needs: [prepare, sweep]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Download every arm
+        uses: actions/download-artifact@v8
+        with:
+          pattern: minutes-model-cs-arm-*
+          path: _arms
+          merge-multiple: true
+
+      - name: Collect arm artifacts
+        run: |
+          mkdir -p data/minutes_model_current_season_study/arms
+          find _arms -name '*.json' -exec cp {} data/minutes_model_current_season_study/arms/ \;
+          echo "collected $(ls data/minutes_model_current_season_study/arms | wc -l) arm files"
+
+      - name: Aggregate into the study report
+        run: PYTHONPATH=src python scripts/aggregate_minutes_model_current_season_sensitivity.py
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f data/minutes_model_current_season_study/SUMMARY.md ]; then
+            cat data/minutes_model_current_season_study/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No SUMMARY.md produced -- see the aggregate step log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit the study
+        run: |
+          bash scripts/ci_commit_generated.sh \
+            "chore: minutes-model current-season-role sensitivity study [skip ci]" \
+            data/minutes_model_current_season_study/SUMMARY.md data/minutes_model_current_season_study/minutes_model_current_season_study_latest.json \
+            data/minutes_model_current_season_study/arms
