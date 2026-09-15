@@ -265,6 +265,7 @@ def run_gameweek_step(
     field_covariance_params_version: int | None = None,
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
+    current_season_role_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -293,7 +294,13 @@ def run_gameweek_step(
     changes which squad EVERY walk-forward step picks -- a real behavioral change to every
     backtest metric's comparability, not a wiring-only fix, so this stays opt-in until a real
     walk-forward re-run shows it doesn't regress beats_crowd_points_delta (see
-    scripts/run_squad_optimizer_wiring_sensitivity_arm.py)."""
+    scripts/run_squad_optimizer_wiring_sensitivity_arm.py).
+
+    current_season_role_params_version (2026-09-15 fix, opt-in -- None is the exact prior
+    behavior): threaded straight through to minutes_model.run()'s own same-named param -- see
+    its docstring for what it does and why it's opt-in there too. minutes_model.run()'s OWN
+    lookback_seasons default separately now includes target_season (provably backtest-neutral,
+    unconditional, not gated by this param -- see minutes_model.run()'s own docstring)."""
     tier = tier_for(season, gameweek)
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
@@ -312,6 +319,7 @@ def run_gameweek_step(
         mm_model_version = minutes_model.run(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
+            current_season_role_params_version=current_season_role_params_version,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
@@ -924,6 +932,7 @@ def run(
     solve_field_covariance_params_version: int | None = None,
     solve_bench_quality_params_version: int | None = None,
     solve_concentration_risk_params_version: int | None = None,
+    current_season_role_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
@@ -942,7 +951,12 @@ def run(
     deliberately -- this function's own ownership_params_version above already means something
     different, score_gameweek()'s post-hoc EO reporting, not the solve objective): threaded
     straight through to run_gameweek_step()'s same-named (unprefixed) params -- see its
-    docstring. None for all five (the default) is the exact prior behavior."""
+    docstring. None for all five (the default) is the exact prior behavior.
+
+    current_season_role_params_version (2026-09-15 fix, opt-in): threaded straight through to
+    run_gameweek_step()'s own same-named param -- see its docstring, and minutes_model.run()'s
+    own docstring for the real incident this closes. None (the default) is the exact prior
+    behavior."""
     steps = [
         (s, gw) for s, gw in ALL_SEASON_GAMEWEEKS
         if has_fittable_history(con, s, gw) and not has_double_gameweek(con, s, gw)
@@ -970,6 +984,7 @@ def run(
             field_covariance_params_version=solve_field_covariance_params_version,
             bench_quality_params_version=solve_bench_quality_params_version,
             concentration_risk_params_version=solve_concentration_risk_params_version,
+            current_season_role_params_version=current_season_role_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
