@@ -414,14 +414,14 @@
   "parameters_still_invented": 54,
   "planner_decision_accuracy": {
     "ready": false,
-    "n_realized": 2,
+    "n_realized": 4,
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2,
     "preliminary": true,
-    "mean_point_delta_if_followed": 6.5,
-    "total_point_delta_if_followed": 13,
+    "mean_point_delta_if_followed": -3.25,
+    "total_point_delta_if_followed": -13,
     "n_recommendation_would_have_scored_more": 2,
-    "n_actual_scored_more": 0,
+    "n_actual_scored_more": 2,
     "n_tied": 0,
     "by_gameweek": [
       {
@@ -439,10 +439,26 @@
         "actual": 51,
         "if_followed": 56,
         "delta": 5
+      },
+      {
+        "gameweek": 4,
+        "entry_id": 1305242,
+        "recommended_action": "hold",
+        "actual": 89,
+        "if_followed": 80,
+        "delta": -9
+      },
+      {
+        "gameweek": 4,
+        "entry_id": 7139944,
+        "recommended_action": "hold",
+        "actual": 84,
+        "if_followed": 67,
+        "delta": -17
       }
     ]
   },
-  "generated_at": "2026-09-15T12:45:56.068101",
+  "generated_at": "2026-09-15T21:37:48.546119",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": null,
@@ -480,39 +496,20 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 53.655149272959136,
+        "total_projected_ep": 53.65111718925185,
         "captain_name": "Ethan Ampadu",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
     "latest_diff": {
-      "has_previous": true,
-      "previous_gameweek": 3,
-      "current_gameweek": 4,
-      "squad_changes": {
-        "in": [
-          "Will Dennis",
-          "Bart Verbruggen",
-          "Joachim Andersen",
-          "Charlie Hughes",
-          "C\u00e9dric Kipr\u00e9",
-          "Sindre Walle Egeli"
-        ],
-        "out": [
-          "Bernd Leno",
-          "Virgil van Dijk",
-          "Adam Aznou",
-          "Alex Cairns",
-          "Chido Obi",
-          "Abdoul Ouattara"
-        ]
-      },
-      "captain_changed": false,
-      "previous_captain": "Ethan Ampadu",
-      "current_captain": "Ethan Ampadu",
-      "total_projected_ep_delta": -3.2886413434584796,
-      "newly_doubtful_flags": []
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 1,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
     },
     "provenance": {
       "data_asof": "2026-09-15",
@@ -520,8 +517,8 @@
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "600e517ea43e6e790bce166505b45b0edccaa439",
-      "fpl_core_insights_commit_sha": "d2eee2a25645ec4a73bda640f0d92048166fa22c",
+      "fpl_analyser_commit_sha": "612f556160a61184db9fd3d47e5f1b324814cfd1",
+      "fpl_core_insights_commit_sha": "9731d1fab5b791e40f85f3540b28d186fa2d39d9",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -533,7 +530,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-09-15T11:06:15.616459+00:00",
+      "recorded_at": "2026-09-15T20:31:59.706136+00:00",
       "research_pull_workbook": {
         "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
         "size_bytes": 26007
