@@ -128,31 +128,29 @@ ones — the sample's mean ({_fmt(comparison['real_mean'])}) and median
 score ranges before this report was generated, which is a backstop, not a guarantee this skew is
 fully absent.
 
-**(e) The engine's weekly score does not model FPL's automatic substitution rule.** Real FPL
-promotes a bench player into the starting XI when a picked starter scores 0 minutes (injury, late
-withdrawal, rotation), so a real manager's actual score is often higher than their pre-deadline
-XI alone would suggest. `backtest._realized_xi_points()` — the function this simulation's every
-weekly score comes from — sums only the picked starting XI's real `event_points` (captain
-doubled), with no substitution logic: a starter who blanks with 0 minutes counts as 0 here, the
-same as it would count in the picked XI's raw total, but a real manager holding an identical squad
-could have scored more via a bench player their engine never gets credit for. This makes the
-engine's simulated total above conservative *in expectation* relative to what an identical real
-squad's real FPL score would have been — not a hard per-gameweek guarantee, since a player who
-did play can still score negative points (red card, own goals, heavy defensive concession), a
-case where "count the blank as 0" would instead be a slight overestimate for that week. In
-aggregate over a full season the effect is conservative, but "systematically" would overstate
-the certainty this mechanism actually provides.
+**(e) The engine's weekly score now models FPL's automatic substitution rule, with one disclosed
+approximation.** Real FPL promotes a bench player into the starting XI when a picked starter
+scores 0 minutes (injury, late withdrawal, rotation). `backtest._realized_xi_points()` — the
+function this simulation's every weekly score comes from — was fixed 2026-09-14 to actually
+simulate this (`backtest.simulate_auto_substitutions()`): a blanked starter's slot is filled by
+the highest-priority bench player who both actually played (confirmed nonzero minutes) and keeps
+the resulting XI within real formation bounds (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD), exactly mirroring
+the real rule (bench GK only ever replaces the starting GK; an eligible sub is skipped, not
+forced, if it would break legality). The one disclosed approximation is in bench ORDER, not
+whether a sub happens: this simulation's squad evolves week to week via ordinary transfers, not a
+fresh squad rebuild, so no real "the manager's own declared bench order" exists for most weeks —
+`run_season_simulation(simulate_auto_subs=True)` uses the squad's own solve-time bench order only
+for the very first (bootstrap) gameweek, and a cheap, asof-safe proxy (rank by that week's own
+projected EP) for every gameweek after. This can occasionally pick a different bench player than
+a real manager's own declared order would have, in the rare case more than one bench player is
+simultaneously eligible for the same blank — it does not affect whether a blank gets a real
+substitute at all, or that substitute's own real points.
 
-**(f) The engine's captaincy has no vice-captain fallback.** Real FPL automatically promotes the
-vice-captain's points if the captain doesn't play; `_realized_xi_points()` takes a single fixed
-`captain_uid` and simply doubles whatever that player scored, including a blank — there is no
-vice-captain logic anywhere in `backtest.py` for this scoring path. (This is a distinct, verified
-gap from (e), not a restatement of it: this project already discloses the same class of issue for
-a *different* function, `reporting.py`'s counterfactual transfer-decision scoring, which does
-apply a baseline-vice-captain fallback in that one specific case — this simulation's own weekly
-scoring has no equivalent, in either direction.) The net effect skews the same direction as (e)
-(conservative, in expectation) but is a separate, independently real simplification, not covered
-by fixing (e) alone.
+**(f) The engine's captaincy models the real vice-captain fallback.** Real FPL automatically
+promotes the vice-captain's points if the captain doesn't play; `_realized_xi_points()` was fixed
+2026-09-07 (commit `171dc5c`) to do exactly this — the armband transfers to `vice_captain_uid`
+when the captain's own minutes are confirmed 0, and `run_season_simulation()` passes the squad's
+real vice-captain on every scored gameweek.
 
 ## What this number can and cannot honestly support
 

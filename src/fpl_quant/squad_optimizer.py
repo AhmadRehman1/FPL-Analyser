@@ -520,7 +520,7 @@ def solve(
     if status not in ("optimal", "timelimit") or m.getNSols() == 0:
         return {
             "status": status, "squad": frozenset(), "xi": frozenset(), "captain": None, "vice": None,
-            "objective": None, "mip_gap": None,
+            "objective": None, "mip_gap": None, "bench_order": {},
         }
 
     squad_set = frozenset(uid for uid, v in squad.items() if m.getVal(v) > 0.5)
@@ -531,9 +531,30 @@ def solve(
     # 0.0 iff the returned solution is proven globally optimal (matching status == "optimal");
     # a nonzero value on a "timelimit" status shows exactly how far from proven optimal the
     # returned incumbent actually is, rather than leaving that invisible.
+
+    # 2026-09-14 -- bench order (docs/reports/2026-09_model_failure_diagnosis.md, Workstream C's
+    # "harder half"): a real, deliberately SIMPLER decision than a joint MIQP variable set would
+    # be -- ranking the 3 outfield bench players by their own mu (the same EP number the
+    # objective itself already maximizes over the XI/captain), highest first, ties broken by
+    # player_uid (same determinism discipline as the candidate sort at the top of this
+    # function). Modeling a real bench manager's auto-sub EXPECTED VALUE inside the objective
+    # itself (does THIS bench composition raise the squad's expected realized points given a
+    # real chance any starter blanks) would be a substantially larger modeling change -- not
+    # attempted here, disclosed rather than silently approximated as equivalent. The bench
+    # goalkeeper is never ranked (see schema/0020_m5_bench_order.sql's own comment: there is
+    # only ever one, no ordering question).
+    bench_uids = squad_set - xi_set
+    position_by_uid = {c["player_uid"]: c["position"] for c in candidates}
+    mu_by_uid = {c["player_uid"]: c["mu"] for c in candidates}
+    outfield_bench = sorted(
+        (uid for uid in bench_uids if position_by_uid.get(uid) != "Goalkeeper"),
+        key=lambda uid: (-mu_by_uid.get(uid, 0.0), uid),
+    )
+    bench_order = {uid: rank for rank, uid in enumerate(outfield_bench, start=1)}
+
     return {
         "status": status, "squad": squad_set, "xi": xi_set, "captain": captain_uid, "vice": vice_uid,
-        "objective": m.getObjVal(), "mip_gap": m.getGap(),
+        "objective": m.getObjVal(), "mip_gap": m.getGap(), "bench_order": bench_order,
     }
 
 
@@ -724,10 +745,10 @@ def run(
     for c in candidates:
         uid = c["player_uid"]
         con.execute(
-            "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice, bench_order) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             [run_id, uid, uid in result_real["squad"], uid in result_real["xi"],
-             uid == result_real["captain"], uid == result_real["vice"]],
+             uid == result_real["captain"], uid == result_real["vice"], result_real["bench_order"].get(uid)],
         )
 
     return run_id
