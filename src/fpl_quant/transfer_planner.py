@@ -145,6 +145,30 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # threshold in this project, not hidden.
     params_mod.write_param(con, "triple_captain_gain_threshold_params", 1, "2026-09-13", "min_tc_score", value_numeric=0.1)
     params_mod.write_param(con, "bench_boost_gain_threshold_params", 1, "2026-09-13", "min_bench_ep_sum", value_numeric=0.5)
+    # 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B's
+    # "fuller ask" -- the magnitude floor above only answers "is this week worth it at all,"
+    # never "is this the best week to wait for"). `_decide_gameweek_action()`'s own
+    # CHIP_TIMING_FIELD/_is_best_gameweek_in_visible_horizon() already answers a NARROWER
+    # version of that question for every chip including these two, but it is bounded to
+    # whatever horizon_ep_versions window run() happened to build that week -- typically
+    # planning_horizon_params' ~5 gameweeks. This family lets run() (opt-in -- see its own
+    # docstring) additionally compute a WIDER, purpose-built window for bench_boost/
+    # triple_captain specifically, exposed via evaluate_triple_captain()'s/
+    # evaluate_bench_boost()'s new season_horizon_ep_map/season_horizon_ep_versions params as
+    # season_captain_value_per_gw/season_all_gameweeks, and compared the same
+    # is-target_gameweek-the-extremum way by backtest.py's new CHIP_TIMING_FIELD_SEASON --
+    # not the full season (an unbounded season window would mean 10+ extra
+    # ep.run()+uncertainty.run() pairs on every single decision gameweek of every
+    # walk-forward step, a real cost this project has not measured and should not pay
+    # silently), but genuinely wider than the visible-horizon-only check already gives every
+    # other chip.
+    #   timing_window_gameweeks=10: an invented v1 default, same status as every other unpinned
+    #   constant here -- roughly double the ~5-gameweek planning horizon, bounded by
+    #   GW19_DEADLINE_GAMEWEEK for a set-1 gameweek (run() never computes past a chip's own
+    #   use-it-or-lose-it deadline). Not derived from data; flagged for the same future M7
+    #   recalibration extension as every other invented threshold in this project.
+    params_mod.write_param(con, "triple_captain_timing_params", 1, "2026-09-14", "timing_window_gameweeks", value_numeric=10)
+    params_mod.write_param(con, "bench_boost_timing_params", 1, "2026-09-14", "timing_window_gameweeks", value_numeric=10)
     # Priority 4 -- price-change-timing: FPL's own price-change algorithm (how large a net-
     # transfer swing at a given ownership level actually triggers a real change) is not
     # public, and this project has not verified what scale transfers_in_event/
@@ -973,6 +997,7 @@ def ensure_squad_simulation(
 def evaluate_triple_captain(
     con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int,
     horizon_ep_map: dict | None = None, threshold_params_version: int | None = None,
+    season_horizon_ep_map: dict | None = None,
 ) -> dict:
     """TC_score_i = E[marginal_value_i] - kappa_tc * StdDev[marginal_value_i], where
     marginal_value_i is exactly player i's own simulated total_points (captaincy has no other
@@ -999,7 +1024,23 @@ def evaluate_triple_captain(
     triple_captain_gain_threshold_params' own seeding comment in seed_v1_params() for the
     real incident this closes). When given, gates `recommended` on
     `best["tc_score"] > min_tc_score` -- `all_candidates`/`tc_score`/`captain_candidate` are
-    still populated even when held, so a caller can always see what WOULD have been played."""
+    still populated even when held, so a caller can always see what WOULD have been played.
+
+    season_horizon_ep_map (2026-09-14 fix, opt-in -- None is the exact prior behavior, no new
+    field on the result): the threshold above only answers "is this week worth it at all,"
+    never "is this the best week to wait for" -- see triple_captain_timing_params' own
+    seeding comment in seed_v1_params() for why this stays a purpose-built WIDER window, not
+    the whole season, and what a wider one would cost. SAME shape as horizon_ep_map (an
+    already-computed {player_uid: {"per_gw": {gw: mu}}} dict -- run() builds it via
+    _horizon_ep_by_player() over a wider compute_horizon_ep() window, zero extra Monte
+    Carlo). When given, attaches season_captain_value_per_gw -- the WINNING candidate's own
+    trajectory across that wider window, same "read the winner's own data, never the
+    runner-up's" convention as captain_value_per_gw above. Purely informational here, same
+    "never touches recommended/captain_candidate/tc_score" convention as
+    vice_captain_fallback_adjustment()'s own attachment -- see backtest.py's
+    CHIP_TIMING_FIELD_SEASON/_decide_gameweek_action() for where this actually gates a
+    decision (deliberately kept out of this function, which already had exactly one job --
+    magnitude -- before this fix; timing lives in the one place that already owned it)."""
     kappa_tc, _ = params_mod.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", kappa_tc_params_version)
     rows = con.execute(
         "SELECT player_uid, mean_total, var_total FROM monte_carlo_player_summary WHERE model_version = ?",
@@ -1027,6 +1068,8 @@ def evaluate_triple_captain(
         "recommended": recommended, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"],
         "all_candidates": scored, "captain_value_per_gw": captain_value_per_gw,
     }
+    if season_horizon_ep_map is not None:
+        result["season_captain_value_per_gw"] = season_horizon_ep_map.get(best["player_uid"], {}).get("per_gw", {})
     if reason is not None:
         result["reason"] = reason
     return result
@@ -1087,6 +1130,7 @@ def vice_captain_fallback_adjustment(
 def evaluate_bench_boost(
     con: duckdb.DuckDBPyConnection, horizon_ep_versions: dict[int, tuple[int, int]], squad_uids: set[str], xi_uids: set[str],
     target_season: str | None = None, ts_model_version: int | None = None, threshold_params_version: int | None = None,
+    season_horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
 ) -> dict:
     """Compares projected bench EP sum (M3's ep_total, not a simulation) across horizon
     gameweeks, recommends the gameweek maximizing it. Bench = squad minus XI.
@@ -1107,18 +1151,35 @@ def evaluate_bench_boost(
     real incident this closes). When given, gates `recommended` on
     `by_gw[best_gw] > min_bench_ep_sum` -- `all_gameweeks`/`bench_ep_sum`/`target_gameweek`
     are still populated even when held, so a caller can always see what WOULD have been played.
-    """
+
+    season_horizon_ep_versions (2026-09-14 fix, opt-in -- None is the exact prior behavior, no
+    new field on the result): the threshold above only answers "is this week worth it at all,"
+    never "is this the best week to wait for" -- see bench_boost_timing_params' own seeding
+    comment in seed_v1_params() for why this stays a purpose-built WIDER window, not the whole
+    season, and what a wider one would cost. Same shape as horizon_ep_versions -- when given,
+    attaches season_all_gameweeks, the identical bench_ep_sum-per-gameweek read this function
+    already does for `all_gameweeks`, just over the wider window (run() builds it via a second
+    compute_horizon_ep() call, no MIQP re-solve). Purely informational here, same convention as
+    crowded_chip_week_score()'s own attachment below -- see backtest.py's
+    CHIP_TIMING_FIELD_SEASON/_decide_gameweek_action() for where this actually gates a
+    decision (deliberately kept out of this function, which already had exactly one job --
+    magnitude -- before this fix; timing lives in the one place that already owned it)."""
     bench_uids = squad_uids - xi_uids
     if not bench_uids:
         return {"recommended": False, "reason": "no bench players (XI equals full squad?)"}
     placeholders = ",".join("?" * len(bench_uids))
-    by_gw = {}
-    for gw, (ep_mv, _un_mv) in horizon_ep_versions.items():
-        total = con.execute(
-            f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
-            [ep_mv, *bench_uids],
-        ).fetchone()[0]
-        by_gw[gw] = total
+
+    def _bench_ep_by_gw(versions: dict[int, tuple[int, int]]) -> dict[int, float]:
+        out = {}
+        for gw, (ep_mv, _un_mv) in versions.items():
+            total = con.execute(
+                f"SELECT coalesce(sum(ep_total), 0) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+                [ep_mv, *bench_uids],
+            ).fetchone()[0]
+            out[gw] = total
+        return out
+
+    by_gw = _bench_ep_by_gw(horizon_ep_versions)
     if not by_gw:
         return {"recommended": False, "reason": "no horizon gameweeks with fixtures"}
     best_gw = max(by_gw, key=by_gw.get)
@@ -1136,6 +1197,8 @@ def evaluate_bench_boost(
     }
     if reason is not None:
         result["reason"] = reason
+    if season_horizon_ep_versions is not None:
+        result["season_all_gameweeks"] = _bench_ep_by_gw(season_horizon_ep_versions)
     if target_season is not None and ts_model_version is not None:
         result["crowded_chip_week"] = crowded_chip_week_score(con, target_season, best_gw, ts_model_version)
     return result
@@ -1455,6 +1518,8 @@ def run(
     horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
     triple_captain_threshold_params_version: int | None = None,
     bench_boost_threshold_params_version: int | None = None,
+    triple_captain_timing_params_version: int | None = None,
+    bench_boost_timing_params_version: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1511,7 +1576,22 @@ def run(
     a pre-shadow horizon here would silently ignore the shadow, a correctness bug, not an
     optimization). Real, measured motivation: every caller of this function independently pays
     for the same multi-gameweek EP+uncertainty computation even when several calls in the same
-    pipeline run share identical inputs (see scripts/compute_shared_horizon.py)."""
+    pipeline run share identical inputs (see scripts/compute_shared_horizon.py).
+
+    triple_captain_timing_params_version/bench_boost_timing_params_version (2026-09-14 fix,
+    opt-in like triple_captain_threshold_params_version above): None (the default, for both
+    independently) reproduces the exact prior behavior -- evaluate_triple_captain()/
+    evaluate_bench_boost() get no season_horizon_ep_map/season_horizon_ep_versions, so their
+    results carry no season_captain_value_per_gw/season_all_gameweeks field, and
+    _decide_gameweek_action()'s new CHIP_TIMING_FIELD_SEASON check is a no-op (missing field
+    defers to True, same as a missing CHIP_TIMING_FIELD entry always has). Passing a real
+    params_version computes ONE extra, wider compute_horizon_ep() window (shared between both
+    chips when both are given, sized to the larger of the two families' own
+    timing_window_gameweeks, capped at GW19_DEADLINE_GAMEWEEK for a set-1 target_gameweek) and
+    attaches the season field to whichever of the two evaluators was asked for it -- a real
+    extra cost (unlike triple_captain_threshold_params_version, which is free), so this stays
+    opt-in until a real walk-forward comparison (docs/reports/2026-09_chip_policy_and_scoring_
+    diagnosis.md, Workstream B) justifies defaulting it on."""
     state_row = con.execute(
         "SELECT season, free_transfers_available, chips_used_set1, bank FROM manager_state_versions WHERE state_version = ?",
         [input_state_version],
@@ -1546,6 +1626,31 @@ def run(
     horizon_ep_map = _horizon_ep_by_player(con, target_season, horizon_ep_versions)
     current_squad_horizon_value = sum(horizon_ep_map.get(h["player_uid"], {}).get("total_ep", 0.0) for h in current_holdings)
     best_transfer_net_value = transfer_results[0]["net_value"] if transfer_results else 0.0
+
+    # 2026-09-14 fix -- season-horizon chip timing (opt-in, see this function's own docstring
+    # on triple_captain_timing_params_version/bench_boost_timing_params_version). ONE extra,
+    # wider compute_horizon_ep() window, shared by whichever of the two chips asked for it, so
+    # a caller passing both pays for one extra horizon computation, not two.
+    season_horizon_ep_map, season_horizon_ep_versions = None, None
+    if triple_captain_timing_params_version is not None or bench_boost_timing_params_version is not None:
+        window_candidates = []
+        if triple_captain_timing_params_version is not None:
+            w, _ = params_mod.resolve_param(con, "triple_captain_timing_params", "timing_window_gameweeks", triple_captain_timing_params_version)
+            window_candidates.append(int(w))
+        if bench_boost_timing_params_version is not None:
+            w, _ = params_mod.resolve_param(con, "bench_boost_timing_params", "timing_window_gameweeks", bench_boost_timing_params_version)
+            window_candidates.append(int(w))
+        timing_window_gameweeks = max(window_candidates)
+        if target_gameweek < GW19_DEADLINE_GAMEWEEK:
+            timing_window_gameweeks = min(timing_window_gameweeks, GW19_DEADLINE_GAMEWEEK - target_gameweek)
+        if timing_window_gameweeks > 0:
+            season_horizon_ep_versions = compute_horizon_ep(
+                con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
+                timing_window_gameweeks, scoring_params_version, bps_params_version, tau_params_version,
+                rho_residual_params_version, corr_params_version,
+            )
+            if triple_captain_timing_params_version is not None:
+                season_horizon_ep_map = _horizon_ep_by_player(con, target_season, season_horizon_ep_versions)
 
     # Priority 3 -- bounded 2-for-2 multi-transfer search and the hold-vs-transfer-now
     # decision, same inputs evaluate_transfers() above already used. Opt-in -- see run()'s
@@ -1583,6 +1688,7 @@ def run(
         tc_result = evaluate_triple_captain(
             con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map,
             threshold_params_version=triple_captain_threshold_params_version,
+            season_horizon_ep_map=season_horizon_ep_map if triple_captain_timing_params_version is not None else None,
         )
         # Real gap fixed here, additive only (see vice_captain_fallback_adjustment()'s own
         # docstring for the full "this was never modeled anywhere" account): attaches the real
@@ -1611,6 +1717,7 @@ def run(
     bb_result = evaluate_bench_boost(
         con, horizon_ep_versions, squad_uids, xi_uids, target_season=target_season, ts_model_version=ts_model_version,
         threshold_params_version=bench_boost_threshold_params_version,
+        season_horizon_ep_versions=season_horizon_ep_versions if bench_boost_timing_params_version is not None else None,
     )
 
     # Priority 5 -- chip-combo sequencing, opt-in (see run()'s own docstring).
