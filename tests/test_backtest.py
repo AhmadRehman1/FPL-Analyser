@@ -2228,6 +2228,62 @@ _SEASON_SIM_VERSIONS = dict(
 )
 
 
+# ============================================================
+# 2026-09-15 fix: current_season_role_params_version wiring -- backtest.run()/run_gameweek_
+# step()'s own passthrough to minutes_model.run()'s new opt-in param (see its docstring for
+# the real incident this closes). Spy-based, same convention as this file's other wiring
+# tests: confirms the ARGUMENT lands on the right call, not the underlying minutes_model
+# mechanism (already covered directly in tests/test_minutes_model.py).
+# ============================================================
+
+def test_run_gameweek_step_threads_current_season_role_params_version(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.minutes_model.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.minutes_model, "run", _spy)
+    bt.minutes_model.seed_current_season_role_params(con)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+        current_season_role_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["current_season_role_params_version"] == 1
+
+
+def test_run_gameweek_step_defaults_current_season_role_params_version_to_none(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.minutes_model.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.minutes_model, "run", _spy)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["current_season_role_params_version"] is None
+
+
 def test_run_season_simulation_walks_forward_with_real_decisions(con):
     _seed_season_simulation_league(con)
     result = bt.run_season_simulation(
@@ -2257,6 +2313,120 @@ def test_run_season_simulation_raises_on_unfittable_start_gameweek(con):
     has_fittable_history() already protects run_gameweek_step() with."""
     with pytest.raises(ValueError):
         bt.run_season_simulation(con, "2025-2026", start_gameweek=1, end_gameweek=2, **_SEASON_SIM_VERSIONS)
+
+
+# ============================================================
+# 2026-09-14 fix: squad_optimizer.run()'s own Priority 1/2 terms (EO-weighted posture,
+# field-covariance, bench-quality floor, concentration risk) were never passed at either of
+# this module's two squad_optimizer.run() call sites -- docs/reports/2026-09_chip_policy_and_
+# scoring_diagnosis.md, Workstream C's recalibration-wiring gap. Opt-in, None by default; these
+# tests tie the fix directly to the real call sites (spy on squad_optimizer.run, same monkeypatch
+# convention as test_run_season_simulation_calls_compute_bank_only_while_the_asof_shadow_is_
+# active above), not just squad_optimizer.run()'s own already-tested param handling.
+# ============================================================
+
+def test_run_season_simulation_threads_the_five_solve_params_to_its_bootstrap_call(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.squad_optimizer.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.squad_optimizer, "run", _spy)
+    bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=2, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS,
+        bench_quality_params_version=1, concentration_risk_params_version=1,
+    )
+
+    assert seen_kwargs  # the bootstrap call fired
+    assert seen_kwargs[0]["bench_quality_params_version"] == 1
+    assert seen_kwargs[0]["concentration_risk_params_version"] == 1
+    # ownership/risk_posture/field_covariance weren't opted into by this call -- must still
+    # default to None, not silently activate alongside the two that were passed.
+    assert seen_kwargs[0]["ownership_params_version"] is None
+    assert seen_kwargs[0]["risk_posture_params_version"] is None
+    assert seen_kwargs[0]["field_covariance_params_version"] is None
+
+
+def test_run_season_simulation_defaults_the_five_solve_params_to_none(con, monkeypatch):
+    """Opt-in, same convention as every other 2026-09 fix -- omitting the new kwargs entirely
+    (exactly what every existing caller of run_season_simulation() does today) must reproduce
+    the exact prior behavior: squad_optimizer.run() sees None for all five."""
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.squad_optimizer.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.squad_optimizer, "run", _spy)
+    bt.run_season_simulation(con, "2025-2026", start_gameweek=2, end_gameweek=2, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS)
+
+    assert seen_kwargs
+    for key in (
+        "ownership_params_version", "risk_posture_params_version", "field_covariance_params_version",
+        "bench_quality_params_version", "concentration_risk_params_version",
+    ):
+        assert seen_kwargs[0][key] is None
+
+
+def test_run_gameweek_step_threads_the_five_solve_params_through(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.squad_optimizer.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.squad_optimizer, "run", _spy)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+        risk_posture_params_version=1, ownership_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["ownership_params_version"] == 1
+    assert seen_kwargs[0]["risk_posture_params_version"] == 1
+    assert seen_kwargs[0]["bench_quality_params_version"] is None  # not opted into by this call
+
+
+def test_run_threads_solve_prefixed_params_to_run_gameweek_step_unprefixed_params(con, monkeypatch):
+    """run()'s own top-level ownership_params_version already means something else
+    (score_gameweek()'s post-hoc EO reporting) -- the new solve_ownership_params_version etc.
+    must land on run_gameweek_step()'s UNPREFIXED same-named param, not collide with it."""
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.run_gameweek_step
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt, "run_gameweek_step", _spy)
+    run_kwargs = {
+        k: v for k, v in _SEASON_SIM_VERSIONS.items()
+        if k not in ("horizon_params_version", "transfer_cost_params_version", "wildcard_threshold_params_version",
+                     "free_hit_threshold_params_version", "kappa_tc_params_version")
+    }
+    bt.run(
+        con, n_antithetic_pairs=200, **run_kwargs,
+        solve_bench_quality_params_version=1, solve_concentration_risk_params_version=1,
+    )
+
+    assert seen_kwargs  # at least one (season, gameweek) step was fittable and ran
+    for kw in seen_kwargs:
+        assert kw["bench_quality_params_version"] == 1
+        assert kw["concentration_risk_params_version"] == 1
+        assert kw["ownership_params_version"] is None  # solve_ownership_params_version not opted into here
 
 
 # ============================================================
@@ -2630,6 +2800,77 @@ def test_decide_gameweek_action_timing_gate_is_skipped_for_set2_gameweeks(con):
 
 
 # ============================================================
+# CHIP_TIMING_FIELD_SEASON -- 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_
+# diagnosis.md, Workstream B's "fuller ask"): a wider, purpose-built window on top of the
+# narrow CHIP_TIMING_FIELD check above, opt-in via transfer_planner.run()'s new
+# triple_captain_timing_params_version/bench_boost_timing_params_version.
+# ============================================================
+
+def test_decide_gameweek_action_bench_boost_season_timing_holds_when_a_later_week_in_the_wider_window_is_better(con):
+    # gw3 is already the best week WITHIN the narrow visible window (all_gameweeks), so the
+    # existing CHIP_TIMING_FIELD check alone would play it -- but the wider season_all_gameweeks
+    # window (which the narrow one can't see) has gw8 scoring much higher. The season check
+    # must be the one that holds it.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {
+            "all_gameweeks": {3: 20.0, 4: 5.0},
+            "season_all_gameweeks": {3: 20.0, 4: 5.0, 8: 50.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw8 looks better within the wider window -- hold
+
+
+def test_decide_gameweek_action_triple_captain_season_timing_holds_when_a_later_week_in_the_wider_window_is_better(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=3,
+        detail_by_chip={"triple_captain": {
+            "captain_value_per_gw": {3: 12.0, 4: 4.0},
+            "season_captain_value_per_gw": {3: 12.0, 4: 4.0, 9: 30.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw9 looks better within the wider window -- hold
+
+
+def test_decide_gameweek_action_season_timing_plays_when_current_week_is_still_the_wider_windows_best(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {
+            "all_gameweeks": {3: 20.0, 4: 5.0},
+            "season_all_gameweeks": {3: 20.0, 4: 5.0, 8: 9.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "bench_boost"  # gw3 is still the best in the wider window too -- play now
+
+
+def test_decide_gameweek_action_season_timing_absent_field_defers_to_true(con):
+    # A caller that never opted into triple_captain_timing_params_version/
+    # bench_boost_timing_params_version attaches no season_* field at all -- must behave
+    # exactly as before this fix (no behavior change for an un-opted-in caller).
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {"all_gameweeks": {3: 20.0, 4: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "bench_boost"
+
+
+def test_decide_gameweek_action_season_timing_gate_is_skipped_for_set2_gameweeks(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=25,
+        detail_by_chip={"triple_captain": {
+            "captain_value_per_gw": {25: 12.0},
+            "season_captain_value_per_gw": {25: 12.0, 30: 40.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0)
+    assert chip == "triple_captain"  # would be held under set-1 rules, but set-2 ignores timing
+
+
+# ============================================================
 # _realized_xi_points -- captain_multiplier extension (Triple Captain support)
 # ============================================================
 
@@ -2643,6 +2884,323 @@ def test_realized_xi_points_captain_multiplier_supports_triple_captain(con):
     _seed_event_points(con, "2025-2026", 5, {"p1": 10, "p2": 5})
     total = bt._realized_xi_points(con, "2025-2026", 5, frozenset({"p1", "p2"}), captain_uid="p1", captain_multiplier=3)
     assert total == pytest.approx(10 * 3 + 5)
+
+
+# ============================================================
+# simulate_auto_substitutions() -- 2026-09-14 fix, Workstream C's "harder half"
+# (docs/reports/2026-09_model_failure_diagnosis.md): real FPL auto-sub rules, a genuinely new
+# data-model piece, not a scoring-function patch. Pure-function tests over plain dicts, no DB.
+# ============================================================
+
+def _xi(**by_uid):
+    """by_uid: uid=(position, minutes)."""
+    return {uid: {"position": pos, "minutes": mins} for uid, (pos, mins) in by_uid.items()}
+
+
+def _bench(**by_uid):
+    """by_uid: uid=(position, minutes, bench_order)."""
+    return {uid: {"position": pos, "minutes": mins, "bench_order": order} for uid, (pos, mins, order) in by_uid.items()}
+
+
+def test_auto_sub_gk_comes_on_when_starting_gk_blanks(con):
+    xi = _xi(gk1=("Goalkeeper", 0), d1=("Defender", 90), d2=("Defender", 90), d3=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90),
+              m5=("Midfielder", 90), f1=("Forward", 90), f2=("Forward", 90))
+    bench = _bench(gk2=("Goalkeeper", 90, None), b1=("Defender", 0, 1), b2=("Midfielder", 0, 2), b3=("Forward", 0, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert "gk2" in result["final_xi_uids"]
+    assert "gk1" not in result["final_xi_uids"]
+    assert {"out": "gk1", "in": "gk2"} in result["subs_applied"]
+
+
+def test_auto_sub_gk_stays_blank_when_bench_gk_also_blanked(con):
+    xi = _xi(gk1=("Goalkeeper", 0), d1=("Defender", 90), d2=("Defender", 90), d3=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90),
+              m5=("Midfielder", 90), f1=("Forward", 90), f2=("Forward", 90))
+    bench = _bench(gk2=("Goalkeeper", 0, None), b1=("Defender", 90, 1), b2=("Midfielder", 90, 2), b3=("Forward", 90, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert "gk1" in result["final_xi_uids"]  # no legal/eligible sub -- stays under its own uid, scores 0
+    assert result["subs_applied"] == []
+
+
+def test_auto_sub_gk_stays_blank_when_bench_gk_minutes_unknown(con):
+    """Unknown (None) minutes never counts as 'confirmed played' -- same conservative
+    convention _realized_xi_points()'s own vice-captain check already uses."""
+    xi = _xi(gk1=("Goalkeeper", 0), d1=("Defender", 90), d2=("Defender", 90), d3=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90),
+              m5=("Midfielder", 90), f1=("Forward", 90), f2=("Forward", 90))
+    bench = _bench(gk2=("Goalkeeper", None, None), b1=("Defender", 90, 1), b2=("Midfielder", 90, 2), b3=("Forward", 90, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert "gk1" in result["final_xi_uids"]
+    assert result["subs_applied"] == []
+
+
+def test_auto_sub_outfield_priority_one_comes_on_for_a_blanked_defender(con):
+    xi = _xi(gk1=("Goalkeeper", 90), d1=("Defender", 0), d2=("Defender", 90), d3=("Defender", 90), d4=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90),
+              f1=("Forward", 90), f2=("Forward", 90))  # DEF=4, MID=4, FWD=2 -- legal, with slack
+    bench = _bench(gk2=("Goalkeeper", 90, None), b1=("Defender", 90, 1), b2=("Midfielder", 90, 2), b3=("Forward", 90, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert {"out": "d1", "in": "b1"} in result["subs_applied"]
+    assert "b1" in result["final_xi_uids"] and "d1" not in result["final_xi_uids"]
+
+
+def test_auto_sub_skips_an_eligible_sub_that_would_break_formation_legality(con):
+    # DEF is at the real floor (3) and MID at the real ceiling (5): DEF=3, MID=5, FWD=2.
+    # Priority-1 bench (a midfielder) coming on for the blanked defender would make DEF=2
+    # (illegal, floor is 3) AND MID=6 (illegal, ceiling is 5) -- must be skipped. Priority-2
+    # bench (a defender) keeps DEF at 3 -- legal, must be the one actually applied.
+    xi = _xi(gk1=("Goalkeeper", 90), d1=("Defender", 0), d2=("Defender", 90), d3=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90), m5=("Midfielder", 90),
+              f1=("Forward", 90), f2=("Forward", 90))
+    bench = _bench(gk2=("Goalkeeper", 90, None), b1=("Midfielder", 90, 1), b2=("Defender", 90, 2), b3=("Forward", 90, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert {"out": "d1", "in": "b1"} not in result["subs_applied"]  # skipped -- would break legality
+    assert {"out": "d1", "in": "b2"} in result["subs_applied"]      # priority-2 used instead
+    assert "b1" not in result["final_xi_uids"]  # priority-1 never used anywhere -- no other blank existed
+
+
+def test_auto_sub_blank_stays_blank_when_no_bench_player_is_eligible(con):
+    xi = _xi(gk1=("Goalkeeper", 90), d1=("Defender", 0), d2=("Defender", 90), d3=("Defender", 90), d4=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90),
+              f1=("Forward", 90), f2=("Forward", 90))
+    bench = _bench(gk2=("Goalkeeper", 90, None), b1=("Defender", 0, 1), b2=("Midfielder", 0, 2), b3=("Forward", 0, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert "d1" in result["final_xi_uids"]  # nobody on the bench played -- stays blank
+    assert result["subs_applied"] == []
+
+
+def test_auto_sub_processes_bench_in_priority_order_for_multiple_blanks(con):
+    xi = _xi(gk1=("Goalkeeper", 90), d1=("Defender", 0), d2=("Defender", 0), d3=("Defender", 90), d4=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90),
+              f1=("Forward", 90), f2=("Forward", 90))
+    bench = _bench(gk2=("Goalkeeper", 90, None), b1=("Defender", 90, 1), b2=("Defender", 90, 2), b3=("Forward", 90, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert {"b1", "b2"} <= result["final_xi_uids"]
+    assert not ({"d1", "d2"} & result["final_xi_uids"])
+    assert len(result["subs_applied"]) == 2
+
+
+def test_auto_sub_final_xi_always_has_eleven_members(con):
+    xi = _xi(gk1=("Goalkeeper", 0), d1=("Defender", 0), d2=("Defender", 90), d3=("Defender", 90), d4=("Defender", 90),
+              m1=("Midfielder", 90), m2=("Midfielder", 90), m3=("Midfielder", 90), m4=("Midfielder", 90),
+              f1=("Forward", 90), f2=("Forward", 90))
+    bench = _bench(gk2=("Goalkeeper", 90, None), b1=("Defender", 90, 1), b2=("Midfielder", 0, 2), b3=("Forward", 0, 3))
+    result = bt.simulate_auto_substitutions(xi, bench)
+    assert len(result["final_xi_uids"]) == 11
+
+
+# ============================================================
+# _realized_xi_points() with squad_uids/bench_order -- the real auto-sub gap closed end to end
+# ============================================================
+
+def _seed_event_points_minutes_position(con, season, gw, rows):
+    """rows: {player_uid: (points, minutes, position)}."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A') ON CONFLICT DO NOTHING")
+    for player_uid, (points, minutes, position) in rows.items():
+        con.execute(
+            "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+            [player_uid, player_uid, position],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, minutes, _ingested_at) "
+            "VALUES (?, ?, ?, ?, ?, current_timestamp)",
+            [player_uid, season, gw, points, minutes],
+        )
+
+
+_ELEVEN_LEGAL_FORMATION = {  # GK=1, DEF=4, MID=4, FWD=2 -- legal, with slack both directions
+    "gk1": "Goalkeeper", "d1": "Defender", "d2": "Defender", "d3": "Defender", "d4": "Defender",
+    "m1": "Midfielder", "m2": "Midfielder", "m3": "Midfielder", "m4": "Midfielder",
+    "f1": "Forward", "f2": "Forward",
+}
+
+
+def test_realized_xi_points_without_squad_uids_is_exact_prior_behavior(con):
+    # Opt-in, same convention as every other 2026-09 fix -- omitting squad_uids/bench_order
+    # (every existing caller today) must not change the total at all, even when real bench
+    # data happens to exist in the DB for other players.
+    rows = {uid: (5.0, 90, pos) for uid, pos in _ELEVEN_LEGAL_FORMATION.items()}
+    rows["d1"] = (0.0, 0, "Defender")  # a real blank -- must stay uncounted-for-sub, scoring 0
+    rows["bench1"] = (99.0, 90, "Defender")  # a real bench player who'd otherwise be a juicy sub
+    _seed_event_points_minutes_position(con, "2025-2026", 5, rows)
+    xi_uids = frozenset(_ELEVEN_LEGAL_FORMATION)
+    total = bt._realized_xi_points(con, "2025-2026", 5, xi_uids, captain_uid=None)
+    assert total == pytest.approx(5.0 * 10 + 0.0)  # bench1's 99 never counted
+
+
+def test_realized_xi_points_with_squad_uids_applies_a_real_auto_sub(con):
+    rows = {uid: (5.0, 90, pos) for uid, pos in _ELEVEN_LEGAL_FORMATION.items()}
+    rows["d1"] = (0.0, 0, "Defender")
+    rows["bgk"] = (0.0, 90, "Goalkeeper")
+    rows["b1"] = (7.0, 90, "Defender")   # priority 1 -- comes on for d1
+    rows["b2"] = (3.0, 0, "Midfielder")  # priority 2 -- didn't play, irrelevant here
+    rows["b3"] = (2.0, 0, "Forward")     # priority 3 -- didn't play, irrelevant here
+    _seed_event_points_minutes_position(con, "2025-2026", 5, rows)
+    xi_uids = frozenset(_ELEVEN_LEGAL_FORMATION)
+    squad_uids = xi_uids | {"bgk", "b1", "b2", "b3"}
+    bench_order = {"b1": 1, "b2": 2, "b3": 3}
+    total = bt._realized_xi_points(
+        con, "2025-2026", 5, xi_uids, captain_uid=None, squad_uids=squad_uids, bench_order=bench_order,
+    )
+    # 10 real starters at 5.0 each (d1 replaced by b1, still one slot at "5.0-equivalent" role)
+    # minus d1's own 0 plus b1's 7.0: (5.0*10) + 7.0 = 57.0
+    assert total == pytest.approx(5.0 * 10 + 7.0)
+
+
+def test_realized_xi_points_auto_sub_composes_with_the_vice_captain_fallback(con):
+    """A captain who blanks and gets auto-subbed out: the armband still transfers to the vice
+    (unchanged from the existing vice-captain mechanism), and the captain's own vacated slot
+    separately gets the bench replacement's real, UN-doubled points -- two independent real FPL
+    rules, both firing off the same underlying blank, neither one silently absorbing the
+    other's job."""
+    rows = {uid: (5.0, 90, pos) for uid, pos in _ELEVEN_LEGAL_FORMATION.items()}
+    rows["d1"] = (0.0, 0, "Defender")     # the blanked captain
+    rows["m1"] = (8.0, 90, "Midfielder")  # the vice -- already in the XI, plays fine
+    rows["bgk"] = (0.0, 90, "Goalkeeper")
+    rows["b1"] = (7.0, 90, "Defender")
+    rows["b2"] = (3.0, 0, "Midfielder")
+    rows["b3"] = (2.0, 0, "Forward")
+    _seed_event_points_minutes_position(con, "2025-2026", 5, rows)
+    xi_uids = frozenset(_ELEVEN_LEGAL_FORMATION)
+    squad_uids = xi_uids | {"bgk", "b1", "b2", "b3"}
+    bench_order = {"b1": 1, "b2": 2, "b3": 3}
+    total = bt._realized_xi_points(
+        con, "2025-2026", 5, xi_uids, captain_uid="d1", vice_captain_uid="m1",
+        squad_uids=squad_uids, bench_order=bench_order,
+    )
+    # 9 remaining real starters (excluding d1/m1) at 5.0 = 45.0, + m1 doubled (8.0*2=16.0),
+    # + b1's own real 7.0 (un-doubled -- b1 is not the armband holder) = 68.0. d1's own 0 never
+    # appears at all (its slot is b1's now); doubling d1's 0 would have contributed nothing
+    # either way, but this confirms the armband genuinely moved, not just "no-op either way."
+    assert total == pytest.approx(5.0 * 9 + 8.0 * 2 + 7.0)
+
+
+# ============================================================
+# _bench_order_from_squad_optimizer_run / _bench_order_by_projected_ep -- the two real bench_
+# order sources run_season_simulation(simulate_auto_subs=True) draws from (see its own
+# docstring for exactly when each applies).
+# ============================================================
+
+def test_bench_order_from_squad_optimizer_run_reads_persisted_ranks(con):
+    run_id = _seed_bootstrap_squad_with_price_history(
+        con, "2025-2026", start_gameweek=5, later_gameweek=10, price_at_start=5.0, price_at_later=9.0,
+    )
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('b1', 'B1', 'Defender'), "
+        "('b2', 'B2', 'Midfielder'), ('bgk', 'BGK', 'Goalkeeper')"
+    )
+    for uid, order in (("b1", 1), ("b2", 2), ("bgk", None)):
+        con.execute(
+            "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice, bench_order) "
+            "VALUES (?, ?, TRUE, FALSE, FALSE, FALSE, ?)", [run_id, uid, order],
+        )
+    result = bt._bench_order_from_squad_optimizer_run(con, run_id)
+    assert result == {"b1": 1, "b2": 2}  # bgk (NULL bench_order) never appears
+
+
+def test_bench_order_by_projected_ep_ranks_by_ep_total(con):
+    run_id = _seed_plan_run_with_recommendations(con, target_gameweek=3)
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B') ON CONFLICT DO NOTHING")
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute("UPDATE transfer_plan_runs SET ep_model_versions = ? WHERE run_id = ?", [json.dumps({"3": ep_mv}), run_id])
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m3', '2026-2027', 3, 'team_a', 'team_b', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)"
+    )
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('b1', 'B1', 'Defender'), ('b2', 'B2', 'Midfielder')")
+    for uid, ep_total in (("b1", 2.0), ("b2", 6.0)):
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, ?, 'm3', 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, uid, ep_total],
+        )
+    result = bt._bench_order_by_projected_ep(con, run_id, 3, frozenset({"b1", "b2"}))
+    assert result == {"b2": 1, "b1": 2}  # higher projected ep_total ranks first
+
+
+def test_bench_order_by_projected_ep_empty_when_no_ep_model_version_on_record(con):
+    run_id = _seed_plan_run_with_recommendations(con, target_gameweek=3)  # ep_model_versions defaults to '{}'
+    assert bt._bench_order_by_projected_ep(con, run_id, 3, frozenset({"b1"})) == {}
+
+
+def test_bench_order_by_projected_ep_empty_for_no_bench(con):
+    assert bt._bench_order_by_projected_ep(con, 1, 3, frozenset()) == {}
+
+
+# ============================================================
+# run_season_simulation(simulate_auto_subs=True) -- wiring, not the underlying mechanism (see
+# the direct simulate_auto_substitutions()/_realized_xi_points() tests above for that): spies
+# on _realized_xi_points() the same way test_run_season_simulation_calls_compute_bank_only_
+# while_the_asof_shadow_is_active does, since forcing a REAL blank through the full MIQP+
+# minutes-model pipeline deterministically is significantly harder than confirming the
+# orchestration threads the right arguments to the right call.
+# ============================================================
+
+def test_run_season_simulation_simulate_auto_subs_passes_squad_uids_and_bootstrap_bench_order(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_calls = []
+    real_fn = bt._realized_xi_points
+
+    def _spy(con_arg, season_arg, gw_arg, xi_uids, captain_uid, **kwargs):
+        seen_calls.append({"gameweek": gw_arg, "kwargs": kwargs})
+        return real_fn(con_arg, season_arg, gw_arg, xi_uids, captain_uid, **kwargs)
+
+    monkeypatch.setattr(bt, "_realized_xi_points", _spy)
+    bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200, simulate_auto_subs=True,
+        **_SEASON_SIM_VERSIONS,
+    )
+
+    assert len(seen_calls) == 2
+    bootstrap_call = next(c for c in seen_calls if c["gameweek"] == 2)
+    assert bootstrap_call["kwargs"]["squad_uids"] is not None
+    assert len(bootstrap_call["kwargs"]["squad_uids"]) == 15
+    assert bootstrap_call["kwargs"]["bench_order"]  # non-empty: a real fresh solve, real bench_order persisted
+
+    later_call = next(c for c in seen_calls if c["gameweek"] == 3)
+    assert later_call["kwargs"]["squad_uids"] is not None
+    assert len(later_call["kwargs"]["squad_uids"]) == 15
+    # bench_order may legitimately be {} on this fixture's small candidate pool (e.g. if no
+    # ep_model_version landed for gw3, or the bench happens to be empty) -- the real assertion
+    # is that squad_uids/bench_order were PASSED (opted in), not any particular content.
+    assert "bench_order" in later_call["kwargs"]
+
+
+def test_run_season_simulation_without_simulate_auto_subs_passes_no_squad_uids(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_calls = []
+    real_fn = bt._realized_xi_points
+
+    def _spy(con_arg, season_arg, gw_arg, xi_uids, captain_uid, **kwargs):
+        seen_calls.append(kwargs)
+        return real_fn(con_arg, season_arg, gw_arg, xi_uids, captain_uid, **kwargs)
+
+    monkeypatch.setattr(bt, "_realized_xi_points", _spy)
+    bt.run_season_simulation(con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS)
+
+    assert seen_calls
+    for kwargs in seen_calls:
+        assert kwargs.get("squad_uids") is None
+        assert kwargs.get("bench_order") is None
 
 
 # ============================================================

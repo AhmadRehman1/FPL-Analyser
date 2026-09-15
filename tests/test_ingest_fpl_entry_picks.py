@@ -251,6 +251,40 @@ def test_ingest_rival_squad_sample_idempotent_for_an_already_sampled_gameweek(co
     assert con.execute("SELECT count(*) FROM fact_rival_squad_sample").fetchone()[0] == 3
 
 
+def test_ingest_rival_squad_sample_replace_true_resamples_an_already_sampled_gameweek(con):
+    element_names, entries, entry_picks_by_id = _standard_scenario(con)
+    ifp.ingest_rival_squad_sample(
+        con, "2025-2026", 5, datetime(2026, 8, 10),
+        element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
+    )
+    # a fresh sample of the same gameweek with a different cohort (only entry 101, a new rank)
+    replacement = ifp.ingest_rival_squad_sample(
+        con, "2025-2026", 5, datetime(2026, 8, 17), replace=True,
+        element_names=element_names, entries=[{"entry_id": 101, "rank": 90_000}],
+        entry_picks_by_id=entry_picks_by_id,
+    )
+    assert replacement["status"] == "ingested"
+    rows = con.execute(
+        "SELECT DISTINCT entry_id, league_rank FROM fact_rival_squad_sample "
+        "WHERE season = '2025-2026' AND event = 5 ORDER BY entry_id"
+    ).fetchall()
+    assert rows == [(101, 90_000)]  # entry 100's old rows are gone, not merged
+
+
+def test_ingest_rival_squad_sample_replace_true_keeps_the_old_sample_when_the_fetch_yields_nothing(con):
+    element_names, entries, entry_picks_by_id = _standard_scenario(con)
+    ifp.ingest_rival_squad_sample(
+        con, "2025-2026", 5, datetime(2026, 8, 10),
+        element_names=element_names, entries=entries, entry_picks_by_id=entry_picks_by_id,
+    )
+    result = ifp.ingest_rival_squad_sample(
+        con, "2025-2026", 5, datetime(2026, 8, 17), replace=True,
+        element_names=element_names, entries=[], entry_picks_by_id=entry_picks_by_id,
+    )
+    assert result["picks_inserted"] == 0
+    assert con.execute("SELECT count(*) FROM fact_rival_squad_sample").fetchone()[0] == 3
+
+
 def test_ingest_rival_squad_sample_different_gameweek_is_not_blocked_by_idempotency(con):
     element_names, entries, entry_picks_by_id = _standard_scenario(con)
     ifp.ingest_rival_squad_sample(
