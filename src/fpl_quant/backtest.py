@@ -260,6 +260,7 @@ def run_gameweek_step(
     n_antithetic_pairs: int = 2000,
     run_monte_carlo: bool = True,
     set_piece_params_version: int | None = 1,
+    current_season_role_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -274,7 +275,12 @@ def run_gameweek_step(
       genuinely early-season gameweeks where too few ep_outputs rows exist yet to fill a squad,
       not a bug -- recorded as a skipped optimizer stage (divergence_check_passed stays NULL,
       distinct from an explicit False).
-    """
+
+    current_season_role_params_version (2026-09-15 fix, opt-in -- None is the exact prior
+    behavior): threaded straight through to minutes_model.run()'s own same-named param -- see
+    its docstring for what it does and why it's opt-in there too. minutes_model.run()'s OWN
+    lookback_seasons default separately now includes target_season (provably backtest-neutral,
+    unconditional, not gated by this param -- see minutes_model.run()'s own docstring)."""
     tier = tier_for(season, gameweek)
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
@@ -293,6 +299,7 @@ def run_gameweek_step(
         mm_model_version = minutes_model.run(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
+            current_season_role_params_version=current_season_role_params_version,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
@@ -895,6 +902,7 @@ def run(
     compute_segments: bool = False,
     set_piece_params_version: int | None = 1,  # matches ep.run()'s new default; passed to BOTH the prediction step and score_gameweek's segment metrics
     ownership_params_version: int | None = None,
+    current_season_role_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
@@ -905,7 +913,12 @@ def run(
 
     compute_segments/set_piece_params_version/ownership_params_version: Priority 9b/9c
     opt-in, passed straight through to score_gameweek() -- see its own docstring. Default off,
-    same backward-compatible convention as every other opt-in feature in this project."""
+    same backward-compatible convention as every other opt-in feature in this project.
+
+    current_season_role_params_version (2026-09-15 fix, opt-in): threaded straight through to
+    run_gameweek_step()'s own same-named param -- see its docstring, and minutes_model.run()'s
+    own docstring for the real incident this closes. None (the default) is the exact prior
+    behavior."""
     steps = [
         (s, gw) for s, gw in ALL_SEASON_GAMEWEEKS
         if has_fittable_history(con, s, gw) and not has_double_gameweek(con, s, gw)
@@ -928,6 +941,7 @@ def run(
             lambda_params_version=lambda_params_version, guardrail_params_version=guardrail_params_version,
             n_antithetic_pairs=n_antithetic_pairs, run_monte_carlo=run_monte_carlo,
             set_piece_params_version=set_piece_params_version,
+            current_season_role_params_version=current_season_role_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -971,6 +985,26 @@ CHIP_TIMING_FIELD = {
     "free_hit": ("current_xi_value_per_gw", "min"),
     "bench_boost": ("all_gameweeks", "max"),
     "triple_captain": ("captain_value_per_gw", "max"),
+}
+
+# 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B's
+# "fuller ask"): CHIP_TIMING_FIELD above only ever sees whatever horizon_ep_versions window
+# run() happened to build that week (typically planning_horizon_params' ~5 gameweeks) -- real,
+# but the same narrow blind spot every chip's own greedy check already has (see
+# _is_best_gameweek_in_visible_horizon()'s own docstring). transfer_planner.run()'s new
+# triple_captain_timing_params_version/bench_boost_timing_params_version (opt-in, see its own
+# docstring) attach a WIDER, purpose-built window under these keys when a caller asks for it --
+# only for bench_boost/triple_captain, matching the scoped ask; wildcard/free_hit's own
+# rebuild-timing question is left to chip_timing_analysis.py's real full-season sweep, a
+# genuinely different (and more expensive -- per-candidate-week MIQP re-solves) mechanism.
+# Reuses _is_best_gameweek_in_visible_horizon() unchanged -- it only ever compares
+# target_gameweek's own value against a per_gw dict's extremum, indifferent to how wide that
+# dict's window is. A chip whose caller never opted in (the field absent from detail) defers
+# to True via the exact same missing-data path an absent CHIP_TIMING_FIELD entry already uses --
+# no behavior change unless a caller explicitly asks for the wider window.
+CHIP_TIMING_FIELD_SEASON = {
+    "bench_boost": ("season_all_gameweeks", "max"),
+    "triple_captain": ("season_captain_value_per_gw", "max"),
 }
 
 
@@ -1038,6 +1072,12 @@ def _decide_gameweek_action(
             per_gw = recommended[candidate].get(field, {})
             if not _is_best_gameweek_in_visible_horizon(per_gw, target_gameweek, prefer):
                 continue  # a later week within the model's currently-visible horizon looks better -- hold
+            season_field = CHIP_TIMING_FIELD_SEASON.get(candidate)
+            if season_field:
+                s_field, s_prefer = season_field
+                season_per_gw = recommended[candidate].get(s_field, {})
+                if season_per_gw and not _is_best_gameweek_in_visible_horizon(season_per_gw, target_gameweek, s_prefer):
+                    continue  # a later week within the WIDER timing window looks better -- hold
         return None, candidate
 
     top = con.execute(
@@ -1074,6 +1114,10 @@ def run_season_simulation(
     kappa_tc_params_version: int,
     accept_transfer_if_net_value_above: float = 0.0,
     n_antithetic_pairs: int = 2000,
+    triple_captain_threshold_params_version: int | None = None,
+    bench_boost_threshold_params_version: int | None = None,
+    triple_captain_timing_params_version: int | None = None,
+    bench_boost_timing_params_version: int | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1103,7 +1147,26 @@ def run_season_simulation(
     "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...]}
     -- actions is the real per-gameweek decision log, for auditing what the simulated manager
     actually did, not just the final score.
-    """
+
+    triple_captain_threshold_params_version/bench_boost_threshold_params_version (2026-09-14
+    fix -- real gap closed here): forward_season_sim.py's real-squad walk (and model_team.py's
+    live advance(), which reuses it) has passed these to transfer_planner.run() ever since
+    PR #173 shipped the magnitude-floor gate, but THIS function's own transfer_planner.run()
+    call never did -- so every synthetic from-scratch walk-forward (nightly backtest,
+    recalibration, this function's own docstring's "actually played" narrative) has kept
+    scoring the pre-#173, ungated triple_captain/bench_boost behavior the whole time. Both
+    None (the default) preserves that exact prior behavior -- this fix only closes the gap
+    when a caller opts in, the same convention transfer_planner.run() itself uses.
+
+    triple_captain_timing_params_version/bench_boost_timing_params_version (2026-09-14,
+    opt-in, same convention): threaded straight through to transfer_planner.run()'s own
+    same-named params -- see its docstring. None (the default) attaches no season-horizon
+    timing field, so _decide_gameweek_action()'s CHIP_TIMING_FIELD_SEASON check stays a no-op
+    and this function's behavior is unaffected either way unless a caller passes a real
+    params_version, which is how docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md's
+    "gated behind a real walk-forward comparison before going live" requirement gets tested --
+    run this function once with these two None (the current greedy approach) and once with
+    real versions, compare beats_crowd_points_delta."""
     if not has_fittable_history(con, season, start_gameweek):
         raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
@@ -1180,6 +1243,10 @@ def run_season_simulation(
                     rho_residual_params_version, corr_params_version, transfer_cost_params_version,
                     lambda_params_version, guardrail_params_version, wildcard_threshold_params_version,
                     free_hit_threshold_params_version, kappa_tc_params_version,
+                    triple_captain_threshold_params_version=triple_captain_threshold_params_version,
+                    bench_boost_threshold_params_version=bench_boost_threshold_params_version,
+                    triple_captain_timing_params_version=triple_captain_timing_params_version,
+                    bench_boost_timing_params_version=bench_boost_timing_params_version,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
@@ -1895,6 +1962,39 @@ def load_confirmed_recalibration_seeds(seed_dir: Path | str) -> list[dict]:
     return confirmed
 
 
+def load_all_proposed_param_families(seed_dir: Path | str) -> set[str]:
+    """Every param_family that has EVER had a recalibration_proposals row written for it,
+    across every committed seeds_*.json in seed_dir, regardless of status (pending/confirmed/
+    rejected) -- matching params.transparency_panel()'s own "backtested_via_m7" semantics
+    ("M7 having *attempted* to validate/tune it", not whether a human since accepted the
+    result). This is the persisted, cross-run counterpart to that panel's own DB query
+    (`SELECT DISTINCT param_family FROM recalibration_proposals`), which only sees whatever a
+    recalibrate() call in THIS SAME DB session produced.
+
+    Exists because nightly_backtest.yml's own scripts/run_walkforward.py deliberately never
+    calls recalibrate() (see that script's own docstring -- the recalibration tail is what
+    blows the 6h Actions cap), so the DB session data/dashboard/app_track_record.json's
+    `parameters_backtested` count is computed against has an EMPTY recalibration_proposals
+    table every single night, forever -- even though real recalibration work has genuinely
+    happened and been confirmed via the git-committed seed files this function reads. Without
+    this, the DB-only query in transparency_panel() reports "0 parameters backtested" no
+    matter how much real M7 work has actually landed. See
+    docs/reports/2026-09_model_failure_diagnosis.md, Finding 6, for the incident this fixes.
+
+    Returns an empty set (not an error) when seed_dir doesn't exist yet."""
+    seed_dir = Path(seed_dir)
+    if not seed_dir.is_dir():
+        return set()
+    families = set()
+    for path in sorted(seed_dir.glob("seeds_*.json")):
+        payload = json.loads(path.read_text())
+        for proposal in payload.get("proposals", []):
+            family = proposal.get("param_family")
+            if family:
+                families.add(family)
+    return families
+
+
 def refit_xi_rho(
     con: duckdb.DuckDBPyConnection,
     fit_seasons: tuple[str, ...] = ("2024-2025", "2025-2026"),
@@ -2344,7 +2444,16 @@ def refit_lambda(
             result = squad_optimizer.solve(candidates, sigma_pairs, lam, guardrail_cap)
             if not result["xi"]:
                 continue
-            gameweek_points.append(_realized_xi_points(con, season, gw, result["xi"], result["captain"]))
+            # vice_captain_uid=result["vice"]: 2026-09 fix (docs/reports/2026-09_chip_policy_
+            # and_scoring_diagnosis.md) -- this call predates the 2026-09-07 real-vice-captain
+            # fallback fix (171dc5c) and was never updated to pass it, so lambda recalibration
+            # was still being scored on the stale, no-fallback numbers while the live model
+            # team and the headline walk-forward metric already use the real armband-transfer
+            # rule. Same real FPL rule either way: solve() already returns a real vice pick
+            # (never None once xi is non-empty), so this costs nothing extra to wire in.
+            gameweek_points.append(
+                _realized_xi_points(con, season, gw, result["xi"], result["captain"], vice_captain_uid=result["vice"])
+            )
 
         if len(gameweek_points) >= 2:
             arr = np.array(gameweek_points)
@@ -2464,7 +2573,12 @@ def report_concentration_sensitivity(
             result = squad_optimizer.solve(candidates, sigma_pairs, lambda_value, cap)
             if not result["xi"]:
                 continue
-            gameweek_points.append(_realized_xi_points(con, season, gw, result["xi"], result["captain"]))
+            # vice_captain_uid=result["vice"]: same 2026-09 fix as refit_lambda() above -- this
+            # concentration-cap sensitivity report was likewise still scoring on the pre-
+            # 171dc5c, no-vice-fallback numbers.
+            gameweek_points.append(
+                _realized_xi_points(con, season, gw, result["xi"], result["captain"], vice_captain_uid=result["vice"])
+            )
 
         if len(gameweek_points) >= 2:
             arr = np.array(gameweek_points)

@@ -472,6 +472,11 @@ def main() -> None:
         wildcard_threshold_params_version=1,
         free_hit_threshold_params_version=1,
         kappa_tc_params_version=kappa_tc_params_version,
+        # 2026-09 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B):
+        # activates the new triple-captain/bench-boost gain thresholds for the two real
+        # tracked accounts' own recommendations, same as forward_season_sim.py's live walk.
+        triple_captain_threshold_params_version=1,
+        bench_boost_threshold_params_version=1,
         # Priority 3, opt-in: this script's whole point is a real hold-vs-transfer-now
         # recommendation, so it's worth the extra solve time here (unlike the default GW1->GW2
         # run_transfer_planner.py, which leaves this off).

@@ -23,12 +23,38 @@ def test_balanced_resolves_to_the_v1_defaults(con):
     assert params.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", 1)[0] == pytest.approx(0.15)
 
 
-def test_attack_resolves_to_the_confirmed_v2_values(con):
+def test_attack_resolves_to_a_new_version_once_v1_is_already_taken(con):
+    # Realistic production sequencing: squad_optimizer.seed_v1_params()/transfer_planner.
+    # seed_v1_params() (or, as a stand-in here, "balanced") always write v1 before "attack" is
+    # ever resolved. With v1 already claimed by the balanced values, attack's different values
+    # must mint their own new version -- exactly 2 here, since nothing else has touched these
+    # two families yet.
+    risk_posture.resolve_versions(con, "balanced")
     assert risk_posture.resolve_versions(con, "attack") == {
         "lambda_params_version": 2, "kappa_tc_params_version": 2,
     }
     assert params.resolve_param(con, "risk_aversion_params", "lambda_value", 2)[0] == pytest.approx(0.05)
     assert params.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", 2)[0] == pytest.approx(0.5)
+
+
+def test_attack_never_collides_with_a_recalibration_that_already_claimed_its_version_number(con):
+    # The real 2026-09-08 incident this whole mechanism exists to prevent: a genuine
+    # recalibration proposal confirms tc_risk_aversion_params version 2 as 0.2 (a value
+    # attack's own 0.5 does not share) BEFORE resolve_versions("attack") ever runs. The old
+    # hardcoded-version design would raise ValueError here (params.write_param's immutability
+    # check, version 2 already holds a different value). The fix must instead mint attack a
+    # version of its own and leave the recalibrated row untouched.
+    params.write_param(con, "risk_aversion_params", 1, "2026-08-10", "lambda_value", value_numeric=0.15)
+    params.write_param(con, "tc_risk_aversion_params", 1, "2026-08-10", "kappa_tc", value_numeric=0.15)
+    params.write_param(con, "tc_risk_aversion_params", 2, "2026-09-08", "kappa_tc", value_numeric=0.2)
+
+    versions = risk_posture.resolve_versions(con, "attack")
+
+    kap_ver = versions["kappa_tc_params_version"]
+    assert kap_ver != 2  # never claims a version another lineage already owns with a different value
+    assert params.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", kap_ver)[0] == pytest.approx(0.5)
+    # the recalibration-confirmed row is completely untouched
+    assert params.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", 2)[0] == pytest.approx(0.2)
 
 
 def test_resolve_versions_only_touches_lambda_and_kappa_tc(con):
@@ -41,8 +67,11 @@ def test_resolve_versions_is_idempotent(con):
     a = risk_posture.resolve_versions(con, "attack")
     b = risk_posture.resolve_versions(con, "attack")
     assert a == b
-    # no duplicate rows
-    n = con.execute("SELECT count(*) FROM param_versions WHERE param_family = 'risk_aversion_params' AND param_version = 2").fetchone()[0]
+    # no duplicate rows at whichever version attack actually landed on
+    n = con.execute(
+        "SELECT count(*) FROM param_versions WHERE param_family = 'risk_aversion_params' AND param_version = ?",
+        [a["lambda_params_version"]],
+    ).fetchone()[0]
     assert n == 1
 
 

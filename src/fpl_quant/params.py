@@ -81,11 +81,69 @@ def resolve_param(
     return row
 
 
+def get_or_create_version(
+    con: duckdb.DuckDBPyConnection,
+    param_family: str,
+    param_key: str,
+    effective_date: str,
+    *,
+    value_numeric: float | None = None,
+    value_text: str | None = None,
+    dimensions: dict | None = None,
+) -> int:
+    """Returns the params_version that already holds this exact (family, key, dimensions,
+    value), minting a fresh one (family's current max + 1) and writing it via write_param()
+    if no such row exists yet.
+
+    Use this instead of a hardcoded params_version literal whenever the caller doesn't -- and
+    can't -- control what version number a family's OWN organically-growing recalibration
+    lineage has already reached. A hardcoded literal is only safe for the version that seeds
+    a family for the very first time (v1, written once by that module's own seed_v1_params()
+    before anything else ever touches the family); any later hardcoded version number is a
+    real collision waiting to happen the moment recalibrate()'s own version-minting (a plain
+    max(param_version)+1 over the same family) organically reaches that same integer with a
+    different value. write_param()'s immutability check would then raise on the second write.
+
+    This is exactly what happened to risk_posture.py's "attack" posture: it hardcoded
+    tc_risk_aversion_params version 2 (value 0.5) months before any real recalibration had
+    ever confirmed a version 2 for that family. Once data/recalibration/seeds_1.json later
+    confirmed a genuine kappa_tc v1->v2 recalibration (value 0.2) and run_ingestion.py started
+    loading confirmed seeds into the SAME live database the attack-posture step also writes
+    into (in that same job), every attack-posture solve started raising ValueError on
+    resolve_versions()'s own write_param() call -- silently, since the scheduled workflow runs
+    that step under continue-on-error. See docs/reports/2026-09_model_failure_diagnosis.md
+    section 9 for the incident this fixes.
+    """
+    dims = _canonical_dimensions(dimensions)
+    existing_version = con.execute(
+        "SELECT param_version FROM param_versions WHERE param_family = ? AND param_key = ? "
+        "AND dimensions = ? AND value_numeric IS NOT DISTINCT FROM ? AND value_text IS NOT DISTINCT FROM ?",
+        [param_family, param_key, dims, value_numeric, value_text],
+    ).fetchone()
+    if existing_version is not None:
+        return existing_version[0]
+    next_version_row = con.execute(
+        "SELECT coalesce(max(param_version), 0) + 1 FROM param_versions WHERE param_family = ?",
+        [param_family],
+    ).fetchone()
+    assert next_version_row is not None  # a bare aggregate always returns exactly one row
+    next_version = next_version_row[0]
+    write_param(
+        con, param_family, next_version, effective_date, param_key,
+        value_numeric=value_numeric, value_text=value_text, dimensions=dimensions,
+    )
+    return next_version
+
+
 # ============================================================
 # M9 adapter -- parameter transparency panel
 # ============================================================
 
-def transparency_panel(con: duckdb.DuckDBPyConnection, active_versions: dict[str, int]) -> list[dict]:
+def transparency_panel(
+    con: duckdb.DuckDBPyConnection,
+    active_versions: dict[str, int],
+    additional_touched_families: set[str] | None = None,
+) -> list[dict]:
     """M9's assumptions/parameter-transparency section: "every versioned parameter active in
     this run, flagged as either backtested/recalibrated via M7 or still literature/invented
     default." active_versions is the caller's explicit statement of which params_version is
@@ -94,13 +152,27 @@ def transparency_panel(con: duckdb.DuckDBPyConnection, active_versions: dict[str
     on versions the caller actually names, never a guess.
 
     A family counts as "backtested_via_m7" iff it has at least one row in
-    recalibration_proposals, regardless of that proposal's status (pending/confirmed/rejected)
-    -- M7 having *attempted* to validate/tune it is the signal this flag reports, not whether
-    a human has since accepted the result.
+    recalibration_proposals (in THIS con -- real when a real recalibrate() ran in this same DB
+    session, e.g. scripts/run_backtest.py's own local flow) OR is named in
+    additional_touched_families (the persisted, cross-run signal -- see
+    backtest.load_all_proposed_param_families(), which reads every committed seeds_*.json
+    regardless of which DB session originally produced the proposal). Either way, regardless
+    of that proposal's status (pending/confirmed/rejected) -- M7 having *attempted* to
+    validate/tune it is the signal this flag reports, not whether a human has since accepted
+    the result.
+
+    additional_touched_families defaults to None (exact prior behavior: DB-only) so existing
+    callers that don't pass it are unaffected. Callers that DO have a recalibration seed
+    directory available (see backtest.load_all_proposed_param_families()) should always pass
+    it -- see this function's own docstring above and
+    docs/reports/2026-09_model_failure_diagnosis.md, Finding 6, for why the DB-only query is
+    structurally wrong on its own for any caller whose DB session never ran recalibrate().
     """
     touched_families = {
         r[0] for r in con.execute("SELECT DISTINCT param_family FROM recalibration_proposals").fetchall()
     }
+    if additional_touched_families:
+        touched_families |= additional_touched_families
 
     panel = []
     for family, version in active_versions.items():

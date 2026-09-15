@@ -3,11 +3,11 @@
   "proposals": [
     {
       "dimensions": null,
-      "metric_after": 0.003813670206643798,
+      "metric_after": 0.0006553930788369394,
       "metric_before": 0.0,
       "metric_name": "rho_hat",
       "new_params_version": 5,
-      "new_value": 0.003813670206643798,
+      "new_value": 0.0006553930788369394,
       "old_params_version": 4,
       "old_value": 0.0,
       "param_family": "correlation_params",
@@ -19,8 +19,8 @@
     },
     {
       "dimensions": null,
-      "metric_after": 1.2333464244716716,
-      "metric_before": 1.20702433789618,
+      "metric_after": 1.2832926297720257,
+      "metric_before": 1.2310212542324035,
       "metric_name": "realized_sharpe",
       "new_params_version": 4,
       "new_value": 0.3,
@@ -29,6 +29,22 @@
       "param_family": "tc_risk_aversion_params",
       "param_key": "kappa_tc",
       "proposal_id": 2,
+      "reviewed_at": null,
+      "reviewed_by": null,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
+      "metric_after": -1.8787601645729584,
+      "metric_before": -1.8787601645729581,
+      "metric_name": "log_score_minutes_mean_holdout",
+      "new_params_version": 14,
+      "new_value": 15.0,
+      "old_params_version": 11,
+      "old_value": 15.0,
+      "param_family": "minutes_model_shrinkage_params",
+      "param_key": "competitive_matches_threshold",
+      "proposal_id": 3,
       "reviewed_at": null,
       "reviewed_by": null,
       "status": "pending"
@@ -199,5 +215,5 @@
       "status": "confirmed"
     }
   ],
-  "written_at": "2026-09-09T07:52:34.585649+00:00"
+  "written_at": "2026-09-13T18:25:50.806674+00:00"
 }

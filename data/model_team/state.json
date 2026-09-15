@@ -1,6 +1,6 @@
 {
   "season": "2026-2027",
-  "current_gameweek": 3,
+  "current_gameweek": 4,
   "ledger": [
     {
       "gameweek": 1,
@@ -164,10 +164,112 @@
       "entry_label": "FPL Quant Model Team",
       "simulated": false,
       "realized_final": true
+    },
+    {
+      "gameweek": 4,
+      "projected_points": 62.15,
+      "band_low": 45.47,
+      "band_high": 78.83,
+      "action": "triple_captain",
+      "action_detail": "triple captain",
+      "wildcard_gain": -11.56,
+      "wildcard_recommended": false,
+      "squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_jesus_maciel_da_cruz",
+        "player_james_tarkowski",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_nathan_collins",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "xi_uids": [
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_james_tarkowski",
+        "player_marcos_senesi_baron",
+        "player_nathan_collins",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "formation_xi_uids": [
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_james_tarkowski",
+        "player_marcos_senesi_baron",
+        "player_nathan_collins",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "captain_uid": "player_marcos_senesi_baron",
+      "vice_captain_uid": "player_bernd_leno",
+      "realized_points": 39.0,
+      "current_squad_horizon_value": 341.73,
+      "chips_used": [
+        "free_hit",
+        "triple_captain"
+      ],
+      "free_hit_gain": 23.33,
+      "free_hit_recommended": true,
+      "free_hit_threshold": null,
+      "free_hit_fresh_run_id": null,
+      "carryforward_squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_jesus_maciel_da_cruz",
+        "player_james_tarkowski",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_nathan_collins",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "carryforward_xi_uids": [
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_james_tarkowski",
+        "player_marcos_senesi_baron",
+        "player_nathan_collins",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "carryforward_captain_uid": "player_marcos_senesi_baron",
+      "carryforward_vice_captain_uid": "player_bernd_leno",
+      "transfers": [],
+      "entry_label": "FPL Quant Model Team",
+      "simulated": false,
+      "realized_final": true
     }
   ],
   "chips_used_set1": [
-    "free_hit"
+    "free_hit",
+    "triple_captain"
   ],
   "chips_used_set2": []
 }

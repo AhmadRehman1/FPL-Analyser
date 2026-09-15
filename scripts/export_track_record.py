@@ -98,6 +98,7 @@ def main() -> None:
         bench_quality_params_version=1,
         confidence_score_params_version=1,
         report_asof=datetime.now(),
+        recalibration_seed_dir=RECALIBRATION_SEED_DIR,
     )
 
     track_record = reporting.build_track_record_summary(con, report, backtest_run_id)

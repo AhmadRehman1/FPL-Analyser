@@ -135,6 +135,7 @@ def main() -> None:
         confidence_score_params_version=1,
         role_change_flag_params_version=1,
         report_asof=datetime.now(),
+        recalibration_seed_dir=RECALIBRATION_SEED_DIR,
     )
     print(reporting.render_report_text(report))
 

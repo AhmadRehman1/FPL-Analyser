@@ -1151,6 +1151,39 @@ def test_load_confirmed_recalibration_seeds_empty_when_dir_missing(tmp_path):
     assert bt.load_confirmed_recalibration_seeds(tmp_path / "does_not_exist") == []
 
 
+def test_load_all_proposed_param_families_includes_pending_and_rejected(con, tmp_path):
+    # Finding 6 (docs/reports/2026-09_model_failure_diagnosis.md): "backtested_via_m7" means
+    # M7 attempted to validate the family at all, regardless of the outcome -- unlike
+    # load_confirmed_recalibration_seeds(), this must NOT drop pending/rejected proposals.
+    from fpl_quant import params
+
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    backtest_run_id = _seed_backtest_run(con)
+    confirmed_id = bt.propose_recalibration(
+        con, backtest_run_id, "model_decay_params", "xi", 0.003,
+        metric_name="neg_log_likelihood", metric_before=100.0, metric_after=95.0, old_params_version=1,
+    )
+    rejected_id = bt.propose_recalibration(
+        con, backtest_run_id, "risk_aversion_params", "lambda_value", 0.5,
+        metric_name="realized_sharpe", metric_before=0.0, metric_after=-1.0, old_params_version=None,
+    )
+    pending_id = bt.propose_recalibration(
+        con, backtest_run_id, "correlation_params", "rho_residual", 0.0,
+        metric_name="rho_hat", metric_before=0.0, metric_after=0.0, old_params_version=None,
+    )
+    con.execute("UPDATE recalibration_proposals SET status = 'confirmed' WHERE proposal_id = ?", [confirmed_id])
+    con.execute("UPDATE recalibration_proposals SET status = 'rejected' WHERE proposal_id = ?", [rejected_id])
+    assert pending_id is not None  # left 'pending' -- the default status propose_recalibration writes
+    bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
+
+    families = bt.load_all_proposed_param_families(tmp_path)
+    assert families == {"model_decay_params", "risk_aversion_params", "correlation_params"}
+
+
+def test_load_all_proposed_param_families_empty_when_dir_missing(tmp_path):
+    assert bt.load_all_proposed_param_families(tmp_path / "does_not_exist") == set()
+
+
 def test_resolve_active_version_returns_default_when_never_confirmed(tmp_path):
     assert bt.resolve_active_version("risk_aversion_params", 1, tmp_path, param_key="lambda_value") == 1
 
@@ -2000,6 +2033,61 @@ def test_season_cumulative_metrics_empty_trajectory_returns_safe_defaults():
 
 
 # ============================================================
+# refit_lambda / report_concentration_sensitivity -- vice-captain threading (2026-09 fix,
+# docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md). Both used to call
+# _realized_xi_points() without the real vice-captain fallback (171dc5c) squad_optimizer.
+# solve() has always returned via its own "vice" key -- so lambda/concentration-cap
+# recalibration was still being scored on stale, no-fallback numbers after the fix landed
+# everywhere else. Spy-based (no real MIQP solve needed): only the wiring is under test here.
+# ============================================================
+
+def test_refit_lambda_threads_the_real_vice_captain_into_realized_xi_points(con, monkeypatch):
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_candidate_pool", lambda *a, **k: [{"player_uid": f"p{i}"} for i in range(15)])
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_sigma_pairs", lambda *a, **k: {})
+    monkeypatch.setattr(
+        bt.squad_optimizer, "solve",
+        lambda *a, **k: {"xi": frozenset({"p1"}), "captain": "p1", "vice": "p2"},
+    )
+    seen_vice_uids = []
+
+    def fake_realized_xi_points(con_arg, season, gw, xi_uids, captain_uid, vice_captain_uid=None, **k):
+        seen_vice_uids.append(vice_captain_uid)
+        return 10.0
+
+    monkeypatch.setattr(bt, "_realized_xi_points", fake_realized_xi_points)
+
+    eval_steps = [("2025-2026", 2), ("2025-2026", 3)]
+    ep_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    un_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    bt.refit_lambda(con, eval_steps, ep_by_step, un_by_step, guardrail_cap=3.0, lambda_grid=(0.15,))
+
+    assert seen_vice_uids == ["p2", "p2"]  # once per eval_step, real vice every time
+
+
+def test_report_concentration_sensitivity_threads_the_real_vice_captain_into_realized_xi_points(con, monkeypatch):
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_candidate_pool", lambda *a, **k: [{"player_uid": f"p{i}"} for i in range(15)])
+    monkeypatch.setattr(bt.squad_optimizer, "fetch_sigma_pairs", lambda *a, **k: {})
+    monkeypatch.setattr(
+        bt.squad_optimizer, "solve",
+        lambda *a, **k: {"xi": frozenset({"p1"}), "captain": "p1", "vice": "p2"},
+    )
+    seen_vice_uids = []
+
+    def fake_realized_xi_points(con_arg, season, gw, xi_uids, captain_uid, vice_captain_uid=None, **k):
+        seen_vice_uids.append(vice_captain_uid)
+        return 10.0
+
+    monkeypatch.setattr(bt, "_realized_xi_points", fake_realized_xi_points)
+
+    eval_steps = [("2025-2026", 2), ("2025-2026", 3)]
+    ep_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    un_by_step = {("2025-2026", 2): 1, ("2025-2026", 3): 1}
+    bt.report_concentration_sensitivity(con, eval_steps, ep_by_step, un_by_step, lambda_value=0.15, cap_grid=(3,))
+
+    assert seen_vice_uids == ["p2", "p2"]
+
+
+# ============================================================
 # run_season_simulation -- a real, evolving M8 manager, not a fresh M5 solve every step.
 #
 # Full end-to-end (real team_strength.calibrate() -> minutes_model.run() -> ep.run() ->
@@ -2138,6 +2226,62 @@ _SEASON_SIM_VERSIONS = dict(
     horizon_params_version=1, transfer_cost_params_version=1,
     wildcard_threshold_params_version=1, free_hit_threshold_params_version=1, kappa_tc_params_version=1,
 )
+
+
+# ============================================================
+# 2026-09-15 fix: current_season_role_params_version wiring -- backtest.run()/run_gameweek_
+# step()'s own passthrough to minutes_model.run()'s new opt-in param (see its docstring for
+# the real incident this closes). Spy-based, same convention as this file's other wiring
+# tests: confirms the ARGUMENT lands on the right call, not the underlying minutes_model
+# mechanism (already covered directly in tests/test_minutes_model.py).
+# ============================================================
+
+def test_run_gameweek_step_threads_current_season_role_params_version(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.minutes_model.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.minutes_model, "run", _spy)
+    bt.minutes_model.seed_current_season_role_params(con)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+        current_season_role_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["current_season_role_params_version"] == 1
+
+
+def test_run_gameweek_step_defaults_current_season_role_params_version_to_none(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.minutes_model.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.minutes_model, "run", _spy)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["current_season_role_params_version"] is None
 
 
 def test_run_season_simulation_walks_forward_with_real_decisions(con):
@@ -2539,6 +2683,77 @@ def test_decide_gameweek_action_timing_gate_is_skipped_for_set2_gameweeks(con):
     )
     rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0)
     assert chip == "wildcard"  # would be held under set-1 rules, but set-2 ignores timing
+
+
+# ============================================================
+# CHIP_TIMING_FIELD_SEASON -- 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_
+# diagnosis.md, Workstream B's "fuller ask"): a wider, purpose-built window on top of the
+# narrow CHIP_TIMING_FIELD check above, opt-in via transfer_planner.run()'s new
+# triple_captain_timing_params_version/bench_boost_timing_params_version.
+# ============================================================
+
+def test_decide_gameweek_action_bench_boost_season_timing_holds_when_a_later_week_in_the_wider_window_is_better(con):
+    # gw3 is already the best week WITHIN the narrow visible window (all_gameweeks), so the
+    # existing CHIP_TIMING_FIELD check alone would play it -- but the wider season_all_gameweeks
+    # window (which the narrow one can't see) has gw8 scoring much higher. The season check
+    # must be the one that holds it.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {
+            "all_gameweeks": {3: 20.0, 4: 5.0},
+            "season_all_gameweeks": {3: 20.0, 4: 5.0, 8: 50.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw8 looks better within the wider window -- hold
+
+
+def test_decide_gameweek_action_triple_captain_season_timing_holds_when_a_later_week_in_the_wider_window_is_better(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=3,
+        detail_by_chip={"triple_captain": {
+            "captain_value_per_gw": {3: 12.0, 4: 4.0},
+            "season_captain_value_per_gw": {3: 12.0, 4: 4.0, 9: 30.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw9 looks better within the wider window -- hold
+
+
+def test_decide_gameweek_action_season_timing_plays_when_current_week_is_still_the_wider_windows_best(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {
+            "all_gameweeks": {3: 20.0, 4: 5.0},
+            "season_all_gameweeks": {3: 20.0, 4: 5.0, 8: 9.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "bench_boost"  # gw3 is still the best in the wider window too -- play now
+
+
+def test_decide_gameweek_action_season_timing_absent_field_defers_to_true(con):
+    # A caller that never opted into triple_captain_timing_params_version/
+    # bench_boost_timing_params_version attaches no season_* field at all -- must behave
+    # exactly as before this fix (no behavior change for an un-opted-in caller).
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {"all_gameweeks": {3: 20.0, 4: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "bench_boost"
+
+
+def test_decide_gameweek_action_season_timing_gate_is_skipped_for_set2_gameweeks(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=25,
+        detail_by_chip={"triple_captain": {
+            "captain_value_per_gw": {25: 12.0},
+            "season_captain_value_per_gw": {25: 12.0, 30: 40.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0)
+    assert chip == "triple_captain"  # would be held under set-1 rules, but set-2 ignores timing
 
 
 # ============================================================

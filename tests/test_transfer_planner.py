@@ -21,6 +21,10 @@ def test_seed_v1_params_matches_verified_and_spec_pinned_values(con):
     assert cost == 4  # verified via live web search this session, not assumed from convention
     kappa, _ = params.resolve_param(con, "tc_risk_aversion_params", "kappa_tc", 1)
     assert kappa == pytest.approx(0.15)
+    tc_threshold, _ = params.resolve_param(con, "triple_captain_gain_threshold_params", "min_tc_score", 1)
+    assert tc_threshold == pytest.approx(0.1)
+    bb_threshold, _ = params.resolve_param(con, "bench_boost_gain_threshold_params", "min_bench_ep_sum", 1)
+    assert bb_threshold == pytest.approx(0.5)
 
 
 # ============================================================
@@ -1649,6 +1653,72 @@ def test_evaluate_triple_captain_captain_value_per_gw_defaults_empty_without_hor
     assert result["captain_value_per_gw"] == {}
 
 
+def test_evaluate_triple_captain_without_threshold_param_is_unconditional(con):
+    # Exact prior behavior when threshold_params_version is omitted (the default, None).
+    tp.seed_v1_params(con)
+    model_version = _seed_mc_run_and_summary(con, [("p1", 0.01, 0.0)])  # a near-zero tc_score
+    result = tp.evaluate_triple_captain(con, model_version, xi_uids={"p1"}, kappa_tc_params_version=1)
+    assert result["recommended"] is True
+
+
+def test_evaluate_triple_captain_threshold_blocks_a_below_bar_candidate(con):
+    # 2026-09 fix regression test (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md):
+    # the real bug this closes -- evaluate_triple_captain() used to recommend firing the chip
+    # no matter how weak the best candidate's own risk-adjusted score was.
+    tp.seed_v1_params(con)
+    model_version = _seed_mc_run_and_summary(con, [("p1", 0.01, 0.0)])  # tc_score 0.01 < v1's 0.1 floor
+    result = tp.evaluate_triple_captain(
+        con, model_version, xi_uids={"p1"}, kappa_tc_params_version=1, threshold_params_version=1,
+    )
+    assert result["recommended"] is False
+    assert "does not clear" in result["reason"]
+    # informational fields survive being held, so a caller can still see what would have fired
+    assert result["captain_candidate"] == "p1"
+    assert result["tc_score"] == pytest.approx(0.01)
+
+
+def test_evaluate_triple_captain_threshold_allows_a_strong_candidate(con):
+    tp.seed_v1_params(con)
+    model_version = _seed_mc_run_and_summary(con, [("p1", 10.0, 4.0)])  # tc_score 9.7 clears the 0.1 floor
+    result = tp.evaluate_triple_captain(
+        con, model_version, xi_uids={"p1"}, kappa_tc_params_version=1, threshold_params_version=1,
+    )
+    assert result["recommended"] is True
+    assert "reason" not in result
+
+
+def test_evaluate_triple_captain_season_captain_value_per_gw_reads_the_winning_candidates_own_trajectory(con):
+    # 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B's
+    # "fuller ask"): same "read the winner's own data, never the runner-up's" convention as
+    # captain_value_per_gw itself, just over the wider season_horizon_ep_map.
+    tp.seed_v1_params(con)
+    for uid in ("high_mean_high_var", "mod_mean_low_var"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    model_version = _seed_mc_run_and_summary(con, [
+        ("high_mean_high_var", 10.0, 25.0),
+        ("mod_mean_low_var", 8.0, 4.0),
+    ])
+    season_horizon_ep_map = {
+        "high_mean_high_var": {"per_gw": {2: 9.0, 3: 4.0, 9: 40.0}},
+        "mod_mean_low_var": {"per_gw": {2: 1.0, 3: 20.0, 9: 1.0}},
+    }
+    result = tp.evaluate_triple_captain(
+        con, model_version, xi_uids={"high_mean_high_var", "mod_mean_low_var"}, kappa_tc_params_version=1,
+        season_horizon_ep_map=season_horizon_ep_map,
+    )
+    assert result["captain_candidate"] == "high_mean_high_var"
+    assert result["season_captain_value_per_gw"] == {2: 9.0, 3: 4.0, 9: 40.0}  # NOT mod_mean_low_var's trajectory
+
+
+def test_evaluate_triple_captain_season_captain_value_per_gw_absent_without_season_horizon_ep_map(con):
+    # Opt-in, same convention as threshold_params_version -- omitting season_horizon_ep_map
+    # (the default, None) must not add the field at all, not add it as {}/empty.
+    tp.seed_v1_params(con)
+    model_version = _seed_mc_run_and_summary(con, [("p1", 10.0, 4.0)])
+    result = tp.evaluate_triple_captain(con, model_version, xi_uids={"p1"}, kappa_tc_params_version=1)
+    assert "season_captain_value_per_gw" not in result
+
+
 # ============================================================
 # vice_captain_fallback_adjustment -- real gap fixed: nowhere in this project (squad_optimizer's
 # MIQP objective, monte_carlo.py, evaluate_triple_captain()) ever credited a captain choice with
@@ -1786,6 +1856,66 @@ def test_run_leaves_vice_fallback_fields_none_when_no_correction_is_computable(c
     assert tc_result["vice_fallback_adjusted_candidates"] is None
 
 
+def test_run_threads_the_new_chip_thresholds_through_to_both_evaluators(con, monkeypatch):
+    # 2026-09 fix wiring guard (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md):
+    # run()'s own triple_captain_threshold_params_version/bench_boost_threshold_params_version
+    # keyword args must reach evaluate_triple_captain()/evaluate_bench_boost() as their
+    # threshold_params_version -- the exact threading gap
+    # docs/plans/2026-09_ep_attacker_defender_imbalance.md warns silently made an earlier
+    # recalibration inert.
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    monkeypatch.setattr(tp, "ensure_squad_simulation", lambda *a, **k: 999)
+
+    seen_tc_kwargs, seen_bb_kwargs = {}, {}
+
+    def fake_tc(*a, **k):
+        seen_tc_kwargs.update(k)
+        return {"recommended": False, "reason": "test stub"}
+
+    def fake_bb(*a, **k):
+        seen_bb_kwargs.update(k)
+        return {"recommended": False, "reason": "test stub"}
+
+    monkeypatch.setattr(tp, "evaluate_triple_captain", fake_tc)
+    monkeypatch.setattr(tp, "evaluate_bench_boost", fake_bb)
+
+    tp.run(
+        con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        triple_captain_threshold_params_version=7, bench_boost_threshold_params_version=9,
+    )
+
+    assert seen_tc_kwargs["threshold_params_version"] == 7
+    assert seen_bb_kwargs["threshold_params_version"] == 9
+
+
+def test_run_omitting_the_new_chip_thresholds_passes_none_through(con, monkeypatch):
+    # Backward compatibility: a caller that doesn't pass the new kwargs (every existing caller
+    # except forward_season_sim.py / run_transfer_planner_for_real_squad.py, which now
+    # explicitly opt in) gets exactly the old, unconditional behavior.
+    state_version, ts_mv, mm_mv, horizon_ep_versions = _seed_run_ready_state(con)
+    monkeypatch.setattr(tp, "compute_horizon_ep", lambda *a, **k: horizon_ep_versions)
+    monkeypatch.setattr(tp, "ensure_squad_simulation", lambda *a, **k: 999)
+
+    seen_tc_kwargs, seen_bb_kwargs = {}, {}
+
+    def fake_tc(*a, **k):
+        seen_tc_kwargs.update(k)
+        return {"recommended": False, "reason": "test stub"}
+
+    def fake_bb(*a, **k):
+        seen_bb_kwargs.update(k)
+        return {"recommended": False, "reason": "test stub"}
+
+    monkeypatch.setattr(tp, "evaluate_triple_captain", fake_tc)
+    monkeypatch.setattr(tp, "evaluate_bench_boost", fake_bb)
+
+    tp.run(con, date(2026, 8, 24), "2026-2027", 2, state_version, ts_mv, mm_mv, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+
+    assert seen_tc_kwargs["threshold_params_version"] is None
+    assert seen_bb_kwargs["threshold_params_version"] is None
+
+
 # ============================================================
 # evaluate_bench_boost
 # ============================================================
@@ -1837,6 +1967,141 @@ def test_evaluate_bench_boost_picks_gameweek_with_highest_bench_ep(con):
 def test_evaluate_bench_boost_no_bench_players(con):
     result = tp.evaluate_bench_boost(con, {2: (1, 1)}, squad_uids={"p1"}, xi_uids={"p1"})
     assert result["recommended"] is False
+
+
+def _seed_single_gw_bench_ep(con, ep_val):
+    """Minimal single-gameweek variant of the fixture chain
+    test_evaluate_bench_boost_picks_gameweek_with_highest_bench_ep already builds -- one bench
+    player, one ep_outputs row, so evaluate_bench_boost()'s real query path (not the trivial
+    no-bench-players early return) actually runs. Returns the ep_model_version."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('bench1', 'B1', 'Defender')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+        "competition, kickoff_time, _ingested_at) VALUES ('m2', '2026-2027', 2, 'team_a', 'team_b', FALSE, "
+        "'Premier League', '2026-08-24', current_timestamp)"
+    )
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+        "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+        "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'bench1', 'm2', 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+        [ep_mv, ep_val],
+    )
+    return ep_mv
+
+
+def test_evaluate_bench_boost_without_threshold_param_is_unconditional(con):
+    # Exact prior behavior when threshold_params_version is omitted (the default, None).
+    tp.seed_v1_params(con)
+    ep_mv = _seed_single_gw_bench_ep(con, 0.05)  # a near-zero bench_ep_sum
+    result = tp.evaluate_bench_boost(con, {2: (ep_mv, 0)}, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"})
+    assert result["recommended"] is True
+
+
+def test_evaluate_bench_boost_threshold_blocks_a_below_bar_bench(con):
+    # 2026-09 fix regression test (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md):
+    # the real bug this closes -- evaluate_bench_boost() used to recommend firing the chip no
+    # matter how little the bench would actually score.
+    tp.seed_v1_params(con)
+    ep_mv = _seed_single_gw_bench_ep(con, 0.05)  # bench_ep_sum 0.05 < v1's 0.5 floor
+    result = tp.evaluate_bench_boost(
+        con, {2: (ep_mv, 0)}, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"}, threshold_params_version=1,
+    )
+    assert result["recommended"] is False
+    assert "does not clear" in result["reason"]
+    # informational fields survive being held
+    assert result["bench_ep_sum"] == pytest.approx(0.05)
+    assert result["target_gameweek"] == 2
+
+
+def test_evaluate_bench_boost_threshold_allows_a_strong_bench(con):
+    tp.seed_v1_params(con)
+    ep_mv = _seed_single_gw_bench_ep(con, 7.0)  # bench_ep_sum 7.0 clears the 0.5 floor
+    result = tp.evaluate_bench_boost(
+        con, {2: (ep_mv, 0)}, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"}, threshold_params_version=1,
+    )
+    assert result["recommended"] is True
+    assert "reason" not in result
+
+
+def _seed_bench_ep_multi_gw(con, ep_by_gw: dict[int, float]) -> dict[int, int]:
+    """Like _seed_single_gw_bench_ep, but seeds one bench1 ep_outputs row per (gw, ep_val) pair
+    in ep_by_gw. Returns {gw: ep_model_version}."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('bench1', 'B1', 'Defender')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv_by_gw = {}
+    for gw, ep_val in ep_by_gw.items():
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, '2026-2027', ?, 'team_a', 'team_b', FALSE, "
+            "'Premier League', '2026-08-24', current_timestamp)", [f"m{gw}", gw],
+        )
+        con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+        )
+        ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'bench1', ?, 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, f"m{gw}", ep_val],
+        )
+        ep_mv_by_gw[gw] = ep_mv
+    return ep_mv_by_gw
+
+
+def test_evaluate_bench_boost_season_all_gameweeks_reads_the_wider_window(con):
+    # 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B's
+    # "fuller ask"): the narrow horizon_ep_versions window (gw2-3) alone would say gw3 is best,
+    # but season_horizon_ep_versions (a wider, purpose-built window run() builds separately)
+    # sees a much stronger gw9 that the narrow window can't.
+    ep_mv_by_gw = _seed_bench_ep_multi_gw(con, {2: 3.0, 3: 7.0, 9: 50.0})
+    narrow = {2: (ep_mv_by_gw[2], 0), 3: (ep_mv_by_gw[3], 0)}
+    wide = {2: (ep_mv_by_gw[2], 0), 3: (ep_mv_by_gw[3], 0), 9: (ep_mv_by_gw[9], 0)}
+    result = tp.evaluate_bench_boost(
+        con, narrow, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"}, season_horizon_ep_versions=wide,
+    )
+    assert result["target_gameweek"] == 3            # narrow-window pick, unaffected
+    assert result["all_gameweeks"] == {2: 3.0, 3: 7.0}
+    assert result["season_all_gameweeks"] == {2: 3.0, 3: 7.0, 9: 50.0}
+
+
+def test_evaluate_bench_boost_season_all_gameweeks_absent_without_season_horizon_ep_versions(con):
+    ep_mv = _seed_single_gw_bench_ep(con, 7.0)
+    result = tp.evaluate_bench_boost(con, {2: (ep_mv, 0)}, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"})
+    assert "season_all_gameweeks" not in result
 
 
 # ============================================================
