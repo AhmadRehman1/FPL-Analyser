@@ -1,0 +1,150 @@
+name: squad_optimizer solve-time wiring sensitivity study
+
+# The walk-forward comparison the 2026-09 deferred-work brief requires before merging
+# backtest.py's new solve_ownership_params_version/solve_risk_posture_params_version/
+# solve_field_covariance_params_version/solve_bench_quality_params_version/
+# solve_concentration_risk_params_version (see backtest.run_gameweek_step()'s/run()'s own
+# docstrings): "must not be merged without a real walk-forward comparison showing it doesn't
+# regress the headline beats_crowd_points_delta metric."
+#
+# Two fixed arms ("off" = current production behavior; "on" = wires the four families in at
+# their un-recalibrated v1 defaults), each a full M7 walk-forward (backtest.run(), same
+# mechanism + cost class as scripts/run_walkforward.py already uses to provision the ML
+# experiment -- ~1-2h per arm per that script's own comment, cheaper than the lambda/chip-timing
+# studies' full evolving-manager season sims).
+#
+# Commits data/squad_optimizer_wiring_study/ (SUMMARY.md + the machine-readable json).
+# Activates NOTHING: both arms are read-only backtest.run() calls.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: squad-optimizer-wiring-sensitivity
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      db_cache_key: squad-opt-wiring-study-db-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      # Same reasoning as lambda_sensitivity.yml's/chip_timing_sensitivity.yml's prepare jobs.
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size; size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6)
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Save one shared DB cache for both arms
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: squad-opt-wiring-study-db-${{ github.run_id }}
+
+  sweep:
+    needs: prepare
+    runs-on: ubuntu-latest
+    # A full M7 walk-forward is ~1-2h per scripts/run_walkforward.py's own estimate; 180
+    # leaves real margin. An arm that times out or crashes just drops -- aggregate still
+    # reports from what landed (and says so).
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [off, on]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: ${{ needs.prepare.outputs.db_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Run arm ${{ matrix.arm }}
+        env:
+          SOWS_ARM: ${{ matrix.arm }}
+          SOWS_OUT: data/squad_optimizer_wiring_study/arms/${{ matrix.arm }}.json
+        run: PYTHONPATH=src python scripts/run_squad_optimizer_wiring_sensitivity_arm.py
+
+      - name: Upload this arm's artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: squad-opt-wiring-arm-${{ matrix.arm }}
+          path: data/squad_optimizer_wiring_study/arms/${{ matrix.arm }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    needs: [prepare, sweep]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Download every arm
+        uses: actions/download-artifact@v8
+        with:
+          pattern: squad-opt-wiring-arm-*
+          path: _arms
+          merge-multiple: true
+
+      - name: Collect arm artifacts
+        run: |
+          mkdir -p data/squad_optimizer_wiring_study/arms
+          find _arms -name '*.json' -exec cp {} data/squad_optimizer_wiring_study/arms/ \;
+          echo "collected $(ls data/squad_optimizer_wiring_study/arms | wc -l) arm files"
+
+      - name: Aggregate into the study report
+        run: PYTHONPATH=src python scripts/aggregate_squad_optimizer_wiring_sensitivity.py
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f data/squad_optimizer_wiring_study/SUMMARY.md ]; then
+            cat data/squad_optimizer_wiring_study/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No SUMMARY.md produced -- see the aggregate step log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit the study
+        run: |
+          bash scripts/ci_commit_generated.sh \
+            "chore: squad_optimizer solve-time wiring sensitivity study [skip ci]" \
+            data/squad_optimizer_wiring_study/SUMMARY.md data/squad_optimizer_wiring_study/squad_optimizer_wiring_study_latest.json \
+            data/squad_optimizer_wiring_study/arms
