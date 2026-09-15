@@ -260,6 +260,11 @@ def run_gameweek_step(
     n_antithetic_pairs: int = 2000,
     run_monte_carlo: bool = True,
     set_piece_params_version: int | None = 1,
+    ownership_params_version: int | None = None,
+    risk_posture_params_version: int | None = None,
+    field_covariance_params_version: int | None = None,
+    bench_quality_params_version: int | None = None,
+    concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
@@ -275,6 +280,21 @@ def run_gameweek_step(
       genuinely early-season gameweeks where too few ep_outputs rows exist yet to fill a squad,
       not a bug -- recorded as a skipped optimizer stage (divergence_check_passed stays NULL,
       distinct from an explicit False).
+
+    ownership_params_version/risk_posture_params_version/field_covariance_params_version/
+    bench_quality_params_version/concentration_risk_params_version (2026-09-14 fix, opt-in --
+    None for all five is the exact prior behavior): squad_optimizer.run()'s own five Priority
+    1/2 terms (EO-weighted posture, field-covariance, bench-quality floor, concentration risk)
+    were never passed at this call site at all -- a repo-wide grep confirmed zero production
+    caller ever activated them for the walk-forward's own solve, only for live reporting
+    (reporting.build_report()'s SAME-NAMED-BUT-DIFFERENT ownership_params_version/
+    bench_quality_params_version feed post-hoc EO/bench sections, not the solve objective; see
+    run()'s own ownership_params_version, which stays that separate reporting-only param --
+    deliberately NOT reused here to avoid conflating the two). Passing real versions here
+    changes which squad EVERY walk-forward step picks -- a real behavioral change to every
+    backtest metric's comparability, not a wiring-only fix, so this stays opt-in until a real
+    walk-forward re-run shows it doesn't regress beats_crowd_points_delta (see
+    scripts/run_squad_optimizer_wiring_sensitivity_arm.py).
 
     current_season_role_params_version (2026-09-15 fix, opt-in -- None is the exact prior
     behavior): threaded straight through to minutes_model.run()'s own same-named param -- see
@@ -315,6 +335,11 @@ def run_gameweek_step(
             so_run_id = squad_optimizer.run(
                 con, calibration_asof_date, season, gameweek, ep_model_version, un_model_version,
                 lambda_params_version, guardrail_params_version,
+                ownership_params_version=ownership_params_version,
+                risk_posture_params_version=risk_posture_params_version,
+                field_covariance_params_version=field_covariance_params_version,
+                bench_quality_params_version=bench_quality_params_version,
+                concentration_risk_params_version=concentration_risk_params_version,
             )
             divergence_passed = True
         except squad_optimizer.DivergenceCheckFailedError:
@@ -902,6 +927,11 @@ def run(
     compute_segments: bool = False,
     set_piece_params_version: int | None = 1,  # matches ep.run()'s new default; passed to BOTH the prediction step and score_gameweek's segment metrics
     ownership_params_version: int | None = None,
+    solve_ownership_params_version: int | None = None,
+    solve_risk_posture_params_version: int | None = None,
+    solve_field_covariance_params_version: int | None = None,
+    solve_bench_quality_params_version: int | None = None,
+    solve_concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
@@ -914,6 +944,14 @@ def run(
     compute_segments/set_piece_params_version/ownership_params_version: Priority 9b/9c
     opt-in, passed straight through to score_gameweek() -- see its own docstring. Default off,
     same backward-compatible convention as every other opt-in feature in this project.
+
+    solve_ownership_params_version/solve_risk_posture_params_version/
+    solve_field_covariance_params_version/solve_bench_quality_params_version/
+    solve_concentration_risk_params_version (2026-09-14 fix, opt-in, `solve_`-prefixed
+    deliberately -- this function's own ownership_params_version above already means something
+    different, score_gameweek()'s post-hoc EO reporting, not the solve objective): threaded
+    straight through to run_gameweek_step()'s same-named (unprefixed) params -- see its
+    docstring. None for all five (the default) is the exact prior behavior.
 
     current_season_role_params_version (2026-09-15 fix, opt-in): threaded straight through to
     run_gameweek_step()'s own same-named param -- see its docstring, and minutes_model.run()'s
@@ -941,6 +979,11 @@ def run(
             lambda_params_version=lambda_params_version, guardrail_params_version=guardrail_params_version,
             n_antithetic_pairs=n_antithetic_pairs, run_monte_carlo=run_monte_carlo,
             set_piece_params_version=set_piece_params_version,
+            ownership_params_version=solve_ownership_params_version,
+            risk_posture_params_version=solve_risk_posture_params_version,
+            field_covariance_params_version=solve_field_covariance_params_version,
+            bench_quality_params_version=solve_bench_quality_params_version,
+            concentration_risk_params_version=solve_concentration_risk_params_version,
             current_season_role_params_version=current_season_role_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
@@ -1114,6 +1157,11 @@ def run_season_simulation(
     kappa_tc_params_version: int,
     accept_transfer_if_net_value_above: float = 0.0,
     n_antithetic_pairs: int = 2000,
+    ownership_params_version: int | None = None,
+    risk_posture_params_version: int | None = None,
+    field_covariance_params_version: int | None = None,
+    bench_quality_params_version: int | None = None,
+    concentration_risk_params_version: int | None = None,
     triple_captain_threshold_params_version: int | None = None,
     bench_boost_threshold_params_version: int | None = None,
     triple_captain_timing_params_version: int | None = None,
@@ -1147,6 +1195,23 @@ def run_season_simulation(
     "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...]}
     -- actions is the real per-gameweek decision log, for auditing what the simulated manager
     actually did, not just the final score.
+
+    ownership_params_version/risk_posture_params_version/field_covariance_params_version/
+    bench_quality_params_version/concentration_risk_params_version (2026-09-14 fix, opt-in --
+    None for all five is the exact prior behavior): threaded straight through to the ONE
+    squad_optimizer.run() call this function makes -- the bootstrap solve at start_gameweek.
+    Real gap this closes: a repo-wide grep confirmed no production caller ever activated
+    squad_optimizer.run()'s own Priority 1/2 terms (EO-weighted posture, field-covariance,
+    bench-quality floor, concentration risk) for this walk, only for live reporting (a
+    same-named but different pair of params on reporting.build_report()). Only affects the
+    STARTING squad this evolving-manager walk bootstraps from -- every subsequent gameweek's
+    squad still evolves via transfer_planner.run()'s own solve-free transfer/chip logic (a
+    Wildcard week's own fresh squad_optimizer.run() call, in evaluate_wildcard(), is a
+    SEPARATE, still-unwired call site -- out of scope for this fix, named not silently
+    extended). A real behavioral change to which squad the walk starts from, not a wiring-only
+    fix, so this stays opt-in until a real walk-forward re-run shows it doesn't regress the
+    headline beats_crowd_points_delta metric (see
+    scripts/run_squad_optimizer_wiring_sensitivity_arm.py).
 
     triple_captain_threshold_params_version/bench_boost_threshold_params_version (2026-09-14
     fix -- real gap closed here): forward_season_sim.py's real-squad walk (and model_team.py's
@@ -1193,6 +1258,11 @@ def run_season_simulation(
         bootstrap_run_id = squad_optimizer.run(
             con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,
             lambda_params_version, guardrail_params_version,
+            ownership_params_version=ownership_params_version,
+            risk_posture_params_version=risk_posture_params_version,
+            field_covariance_params_version=field_covariance_params_version,
+            bench_quality_params_version=bench_quality_params_version,
+            concentration_risk_params_version=concentration_risk_params_version,
         )
         # Real look-ahead leak, fixed here: bootstrap_from_squad_optimizer_run() -> its own
         # _compute_bank_for_squad() prices each held player via `ORDER BY gw DESC` with no

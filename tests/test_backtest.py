@@ -2316,6 +2316,120 @@ def test_run_season_simulation_raises_on_unfittable_start_gameweek(con):
 
 
 # ============================================================
+# 2026-09-14 fix: squad_optimizer.run()'s own Priority 1/2 terms (EO-weighted posture,
+# field-covariance, bench-quality floor, concentration risk) were never passed at either of
+# this module's two squad_optimizer.run() call sites -- docs/reports/2026-09_chip_policy_and_
+# scoring_diagnosis.md, Workstream C's recalibration-wiring gap. Opt-in, None by default; these
+# tests tie the fix directly to the real call sites (spy on squad_optimizer.run, same monkeypatch
+# convention as test_run_season_simulation_calls_compute_bank_only_while_the_asof_shadow_is_
+# active above), not just squad_optimizer.run()'s own already-tested param handling.
+# ============================================================
+
+def test_run_season_simulation_threads_the_five_solve_params_to_its_bootstrap_call(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.squad_optimizer.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.squad_optimizer, "run", _spy)
+    bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=2, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS,
+        bench_quality_params_version=1, concentration_risk_params_version=1,
+    )
+
+    assert seen_kwargs  # the bootstrap call fired
+    assert seen_kwargs[0]["bench_quality_params_version"] == 1
+    assert seen_kwargs[0]["concentration_risk_params_version"] == 1
+    # ownership/risk_posture/field_covariance weren't opted into by this call -- must still
+    # default to None, not silently activate alongside the two that were passed.
+    assert seen_kwargs[0]["ownership_params_version"] is None
+    assert seen_kwargs[0]["risk_posture_params_version"] is None
+    assert seen_kwargs[0]["field_covariance_params_version"] is None
+
+
+def test_run_season_simulation_defaults_the_five_solve_params_to_none(con, monkeypatch):
+    """Opt-in, same convention as every other 2026-09 fix -- omitting the new kwargs entirely
+    (exactly what every existing caller of run_season_simulation() does today) must reproduce
+    the exact prior behavior: squad_optimizer.run() sees None for all five."""
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.squad_optimizer.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.squad_optimizer, "run", _spy)
+    bt.run_season_simulation(con, "2025-2026", start_gameweek=2, end_gameweek=2, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS)
+
+    assert seen_kwargs
+    for key in (
+        "ownership_params_version", "risk_posture_params_version", "field_covariance_params_version",
+        "bench_quality_params_version", "concentration_risk_params_version",
+    ):
+        assert seen_kwargs[0][key] is None
+
+
+def test_run_gameweek_step_threads_the_five_solve_params_through(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.squad_optimizer.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.squad_optimizer, "run", _spy)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+        risk_posture_params_version=1, ownership_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["ownership_params_version"] == 1
+    assert seen_kwargs[0]["risk_posture_params_version"] == 1
+    assert seen_kwargs[0]["bench_quality_params_version"] is None  # not opted into by this call
+
+
+def test_run_threads_solve_prefixed_params_to_run_gameweek_step_unprefixed_params(con, monkeypatch):
+    """run()'s own top-level ownership_params_version already means something else
+    (score_gameweek()'s post-hoc EO reporting) -- the new solve_ownership_params_version etc.
+    must land on run_gameweek_step()'s UNPREFIXED same-named param, not collide with it."""
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.run_gameweek_step
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt, "run_gameweek_step", _spy)
+    run_kwargs = {
+        k: v for k, v in _SEASON_SIM_VERSIONS.items()
+        if k not in ("horizon_params_version", "transfer_cost_params_version", "wildcard_threshold_params_version",
+                     "free_hit_threshold_params_version", "kappa_tc_params_version")
+    }
+    bt.run(
+        con, n_antithetic_pairs=200, **run_kwargs,
+        solve_bench_quality_params_version=1, solve_concentration_risk_params_version=1,
+    )
+
+    assert seen_kwargs  # at least one (season, gameweek) step was fittable and ran
+    for kw in seen_kwargs:
+        assert kw["bench_quality_params_version"] == 1
+        assert kw["concentration_risk_params_version"] == 1
+        assert kw["ownership_params_version"] is None  # solve_ownership_params_version not opted into here
+
+
+# ============================================================
 # bank-tracking look-ahead: _compute_bank_for_squad()'s `ORDER BY gw DESC` price lookup has no
 # ceiling of its own -- correct for a real live run (no future gameweeks exist to leak from),
 # a real leak inside run_season_simulation() unless the call composes with asof_scope()'s own
