@@ -589,3 +589,238 @@ def test_role_change_flag_does_not_alter_the_logit_adjustment_or_its_clip(con):
         con, "p1", 0.5, _ASOF, adjustment_params_version=2, decay_params_version=1, fact_multiplier_params_version=1,
     )
     assert adj_capped == pytest.approx(6.0)
+
+
+# ============================================================
+# 2026-09-15 fix: a real, live goalkeeper who started every match this season (4/4) projected
+# p_start_final=0.13 because target_season's own already-played matches never entered
+# p_start_historical_own's computation at all -- only complete PRIOR seasons did. Two pieces:
+# lookback_seasons' new default (provably backtest-neutral, see run()'s own docstring) and the
+# opt-in current_season_role_params_version fast-reacting blend (a real behavior change,
+# requires its own walk-forward evidence before defaulting on).
+# ============================================================
+
+def _seed_league_with_current_season(con):
+    """Extends _seed_league(): the same 2-season A vs B league (p1 nailed, p2 never features),
+    PLUS a third, "live" season (2026-2027) with one more player, p3 -- a goalkeeper who was a
+    bench/fringe player across the two historical seasons (started only 2 of 20 team matches,
+    same shape a real backup keeper's history would have) but has started every one of his
+    team's 4 already-played 2026-2027 matches -- the real Antonín Kinský shape, generalized."""
+    _seed_league(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'Player Three', 'Goalkeeper')")
+    now = datetime.now(timezone.utc)
+    match_i = 1000
+    for season in ("2024-2025", "2025-2026"):
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES ('Player Three', 'player three', '1', ?, 'p3')", [season],
+        )
+        for i in range(20):
+            match_id = f"m{match_i}"
+            match_i += 1
+            base = datetime(2025, 1, 1) if season == "2024-2025" else datetime(2026, 1, 1)
+            kickoff = base + i * (datetime(2025, 1, 8) - datetime(2025, 1, 1))  # one week apart, real gameweeks
+            con.execute(
+                "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+                "competition, kickoff_time, _ingested_at) VALUES (?, ?, ?, 'team_a', 'team_b', TRUE, "
+                "'Premier League', ?, ?)",
+                [match_id, season, i + 1, kickoff, now],
+            )
+            started = i < 2  # bench/fringe: only 2 of 20 historical team matches started
+            con.execute(
+                "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, "
+                "finish_min, minutes_played, _ingested_at) VALUES ('p3', ?, ?, ?, ?, ?, ?)",
+                [match_id, season, 0 if started else 200, 90 if started else 0, 90 if started else 0, now],
+            )
+    # live 2026-2027 season: p3 has started every one of the 4 matches played so far.
+    _seed_raw_teams_csv(con, "2026-2027", [("1", "A"), ("2", "B")])
+    con.execute(
+        "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('A', '2026-2027', 'team_a', 't')"
+    )
+    con.execute(
+        "INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES ('B', '2026-2027', 'team_b', 't')"
+    )
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES ('Player Three', 'player three', '1', '2026-2027', 'p3')",
+    )
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES ('Player One', 'player one', '1', '2026-2027', 'p1')",
+    )
+    for i in range(4):
+        match_id = f"m2027_{i}"
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, '2026-2027', ?, 'team_a', 'team_b', TRUE, "
+            "'Premier League', ?, ?)",
+            [match_id, i + 1, datetime(2026, 8, 16) + i * (datetime(2026, 8, 23) - datetime(2026, 8, 16)), now],
+        )
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, "
+            "finish_min, minutes_played, _ingested_at) VALUES ('p3', ?, '2026-2027', 0, 90, 90, ?)",
+            [match_id, now],
+        )
+
+
+def _write_base_params(con):
+    params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+    params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
+
+
+def test_run_default_lookback_seasons_now_includes_target_season(con):
+    _seed_league_with_current_season(con)
+    _write_base_params(con)
+    # No lookback_seasons kwarg -- exercises the new default directly.
+    model_version = mm.run(
+        con, date(2026, 9, 15), "2026-2027",
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+    )
+    row = con.execute(
+        "SELECT p_start_historical_own, competitive_matches_last_2_seasons, weight_own, p_start_final "
+        "FROM minutes_model_outputs WHERE model_version = ? AND player_uid = 'p3'", [model_version],
+    ).fetchone()
+    p_start_own, competitive_matches, weight_own, p_start_final = row
+    # competitive_matches_last_2_seasons counts p3's OWN appearances (2 + 2 + 4 = 8), not team
+    # matches -- was 4 (2+2, entirely missing the 4 real current-season starts) before this fix.
+    assert competitive_matches == 8
+    # Recency-weighted own start rate must have moved UP from the pre-fix (2/40 = 0.05) shape --
+    # loose bound, not pinned to an exact float (real xi decay math), but must be a real,
+    # material shift, not noise.
+    assert p_start_own > 0.10
+
+
+def test_run_explicit_old_two_season_lookback_reproduces_prior_behavior(con):
+    """Backward-compat: a caller that still explicitly passes the OLD 2-season tuple (exactly
+    what every real caller in this codebase used to rely on via the default) must see p3's
+    4 real current-season starts contribute NOTHING -- the exact prior bug, still reproducible
+    on demand, proving this is the default that changed, not compute_player_historical_
+    components() itself."""
+    _seed_league_with_current_season(con)
+    _write_base_params(con)
+    model_version = mm.run(
+        con, date(2026, 9, 15), "2026-2027",
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+        lookback_seasons=("2024-2025", "2025-2026"),
+    )
+    competitive_matches = con.execute(
+        "SELECT competitive_matches_last_2_seasons FROM minutes_model_outputs "
+        "WHERE model_version = ? AND player_uid = 'p3'", [model_version],
+    ).fetchone()[0]
+    assert competitive_matches == 4  # only the 2+2 historical appearances -- the 4 live 2026-2027 starts are invisible
+
+
+def test_run_default_lookback_seasons_is_backtest_neutral_for_a_completed_season(con):
+    """The real safety claim: for a target_season the walk-forward actually exercises
+    (2025-2026), asof_scope()'s own fact_match shadow makes every 2026-2027 row structurally
+    invisible regardless of what's in lookback_seasons -- so this fix must produce BYTE-
+    IDENTICAL minutes_model_outputs whether or not "2026-2027" is in the tuple, wrapped in the
+    same asof_scope() every real backtest caller already uses."""
+    from fpl_quant import backtest as bt
+
+    _seed_league_with_current_season(con)
+    _write_base_params(con)
+    with bt.asof_scope(con, "2025-2026", 20):
+        mv_new_default = mm.run(
+            con, date(2026, 6, 1), "2025-2026",
+            decay_params_version=1, adjustment_params_version=1,
+            shrinkage_params_version=1, fact_multiplier_params_version=1,
+            lookback_seasons=("2024-2025", "2025-2026", "2026-2027"),
+        )
+        mv_old_default = mm.run(
+            con, date(2026, 6, 1), "2025-2026",
+            decay_params_version=1, adjustment_params_version=1,
+            shrinkage_params_version=1, fact_multiplier_params_version=1,
+            lookback_seasons=("2024-2025", "2025-2026"),
+        )
+        rows_new = con.execute(
+            "SELECT player_uid, p_start_final, competitive_matches_last_2_seasons FROM minutes_model_outputs "
+            "WHERE model_version = ? ORDER BY player_uid", [mv_new_default],
+        ).fetchall()
+        rows_old = con.execute(
+            "SELECT player_uid, p_start_final, competitive_matches_last_2_seasons FROM minutes_model_outputs "
+            "WHERE model_version = ? ORDER BY player_uid", [mv_old_default],
+        ).fetchall()
+    # approx, not exact equality: DuckDB's SUM() can accumulate in a different internal order
+    # when the season IN (...) list has an extra, zero-row-contributing entry, producing a
+    # last-bit-level float difference -- not a real behavioral difference (competitive_matches,
+    # an exact integer count, IS asserted for byte-identical equality below).
+    assert [r[0] for r in rows_new] == [r[0] for r in rows_old]
+    for (uid_n, p_n, cm_n), (uid_o, p_o, cm_o) in zip(rows_new, rows_old):
+        assert uid_n == uid_o
+        assert p_n == pytest.approx(p_o, abs=1e-9)
+        assert cm_n == cm_o
+
+
+def test_current_season_role_params_off_by_default(con):
+    _seed_league_with_current_season(con)
+    _write_base_params(con)
+    model_version = mm.run(
+        con, date(2026, 9, 15), "2026-2027",
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+    )
+    p_start_final = con.execute(
+        "SELECT p_start_final FROM minutes_model_outputs WHERE model_version = ? AND player_uid = 'p3'",
+        [model_version],
+    ).fetchone()[0]
+    # Fix A alone (no current_season_role_params_version): p3's 4 real current-season starts
+    # are visible to the multi-season blend but still heavily diluted by 40 historical
+    # matches at only ~10% own rate -- must NOT already look like a nailed starter.
+    assert p_start_final < 0.5
+
+
+def test_current_season_role_params_fixes_the_real_incident(con):
+    """The actual fix: with current_season_role_params_version opted in, a player who has
+    started every one of his team's matches so far this season (p3's real, generalized
+    Kinský shape) must project as a genuinely nailed starter, not a 13%-start-probability
+    bench option."""
+    _seed_league_with_current_season(con)
+    _write_base_params(con)
+    mm.seed_current_season_role_params(con)  # v1: current_season_matches_threshold=4
+    model_version = mm.run(
+        con, date(2026, 9, 15), "2026-2027",
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+        current_season_role_params_version=1,
+    )
+    p_start_final = con.execute(
+        "SELECT p_start_final FROM minutes_model_outputs WHERE model_version = ? AND player_uid = 'p3'",
+        [model_version],
+    ).fetchone()[0]
+    assert p_start_final > 0.85  # started 4/4 of a threshold=4 window -> current season fully dominates
+
+
+def test_current_season_role_params_does_not_affect_players_without_current_season_matches(con):
+    """p1 (the historical nailed starter) never got a 2026-2027 player_alias row seeded for
+    this specific check -- current_season_role_params_version must fall back to the exact
+    unmodified multi-season blend for anyone with no current-season data at all, same "absence
+    of coverage isn't evidence of anything" convention this module already uses elsewhere."""
+    _seed_league(con)
+    _write_base_params(con)
+    mm.seed_current_season_role_params(con)
+    mv_off = mm.run(
+        con, date(2026, 6, 1), "2025-2026",
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+        lookback_seasons=("2024-2025", "2025-2026"),
+    )
+    mv_on = mm.run(
+        con, date(2026, 6, 1), "2025-2026",
+        decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1,
+        lookback_seasons=("2024-2025", "2025-2026"), current_season_role_params_version=1,
+    )
+    p1_off = con.execute("SELECT p_start_final FROM minutes_model_outputs WHERE model_version = ? AND player_uid = 'p1'", [mv_off]).fetchone()[0]
+    p1_on = con.execute("SELECT p_start_final FROM minutes_model_outputs WHERE model_version = ? AND player_uid = 'p1'", [mv_on]).fetchone()[0]
+    assert p1_off == pytest.approx(p1_on)
+
+
+def test_seed_current_season_role_params_is_idempotent(con):
+    mm.seed_current_season_role_params(con)
+    mm.seed_current_season_role_params(con)  # must not raise on a byte-identical re-write
+    value, _ = params.resolve_param(con, "current_season_role_params", "current_season_matches_threshold", 1)
+    assert value == 4

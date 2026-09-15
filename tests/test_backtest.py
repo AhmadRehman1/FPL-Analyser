@@ -2228,6 +2228,62 @@ _SEASON_SIM_VERSIONS = dict(
 )
 
 
+# ============================================================
+# 2026-09-15 fix: current_season_role_params_version wiring -- backtest.run()/run_gameweek_
+# step()'s own passthrough to minutes_model.run()'s new opt-in param (see its docstring for
+# the real incident this closes). Spy-based, same convention as this file's other wiring
+# tests: confirms the ARGUMENT lands on the right call, not the underlying minutes_model
+# mechanism (already covered directly in tests/test_minutes_model.py).
+# ============================================================
+
+def test_run_gameweek_step_threads_current_season_role_params_version(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.minutes_model.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.minutes_model, "run", _spy)
+    bt.minutes_model.seed_current_season_role_params(con)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+        current_season_role_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["current_season_role_params_version"] == 1
+
+
+def test_run_gameweek_step_defaults_current_season_role_params_version_to_none(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.minutes_model.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.minutes_model, "run", _spy)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["current_season_role_params_version"] is None
+
+
 def test_run_season_simulation_walks_forward_with_real_decisions(con):
     _seed_season_simulation_league(con)
     result = bt.run_season_simulation(
