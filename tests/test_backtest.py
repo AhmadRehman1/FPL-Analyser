@@ -2744,6 +2744,77 @@ def test_decide_gameweek_action_timing_gate_is_skipped_for_set2_gameweeks(con):
 
 
 # ============================================================
+# CHIP_TIMING_FIELD_SEASON -- 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_
+# diagnosis.md, Workstream B's "fuller ask"): a wider, purpose-built window on top of the
+# narrow CHIP_TIMING_FIELD check above, opt-in via transfer_planner.run()'s new
+# triple_captain_timing_params_version/bench_boost_timing_params_version.
+# ============================================================
+
+def test_decide_gameweek_action_bench_boost_season_timing_holds_when_a_later_week_in_the_wider_window_is_better(con):
+    # gw3 is already the best week WITHIN the narrow visible window (all_gameweeks), so the
+    # existing CHIP_TIMING_FIELD check alone would play it -- but the wider season_all_gameweeks
+    # window (which the narrow one can't see) has gw8 scoring much higher. The season check
+    # must be the one that holds it.
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {
+            "all_gameweeks": {3: 20.0, 4: 5.0},
+            "season_all_gameweeks": {3: 20.0, 4: 5.0, 8: 50.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw8 looks better within the wider window -- hold
+
+
+def test_decide_gameweek_action_triple_captain_season_timing_holds_when_a_later_week_in_the_wider_window_is_better(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=3,
+        detail_by_chip={"triple_captain": {
+            "captain_value_per_gw": {3: 12.0, 4: 4.0},
+            "season_captain_value_per_gw": {3: 12.0, 4: 4.0, 9: 30.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip is None  # gw9 looks better within the wider window -- hold
+
+
+def test_decide_gameweek_action_season_timing_plays_when_current_week_is_still_the_wider_windows_best(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {
+            "all_gameweeks": {3: 20.0, 4: 5.0},
+            "season_all_gameweeks": {3: 20.0, 4: 5.0, 8: 9.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "bench_boost"  # gw3 is still the best in the wider window too -- play now
+
+
+def test_decide_gameweek_action_season_timing_absent_field_defers_to_true(con):
+    # A caller that never opted into triple_captain_timing_params_version/
+    # bench_boost_timing_params_version attaches no season_* field at all -- must behave
+    # exactly as before this fix (no behavior change for an un-opted-in caller).
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("bench_boost",), target_gameweek=3,
+        detail_by_chip={"bench_boost": {"all_gameweeks": {3: 20.0, 4: 5.0}}},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0)
+    assert chip == "bench_boost"
+
+
+def test_decide_gameweek_action_season_timing_gate_is_skipped_for_set2_gameweeks(con):
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=25,
+        detail_by_chip={"triple_captain": {
+            "captain_value_per_gw": {25: 12.0},
+            "season_captain_value_per_gw": {25: 12.0, 30: 40.0},
+        }},
+    )
+    rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0)
+    assert chip == "triple_captain"  # would be held under set-1 rules, but set-2 ignores timing
+
+
+# ============================================================
 # _realized_xi_points -- captain_multiplier extension (Triple Captain support)
 # ============================================================
 

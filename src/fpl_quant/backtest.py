@@ -1015,6 +1015,26 @@ CHIP_TIMING_FIELD = {
     "triple_captain": ("captain_value_per_gw", "max"),
 }
 
+# 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B's
+# "fuller ask"): CHIP_TIMING_FIELD above only ever sees whatever horizon_ep_versions window
+# run() happened to build that week (typically planning_horizon_params' ~5 gameweeks) -- real,
+# but the same narrow blind spot every chip's own greedy check already has (see
+# _is_best_gameweek_in_visible_horizon()'s own docstring). transfer_planner.run()'s new
+# triple_captain_timing_params_version/bench_boost_timing_params_version (opt-in, see its own
+# docstring) attach a WIDER, purpose-built window under these keys when a caller asks for it --
+# only for bench_boost/triple_captain, matching the scoped ask; wildcard/free_hit's own
+# rebuild-timing question is left to chip_timing_analysis.py's real full-season sweep, a
+# genuinely different (and more expensive -- per-candidate-week MIQP re-solves) mechanism.
+# Reuses _is_best_gameweek_in_visible_horizon() unchanged -- it only ever compares
+# target_gameweek's own value against a per_gw dict's extremum, indifferent to how wide that
+# dict's window is. A chip whose caller never opted in (the field absent from detail) defers
+# to True via the exact same missing-data path an absent CHIP_TIMING_FIELD entry already uses --
+# no behavior change unless a caller explicitly asks for the wider window.
+CHIP_TIMING_FIELD_SEASON = {
+    "bench_boost": ("season_all_gameweeks", "max"),
+    "triple_captain": ("season_captain_value_per_gw", "max"),
+}
+
 
 def _is_best_gameweek_in_visible_horizon(per_gw: dict, target_gameweek: int, prefer: str) -> bool:
     """A real, if myopic, "is now better than waiting" signal built entirely from the model's
@@ -1080,6 +1100,12 @@ def _decide_gameweek_action(
             per_gw = recommended[candidate].get(field, {})
             if not _is_best_gameweek_in_visible_horizon(per_gw, target_gameweek, prefer):
                 continue  # a later week within the model's currently-visible horizon looks better -- hold
+            season_field = CHIP_TIMING_FIELD_SEASON.get(candidate)
+            if season_field:
+                s_field, s_prefer = season_field
+                season_per_gw = recommended[candidate].get(s_field, {})
+                if season_per_gw and not _is_best_gameweek_in_visible_horizon(season_per_gw, target_gameweek, s_prefer):
+                    continue  # a later week within the WIDER timing window looks better -- hold
         return None, candidate
 
     top = con.execute(
@@ -1121,6 +1147,10 @@ def run_season_simulation(
     field_covariance_params_version: int | None = None,
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
+    triple_captain_threshold_params_version: int | None = None,
+    bench_boost_threshold_params_version: int | None = None,
+    triple_captain_timing_params_version: int | None = None,
+    bench_boost_timing_params_version: int | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1166,7 +1196,27 @@ def run_season_simulation(
     extended). A real behavioral change to which squad the walk starts from, not a wiring-only
     fix, so this stays opt-in until a real walk-forward re-run shows it doesn't regress the
     headline beats_crowd_points_delta metric (see
-    scripts/run_squad_optimizer_wiring_sensitivity_arm.py)."""
+    scripts/run_squad_optimizer_wiring_sensitivity_arm.py).
+
+    triple_captain_threshold_params_version/bench_boost_threshold_params_version (2026-09-14
+    fix -- real gap closed here): forward_season_sim.py's real-squad walk (and model_team.py's
+    live advance(), which reuses it) has passed these to transfer_planner.run() ever since
+    PR #173 shipped the magnitude-floor gate, but THIS function's own transfer_planner.run()
+    call never did -- so every synthetic from-scratch walk-forward (nightly backtest,
+    recalibration, this function's own docstring's "actually played" narrative) has kept
+    scoring the pre-#173, ungated triple_captain/bench_boost behavior the whole time. Both
+    None (the default) preserves that exact prior behavior -- this fix only closes the gap
+    when a caller opts in, the same convention transfer_planner.run() itself uses.
+
+    triple_captain_timing_params_version/bench_boost_timing_params_version (2026-09-14,
+    opt-in, same convention): threaded straight through to transfer_planner.run()'s own
+    same-named params -- see its docstring. None (the default) attaches no season-horizon
+    timing field, so _decide_gameweek_action()'s CHIP_TIMING_FIELD_SEASON check stays a no-op
+    and this function's behavior is unaffected either way unless a caller passes a real
+    params_version, which is how docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md's
+    "gated behind a real walk-forward comparison before going live" requirement gets tested --
+    run this function once with these two None (the current greedy approach) and once with
+    real versions, compare beats_crowd_points_delta."""
     if not has_fittable_history(con, season, start_gameweek):
         raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
@@ -1248,6 +1298,10 @@ def run_season_simulation(
                     rho_residual_params_version, corr_params_version, transfer_cost_params_version,
                     lambda_params_version, guardrail_params_version, wildcard_threshold_params_version,
                     free_hit_threshold_params_version, kappa_tc_params_version,
+                    triple_captain_threshold_params_version=triple_captain_threshold_params_version,
+                    bench_boost_threshold_params_version=bench_boost_threshold_params_version,
+                    triple_captain_timing_params_version=triple_captain_timing_params_version,
+                    bench_boost_timing_params_version=bench_boost_timing_params_version,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
