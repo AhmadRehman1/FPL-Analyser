@@ -1687,6 +1687,38 @@ def test_evaluate_triple_captain_threshold_allows_a_strong_candidate(con):
     assert "reason" not in result
 
 
+def test_evaluate_triple_captain_season_captain_value_per_gw_reads_the_winning_candidates_own_trajectory(con):
+    # 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B's
+    # "fuller ask"): same "read the winner's own data, never the runner-up's" convention as
+    # captain_value_per_gw itself, just over the wider season_horizon_ep_map.
+    tp.seed_v1_params(con)
+    for uid in ("high_mean_high_var", "mod_mean_low_var"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    model_version = _seed_mc_run_and_summary(con, [
+        ("high_mean_high_var", 10.0, 25.0),
+        ("mod_mean_low_var", 8.0, 4.0),
+    ])
+    season_horizon_ep_map = {
+        "high_mean_high_var": {"per_gw": {2: 9.0, 3: 4.0, 9: 40.0}},
+        "mod_mean_low_var": {"per_gw": {2: 1.0, 3: 20.0, 9: 1.0}},
+    }
+    result = tp.evaluate_triple_captain(
+        con, model_version, xi_uids={"high_mean_high_var", "mod_mean_low_var"}, kappa_tc_params_version=1,
+        season_horizon_ep_map=season_horizon_ep_map,
+    )
+    assert result["captain_candidate"] == "high_mean_high_var"
+    assert result["season_captain_value_per_gw"] == {2: 9.0, 3: 4.0, 9: 40.0}  # NOT mod_mean_low_var's trajectory
+
+
+def test_evaluate_triple_captain_season_captain_value_per_gw_absent_without_season_horizon_ep_map(con):
+    # Opt-in, same convention as threshold_params_version -- omitting season_horizon_ep_map
+    # (the default, None) must not add the field at all, not add it as {}/empty.
+    tp.seed_v1_params(con)
+    model_version = _seed_mc_run_and_summary(con, [("p1", 10.0, 4.0)])
+    result = tp.evaluate_triple_captain(con, model_version, xi_uids={"p1"}, kappa_tc_params_version=1)
+    assert "season_captain_value_per_gw" not in result
+
+
 # ============================================================
 # vice_captain_fallback_adjustment -- real gap fixed: nowhere in this project (squad_optimizer's
 # MIQP objective, monte_carlo.py, evaluate_triple_captain()) ever credited a captain choice with
@@ -2008,6 +2040,68 @@ def test_evaluate_bench_boost_threshold_allows_a_strong_bench(con):
     )
     assert result["recommended"] is True
     assert "reason" not in result
+
+
+def _seed_bench_ep_multi_gw(con, ep_by_gw: dict[int, float]) -> dict[int, int]:
+    """Like _seed_single_gw_bench_ep, but seeds one bench1 ep_outputs row per (gw, ep_val) pair
+    in ep_by_gw. Returns {gw: ep_model_version}."""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('bench1', 'B1', 'Defender')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 'team_a')"
+    )
+    ts_mv = con.execute("SELECT max(model_version) FROM team_strength_model_versions").fetchone()[0]
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    mm_mv = con.execute("SELECT max(model_version) FROM minutes_model_versions").fetchone()[0]
+    ep_mv_by_gw = {}
+    for gw, ep_val in ep_by_gw.items():
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, '2026-2027', ?, 'team_a', 'team_b', FALSE, "
+            "'Premier League', '2026-08-24', current_timestamp)", [f"m{gw}", gw],
+        )
+        con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2026-08-10', '2026-2027', ?, ?, 1, 1, 1)", [ts_mv, mm_mv],
+        )
+        ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+            "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+            "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'bench1', ?, 0,0,0,0,0,0,0,0,0,0,0, ?, 5.0)",
+            [ep_mv, f"m{gw}", ep_val],
+        )
+        ep_mv_by_gw[gw] = ep_mv
+    return ep_mv_by_gw
+
+
+def test_evaluate_bench_boost_season_all_gameweeks_reads_the_wider_window(con):
+    # 2026-09-14 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B's
+    # "fuller ask"): the narrow horizon_ep_versions window (gw2-3) alone would say gw3 is best,
+    # but season_horizon_ep_versions (a wider, purpose-built window run() builds separately)
+    # sees a much stronger gw9 that the narrow window can't.
+    ep_mv_by_gw = _seed_bench_ep_multi_gw(con, {2: 3.0, 3: 7.0, 9: 50.0})
+    narrow = {2: (ep_mv_by_gw[2], 0), 3: (ep_mv_by_gw[3], 0)}
+    wide = {2: (ep_mv_by_gw[2], 0), 3: (ep_mv_by_gw[3], 0), 9: (ep_mv_by_gw[9], 0)}
+    result = tp.evaluate_bench_boost(
+        con, narrow, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"}, season_horizon_ep_versions=wide,
+    )
+    assert result["target_gameweek"] == 3            # narrow-window pick, unaffected
+    assert result["all_gameweeks"] == {2: 3.0, 3: 7.0}
+    assert result["season_all_gameweeks"] == {2: 3.0, 3: 7.0, 9: 50.0}
+
+
+def test_evaluate_bench_boost_season_all_gameweeks_absent_without_season_horizon_ep_versions(con):
+    ep_mv = _seed_single_gw_bench_ep(con, 7.0)
+    result = tp.evaluate_bench_boost(con, {2: (ep_mv, 0)}, squad_uids={"bench1", "xi1"}, xi_uids={"xi1"})
+    assert "season_all_gameweeks" not in result
 
 
 # ============================================================

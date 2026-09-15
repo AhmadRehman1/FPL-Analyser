@@ -521,7 +521,7 @@ def solve(
     # itself (does THIS bench composition raise the squad's expected realized points given a
     # real chance any starter blanks) would be a substantially larger modeling change -- not
     # attempted here, disclosed rather than silently approximated as equivalent. The bench
-    # goalkeeper is never ranked (see schema/0019_m5_bench_order.sql's own comment: there is
+    # goalkeeper is never ranked (see schema/0020_m5_bench_order.sql's own comment: there is
     # only ever one, no ordering question).
     bench_uids = squad_set - xi_set
     position_by_uid = {c["player_uid"]: c["position"] for c in candidates}

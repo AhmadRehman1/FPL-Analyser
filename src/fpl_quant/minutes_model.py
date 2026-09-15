@@ -593,6 +593,29 @@ def role_change_evidence_flags(
     return out
 
 
+# ============================================================
+# Current-season role signal (2026-09-15 fix -- see run()'s own docstring on
+# current_season_role_params_version for the real incident this closes and why it stays
+# opt-in, not defaulted)
+# ============================================================
+
+def seed_current_season_role_params(con: duckdb.DuckDBPyConnection) -> None:
+    """current_season_role_params v1 -- gates run()'s optional current-season-own-rate blend.
+    Invented v1 default, same status as every other unpinned constant here: deliberately much
+    smaller than minutes_model_shrinkage_params.competitive_matches_threshold's own v1=10 --
+    the whole point of this family is to let a genuine, sustained current-season role change
+    (a new starting goalkeeper who has started every match so far) dominate FASTER than the
+    multi-season blend would on its own, not to wait for a full 10-match sample before
+    reacting. 4 is a round number a bit above "started the last 3" (guards against a single
+    fixture's absence/return skewing the read) and comfortably below a full-season half-term --
+    flagged for the same future M7 recalibration extension as every other invented threshold
+    in this project, validated first via scripts/run_minutes_model_current_season_sensitivity_
+    arm.py's own walk-forward comparison before any caller defaults this on."""
+    params_mod.write_param(
+        con, "current_season_role_params", 1, "2026-09-15", "current_season_matches_threshold", value_numeric=4,
+    )
+
+
 def p_start_final_by_player(con: duckdb.DuckDBPyConnection, model_version: int, player_uids: list[str]) -> dict[str, float]:
     """Priority 2 addition: bulk p_start_final lookup for a specific list of players at one
     minutes_model_versions run. squad_optimizer.fetch_candidate_pool already has its own
@@ -717,8 +740,48 @@ def run(
     adjustment_params_version: int,
     shrinkage_params_version: int,
     fact_multiplier_params_version: int,
-    lookback_seasons: tuple[str, ...] = ("2024-2025", "2025-2026"),
+    lookback_seasons: tuple[str, ...] = ("2024-2025", "2025-2026", "2026-2027"),
+    current_season_role_params_version: int | None = None,
 ) -> int:
+    """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
+    started every match this season projected at p_start_final=0.13, because target_season's
+    OWN already-played matches never entered p_start_historical_own's computation at all --
+    only the two complete PRIOR seasons did. Every real caller in this codebase (backtest.py's
+    5+ call sites, forward_season_sim.py, run_ingestion.py) relies on this default; none pass
+    lookback_seasons explicitly, confirmed by grep. This is the exact same bug class
+    backtest.fit_seasons_for() already fixed for team_strength.calibrate() -- see that
+    function's own docstring -- just never applied here too.
+
+    Provably backtest-neutral: for target_season in {"2024-2025", "2025-2026"} (the only two
+    the walk-forward ever exercises), "2026-2027" contributes nothing -- asof_scope()'s own
+    fact_match shadow (backtest.py) filters every row to kickoff_time < deadline at TEMP TABLE
+    creation time, and every 2026-2027 kickoff_time is later than any 2024-25/2025-26 deadline,
+    so the shadowed table structurally cannot contain a 2026-2027 row during those walks,
+    regardless of season labels in this tuple. Confirmed directly (not just reasoned): re-ran
+    compute_player_historical_components() against a real committed DB with and without
+    "2026-2027" in the tuple for a 2026-2027 asof -- the real Antonín Kinský case above moved
+    from p_start_own=0.128 to 0.150 with only 1 of his 4 real current-season matches ingested
+    in that snapshot (the fix's mechanism is real, not hypothetical), though on its own this
+    alone is nowhere near enough -- see current_season_role_params_version below for why.
+
+    current_season_role_params_version (2026-09-15 fix, opt-in -- None is the exact prior
+    behavior, unaffected by the lookback_seasons change above): even with target_season's own
+    matches included in the multi-season blend, the SAME continuous recency decay
+    (minutes_model_decay_params.xi, calibrated for gradual week-to-week drift, not a sharp
+    role change) means a handful of very recent matches still can't outweigh two seasons of
+    accumulated weight from a different role -- confirmed on the same real Kinský case: even
+    extrapolating to all 4 of his real current-season starts, the lookback_seasons fix alone
+    only reaches roughly p_start_own~0.2, not the ~0.9+ a fully nailed current starter should
+    get. When given, adds a SEPARATE, faster-reacting blend: a player's CURRENT-season-only
+    own start rate (compute_player_historical_components() called again with
+    lookback_seasons=(target_season,) alone -- the exact same function, no new query shape)
+    is blended in at weight min(1, current_season_matches / current_season_matches_threshold),
+    on TOP of (not replacing) the existing multi-season p_start_hist_final blend below. This is
+    a REAL behavior change for any target_season with its own in-progress role changes --
+    unlike the lookback_seasons default above, this is NOT backtest-neutral (a role change
+    within a backtested 2024-25/2025-26 season would also trip it), so it stays opt-in pending
+    a real walk-forward comparison (see scripts/run_minutes_model_current_season_sensitivity_
+    arm.py) rather than defaulting on."""
     xi, _ = params_mod.resolve_param(con, "minutes_model_decay_params", "xi", decay_params_version)
     threshold, _ = params_mod.resolve_param(
         con, "minutes_model_shrinkage_params", "competitive_matches_threshold", shrinkage_params_version
@@ -737,6 +800,23 @@ def run(
     conditional_rates = compute_conditional_minutes_rates(con)
     player_conditional = compute_player_conditional_minutes_rates(con)
     availability = live_availability_by_player(con, target_season)
+
+    # current_season_role_params_version (opt-in, see this function's own docstring): a
+    # SEPARATE, target_season-only call to the exact same compute_player_historical_components()
+    # -- no new query shape, just a narrower `seasons` tuple -- so its own within-season
+    # recency weighting (still governed by the same xi) is never diluted by the multi-season
+    # blend above.
+    current_season_per_player_idx = None
+    current_season_matches_threshold = None
+    if current_season_role_params_version is not None:
+        current_season_matches_threshold, _ = params_mod.resolve_param(
+            con, "current_season_role_params", "current_season_matches_threshold", current_season_role_params_version,
+        )
+        current_season_per_player = compute_player_historical_components(
+            con, (target_season,), calibration_asof_date, xi,
+            exclude_player_seasons=suspect_player_seasons,
+        )
+        current_season_per_player_idx = current_season_per_player.set_index("player_uid")
 
     target_players = con.execute(
         """
@@ -777,6 +857,15 @@ def run(
 
         weight_own = min(1.0, competitive_matches / threshold) if p_start_own is not None else 0.0
         p_start_hist_final = weight_own * p_start_own + (1 - weight_own) * p_start_pos_avg if p_start_own is not None else p_start_pos_avg
+
+        if current_season_per_player_idx is not None and player_uid in current_season_per_player_idx.index:
+            curr_row = current_season_per_player_idx.loc[player_uid]
+            curr_weighted_total = curr_row["weighted_total"] or 0.0
+            p_start_current_own = float(curr_row["weighted_starts"] / curr_weighted_total) if curr_weighted_total > 0 else None
+            current_season_matches = int(curr_row["competitive_matches"] or 0)
+            if p_start_current_own is not None and current_season_matches_threshold > 0:
+                weight_current = min(1.0, current_season_matches / current_season_matches_threshold)
+                p_start_hist_final = weight_current * p_start_current_own + (1 - weight_current) * p_start_hist_final
 
         adjustment = compute_logit_adjustment(
             con, player_uid, p_start_hist_final, asof,

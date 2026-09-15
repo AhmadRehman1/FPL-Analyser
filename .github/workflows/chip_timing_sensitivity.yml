@@ -1,0 +1,189 @@
+name: Season-horizon chip-timing sensitivity study
+
+# The walk-forward comparison docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md's
+# Workstream B ("fuller ask") explicitly requires before triple_captain_timing_params_version/
+# bench_boost_timing_params_version default on anywhere -- see transfer_planner.run()'s own
+# docstring on those two params, and forward_season_sim._resolve_versions()'s comment on why
+# they stay None (off) until this evidence exists.
+#
+# Two fixed arms ("off" = current greedy approach, PR #173's magnitude floor only; "on" = adds
+# the wider season-horizon timing gate), each a full historical-season evolving-manager
+# simulation scored on REALIZED FPL points -- same mechanism and cost class as
+# lambda_sensitivity.yml (~2-3h/arm on this runner).
+#
+# Commits data/chip_timing_study/ (SUMMARY.md + chip_timing_study_latest.json). Activates
+# NOTHING: both arms are read-only backtest.run_season_simulation() calls: this workflow alone
+# can never change transfer_planner.seed_v1_params()'s or forward_season_sim's defaults.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seasons:
+        description: 'Comma-separated historical seasons to compare (default "2025-2026"; "2024-2025,2025-2026" for two-season evidence -- doubles the arm count).'
+        required: false
+        default: "2025-2026"
+        type: string
+      start_gameweek:
+        description: "First gameweek each arm walks (default 2 -- GW1 is not bootstrappable)."
+        required: false
+        default: "2"
+        type: string
+      end_gameweek:
+        description: "Last gameweek each arm walks (default 38 -- the full season; trim to ~20 for a faster first pass)."
+        required: false
+        default: "38"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chip-timing-sensitivity
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      arms: ${{ steps.gen.outputs.arms }}
+      db_cache_key: chip-timing-study-db-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      # Same reasoning as lambda_sensitivity.yml's prepare job: the narrower scheduled_
+      # pipeline.yml `duckdb-` cache lacks the multi-season Elo/team-alias data
+      # team_strength.calibrate() needs for a historical-season fit.
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size; size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6)
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Save one shared DB cache for every arm
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: chip-timing-study-db-${{ github.run_id }}
+
+      - name: Generate the arm matrix
+        id: gen
+        env:
+          SEASONS: ${{ github.event.inputs.seasons || '2025-2026' }}
+        run: |
+          python - <<'EOF'
+          import json, os
+          seasons = [s.strip() for s in os.environ["SEASONS"].split(",") if s.strip()]
+          arms = []
+          for season in seasons:
+              for a in ("off", "on"):
+                  arms.append({"arm": a, "season": season, "tag": f"{a}_{season}"})
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("arms=" + json.dumps({"include": arms}) + "\n")
+          print(f"{len(arms)} arms: {len(seasons)} season(s) x 2 (off/on)")
+          EOF
+
+  sweep:
+    needs: prepare
+    runs-on: ubuntu-latest
+    # Same cost class as lambda_sensitivity.yml's own sweep job -- a full-season (GW2-38)
+    # evolving-manager walk is ~2-3h of MIQP + MC + planner on this runner. 330 leaves margin
+    # under the 360 cap. An arm that times out or crashes just drops from the sweep --
+    # aggregate still reports from what landed.
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.arms) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: ${{ needs.prepare.outputs.db_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Run arm ${{ matrix.tag }}
+        env:
+          CTS_ARM: ${{ matrix.arm }}
+          CTS_SEASON: ${{ matrix.season }}
+          CTS_START_GW: ${{ github.event.inputs.start_gameweek || '2' }}
+          CTS_END_GW: ${{ github.event.inputs.end_gameweek || '38' }}
+          CTS_OUT: data/chip_timing_study/arms/${{ matrix.tag }}.json
+        run: PYTHONPATH=src python scripts/run_chip_timing_sensitivity_arm.py
+
+      - name: Upload this arm's artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: chip-timing-arm-${{ matrix.tag }}
+          path: data/chip_timing_study/arms/${{ matrix.tag }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    needs: [prepare, sweep]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Download every arm
+        uses: actions/download-artifact@v8
+        with:
+          pattern: chip-timing-arm-*
+          path: _arms
+          merge-multiple: true
+
+      - name: Collect arm artifacts
+        run: |
+          mkdir -p data/chip_timing_study/arms
+          find _arms -name '*.json' -exec cp {} data/chip_timing_study/arms/ \;
+          echo "collected $(ls data/chip_timing_study/arms | wc -l) arm files"
+
+      - name: Aggregate into the study report
+        run: PYTHONPATH=src python scripts/aggregate_chip_timing_sensitivity.py
+
+      - name: Job summary
+        if: always()
+        run: |
+          if [ -f data/chip_timing_study/SUMMARY.md ]; then
+            cat data/chip_timing_study/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No SUMMARY.md produced -- see the aggregate step log." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit the study
+        run: |
+          bash scripts/ci_commit_generated.sh \
+            "chore: season-horizon chip-timing sensitivity study [skip ci]" \
+            data/chip_timing_study/SUMMARY.md data/chip_timing_study/chip_timing_study_latest.json \
+            data/chip_timing_study/arms
