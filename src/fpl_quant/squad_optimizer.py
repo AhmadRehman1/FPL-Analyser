@@ -127,6 +127,26 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     params_mod.write_param(con, "concentration_risk_params", 1, "2026-08-10", "kappa", value_numeric=0.0)
 
 
+# Priority 10 Phase C (partial) -- the template anchor. eo_weight_kappa v1 (0.02) is sized as
+# a tie-break only (see seed_v1_params), and no production caller ever passed
+# risk_posture_params_version at all, so the model's from-scratch squad was a pure
+# EP - lambda*risk pick with zero regard for what the field owns. The first weekly rank
+# autopsy (2026-27 GW1) measured the cost: the model owned 3 of the 15 highest-EO players and
+# captained a non-template pick, landing ~last on rank while scoring near the points average.
+#
+# v2 raises eo_weight_kappa to 0.12 -- an AGGRESSIVE, rank-safety-first anchor (the user's
+# explicit call): a real GW1 sweep against the 2026-27 candidate pool showed 0.12 takes
+# template coverage 3/15 -> 10/15 and moves the captain onto the field's pick (Haaland),
+# for a ~2.2 EP/GW nominal cost -- so a differential now has to clear the template by ~3 EP
+# to survive the solve. Below ~0.10 the anchor is too weak to move the captain; above ~0.15
+# it starts forcing in sub-1.5-EP filler players for their ownership alone. The lambda=0 vs
+# lambda=0.15 divergence check still passes with margin at 0.12 (verified in the same sweep),
+# so the quadratic risk term is not being swamped. posture stays "protect".
+def seed_template_anchor_params(con: duckdb.DuckDBPyConnection) -> None:
+    params_mod.write_param(con, "risk_posture_params", 2, "2026-09-09", "posture", value_text="protect")
+    params_mod.write_param(con, "risk_posture_params", 2, "2026-09-09", "eo_weight_kappa", value_numeric=0.12)
+
+
 # ============================================================
 # candidate pool
 # ============================================================
