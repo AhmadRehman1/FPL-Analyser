@@ -156,3 +156,53 @@ per the mission's explicit gate ("pause before the first live/default configurat
 - Full `pytest tests/ -q` (all ~1084 tests) not re-run in full this pass after the Phase 1D
   changes specifically (takes ~19min uncontended); the four directly-relevant suites above were
   run in full instead. Recommended before any push.
+
+## Addendum (2026-09-16): post-fix calibration smoke check
+
+Run Ladder step 5 (a short historical smoke window, before committing to the expensive full
+76-gameweek walk-forward) against the specific open question this audit left unresolved: is the
+price-band miscalibration still there after the 2026-09-05..09 rate-shrinkage/current-season-
+exclusion fixes?
+
+**Method**: the local live DB is empty and the historical fact tables (matches, prices, points)
+take real ingestion effort to rebuild from scratch, so this reused the Aug-29 backup's raw
+historical fact data (unaffected by the fixes -- only the model-fitting code changed) copied to
+a fresh working file (`db/fpl_quant_v2_smoke_postfix.duckdb`, not committed, not overwriting the
+original backup), then called `backtest.run_gameweek_step()` directly (not the full `run()`
+loop) for 5 recent non-double-gameweek mature-tier 2025-2026 gameweeks (32, 34, 35, 37, 38),
+using the CURRENTLY ACTIVE parameter versions (`backtest.active_recalibratable_versions()` --
+`rate_shrinkage_params_version=8`, `shrinkage_params_version=11`, etc., confirming these are
+genuinely the live post-fix versions). One real gap found and fixed along the way: the Aug-29
+backup predates `fixture_strength_params` v1 (added after that backup); backfilled narrowly
+(3 `write_param` calls, not the whole `expected_points.seed_v1_params()`, after that whole-module
+call surfaced an unrelated, out-of-scope real version-immutability conflict in `decay.py`'s
+`claim_type_decay_params` v1 `predicted_xi` half-life -- 1.5 days in this backup vs 21.0 in
+current code, i.e. a "v1 changed without a version bump" discrepancy that pre-dates this session
+and is flagged here, not fixed). `backtest_run_id=3` on the smoke DB; all 5 steps completed with
+`divergence_check_passed=True`, ~730s total.
+
+**Result -- calibration_diagnostics.price_band_calibration_report()**, mature tier:
+
+| band | pre-fix (20 GWs, both seasons, n=15,779) | post-fix smoke (5 GWs, 2025-26 only, n=3,921) |
+|---|---|---|
+| overall | mean_resid −0.555 | mean_resid **−0.195** |
+| <5.0 | mean_resid −0.761, MAE 1.350 | mean_resid **−0.321**, MAE **0.883** |
+| 5.0-7.0 | mean_resid −0.305, MAE 1.736 | mean_resid **+0.012**, MAE **1.396** |
+| 7.0-9.0 | mean_resid +0.709, MAE 2.510 | mean_resid **+0.404**, MAE 2.439 |
+| 9.0+ | mean_resid +0.580, MAE 3.210 | mean_resid **−0.074**, MAE 2.764 |
+
+Every band's bias magnitude shrank, several substantially (5.0-7.0 essentially zeroed; 9.0+
+flipped sign and nearly zeroed, though n=35 there and its 95% CI is wide: [−0.70, +0.32]).
+Selection curse (XI, price-band-matched) on the same 5 gameweeks: mean −0.59 (CI [−1.25, +0.08],
+frac_positive 0.4/5) -- still no evidence of a real curse, consistent with the pre-fix 20-GW read.
+
+**This is a real, positive, directionally consistent signal that the fixes helped -- not proof.**
+Two honest confounds neither eliminated nor quantified here: (1) different gameweek sets (the
+pre-fix baseline pooled both seasons' mature tier; this smoke is 5 late-2025-26-only gameweeks,
+which could be intrinsically easier to predict for reasons unrelated to the code fix -- more
+current-season evidence accumulated, more settled rosters); (2) much smaller sample, especially
+thin in the premium bands (9.0+ n=35 vs 133). A same-gameweek-set, pinned-old-vs-new-parameter-
+version controlled comparison, or the full 76-gameweek walk-forward, would close this gap with
+real statistical power. Artefacts: `data/calibration_diagnostics/price_band_calibration_SMOKE_
+postfix_run3_20260916T161432Z.json`, `..._selection_curse_SMOKE_postfix_run3_...json` (both
+carry `backtest_run_id`, git SHA, seed, tier, gameweek range in their own header).
