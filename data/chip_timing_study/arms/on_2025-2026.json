@@ -1,0 +1,70 @@
+{
+  "arm": "on",
+  "season": "2025-2026",
+  "start_gameweek": 2,
+  "end_gameweek": 20,
+  "base_param_versions": {
+    "xi_params_version": 2,
+    "rho_params_version": 1,
+    "decay_params_version": 1,
+    "adjustment_params_version": 18,
+    "shrinkage_params_version": 11,
+    "fact_multiplier_params_version": 8,
+    "scoring_params_version": 1,
+    "bps_params_version": 1,
+    "tau_params_version": 1,
+    "rho_residual_params_version": 4,
+    "corr_params_version": 1,
+    "lambda_params_version": 1,
+    "guardrail_params_version": 1,
+    "horizon_params_version": 1,
+    "transfer_cost_params_version": 1,
+    "wildcard_threshold_params_version": 1,
+    "free_hit_threshold_params_version": 1,
+    "kappa_tc_params_version": 3,
+    "triple_captain_threshold_params_version": 1,
+    "bench_boost_threshold_params_version": 1,
+    "triple_captain_timing_params_version": 1,
+    "bench_boost_timing_params_version": 1
+  },
+  "metrics": {
+    "total_points": 818.0,
+    "mean_points": 43.05263157894737,
+    "n_gameweeks": 19,
+    "realized_sharpe": 3.4008431947028903,
+    "max_drawdown": 50.42105263157896
+  },
+  "n_gameweeks_scored": 19,
+  "action_counts": {
+    "transfers": 12,
+    "chips_played": 6
+  },
+  "chips_played": [
+    [
+      4,
+      "free_hit"
+    ],
+    [
+      7,
+      "triple_captain"
+    ],
+    [
+      8,
+      "bench_boost"
+    ],
+    [
+      9,
+      "wildcard"
+    ],
+    [
+      19,
+      "free_hit"
+    ],
+    [
+      20,
+      "bench_boost"
+    ]
+  ],
+  "skipped_dgw_gameweeks": [],
+  "wall_seconds": 18306.3
+}
