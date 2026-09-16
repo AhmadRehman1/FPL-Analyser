@@ -3,16 +3,16 @@ COMPLETED 2026-27 gameweek not yet sampled, into fact_rival_squad_sample. Feeds
 scripts/rank_autopsy.py.
 
 Deliberately a SEPARATE script from scripts/run_ingestion.py, not wired into its default
-flow -- sampling means ~200 real HTTP requests to FPL's own API per gameweek, which needs
+flow -- sampling means ~250 real HTTP requests to FPL's own API per gameweek, which needs
 real rate-limiting/caching discipline a bare "run on every ingestion" wiring wouldn't
 respect. .github/workflows/rank_tracking.yml runs this once a week; ingest_rival_squad_sample
 is idempotent per (season, event), so a re-run is a no-op and a first run backfills the
 whole season's completed gameweeks in one pass (bounded by MAX_GAMEWEEKS_PER_RUN).
 
 Sampling shape: ingest_fpl_entry_picks.DEFAULT_RANK_BANDS -- a STRATIFIED sample around the
-model-managed team's top-100k rank target (plus small elite and mid-field slices), not the
-old top-N-by-rank. The top-200 the Phase A scaffold sampled measured the model against the
-200 best managers alive, which is the wrong bar for a top-100k goal. Whether FPL's
+model-managed team's top-100k rank target (plus elite, mid-field and 600k-2M tail slices),
+not the old top-N-by-rank. The top-200 the Phase A scaffold sampled measured the model
+against the 200 best managers alive, which is the wrong bar for a top-100k goal. Whether FPL's
 leagues-classic standings paginate deep enough to reach the 60k-140k band is not verifiable
 from this sandbox (fantasy.premierleague.com is network-blocked here); fetch_entries_in_rank_bands
 reports the bands it ACTUALLY reached, logged below, so a truncated sample is visible rather
@@ -26,8 +26,15 @@ Usage (from repo root):
 
     With no argument: samples every completed gameweek not yet in the table (oldest first,
     up to MAX_GAMEWEEKS_PER_RUN). With a gameweek number: samples just that one.
+
+    RIVAL_SAMPLE_REPLACE_EVENTS="1,2" forces those gameweeks to be re-sampled even though
+    they are already in the table -- for a stored sample built with an older/wrong strategy
+    (the retired top-2000 cohort, or a sample taken before a DEFAULT_RANK_BANDS change). The
+    old rows are only dropped once the fresh sample is in hand. Deliberately an explicit
+    opt-in, not an auto-detect: re-sampling costs ~250 real FPL API requests per gameweek.
 """
 
+import os
 import sys
 import time
 from datetime import datetime
@@ -61,10 +68,15 @@ def _completed_unsampled_gameweeks(con) -> list[int]:
     return [gw for gw in settled if gw not in sampled]
 
 
-def _sample_one(con, event: int) -> None:
+def _replace_events() -> set[int]:
+    raw = os.environ.get("RIVAL_SAMPLE_REPLACE_EVENTS", "").strip()
+    return {int(tok) for tok in raw.replace(" ", "").split(",") if tok.isdigit()}
+
+
+def _sample_one(con, event: int, *, replace: bool = False) -> None:
     t0 = time.time()
     result = ifp.ingest_rival_squad_sample(
-        con, TARGET_SEASON, event, datetime.now(), bands=ifp.DEFAULT_RANK_BANDS,
+        con, TARGET_SEASON, event, datetime.now(), bands=ifp.DEFAULT_RANK_BANDS, replace=replace,
     )
     elapsed = time.time() - t0
     print(f"[rival_squad_sample] GW{event} -> {result['status']}: "
@@ -88,6 +100,7 @@ def _sample_one(con, event: int) -> None:
 def main() -> None:
     con = db.connect()
 
+    replace = _replace_events()
     if len(sys.argv) > 1 and sys.argv[1].isdigit():
         targets = [int(sys.argv[1])]
     else:
@@ -96,14 +109,18 @@ def main() -> None:
             print(f"[rival_squad_sample] {len(targets)} gameweeks to backfill; taking the oldest "
                   f"{MAX_GAMEWEEKS_PER_RUN} this run, the rest next run")
             targets = targets[:MAX_GAMEWEEKS_PER_RUN]
+        # explicit re-sample requests jump the MAX_GAMEWEEKS_PER_RUN queue
+        targets = sorted(set(targets) | replace)
 
+    if replace:
+        print(f"[rival_squad_sample] RIVAL_SAMPLE_REPLACE_EVENTS -> forcing re-sample of GW {sorted(replace)}")
     if not targets:
         print(f"[rival_squad_sample] nothing to do -- every completed {TARGET_SEASON} gameweek is already sampled")
     for event in targets:
         if not field_rank.gameweek_is_settled(con, TARGET_SEASON, event):
             print(f"[rival_squad_sample] GW{event} not settled yet -- skipping")
             continue
-        _sample_one(con, event)
+        _sample_one(con, event, replace=event in replace)
 
     deleted = ifp.purge_prior_season_rival_squad_sample(con, TARGET_SEASON)
     if deleted:

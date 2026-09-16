@@ -15,6 +15,7 @@ enforcement mechanism below (asof_scope) has to actually work, not just be plaus
 
 import json
 import math
+from collections import Counter
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -260,6 +261,12 @@ def run_gameweek_step(
     n_antithetic_pairs: int = 2000,
     run_monte_carlo: bool = True,
     set_piece_params_version: int | None = 1,
+    ownership_params_version: int | None = None,
+    risk_posture_params_version: int | None = None,
+    field_covariance_params_version: int | None = None,
+    bench_quality_params_version: int | None = None,
+    concentration_risk_params_version: int | None = None,
+    current_season_role_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -274,7 +281,27 @@ def run_gameweek_step(
       genuinely early-season gameweeks where too few ep_outputs rows exist yet to fill a squad,
       not a bug -- recorded as a skipped optimizer stage (divergence_check_passed stays NULL,
       distinct from an explicit False).
-    """
+
+    ownership_params_version/risk_posture_params_version/field_covariance_params_version/
+    bench_quality_params_version/concentration_risk_params_version (2026-09-14 fix, opt-in --
+    None for all five is the exact prior behavior): squad_optimizer.run()'s own five Priority
+    1/2 terms (EO-weighted posture, field-covariance, bench-quality floor, concentration risk)
+    were never passed at this call site at all -- a repo-wide grep confirmed zero production
+    caller ever activated them for the walk-forward's own solve, only for live reporting
+    (reporting.build_report()'s SAME-NAMED-BUT-DIFFERENT ownership_params_version/
+    bench_quality_params_version feed post-hoc EO/bench sections, not the solve objective; see
+    run()'s own ownership_params_version, which stays that separate reporting-only param --
+    deliberately NOT reused here to avoid conflating the two). Passing real versions here
+    changes which squad EVERY walk-forward step picks -- a real behavioral change to every
+    backtest metric's comparability, not a wiring-only fix, so this stays opt-in until a real
+    walk-forward re-run shows it doesn't regress beats_crowd_points_delta (see
+    scripts/run_squad_optimizer_wiring_sensitivity_arm.py).
+
+    current_season_role_params_version (2026-09-15 fix, opt-in -- None is the exact prior
+    behavior): threaded straight through to minutes_model.run()'s own same-named param -- see
+    its docstring for what it does and why it's opt-in there too. minutes_model.run()'s OWN
+    lookback_seasons default separately now includes target_season (provably backtest-neutral,
+    unconditional, not gated by this param -- see minutes_model.run()'s own docstring)."""
     tier = tier_for(season, gameweek)
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
@@ -293,6 +320,7 @@ def run_gameweek_step(
         mm_model_version = minutes_model.run(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
+            current_season_role_params_version=current_season_role_params_version,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
@@ -308,6 +336,11 @@ def run_gameweek_step(
             so_run_id = squad_optimizer.run(
                 con, calibration_asof_date, season, gameweek, ep_model_version, un_model_version,
                 lambda_params_version, guardrail_params_version,
+                ownership_params_version=ownership_params_version,
+                risk_posture_params_version=risk_posture_params_version,
+                field_covariance_params_version=field_covariance_params_version,
+                bench_quality_params_version=bench_quality_params_version,
+                concentration_risk_params_version=concentration_risk_params_version,
             )
             divergence_passed = True
         except squad_optimizer.DivergenceCheckFailedError:
@@ -895,6 +928,12 @@ def run(
     compute_segments: bool = False,
     set_piece_params_version: int | None = 1,  # matches ep.run()'s new default; passed to BOTH the prediction step and score_gameweek's segment metrics
     ownership_params_version: int | None = None,
+    solve_ownership_params_version: int | None = None,
+    solve_risk_posture_params_version: int | None = None,
+    solve_field_covariance_params_version: int | None = None,
+    solve_bench_quality_params_version: int | None = None,
+    solve_concentration_risk_params_version: int | None = None,
+    current_season_role_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
@@ -905,7 +944,20 @@ def run(
 
     compute_segments/set_piece_params_version/ownership_params_version: Priority 9b/9c
     opt-in, passed straight through to score_gameweek() -- see its own docstring. Default off,
-    same backward-compatible convention as every other opt-in feature in this project."""
+    same backward-compatible convention as every other opt-in feature in this project.
+
+    solve_ownership_params_version/solve_risk_posture_params_version/
+    solve_field_covariance_params_version/solve_bench_quality_params_version/
+    solve_concentration_risk_params_version (2026-09-14 fix, opt-in, `solve_`-prefixed
+    deliberately -- this function's own ownership_params_version above already means something
+    different, score_gameweek()'s post-hoc EO reporting, not the solve objective): threaded
+    straight through to run_gameweek_step()'s same-named (unprefixed) params -- see its
+    docstring. None for all five (the default) is the exact prior behavior.
+
+    current_season_role_params_version (2026-09-15 fix, opt-in): threaded straight through to
+    run_gameweek_step()'s own same-named param -- see its docstring, and minutes_model.run()'s
+    own docstring for the real incident this closes. None (the default) is the exact prior
+    behavior."""
     steps = [
         (s, gw) for s, gw in ALL_SEASON_GAMEWEEKS
         if has_fittable_history(con, s, gw) and not has_double_gameweek(con, s, gw)
@@ -928,6 +980,12 @@ def run(
             lambda_params_version=lambda_params_version, guardrail_params_version=guardrail_params_version,
             n_antithetic_pairs=n_antithetic_pairs, run_monte_carlo=run_monte_carlo,
             set_piece_params_version=set_piece_params_version,
+            ownership_params_version=solve_ownership_params_version,
+            risk_posture_params_version=solve_risk_posture_params_version,
+            field_covariance_params_version=solve_field_covariance_params_version,
+            bench_quality_params_version=solve_bench_quality_params_version,
+            concentration_risk_params_version=solve_concentration_risk_params_version,
+            current_season_role_params_version=current_season_role_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -1100,6 +1158,12 @@ def run_season_simulation(
     kappa_tc_params_version: int,
     accept_transfer_if_net_value_above: float = 0.0,
     n_antithetic_pairs: int = 2000,
+    simulate_auto_subs: bool = False,
+    ownership_params_version: int | None = None,
+    risk_posture_params_version: int | None = None,
+    field_covariance_params_version: int | None = None,
+    bench_quality_params_version: int | None = None,
+    concentration_risk_params_version: int | None = None,
     triple_captain_threshold_params_version: int | None = None,
     bench_boost_threshold_params_version: int | None = None,
     triple_captain_timing_params_version: int | None = None,
@@ -1133,6 +1197,41 @@ def run_season_simulation(
     "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...]}
     -- actions is the real per-gameweek decision log, for auditing what the simulated manager
     actually did, not just the final score.
+
+    simulate_auto_subs (2026-09-14 fix, opt-in -- False is the exact prior behavior): the real
+    gap docs/reports/2025-26_retrospective_validation.md's own caveat (e) discloses --
+    _realized_xi_points() used to be structurally unable to read a bench player's points at
+    all. When True, every gameweek's scoring call additionally passes squad_uids/bench_order so
+    a blanked starter with a real, legal, played bench replacement is actually subbed in before
+    scoring (see simulate_auto_substitutions()). bench_order comes from two different real
+    sources depending on the gameweek, both disclosed rather than silently uniform: the
+    bootstrap gameweek reads squad_optimizer_selections directly (a genuine fresh MIQP solve,
+    same bench_order squad_optimizer.solve() itself computed); every later gameweek -- whose
+    squad evolved via incremental transfers, not a fresh solve, so no persisted bench_order
+    exists for it -- uses _bench_order_by_projected_ep(), a cheap, asof-safe proxy (same
+    mu-ranking principle solve()'s own bench_order uses, computed post-hoc from the SAME
+    ep_model_version that gameweek's real transfer_planner.run() call already used). A Wildcard/
+    Free-Hit week's own fresh one-off solve DOES carry a real, more precise bench_order in
+    squad_optimizer_selections too -- not used here, for uniformity/simplicity across every
+    non-bootstrap gameweek rather than three separate lookup paths; a real, disclosed
+    simplification, not a hidden one.
+
+    ownership_params_version/risk_posture_params_version/field_covariance_params_version/
+    bench_quality_params_version/concentration_risk_params_version (2026-09-14 fix, opt-in --
+    None for all five is the exact prior behavior): threaded straight through to the ONE
+    squad_optimizer.run() call this function makes -- the bootstrap solve at start_gameweek.
+    Real gap this closes: a repo-wide grep confirmed no production caller ever activated
+    squad_optimizer.run()'s own Priority 1/2 terms (EO-weighted posture, field-covariance,
+    bench-quality floor, concentration risk) for this walk, only for live reporting (a
+    same-named but different pair of params on reporting.build_report()). Only affects the
+    STARTING squad this evolving-manager walk bootstraps from -- every subsequent gameweek's
+    squad still evolves via transfer_planner.run()'s own solve-free transfer/chip logic (a
+    Wildcard week's own fresh squad_optimizer.run() call, in evaluate_wildcard(), is a
+    SEPARATE, still-unwired call site -- out of scope for this fix, named not silently
+    extended). A real behavioral change to which squad the walk starts from, not a wiring-only
+    fix, so this stays opt-in until a real walk-forward re-run shows it doesn't regress the
+    headline beats_crowd_points_delta metric (see
+    scripts/run_squad_optimizer_wiring_sensitivity_arm.py).
 
     triple_captain_threshold_params_version/bench_boost_threshold_params_version (2026-09-14
     fix -- real gap closed here): forward_season_sim.py's real-squad walk (and model_team.py's
@@ -1179,6 +1278,11 @@ def run_season_simulation(
         bootstrap_run_id = squad_optimizer.run(
             con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,
             lambda_params_version, guardrail_params_version,
+            ownership_params_version=ownership_params_version,
+            risk_posture_params_version=risk_posture_params_version,
+            field_covariance_params_version=field_covariance_params_version,
+            bench_quality_params_version=bench_quality_params_version,
+            concentration_risk_params_version=concentration_risk_params_version,
         )
         # Real look-ahead leak, fixed here: bootstrap_from_squad_optimizer_run() -> its own
         # _compute_bank_for_squad() prices each held player via `ORDER BY gw DESC` with no
@@ -1258,23 +1362,42 @@ def run_season_simulation(
         holdings = transfer_planner._read_holdings(con, state_version)
         if accept_chip == "free_hit" and free_hit_squad is not None:
             xi_uids = frozenset(h["player_uid"] for h in free_hit_squad if h["in_xi"])
+            squad_uids = frozenset(h["player_uid"] for h in free_hit_squad)
             captain_uid = next((h["player_uid"] for h in free_hit_squad if h["is_captain"]), None)
             vice_captain_uid = next((h["player_uid"] for h in free_hit_squad if h["is_vice"]), None)
             captain_multiplier = 2
         elif accept_chip == "bench_boost":
             xi_uids = frozenset(h["player_uid"] for h in holdings)  # full 15, not just the XI
+            squad_uids = xi_uids  # bench already fully in scoring -- auto-sub is a no-op here
             captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
             vice_captain_uid = next((h["player_uid"] for h in holdings if h["is_vice"]), None)
             captain_multiplier = 2
         else:
             xi_uids = frozenset(h["player_uid"] for h in holdings if h["in_xi"])
+            squad_uids = frozenset(h["player_uid"] for h in holdings)
             captain_uid = next((h["player_uid"] for h in holdings if h["is_captain"]), None)
             vice_captain_uid = next((h["player_uid"] for h in holdings if h["is_vice"]), None)
             captain_multiplier = 3 if accept_chip == "triple_captain" else 2
 
+        # simulate_auto_subs=True (opt-in, see this function's own docstring): the bootstrap
+        # gameweek's real, solve-time bench_order is read directly; every later gameweek (whose
+        # squad evolved via transfers, not a fresh solve) uses the EP-projected proxy, keyed off
+        # plan_run_id -- which, on a DOUBLE gameweek other than start_gameweek, is deliberately
+        # stale (has_double_gameweek() skips planning that week, per this function's own
+        # existing v1 scope boundary above) -- _bench_order_by_projected_ep() degrades safely to
+        # {} for a plan_run_id/gameweek pair it has no real ep_model_version for, meaning simply
+        # no outfield auto-sub that specific week, not a crash.
+        bench_order = None
+        if simulate_auto_subs:
+            bench_order = (
+                _bench_order_from_squad_optimizer_run(con, bootstrap_run_id) if gw == start_gameweek
+                else _bench_order_by_projected_ep(con, plan_run_id, gw, squad_uids - xi_uids)
+            )
+
         points = _realized_xi_points(
             con, season, gw, xi_uids, captain_uid,
             captain_multiplier=captain_multiplier, vice_captain_uid=vice_captain_uid,
+            squad_uids=squad_uids if simulate_auto_subs else None, bench_order=bench_order,
         )
         weekly_points.append(points)
         gameweeks_scored.append(gw)
@@ -2296,9 +2419,149 @@ def refit_minutes_and_evidence_params(
     return result
 
 
+# Real FPL formation legality for the OUTFIELD portion of the XI -- GK is always exactly 1 and
+# handled separately below (the bench GK only ever replaces the starting GK, never an outfield
+# blank, and vice versa -- same rule squad_optimizer.POSITION_QUOTA/XI_POSITION_MIN/MAX already
+# encode for squad SELECTION; duplicated here as plain constants rather than importing
+# squad_optimizer into backtest.py for two dicts, since this module already avoids importing
+# solver-layer internals it doesn't otherwise need).
+_AUTO_SUB_FORMATION_POSITIONS = ("Defender", "Midfielder", "Forward")
+_AUTO_SUB_FORMATION_MIN = {"Defender": 3, "Midfielder": 2, "Forward": 1}
+_AUTO_SUB_FORMATION_MAX = {"Defender": 5, "Midfielder": 5, "Forward": 3}
+
+
+def simulate_auto_substitutions(xi_info: dict[str, dict], bench_info: dict[str, dict]) -> dict:
+    """Real FPL auto-substitution, faithfully simulated -- 2026-09-14 fix for the "harder half"
+    of Workstream C (docs/reports/2026-09_model_failure_diagnosis.md): `_realized_xi_points()`
+    used to be structurally unable to read a bench player's points under any circumstances, a
+    real data-model gap (squad_optimizer_selections had no bench-order column at all -- see
+    schema/0020_m5_bench_order.sql), not a small scoring-function patch.
+
+    Real rule (confirmed via web research, see the diagnosis report's own account): trigger is
+    exactly 0 minutes played (a real appearance that merely scored 0 points still counts as
+    played -- same "only a CONFIRMED blank, never unknown, triggers a fallback" convention
+    `_realized_xi_points()`'s own vice-captain logic already uses; minutes=None here is treated
+    as "can't confirm this player didn't play," never inferred as a blank). Substitution follows
+    the manager's own declared bench order (1st/2nd/3rd sub); a bench player who ALSO has 0 (or
+    unknown) minutes cannot come on -- their own blank slot just stays unfilled, scoring 0, same
+    as a starter with no eligible sub at all. The bench goalkeeper only ever replaces the
+    starting goalkeeper (never an outfield blank), and an outfield bench player is only applied
+    when doing so keeps the resulting XI within real formation bounds (1 GK, 3-5 DEF, 2-5 MID,
+    1-3 FWD) -- an eligible, played bench player is SKIPPED (not forced in) if applying them
+    would break that legality, and the loop moves on to the next blank/bench player rather than
+    leaving the whole simulation short-circuited.
+
+    xi_info: {player_uid: {"position": str, "minutes": int | None}} -- the original 11-player
+    pre-deadline starting XI (1 GK + a legal outfield formation; not re-validated here -- a
+    caller passing an illegal starting XI is a caller bug, not something this function can or
+    should silently paper over).
+    bench_info: {player_uid: {"position": str, "minutes": int | None, "bench_order": int | None}}
+    -- the 4 bench players; bench_order is 1/2/3 for the three outfield bench players (real
+    priority order) and None for the bench goalkeeper (see schema/0019's own comment: there is
+    only ever one, no ordering question).
+
+    Returns {"final_xi_uids": frozenset[str], "subs_applied": [{"out": uid, "in": uid}, ...]}.
+    final_xi_uids always has exactly len(xi_info) members: a blank with no legal/eligible
+    replacement stays under its OWN original uid (still scoring whatever its own real points
+    were -- 0, per the confirmed-blank trigger), never silently dropped.
+
+    Which specific blank an eligible bench player fills, when more than one blank would be an
+    equally legal swap, is resolved by a deterministic sort (lowest player_uid first) -- this
+    never changes the final POINTS total (the incoming player's own score is identical either
+    way), only which original starter's uid is recorded as "replaced" in subs_applied. It CAN,
+    however, affect whether a LATER bench player's own sub is still legal (a differently-
+    positioned choice changes the resulting position counts differently) -- real FPL's own
+    engine resolves this the same sequential, bench-priority-order way, not by search over every
+    possible assignment."""
+    final: dict[str, dict] = dict(xi_info)
+    subs_applied: list[dict] = []
+
+    def _is_confirmed_blank(info: dict) -> bool:
+        return info["minutes"] == 0
+
+    def _confirmed_played(info: dict) -> bool:
+        return info["minutes"] is not None and info["minutes"] > 0
+
+    gk_uid = next((uid for uid, info in xi_info.items() if info["position"] == "Goalkeeper"), None)
+    bench_gk_uid = next((uid for uid, info in bench_info.items() if info["position"] == "Goalkeeper"), None)
+    if (
+        gk_uid is not None and _is_confirmed_blank(final[gk_uid])
+        and bench_gk_uid is not None and _confirmed_played(bench_info[bench_gk_uid])
+    ):
+        del final[gk_uid]
+        final[bench_gk_uid] = bench_info[bench_gk_uid]
+        subs_applied.append({"out": gk_uid, "in": bench_gk_uid})
+
+    outfield_bench = sorted(
+        (uid for uid, info in bench_info.items() if info["position"] != "Goalkeeper"),
+        key=lambda uid: (bench_info[uid]["bench_order"] if bench_info[uid]["bench_order"] is not None else 99, uid),
+    )
+    for bench_uid in outfield_bench:
+        info = bench_info[bench_uid]
+        if not _confirmed_played(info):
+            continue
+        outfield_counts = Counter(f["position"] for f in final.values() if f["position"] != "Goalkeeper")
+        blanks = sorted(uid for uid, f in final.items() if f["position"] != "Goalkeeper" and _is_confirmed_blank(f))
+        for blank_uid in blanks:
+            trial = outfield_counts.copy()
+            trial[final[blank_uid]["position"]] -= 1
+            trial[info["position"]] += 1
+            if all(_AUTO_SUB_FORMATION_MIN[p] <= trial[p] <= _AUTO_SUB_FORMATION_MAX[p] for p in _AUTO_SUB_FORMATION_POSITIONS):
+                del final[blank_uid]
+                final[bench_uid] = info
+                subs_applied.append({"out": blank_uid, "in": bench_uid})
+                break
+
+    return {"final_xi_uids": frozenset(final.keys()), "subs_applied": subs_applied}
+
+
+def _bench_order_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, run_id: int) -> dict[str, int]:
+    """The REAL, solve-time bench_order squad_optimizer.solve() itself computed for a genuine
+    fresh MIQP solve (run_season_simulation()'s own bootstrap, or a Wildcard/Free-Hit week's
+    fresh one-off squad) -- a plain read of squad_optimizer_selections.bench_order (see
+    schema/0020_m5_bench_order.sql), never re-derived."""
+    rows = con.execute(
+        "SELECT player_uid, bench_order FROM squad_optimizer_selections WHERE run_id = ? AND bench_order IS NOT NULL",
+        [run_id],
+    ).fetchall()
+    return dict(rows)
+
+
+def _bench_order_by_projected_ep(
+    con: duckdb.DuckDBPyConnection, plan_run_id: int, gameweek: int, bench_uids: frozenset,
+) -> dict[str, int]:
+    """A cheap, asof-safe PROXY bench_order for a gameweek whose squad evolved via incremental
+    transfers rather than a fresh squad_optimizer.run() solve -- no persisted bench_order exists
+    for that squad at all, so run_season_simulation()'s own simulate_auto_subs=True path uses
+    this instead (see its own docstring for exactly when). Same mu-ranking PRINCIPLE
+    squad_optimizer.solve()'s own bench_order uses (highest projected EP first), just computed
+    post-hoc: reads transfer_plan_runs.ep_model_versions (a JSON {gameweek: ep_model_version}
+    map ALREADY written, asof-safely, by transfer_planner.run() for this exact plan_run_id/
+    gameweek -- reading it back here is a plain lookup of an immutable version id, not a new
+    computation that could leak later data) and ranks bench_uids by ep_outputs.ep_total under
+    that version. Returns {} (defers to "can't assess, no sub" -- simulate_auto_substitutions()
+    treats a bench player entirely absent from bench_info the same as one that never played) if
+    no ep_model_version is on record for this gameweek, or bench_uids is empty."""
+    if not bench_uids:
+        return {}
+    row = con.execute("SELECT ep_model_versions FROM transfer_plan_runs WHERE run_id = ?", [plan_run_id]).fetchone()
+    ep_mv = json.loads(row[0]).get(str(gameweek)) if row and row[0] else None
+    if ep_mv is None:
+        return {}
+    placeholders = ",".join("?" * len(bench_uids))
+    rows = con.execute(
+        f"SELECT player_uid, ep_total FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+        [ep_mv, *bench_uids],
+    ).fetchall()
+    ep_by_uid = dict(rows)
+    ranked = sorted(bench_uids, key=lambda uid: (-(ep_by_uid.get(uid) or 0.0), uid))
+    return {uid: rank for rank, uid in enumerate(ranked, start=1)}
+
+
 def _realized_xi_points(
     con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None,
     captain_multiplier: int = 2, vice_captain_uid: str | None = None,
+    squad_uids: frozenset | None = None, bench_order: dict[str, int] | None = None,
 ) -> float:
     """Real FPL scoring: only the starting XI's points count, and the captain's points double
     -- summing the full 15-player squad (bench included) would overstate what a squad actually
@@ -2322,26 +2585,57 @@ def _realized_xi_points(
     explicit minutes == 0 triggers the fallback. Conflating "never recorded" with "definitely
     didn't play" would transfer the armband on pure missing-data noise -- a real fixture-vs-
     production gap found via test_score_gameweek_records_beats_crowd_metrics_when_opted_in, whose
-    scenario has real event_points but no minutes column at all."""
-    stats = {}
-    for player_uid in xi_uids:
-        row = con.execute(
-            "SELECT event_points, minutes FROM fact_player_season_stats WHERE player_uid = ? AND season = ? AND gw = ?",
-            [player_uid, season, gameweek],
-        ).fetchone()
-        stats[player_uid] = (
-            row[0] if row and row[0] is not None else 0.0,
-            row[1] if row else None,  # None = unknown, never inferred as a confirmed blank
-        )
+    scenario has real event_points but no minutes column at all.
+
+    squad_uids/bench_order (2026-09-14 fix, opt-in TOGETHER -- both None is the exact prior
+    behavior, this function's original XI-only limitation): the real gap disclosed in
+    docs/reports/2025-26_retrospective_validation.md's own caveat (e) -- this function used to
+    be structurally unable to read a bench player's points under any circumstances, no matter
+    how a starter blanked. When given, squad_uids - xi_uids is read as the bench (real FPL: 4
+    players), bench_order gives their real priority (see schema/0020_m5_bench_order.sql), and
+    simulate_auto_substitutions() determines the real final scoring XI BEFORE any points or
+    captain/vice logic runs below -- a captain who is themselves auto-subbed out still triggers
+    the armband-transfer check above unchanged (their own real, zero points; the vice's own
+    real points get doubled instead), and their vacated slot separately gets a real (un-doubled,
+    unless the incoming player happens to also be the vice) replacement's points rather than a
+    silent zero. Requires a real position for every XI/bench player (dim_player.position) --
+    reads it in the same query as event_points/minutes, not a second round-trip."""
+    all_uids = xi_uids | ((squad_uids - xi_uids) if squad_uids is not None else frozenset())
+    placeholders = ",".join("?" * len(all_uids))
+    # LEFT JOIN, not JOIN: a real fact_player_season_stats row must never be dropped just
+    # because dim_player is somehow missing a row for that uid (shouldn't happen in real data,
+    # but this function's own default path -- squad_uids=None -- never touched dim_player at
+    # all before this fix, and a silently-INNER-joined-away event_points/minutes row would be a
+    # real regression, not an improvement, for every existing caller).
+    rows = con.execute(
+        f"SELECT s.player_uid, s.event_points, s.minutes, dp.position FROM fact_player_season_stats s "
+        f"LEFT JOIN dim_player dp ON dp.player_uid = s.player_uid "
+        f"WHERE s.player_uid IN ({placeholders}) AND s.season = ? AND s.gw = ?",
+        [*all_uids, season, gameweek],
+    ).fetchall() if all_uids else []
+    stats = {uid: (0.0, None, None) for uid in all_uids}  # default: no row = unknown, never a confirmed blank
+    for uid, pts, minutes, position in rows:
+        stats[uid] = (pts if pts is not None else 0.0, minutes, position)
+
+    effective_xi_uids = xi_uids
+    if squad_uids is not None:
+        bench_uids = squad_uids - xi_uids
+        xi_info = {uid: {"position": stats[uid][2], "minutes": stats[uid][1]} for uid in xi_uids}
+        bench_info = {
+            uid: {"position": stats[uid][2], "minutes": stats[uid][1], "bench_order": (bench_order or {}).get(uid)}
+            for uid in bench_uids
+        }
+        effective_xi_uids = simulate_auto_substitutions(xi_info, bench_info)["final_xi_uids"]
 
     armband_uid = captain_uid
     if vice_captain_uid is not None and captain_uid is not None and vice_captain_uid in stats:
-        _captain_pts, captain_minutes = stats.get(captain_uid, (0.0, None))
+        _captain_pts, captain_minutes, _pos = stats.get(captain_uid, (0.0, None, None))
         if captain_minutes == 0:
             armband_uid = vice_captain_uid
 
     total = 0.0
-    for player_uid, (pts, _minutes) in stats.items():
+    for player_uid in effective_xi_uids:
+        pts = stats.get(player_uid, (0.0, None, None))[0]
         total += pts * captain_multiplier if player_uid == armband_uid else pts
     return total
 
