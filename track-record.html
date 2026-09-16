@@ -218,14 +218,22 @@ function render(data) {
     `<div class="pkg"><span class="n">${esc(m.metric_name)}</span><span class="ver">${m.mean_value != null ? m.mean_value : "—"} (n=${m.n_observations ?? 0})</span></div>`).join("");
 
   const fmtSigned = n => n == null ? "—" : (n >= 0 ? "+" : "") + Number(n).toFixed(2);
+  // 2026-09 relabel: this KPI is NOT FPL's official average_entry_score -- it's a synthetic,
+  // ownership-weighted proxy (backtest._avg_manager_benchmark_points(), explicitly documented
+  // there as "not FPL's own real published average entry score"). It used to read as if it
+  // were the real average (same phrase the live model-team section below correctly uses for
+  // its own, genuinely-real average_entry_score comparison) -- named unambiguously here so the
+  // two are never confused. This section also measures a fresh full-budget re-solve each
+  // gameweek, not a legal stateful season (no bank/transfers/hits carry between steps) -- see
+  // "vs the average manager" further down for the real, stateful, live-season comparison.
   const headlineSection = hl ? `
     <section class="card" style="border:1px solid var(--good,#2ecc71);">
-      <h2>Does the model beat the average manager?</h2>
-      <p class="sub">The one number the walk-forward actually measures: over ${hl.n_scored_gameweeks} scored gameweek-steps across ${esc((bt.seasons_covered || []).join(" & ") || "prior seasons")}, the model's own optimised squad's realised FPL points minus the average FPL manager's score that week. Everything below is a component check, never rolled into this.</p>
+      <h2>Does a fresh model squad beat a synthetic crowd benchmark?</h2>
+      <p class="sub">An oracle/upper-bound diagnostic, not a legal season: over ${hl.n_scored_gameweeks} scored gameweek-steps across ${esc((bt.seasons_covered || []).join(" & ") || "prior seasons")}, a from-scratch full-budget model squad's realised FPL points minus a <strong>synthetic, ownership-weighted crowd proxy</strong> that week (not FPL's official average score). No bank, transfers, or hits carry between steps here. Everything below is a component check, never rolled into this.</p>
       <div class="kpis">
-        <div class="kpi"><div class="v" style="color:${hl.beats_avg_manager_by_points_per_gw >= 0 ? "var(--good,#2ecc71)" : "var(--bad,#e74c3c)"};">${fmtSigned(hl.beats_avg_manager_by_points_per_gw)}</div><div class="l">Points per GW vs the average manager</div></div>
-        <div class="kpi"><div class="v">${hl.model_squad_points_per_gw != null ? Number(hl.model_squad_points_per_gw).toFixed(1) : "—"}</div><div class="l">Model squad pts/GW</div></div>
-        <div class="kpi"><div class="v">${hl.avg_manager_points_per_gw != null ? Number(hl.avg_manager_points_per_gw).toFixed(1) : "—"}</div><div class="l">Average manager pts/GW</div></div>
+        <div class="kpi"><div class="v" style="color:${hl.beats_avg_manager_by_points_per_gw >= 0 ? "var(--good,#2ecc71)" : "var(--bad,#e74c3c)"};">${fmtSigned(hl.beats_avg_manager_by_points_per_gw)}</div><div class="l">Points per GW vs the synthetic crowd benchmark</div></div>
+        <div class="kpi"><div class="v">${hl.model_squad_points_per_gw != null ? Number(hl.model_squad_points_per_gw).toFixed(1) : "—"}</div><div class="l">Fresh model squad pts/GW</div></div>
+        <div class="kpi"><div class="v">${hl.avg_manager_points_per_gw != null ? Number(hl.avg_manager_points_per_gw).toFixed(1) : "—"}</div><div class="l">Synthetic crowd benchmark pts/GW</div></div>
       </div>
       ${hl.minutes_brier != null ? `<p class="empty-note">Minutes-model calibration: Brier ${Number(hl.minutes_brier).toFixed(3)}, log score ${hl.minutes_log_score != null ? Number(hl.minutes_log_score).toFixed(3) : "—"} (lower is better).</p>` : ""}
     </section>` : "";
@@ -236,7 +244,7 @@ function render(data) {
       <div class="txt"><strong>${notYet ? "No realized-accuracy backtest yet." : `Walk-forward backtest: ${steps} gameweek steps, re-run nightly.`}</strong>
       ${notYet
         ? "This page shows the model's real, dated recommendation history and data provenance instead — the honest substitute for an accuracy figure until the walk-forward backtest is run and scored. Nothing here is retrofitted."
-        : "The headline below is the model squad's realised-points margin over the average manager across those steps."}</div>
+        : "The headline below is a fresh model squad's realised-points margin over a synthetic crowd benchmark across those steps — see “The model's own team” further down for the real, stateful season compared against FPL's official average score."}</div>
     </div>
 
     ${headlineSection}
@@ -329,10 +337,10 @@ function renderModelTeam(mt) {
   return `
     <section class="card" style="border:1px solid var(--accent,#4a9eff);">
       <h2>The model's own team</h2>
-      <p class="sub">Not advice on someone else's squad — the model's <em>own</em> team: its from-scratch GW1 XI, then its real weekly transfer/captain/chip call, applied and scored against the average FPL manager. ${esc(mt.disclaimer || "")}</p>
+      <p class="sub">Not advice on someone else's squad — the model's <em>own</em> team: its from-scratch GW1 XI, then its real weekly transfer/captain/chip call, applied and scored against FPL's official real average entry score (not the synthetic crowd benchmark above). ${esc(mt.disclaimer || "")}</p>
       <div class="kpis">
         <div class="kpi"><div class="v">${mt.total_realized_points}</div><div class="l">Total points · GW${mt.current_gameweek}</div></div>
-        <div class="kpi"><div class="v">${sign(mt.total_vs_field)}</div><div class="l">vs the average manager</div></div>
+        <div class="kpi"><div class="v">${sign(mt.total_vs_field)}</div><div class="l">vs FPL's official average manager</div></div>
         <div class="kpi"><div class="v">${mt.n_gameweeks_scored}<small style="font-size:11px;"> (${mt.n_gameweeks_simulated} sim)</small></div><div class="l">Gameweeks scored</div></div>
       </div>
       ${mt.chips_used && mt.chips_used.length ? `<p class="empty-note">Chips played: ${mt.chips_used.map(esc).join(", ")}.</p>` : ""}

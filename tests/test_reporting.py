@@ -1041,6 +1041,12 @@ def test_build_track_record_summary_headline_when_crowd_delta_scored(con):
     assert summary["headline"]["n_scored_gameweeks"] == 2
     assert summary["headline"]["minutes_brier"] == pytest.approx(0.13)
     assert all(":" not in m["metric_name"] for m in summary["metrics"])
+    # Phase 1D (2026-09 audit): the headline must self-disclose it's a synthetic, oracle
+    # benchmark -- never silently readable as FPL's real official average_entry_score.
+    meta = summary["headline"]["benchmark_metadata"]
+    assert meta["benchmark_name"] == "synthetic_eo_weighted_score"
+    assert meta["stateful"] is False
+    assert meta["oracle"] is True
 
 
 def test_build_track_record_summary_flags_backtested_params(con):
