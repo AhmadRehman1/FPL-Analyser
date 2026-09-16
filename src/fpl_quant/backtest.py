@@ -482,12 +482,15 @@ def _is_new_signing(con: duckdb.DuckDBPyConnection, player_uid: str, season: str
     return cur_codes != prev_codes
 
 
-# Price bands match research/ml/baselines.py::_price_band exactly -- the ML experiment already
-# slices sliced_model_comparison.csv on these same four boundaries (REPORT.md §10a names
-# `price_band=9.0+` as a safety-critical slice), so the walk-forward's own segment metrics use
-# the identical cut points rather than inventing a parallel banding nobody can line up.
+# The single source of truth for these four price-band cut points (Phase 1A calibration audit,
+# 2026-09: three independent re-derivations of "<5.0 / 5.0-7.0 / 7.0-9.0 / 9.0+" had drifted
+# apart across the codebase). research/ml/baselines.py imports this function directly rather
+# than re-deriving it (REPORT.md §10a names `price_band=9.0+` as a safety-critical slice, so it
+# matters that both lanes mean the same thing by it); calibration_diagnostics.py's raw-row
+# recompute uses it too. scripts/diagnose_ep_calibration.py's SQL-side CASE expressions are a
+# separate, still-unconsolidated duplication -- see docs/reports/2026-09_calibration_captain_headline_audit.md.
 def _price_band(now_cost: float | None) -> str:
-    if now_cost is None:
+    if now_cost is None or (isinstance(now_cost, float) and math.isnan(now_cost)):
         return "unknown"
     if now_cost < 5.0:
         return "<5.0"
@@ -595,6 +598,24 @@ def _avg_manager_benchmark_points(
         pts = points_by_uid.get(uid, 0.0)
         total += (eo / 100.0) * p_start_by_uid.get(uid, 1.0) * pts
     return total if any_eo else None
+
+
+# Phase 1D (2026-09 audit): structured provenance for the walk-forward's "beats_crowd" benchmark
+# -- additive metadata only, does not change any existing metric value. See
+# reporting._backtest_headline() for where this attaches to the public headline payload, and
+# model_team.py's own real average_entry_score comparison (a different, genuinely-official
+# benchmark, used for the live 2026-27 season tracker, not this historical walk-forward) for
+# contrast -- the two must never be described with the same unqualified "average manager" phrase.
+def synthetic_crowd_benchmark_provenance() -> dict:
+    return {
+        "benchmark_name": "synthetic_eo_weighted_score",
+        "source": "internal computation: fact_player_season_stats.selected_by_percent (EO) x realized event_points",
+        "endpoint_or_artefact": None,  # not ingested from any external endpoint or artefact -- see _avg_manager_benchmark_points()'s own docstring
+        "as_of": "computed per scored gameweek-step at walk-forward time, not a fixed snapshot",
+        "gross_or_net_of_hits": "gross (no transfer-hit adjustment)",
+        "stateful": False,
+        "oracle": True,  # backtest.run()'s squad_optimizer.run() re-solves fresh every step; see run()'s own module comment
+    }
 
 
 def _record_metric(con: duckdb.DuckDBPyConnection, backtest_run_id: int, season: str, gameweek: int, tier: str, metric_name: str, metric_value: float) -> None:

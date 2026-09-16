@@ -26,6 +26,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
+from fpl_quant.backtest import _price_band as _core_price_band
+
 from . import contract as C
 
 
@@ -115,15 +117,11 @@ def historical_baseline_predictions(df: pd.DataFrame, window: int = 5) -> np.nda
 # ============================================================
 
 def _price_band(v: float) -> str:
-    if pd.isna(v):
-        return "unknown"
-    if v < 5.0:
-        return "<5.0"
-    if v < 7.0:
-        return "5.0-7.0"
-    if v < 9.0:
-        return "7.0-9.0"
-    return "9.0+"
+    # Delegates to fpl_quant.backtest._price_band -- the single source of truth for these four
+    # cut points (see that function's own docstring). Boundaries used to be re-derived here
+    # independently; consolidated so "< vs <=" (or a future boundary change) can't silently
+    # diverge between the core walk-forward and this research lane.
+    return _core_price_band(None if pd.isna(v) else float(v))
 
 
 def _minutes_band(v: float) -> str:
