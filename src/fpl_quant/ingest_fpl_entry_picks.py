@@ -58,16 +58,19 @@ BAND_PAGES_MAX = 10
 
 # The stratified rival-sample shape for the model-managed team's top-100k goal (Priority 10
 # Phase B, docs/priority10_field_simulator_design.md): a versioned constant, list of
-# (start_rank, end_rank, n_wanted). ~120 around the 100k target band, plus a small elite slice
-# (ceiling reference) and a mid-field slice (margin-over-median reference). ~200 entries total
-# -- deliberately far below run_rival_sample_ingestion.py's old aspirational n_entries=2000
-# ([A1]): this is the FIRST wiring of rival sampling into a real scheduled workflow, so it
-# starts at a volume whose deep-pagination reach is actually observable (achieved bands are
-# reported, never assumed) and whose request count is respectful of FPL's own API.
+# (start_rank, end_rank, n_wanted). ~120 around the 100k target band, a small elite slice
+# (ceiling reference), a mid-field slice (margin-over-median reference), and a broad tail
+# slice so field_rank.estimate_population_rank() has real data across the whole rank range
+# rather than extrapolating a 10M-manager tail from the 600k band. ~250 entries total --
+# deliberately far below run_rival_sample_ingestion.py's old aspirational n_entries=2000
+# ([A1]). Deep-pagination reach is observable (achieved bands are reported, never assumed):
+# the tail band self-truncates at FPL's standings frontier and the estimator falls back to
+# the published gameweek-average anchor for whatever it can't reach.
 DEFAULT_RANK_BANDS = [
     (1, 10_000, 40),
     (60_000, 140_000, 120),
     (400_000, 600_000, 40),
+    (600_000, 2_000_000, 50),
 ]
 
 # See app_export._fetch_json's own docstring -- same retry rationale, duplicated rather than
@@ -268,7 +271,7 @@ def fetch_entry_picks(entry_id: int, event: int, *, payload: dict | None = None)
 def ingest_rival_squad_sample(
     con: duckdb.DuckDBPyConnection, season: str, event: int, ingested_date: datetime,
     *, league_id: int = FPL_OVERALL_LEAGUE_ID, n_entries: int = 200,
-    bands: list[tuple[int, int, int]] | None = None,
+    bands: list[tuple[int, int, int]] | None = None, replace: bool = False,
     element_names: dict[int, str] | None = None, entries: list[dict] | None = None,
     entry_picks_by_id: dict[int, list[dict] | None] | None = None,
 ) -> dict:
@@ -284,12 +287,20 @@ def ingest_rival_squad_sample(
     rank instrumentation needs (see DEFAULT_RANK_BANDS). When `entries` is injected directly,
     both `bands` and `n_entries` are ignored. The result carries `achieved_bands` (what the
     band sampler actually reached) for the caller to log; it is not persisted here -- the
-    league_rank column on each stored row already records the sample's real shape."""
-    already = con.execute(
-        "SELECT 1 FROM fact_rival_squad_sample WHERE season = ? AND event = ? LIMIT 1", [season, event],
-    ).fetchone()
-    if already:
-        return {"status": "unchanged", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 0, "achieved_bands": None}
+    league_rank column on each stored row already records the sample's real shape.
+
+    `replace=True` re-samples a gameweek that is already in the table instead of the idempotent
+    no-op -- for a gameweek whose stored sample used the wrong strategy (e.g. the retired
+    top-2000 daily job's data, which is the wrong cohort for a top-100k rank score). The old
+    rows are deleted only once the replacement entries are actually in hand, so a failed fetch
+    leaves the existing sample untouched. The picks themselves don't change; only which rivals
+    were sampled does."""
+    if not replace:
+        already = con.execute(
+            "SELECT 1 FROM fact_rival_squad_sample WHERE season = ? AND event = ? LIMIT 1", [season, event],
+        ).fetchone()
+        if already:
+            return {"status": "unchanged", "entries_sampled": 0, "picks_inserted": 0, "entries_skipped": 0, "achieved_bands": None}
 
     if element_names is None:
         element_names = fetch_bootstrap_elements()
@@ -299,6 +310,9 @@ def ingest_rival_squad_sample(
             entries, achieved_bands = fetch_entries_in_rank_bands(league_id, bands)
         else:
             entries = fetch_top_entries(league_id, n_entries)
+
+    if replace and entries:
+        con.execute("DELETE FROM fact_rival_squad_sample WHERE season = ? AND event = ?", [season, event])
 
     picks_inserted, entries_skipped = 0, 0
     for entry in entries:

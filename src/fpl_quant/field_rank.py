@@ -9,12 +9,18 @@ Forward-only by construction -- FPL's API serves only current-season picks, so t
 accumulating from 2026-27 GW1. Pure DB reads, no network: the rival sample and the realized
 outcomes are both already ingested by the time anything here runs.
 
-The percentile -> projected-rank arithmetic is live_tracking.estimate_live_rank(), reused
-verbatim -- the only difference is the sample here is a settled gameweek's real points, not a
-live in-match estimate. Realized XI scoring mirrors backtest._realized_xi_points (a separate
-small copy, per this project's one-helper-per-module convention); the vice-captain armband-
-transfer nuance that function carries is out of scope for step 1 and would only ever move a
-score when a captain records zero minutes.
+The percentile -> projected-rank arithmetic is estimate_population_rank() below. It is NOT
+live_tracking.estimate_live_rank()'s flat `n_beaten / n_sample`: the rival sample is a
+STRATIFIED quota sample (schema/0017's DEFAULT_RANK_BANDS -- ~64% of it sits in the top
+140k), so a flat count answers "what fraction of a room full of strong managers did you
+beat", which is not a population percentile. The first weekly autopsy showed the damage --
+every below-average gameweek projected to ~last place. estimate_population_rank() instead
+Horvitz-Thompson-weights each sampled rival by the slice of the real rank axis it stands in
+for (a Voronoi cell between neighbouring sampled ranks), and models the unsampled tail below
+the deepest band with that band's own score distribution. Realized XI scoring mirrors
+backtest._realized_xi_points (a separate small copy, per this project's one-helper-per-module
+convention); the vice-captain armband-transfer nuance that function carries is out of scope
+for step 1 and would only ever move a score when a captain records zero minutes.
 
 NOT in this module: the joint Monte Carlo across the rival sample (Phase B proper) and any
 squad_optimizer integration (Phase C). This measures and attributes; it does not simulate or
@@ -24,8 +30,6 @@ optimise. Double-gameweek / blank-gameweek rival squads are scored with realized
 
 import duckdb
 
-from . import live_tracking
-
 # "The template" for the template-coverage attribution: the N most effectively-owned players
 # in the sample. 15 = a full squad's worth -- a manager who owns all 15 is maximally
 # template; each one missed is rank ceded when that player returns.
@@ -34,6 +38,14 @@ TEMPLATE_TOP_N = 15
 # A squad player owned by fewer than this percent of the sample is a "differential" -- the
 # holdings whose realized-vs-expected surprise actually moves rank against the field.
 DIFFERENTIAL_OWNERSHIP_CEILING_PCT = 10.0
+
+# estimate_population_rank(): the deepest fraction of the sample (by overall rank) whose score
+# distribution stands in for the unsampled tail -- every manager ranked worse than the deepest
+# sampled rival. 0.20 == the 600k-2M band alone under the current DEFAULT_RANK_BANDS (50 of
+# 250). Using only the deepest band is deliberately conservative: a rank-5M manager scores
+# worse than the rank-1.5M rivals modelling the tail, so this understates, never overstates,
+# how much of the field the subject beat.
+TAIL_MODEL_SAMPLE_FRAC = 0.20
 
 
 def gameweek_is_settled(con: duckdb.DuckDBPyConnection, season: str, event: int) -> bool:
@@ -163,26 +175,99 @@ def sample_shape(con: duckdb.DuckDBPyConnection, season: str, event: int) -> dic
     }
 
 
+def estimate_population_rank(
+    your_points: int, rivals: list[dict], total_players: int | None,
+    *, tail_model_sample_frac: float = TAIL_MODEL_SAMPLE_FRAC,
+) -> dict:
+    """Project a gameweek score onto a real overall rank, correcting for the rival sample's
+    stratification. `rivals` is settled_rival_totals()'s output -- each carries the sampled
+    manager's `league_rank` (their overall rank) and realized `points`.
+
+    Method: sort the sample by overall rank; each rival gets a Horvitz-Thompson weight equal
+    to the width of its Voronoi cell on the rank axis (halfway to the neighbour on each side),
+    so a rival in a densely-sampled band counts for fewer real managers than one in a sparse
+    band. The unsampled tail -- every rank between the deepest sampled rival and
+    total_players -- is scored against the deepest `tail_model_sample_frac` of the sample
+    (see TAIL_MODEL_SAMPLE_FRAC). `percentile` is then the weighted fraction of the whole
+    field the subject beat, and `estimated_rank = (1 - percentile) * total_players`.
+
+    Falls back to a flat count (method="flat_count") when no rival carries a usable
+    league_rank or total_players is unknown -- an unstratified sample (a mini-league) or a
+    missing bootstrap. Returns percentile/estimated_rank None only when `rivals` is empty."""
+    n = len(rivals)
+    raw_beaten = sum(1 for r in rivals if your_points > r["points"])
+    raw_tied = sum(1 for r in rivals if your_points == r["points"])
+    base = {"sample_size": n, "n_beaten": raw_beaten, "n_tied": raw_tied}
+    if n == 0:
+        return {**base, "percentile": None, "estimated_rank": None, "method": None}
+
+    ranked = sorted(
+        ((r["league_rank"], r["points"]) for r in rivals if r.get("league_rank") and r["league_rank"] >= 1),
+        key=lambda rp: rp[0],
+    )
+    if not ranked or not total_players:
+        # no rank axis to weight along -- flat count, same arithmetic as live_tracking
+        pct = (raw_beaten + 0.5 * raw_tied) / n
+        est = max(1, round((1 - pct) * total_players)) if total_players else None
+        return {**base, "percentile": round(pct * 100, 1), "estimated_rank": est, "method": "flat_count"}
+
+    m = len(ranked)
+    edges = [0.0]
+    for i in range(1, m):
+        edges.append((ranked[i - 1][0] + ranked[i][0]) / 2.0)
+    edges.append(float(ranked[-1][0]))  # the sampled region ends at the deepest rival; past it is the tail
+
+    covered_weight = 0.0
+    beaten_weight = 0.0
+    for i, (_, pts) in enumerate(ranked):
+        w = edges[i + 1] - edges[i]
+        if w <= 0:
+            continue
+        covered_weight += w
+        if your_points > pts:
+            beaten_weight += w
+        elif your_points == pts:
+            beaten_weight += 0.5 * w
+
+    tail_width = max(0.0, total_players - ranked[-1][0])
+    k = max(1, round(m * tail_model_sample_frac))
+    tail_scores = [pts for _, pts in ranked[-k:]]
+    tail_beaten = sum(1 for s in tail_scores if your_points > s) + 0.5 * sum(1 for s in tail_scores if your_points == s)
+    beaten_weight += tail_width * (tail_beaten / len(tail_scores))
+
+    total_weight = covered_weight + tail_width
+    pct = beaten_weight / total_weight if total_weight else 0.0
+    return {
+        **base,
+        "percentile": round(pct * 100, 1),
+        "estimated_rank": max(1, round((1 - pct) * total_players)),
+        "method": "band_weighted",
+    }
+
+
 def score_squad_rank(
     con: duckdb.DuckDBPyConnection, season: str, event: int,
     xi_uids: list[str] | frozenset, captain_uid: str | None, total_players: int | None,
     *, captain_multiplier: int = 2,
 ) -> dict:
     """Where the subject squad's realized XI score places it against the settled rival sample.
-    percentile / estimated_rank come straight from live_tracking.estimate_live_rank. Returns
-    n_rivals=0 (percentile/estimated_rank None) when there is no settled sample -- the caller
-    must not persist a score in that case."""
+    percentile / estimated_rank come from estimate_population_rank (band-weighted, not a flat
+    sample count -- see this module's docstring). n_beaten / n_tied stay RAW sample counts
+    (they no longer reconcile with percentile, and are not meant to). Returns n_rivals=0
+    (percentile/estimated_rank None) when there is no settled sample -- the caller must not
+    persist a score in that case."""
     your_points = realized_xi_points(con, season, event, xi_uids, captain_uid, captain_multiplier=captain_multiplier)
-    sample_points = [r["points"] for r in settled_rival_totals(con, season, event)]
-    est = live_tracking.estimate_live_rank(your_points, sample_points, total_players)
+    rivals = settled_rival_totals(con, season, event)
+    est = estimate_population_rank(your_points, rivals, total_players)
     return {
         "realized_points": your_points,
-        "n_rivals": len(sample_points),
-        "n_beaten": sum(1 for s in sample_points if your_points > s),
-        "n_tied": sum(1 for s in sample_points if your_points == s),
+        "n_rivals": len(rivals),
+        "n_beaten": est["n_beaten"],
+        "n_tied": est["n_tied"],
         "percentile": est["percentile"],
         "estimated_rank": est["estimated_rank"],
         "total_players": total_players,
+        "method": est["method"],
     }
 
 

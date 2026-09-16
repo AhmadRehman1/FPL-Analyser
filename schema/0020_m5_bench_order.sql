@@ -1,0 +1,16 @@
+-- M5 -- bench order (Workstream C's "harder half": docs/reports/2026-09_chip_policy_and_
+-- scoring_diagnosis.md / 2026-09_model_failure_diagnosis.md, "the backtest is scoring a game
+-- that isn't FPL"). squad_optimizer_selections previously had no way to represent which of a
+-- squad's 4 bench slots a real manager would sub in first, second, third -- a real data-model
+-- gap, not a small scoring-function patch, per that finding's own account.
+--
+-- bench_order is 1/2/3 for the three outfield bench players, in real-FPL priority order (1 =
+-- first sub). The bench goalkeeper is deliberately NOT numbered here: a squad always carries
+-- exactly 2 goalkeepers (POSITION_QUOTA) and exactly 1 in the XI, so the bench GK is always the
+-- other one -- identifiable structurally (position = 'Goalkeeper' AND in_squad AND NOT in_xi),
+-- with no ordering question (real FPL only ever has one bench GK). NULL for every XI player,
+-- every not-in-squad row, and the bench GK itself -- never a fabricated 0 for "not applicable."
+--
+-- ADD COLUMN with a DEFAULT (no inline NOT NULL/CHECK -- DuckDB doesn't support adding a column
+-- with an inline constraint), same idempotent pattern as 0011's bank-tracking columns.
+ALTER TABLE squad_optimizer_selections ADD COLUMN IF NOT EXISTS bench_order INTEGER DEFAULT NULL;

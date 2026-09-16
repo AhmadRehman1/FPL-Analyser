@@ -1,0 +1,45 @@
+{
+  "arm": "on",
+  "backtest_run_id": 1,
+  "base_param_versions": {
+    "xi_params_version": 2,
+    "rho_params_version": 1,
+    "decay_params_version": 1,
+    "adjustment_params_version": 18,
+    "shrinkage_params_version": 11,
+    "fact_multiplier_params_version": 8,
+    "scoring_params_version": 1,
+    "bps_params_version": 1,
+    "tau_params_version": 1,
+    "rho_residual_params_version": 4,
+    "corr_params_version": 1,
+    "lambda_params_version": 1,
+    "guardrail_params_version": 1
+  },
+  "current_season_role_params_version": 1,
+  "beats_crowd_points_delta_by_tier": {
+    "warm": {
+      "mean": -4.361812181225642,
+      "n": 42
+    },
+    "cold": {
+      "mean": -7.6721074779549,
+      "n": 8
+    },
+    "mature": {
+      "mean": -4.091593712988408,
+      "n": 20
+    }
+  },
+  "minutes_calibration": {
+    "log_score_minutes_mean": {
+      "mean": -1.2609817818110793,
+      "n": 71
+    },
+    "brier_minutes_mean": {
+      "mean": 0.3600355504873917,
+      "n": 71
+    }
+  },
+  "wall_seconds": 9441.6
+}

@@ -116,6 +116,7 @@ def main() -> None:
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
+    squad_optimizer.seed_template_anchor_params(con)  # risk_posture_params v2 -- the aggressive EO/template anchor
     transfer_planner.seed_v1_params(con)
     reporting.seed_v1_params(con)
     decay.seed_v1_params(con)
@@ -149,9 +150,10 @@ def main() -> None:
           "cross_player_correlation_params, risk_aversion_params, "
           "squad_optimizer_guardrail_params, planning_horizon_params, transfer_cost_params, "
           "tc_risk_aversion_params, wildcard_gain_threshold_params, ownership_params, "
-          "risk_posture_params, field_covariance_params, bench_quality_params, "
-          "concentration_risk_params, sanity_check_params, consensus_check_params, "
-          "confidence_score_params, claim_type_decay_params, role_change_flag_params v1 seeded")
+          "risk_posture_params (v1 + v2 template anchor), field_covariance_params, "
+          "bench_quality_params, concentration_risk_params, sanity_check_params, "
+          "consensus_check_params, confidence_score_params, claim_type_decay_params, "
+          "role_change_flag_params v1 seeded")
 
     t0 = time.time()
     reconcile_results = reconcile.reconcile_all(con, str(XLSX_PATH))
@@ -271,6 +273,12 @@ def main() -> None:
             con, CALIBRATION_ASOF_DATE, TARGET_SEASON, TARGET_GAMEWEEK,
             ep_model_version=ep_model_version, uncertainty_model_version=un_model_version,
             lambda_params_version=ACTIVE["lambda_params_version"], guardrail_params_version=1,
+            # Priority 10 Phase C -- the template anchor. Without these the from-scratch squad
+            # ignored field ownership entirely (rank autopsy: 3/15 template, GW1). v2 of
+            # risk_posture_params is the aggressive setting (eo_weight_kappa=0.12); EO itself
+            # is ownership_params v1 (the captaincy-concentration proxy). field-covariance is
+            # deliberately left off for now -- the raw EO anchor is the first, simpler lever.
+            ownership_params_version=1, risk_posture_params_version=2,
         )
         n_squad = con.execute(
             "SELECT count(*) FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [so_run_id]
