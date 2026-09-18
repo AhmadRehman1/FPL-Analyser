@@ -4,7 +4,7 @@
   "gameweek": 5,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 2,
+  "live_total": 4,
   "players": [
     {
       "player_id": 496,
@@ -51,16 +51,16 @@
     {
       "player_id": 154,
       "web_name": "Palmer",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     },
     {
       "player_id": 40,
       "web_name": "Rogers",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     },
     {
       "player_id": 411,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 83.0,
-    "estimated_rank": 1848199
+    "percentile": 72.0,
+    "estimated_rank": 3044946
   },
   "fixtures": [
     {
@@ -99,7 +99,7 @@
       "home": {
         "short_name": "BRE",
         "name": "Brentford",
-        "score": 0
+        "score": 3
       },
       "away": {
         "short_name": "CHE",
@@ -108,6 +108,47 @@
       }
     }
   ],
-  "events": [],
-  "generated_at": "2026-09-18T20:08:42.325141+00:00"
+  "events": [
+    {
+      "player_id": 93,
+      "web_name": "Schuster",
+      "team": 4,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 41
+    },
+    {
+      "player_id": 94,
+      "web_name": "Schade",
+      "team": 4,
+      "event": "assist",
+      "count": 2,
+      "fixture_id": 41
+    },
+    {
+      "player_id": 100,
+      "web_name": "Carvalho",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 41
+    },
+    {
+      "player_id": 105,
+      "web_name": "Anthony",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 41
+    },
+    {
+      "player_id": 106,
+      "web_name": "Thiago",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 41
+    }
+  ],
+  "generated_at": "2026-09-18T22:32:48.010987+00:00"
 }
