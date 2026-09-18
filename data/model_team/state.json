@@ -1,6 +1,6 @@
 {
   "season": "2026-2027",
-  "current_gameweek": 4,
+  "current_gameweek": 5,
   "ledger": [
     {
       "gameweek": 1,
@@ -265,6 +265,112 @@
       "entry_label": "FPL Quant Model Team",
       "simulated": false,
       "realized_final": true
+    },
+    {
+      "gameweek": 5,
+      "projected_points": 50.63,
+      "band_low": 37.34,
+      "band_high": 63.91,
+      "action": "transfer",
+      "action_detail": "player_nathan_collins -> player_marc_guehi (net +26.90)",
+      "wildcard_gain": -10.25,
+      "wildcard_recommended": false,
+      "squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_jesus_maciel_da_cruz",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "xi_uids": [
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "formation_xi_uids": [
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "captain_uid": "player_marcos_senesi_baron",
+      "vice_captain_uid": "player_bernd_leno",
+      "realized_points": null,
+      "current_squad_horizon_value": 280.01,
+      "chips_used": [
+        "free_hit",
+        "triple_captain"
+      ],
+      "free_hit_gain": 17.54,
+      "free_hit_recommended": true,
+      "free_hit_threshold": null,
+      "free_hit_fresh_run_id": null,
+      "carryforward_squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_jesus_maciel_da_cruz",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "carryforward_xi_uids": [
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "carryforward_captain_uid": "player_marcos_senesi_baron",
+      "carryforward_vice_captain_uid": "player_bernd_leno",
+      "transfers": [
+        {
+          "out_uid": "player_nathan_collins",
+          "in_uid": "player_marc_guehi",
+          "net": 26.9
+        }
+      ],
+      "entry_label": "FPL Quant Model Team",
+      "simulated": false
     }
   ],
   "chips_used_set1": [
