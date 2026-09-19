@@ -681,6 +681,10 @@ def _backtest_headline(metrics: list[dict]) -> dict | None:
         # on average, <0 it over-predicts. The per-position/price split is in segment_calibration.
         "ep_points_bias_per_player": by_name.get("ep_total_calibration_mean_resid"),
         "ep_points_mae_per_player": by_name.get("ep_total_calibration_mae"),
+        # Phase 1D (2026-09 audit): explicit provenance, so a consumer of this dict (the app,
+        # a report) can tell this is a synthetic oracle-vs-oracle comparison without having to
+        # already know backtest.py's internals -- see bt.synthetic_crowd_benchmark_provenance().
+        "benchmark_metadata": bt.synthetic_crowd_benchmark_provenance(),
     }
 
 
@@ -742,6 +746,27 @@ def load_latest_provenance(history_dir: Path | str) -> dict | None:
         return None
 
 
+def backtest_transparency_section(track_record: dict) -> dict:
+    """The `backtest` sub-object of build_transparency_log()'s payload, factored out so it can
+    be reconstructed directly from a track_record dict's own top-level fields -- e.g.
+    scripts/export_track_record.py populating it at write time, or scripts/run_report.py's
+    merge-preservation fallback rebuilding it from a previously-committed file's top-level
+    fields when that file's own transparency_log.backtest is missing or was itself written from
+    a backtest-less run (see run_report.py's own comment on the 2026-09 headline-suppression
+    bug this closes: export_track_record.py used to write real backtest data only at the top
+    level and never into transparency_log, so track-record.html -- which reads ONLY
+    transparency_log.backtest.headline -- never actually rendered it)."""
+    tr = track_record or {}
+    return {
+        "n_gameweek_steps": tr.get("n_gameweek_steps"),
+        "seasons_covered": tr.get("seasons_covered", []),
+        "headline": tr.get("headline"),
+        "metrics": tr.get("metrics", []),
+        "parameters_total": tr.get("parameters_total"),
+        "parameters_backtested": tr.get("parameters_backtested"),
+    }
+
+
 def build_transparency_log(track_record: dict, history_dir: Path | str, diff: dict | None) -> dict:
     """Assemble the public Track Record page's full payload from pieces that already exist:
     the model's own backtest status (build_track_record_summary's two honest numbers), the dated
@@ -749,16 +774,8 @@ def build_transparency_log(track_record: dict, history_dir: Path | str, diff: di
     (diff_reports), and the data provenance (load_latest_provenance). Nothing here is a new
     claim -- every field is a pass-through of something the pipeline already produced, kept
     honest (None/empty rather than fabricated) when the underlying artifact doesn't exist yet."""
-    tr = track_record or {}
     return {
-        "backtest": {
-            "n_gameweek_steps": tr.get("n_gameweek_steps"),
-            "seasons_covered": tr.get("seasons_covered", []),
-            "headline": tr.get("headline"),
-            "metrics": tr.get("metrics", []),
-            "parameters_total": tr.get("parameters_total"),
-            "parameters_backtested": tr.get("parameters_backtested"),
-        },
+        "backtest": backtest_transparency_section(track_record),
         "snapshots": list_report_snapshots(history_dir),
         "latest_diff": diff,
         "provenance": load_latest_provenance(history_dir),
