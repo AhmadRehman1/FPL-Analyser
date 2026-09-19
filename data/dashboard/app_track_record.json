@@ -6,24 +6,24 @@
     "2025-2026"
   ],
   "headline": {
-    "beats_avg_manager_by_points_per_gw": -0.9449,
+    "beats_avg_manager_by_points_per_gw": -0.7117,
     "n_scored_gameweeks": 70,
-    "model_squad_points_per_gw": 48.9,
-    "avg_manager_points_per_gw": 49.8449,
+    "model_squad_points_per_gw": 49.1571,
+    "avg_manager_points_per_gw": 49.8689,
     "minutes_brier": 0.3709,
     "minutes_log_score": -1.256,
-    "ep_points_bias_per_player": -0.013,
-    "ep_points_mae_per_player": 1.1589
+    "ep_points_bias_per_player": -0.0132,
+    "ep_points_mae_per_player": 1.159
   },
   "metrics": [
     {
       "metric_name": "avg_manager_benchmark_points",
-      "mean_value": 49.8449,
+      "mean_value": 49.8689,
       "n_observations": 70
     },
     {
       "metric_name": "beats_crowd_points_delta",
-      "mean_value": -0.9449,
+      "mean_value": -0.7117,
       "n_observations": 70
     },
     {
@@ -43,7 +43,7 @@
     },
     {
       "metric_name": "ep_assists_calibration_mean_resid",
-      "mean_value": 0.0195,
+      "mean_value": 0.0196,
       "n_observations": 71
     },
     {
@@ -53,7 +53,7 @@
     },
     {
       "metric_name": "ep_goals_calibration_mean_resid",
-      "mean_value": -0.0072,
+      "mean_value": -0.0073,
       "n_observations": 71
     },
     {
@@ -63,12 +63,12 @@
     },
     {
       "metric_name": "ep_total_calibration_mae",
-      "mean_value": 1.1589,
+      "mean_value": 1.159,
       "n_observations": 71
     },
     {
       "metric_name": "ep_total_calibration_mean_resid",
-      "mean_value": -0.013,
+      "mean_value": -0.0132,
       "n_observations": 71
     },
     {
@@ -78,12 +78,12 @@
     },
     {
       "metric_name": "log_score_clean_sheet_mean",
-      "mean_value": -0.3126,
+      "mean_value": -0.3127,
       "n_observations": 71
     },
     {
       "metric_name": "log_score_goals_mean",
-      "mean_value": -0.1678,
+      "mean_value": -0.1677,
       "n_observations": 71
     },
     {
@@ -93,7 +93,7 @@
     },
     {
       "metric_name": "model_squad_realized_points",
-      "mean_value": 48.9,
+      "mean_value": 49.1571,
       "n_observations": 70
     },
     {
@@ -103,7 +103,7 @@
     },
     {
       "metric_name": "poisson_calibration_mean_resid",
-      "mean_value": 0.0613,
+      "mean_value": 0.0609,
       "n_observations": 71
     }
   ],
@@ -114,7 +114,7 @@
         "n_observations": 35
       },
       "ep_assists_calibration_mean_resid": {
-        "mean_value": 0.022,
+        "mean_value": 0.0221,
         "n_observations": 35
       },
       "ep_cleansheet_calibration_mean_resid": {
@@ -122,11 +122,11 @@
         "n_observations": 35
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": -0.0193,
+        "mean_value": -0.0195,
         "n_observations": 35
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.0157,
+        "mean_value": 0.0156,
         "n_observations": 35
       },
       "ep_total_calibration_mae": {
@@ -134,7 +134,7 @@
         "n_observations": 35
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.0341,
+        "mean_value": 0.0339,
         "n_observations": 35
       }
     },
@@ -148,23 +148,23 @@
         "n_observations": 71
       },
       "ep_cleansheet_calibration_mean_resid": {
-        "mean_value": -0.0402,
+        "mean_value": -0.0403,
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": -0.0195,
+        "mean_value": -0.0194,
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0793,
+        "mean_value": -0.0794,
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.2594,
+        "mean_value": 1.2595,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.0855,
+        "mean_value": -0.0856,
         "n_observations": 71
       }
     },
@@ -182,7 +182,7 @@
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": -0.0023,
+        "mean_value": -0.0022,
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
@@ -190,11 +190,11 @@
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.2193,
+        "mean_value": 1.2192,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.1703,
+        "mean_value": 0.1704,
         "n_observations": 71
       }
     },
@@ -208,7 +208,7 @@
         "n_observations": 71
       },
       "ep_cleansheet_calibration_mean_resid": {
-        "mean_value": -0.0929,
+        "mean_value": -0.093,
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
@@ -216,15 +216,15 @@
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0849,
+        "mean_value": -0.0844,
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.0595,
+        "mean_value": 1.0594,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.2543,
+        "mean_value": -0.2539,
         "n_observations": 71
       }
     },
@@ -242,19 +242,19 @@
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": -0.0011,
+        "mean_value": -0.0014,
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0453,
+        "mean_value": -0.0454,
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.0961,
+        "mean_value": 1.0962,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.0542,
+        "mean_value": 0.0538,
         "n_observations": 71
       }
     },
@@ -264,15 +264,15 @@
         "n_observations": 71
       },
       "ep_assists_calibration_mean_resid": {
-        "mean_value": 0.0526,
+        "mean_value": 0.0527,
         "n_observations": 71
       },
       "ep_cleansheet_calibration_mean_resid": {
-        "mean_value": 0.0247,
+        "mean_value": 0.0246,
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": 0.0396,
+        "mean_value": 0.0394,
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
@@ -280,11 +280,11 @@
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.4482,
+        "mean_value": 1.4481,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.3148,
+        "mean_value": 0.3146,
         "n_observations": 71
       }
     },
@@ -294,7 +294,7 @@
         "n_observations": 71
       },
       "ep_assists_calibration_mean_resid": {
-        "mean_value": 0.1299,
+        "mean_value": 0.13,
         "n_observations": 71
       },
       "ep_cleansheet_calibration_mean_resid": {
@@ -302,19 +302,19 @@
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": 0.2107,
+        "mean_value": 0.21,
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.1844,
+        "mean_value": 0.1842,
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 2.3917,
+        "mean_value": 2.392,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.7783,
+        "mean_value": 0.7776,
         "n_observations": 71
       }
     },
@@ -324,7 +324,7 @@
         "n_observations": 71
       },
       "ep_assists_calibration_mean_resid": {
-        "mean_value": 0.2799,
+        "mean_value": 0.28,
         "n_observations": 71
       },
       "ep_cleansheet_calibration_mean_resid": {
@@ -332,19 +332,19 @@
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": 0.2022,
+        "mean_value": 0.2049,
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.2425,
+        "mean_value": 0.2426,
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 3.3352,
+        "mean_value": 3.3341,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.9346,
+        "mean_value": 0.9376,
         "n_observations": 71
       }
     },
@@ -358,11 +358,11 @@
         "n_observations": 71
       },
       "ep_cleansheet_calibration_mean_resid": {
-        "mean_value": -0.0517,
+        "mean_value": -0.0518,
         "n_observations": 71
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": -0.0461,
+        "mean_value": -0.0462,
         "n_observations": 71
       },
       "ep_other_calibration_mean_resid": {
@@ -370,11 +370,11 @@
         "n_observations": 71
       },
       "ep_total_calibration_mae": {
-        "mean_value": 0.9178,
+        "mean_value": 0.918,
         "n_observations": 71
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.2364,
+        "mean_value": -0.2365,
         "n_observations": 71
       }
     },
@@ -392,7 +392,7 @@
         "n_observations": 35
       },
       "ep_goals_calibration_mean_resid": {
-        "mean_value": -0.022,
+        "mean_value": -0.0225,
         "n_observations": 35
       },
       "ep_other_calibration_mean_resid": {
@@ -400,11 +400,11 @@
         "n_observations": 35
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.0172,
+        "mean_value": 1.0171,
         "n_observations": 35
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.0602,
+        "mean_value": 0.0596,
         "n_observations": 35
       }
     }
@@ -458,7 +458,7 @@
       }
     ]
   },
-  "generated_at": "2026-09-18T21:38:24.605066",
+  "generated_at": "2026-09-19T11:47:50.027842",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": null,
@@ -472,7 +472,7 @@
       {
         "season": "2026-2027",
         "gameweek": 4,
-        "total_projected_ep": 50.69811379906829,
+        "total_projected_ep": 50.51282792763915,
         "captain_name": "Ethan Ampadu",
         "squad_size": 15,
         "in_xi_count": 11
@@ -503,22 +503,39 @@
       }
     ],
     "latest_diff": {
-      "has_previous": false,
-      "previous_gameweek": null,
-      "current_gameweek": 1,
-      "squad_changes": null,
-      "captain_changed": null,
-      "total_projected_ep_delta": null,
-      "newly_doubtful_flags": null
+      "has_previous": true,
+      "previous_gameweek": 3,
+      "current_gameweek": 4,
+      "squad_changes": {
+        "in": [
+          "Ezri Konsa Ngoyo",
+          "Bart Verbruggen",
+          "James Tarkowski",
+          "Granit Xhaka",
+          "Darnell Furlong"
+        ],
+        "out": [
+          "James Garner",
+          "Bernd Leno",
+          "Marcos Senesi Bar\u00f3n",
+          "Adam Aznou",
+          "Abdoul Ouattara"
+        ]
+      },
+      "captain_changed": false,
+      "previous_captain": "Ethan Ampadu",
+      "current_captain": "Ethan Ampadu",
+      "total_projected_ep_delta": -2.8128147428454753,
+      "newly_doubtful_flags": []
     },
     "provenance": {
-      "data_asof": "2026-09-18",
+      "data_asof": "2026-09-19",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "ff767ab7ace723f754ca8ee671f580ea9608d66c",
-      "fpl_core_insights_commit_sha": "d00f23f58c0598a0a9c27c3aea940ba53700778c",
+      "fpl_analyser_commit_sha": "474da446d8d9d1dbb490c92573961d46949023f0",
+      "fpl_core_insights_commit_sha": "549edbd461cf0dca489107ebef667024b8f3f3f3",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -530,7 +547,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-09-18T20:04:17.312446+00:00",
+      "recorded_at": "2026-09-19T10:20:00.504069+00:00",
       "research_pull_workbook": {
         "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
         "size_bytes": 26007
