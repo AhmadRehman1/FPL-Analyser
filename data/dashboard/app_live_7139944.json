@@ -4,28 +4,28 @@
   "gameweek": 5,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 4,
+  "live_total": 19,
   "players": [
     {
       "player_id": 496,
       "web_name": "Kinsky",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 4,
       "web_name": "Gabriel",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 449,
       "web_name": "Hall",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 8,
+      "provisional_bonus": 1,
+      "contribution": 8
     },
     {
       "player_id": 334,
@@ -37,9 +37,9 @@
     {
       "player_id": 12,
       "web_name": "Saka",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 154,
@@ -51,23 +51,23 @@
     {
       "player_id": 15,
       "web_name": "\u00d8degaard",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 124,
       "web_name": "Gro\u00df",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 464,
       "web_name": "Wissa",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 411,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 71.0,
-    "estimated_rank": 3153694
+    "percentile": 97.5,
+    "estimated_rank": 272119
   },
   "fixtures": [
     {
@@ -106,9 +106,117 @@
         "name": "Chelsea",
         "score": 0
       }
+    },
+    {
+      "id": 48,
+      "kickoff": "2026-09-19T11:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "TOT",
+        "name": "Spurs",
+        "score": 2
+      },
+      "away": {
+        "short_name": "AVL",
+        "name": "Aston Villa",
+        "score": 3
+      }
+    },
+    {
+      "id": 42,
+      "kickoff": "2026-09-19T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "BHA",
+        "name": "Brighton",
+        "score": 0
+      },
+      "away": {
+        "short_name": "ARS",
+        "name": "Arsenal",
+        "score": 0
+      }
+    },
+    {
+      "id": 43,
+      "kickoff": "2026-09-19T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "EVE",
+        "name": "Everton",
+        "score": 1
+      },
+      "away": {
+        "short_name": "IPS",
+        "name": "Ipswich Town",
+        "score": 0
+      }
+    },
+    {
+      "id": 46,
+      "kickoff": "2026-09-19T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NEW",
+        "name": "Newcastle",
+        "score": 2
+      },
+      "away": {
+        "short_name": "HUL",
+        "name": "Hull City",
+        "score": 0
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 41,
+      "web_name": "Buend\u00eda",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 45,
+      "web_name": "McGinn",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 47,
+      "web_name": "Kamara",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 53,
+      "web_name": "Manzambi",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 53,
+      "web_name": "Manzambi",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 48
+    },
     {
       "player_id": 93,
       "web_name": "Schuster",
@@ -148,7 +256,87 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 41
+    },
+    {
+      "player_id": 112,
+      "web_name": "Van Hecke",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 166,
+      "web_name": "N.Jackson",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 229,
+      "web_name": "Tarkowski",
+      "team": 9,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 43
+    },
+    {
+      "player_id": 249,
+      "web_name": "Barry",
+      "team": 9,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 43
+    },
+    {
+      "player_id": 449,
+      "web_name": "Hall",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 46
+    },
+    {
+      "player_id": 453,
+      "web_name": "Barnes",
+      "team": 17,
+      "event": "assist",
+      "count": 2,
+      "fixture_id": 46
+    },
+    {
+      "player_id": 460,
+      "web_name": "Willock",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 46
+    },
+    {
+      "player_id": 502,
+      "web_name": "Robertson",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 512,
+      "web_name": "Kudus",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 48
+    },
+    {
+      "player_id": 519,
+      "web_name": "Gallagher",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 48
     }
   ],
-  "generated_at": "2026-09-18T22:32:30.704924+00:00"
+  "generated_at": "2026-09-19T14:18:10.706886+00:00"
 }
