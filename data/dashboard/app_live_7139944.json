@@ -4,7 +4,7 @@
   "gameweek": 5,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 19,
+  "live_total": 42,
   "players": [
     {
       "player_id": 496,
@@ -23,9 +23,9 @@
     {
       "player_id": 449,
       "web_name": "Hall",
-      "live_points": 8,
-      "provisional_bonus": 1,
-      "contribution": 8
+      "live_points": 14,
+      "provisional_bonus": 2,
+      "contribution": 14
     },
     {
       "player_id": 334,
@@ -37,9 +37,9 @@
     {
       "player_id": 12,
       "web_name": "Saka",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     },
     {
       "player_id": 154,
@@ -51,23 +51,23 @@
     {
       "player_id": 15,
       "web_name": "\u00d8degaard",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     },
     {
       "player_id": 124,
       "web_name": "Gro\u00df",
-      "live_points": 1,
-      "provisional_bonus": 0,
-      "contribution": 1
+      "live_points": 17,
+      "provisional_bonus": 3,
+      "contribution": 17
     },
     {
       "player_id": 464,
       "web_name": "Wissa",
-      "live_points": 1,
+      "live_points": 0,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 0
     },
     {
       "player_id": 411,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 97.5,
-    "estimated_rank": 272119
+    "percentile": 99.0,
+    "estimated_rank": 108909
   },
   "fixtures": [
     {
@@ -133,7 +133,7 @@
       "home": {
         "short_name": "BHA",
         "name": "Brighton",
-        "score": 0
+        "score": 3
       },
       "away": {
         "short_name": "ARS",
@@ -172,6 +172,23 @@
       "away": {
         "short_name": "HUL",
         "name": "Hull City",
+        "score": 1
+      }
+    },
+    {
+      "id": 47,
+      "kickoff": "2026-09-19T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NFO",
+        "name": "Nott'm Forest",
+        "score": 0
+      },
+      "away": {
+        "short_name": "COV",
+        "name": "Coventry City",
         "score": 0
       }
     }
@@ -266,6 +283,46 @@
       "fixture_id": 48
     },
     {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 42
+    },
+    {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 42
+    },
+    {
+      "player_id": 127,
+      "web_name": "Gomez",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 42
+    },
+    {
+      "player_id": 138,
+      "web_name": "Kostoulas",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 42
+    },
+    {
+      "player_id": 138,
+      "web_name": "Kostoulas",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 42
+    },
+    {
       "player_id": 166,
       "web_name": "N.Jackson",
       "team": 2,
@@ -288,6 +345,14 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 43
+    },
+    {
+      "player_id": 286,
+      "web_name": "Belloumi",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 46
     },
     {
       "player_id": 449,
@@ -314,6 +379,14 @@
       "fixture_id": 46
     },
     {
+      "player_id": 464,
+      "web_name": "Wissa",
+      "team": 17,
+      "event": "pen_missed",
+      "count": 1,
+      "fixture_id": 46
+    },
+    {
       "player_id": 502,
       "web_name": "Robertson",
       "team": 19,
@@ -336,7 +409,31 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 48
+    },
+    {
+      "player_id": 572,
+      "web_name": "Tzolakis",
+      "team": 11,
+      "event": "pen_saved",
+      "count": 1,
+      "fixture_id": 46
+    },
+    {
+      "player_id": 617,
+      "web_name": "Cho",
+      "team": 11,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 46
+    },
+    {
+      "player_id": 639,
+      "web_name": "Andr\u00e9s",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 42
     }
   ],
-  "generated_at": "2026-09-19T14:18:10.706886+00:00"
+  "generated_at": "2026-09-19T17:20:23.110612+00:00"
 }
