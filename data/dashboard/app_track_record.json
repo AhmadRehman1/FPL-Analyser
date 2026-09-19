@@ -458,7 +458,7 @@
       }
     ]
   },
-  "generated_at": "2026-09-18T21:38:24.605066",
+  "generated_at": "2026-09-19T11:47:50.027842",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": null,
@@ -472,7 +472,7 @@
       {
         "season": "2026-2027",
         "gameweek": 4,
-        "total_projected_ep": 50.69811379906829,
+        "total_projected_ep": 50.51282792763915,
         "captain_name": "Ethan Ampadu",
         "squad_size": 15,
         "in_xi_count": 11
@@ -503,22 +503,39 @@
       }
     ],
     "latest_diff": {
-      "has_previous": false,
-      "previous_gameweek": null,
-      "current_gameweek": 1,
-      "squad_changes": null,
-      "captain_changed": null,
-      "total_projected_ep_delta": null,
-      "newly_doubtful_flags": null
+      "has_previous": true,
+      "previous_gameweek": 3,
+      "current_gameweek": 4,
+      "squad_changes": {
+        "in": [
+          "Ezri Konsa Ngoyo",
+          "Bart Verbruggen",
+          "James Tarkowski",
+          "Granit Xhaka",
+          "Darnell Furlong"
+        ],
+        "out": [
+          "James Garner",
+          "Bernd Leno",
+          "Marcos Senesi Bar\u00f3n",
+          "Adam Aznou",
+          "Abdoul Ouattara"
+        ]
+      },
+      "captain_changed": false,
+      "previous_captain": "Ethan Ampadu",
+      "current_captain": "Ethan Ampadu",
+      "total_projected_ep_delta": -2.8128147428454753,
+      "newly_doubtful_flags": []
     },
     "provenance": {
-      "data_asof": "2026-09-18",
+      "data_asof": "2026-09-19",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "ff767ab7ace723f754ca8ee671f580ea9608d66c",
-      "fpl_core_insights_commit_sha": "d00f23f58c0598a0a9c27c3aea940ba53700778c",
+      "fpl_analyser_commit_sha": "474da446d8d9d1dbb490c92573961d46949023f0",
+      "fpl_core_insights_commit_sha": "549edbd461cf0dca489107ebef667024b8f3f3f3",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -530,7 +547,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-09-18T20:04:17.312446+00:00",
+      "recorded_at": "2026-09-19T10:20:00.504069+00:00",
       "research_pull_workbook": {
         "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
         "size_bytes": 26007
