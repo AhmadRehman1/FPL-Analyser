@@ -4,7 +4,7 @@
   "gameweek": 5,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 44,
+  "live_total": 56,
   "players": [
     {
       "player_id": 496,
@@ -30,9 +30,9 @@
     {
       "player_id": 334,
       "web_name": "Muharemovi\u0107",
-      "live_points": 0,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     },
     {
       "player_id": 12,
@@ -72,9 +72,9 @@
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 0,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     },
     {
       "player_id": 165,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 99.0,
-    "estimated_rank": 108982
+    "percentile": 81.0,
+    "estimated_rank": 2073347
   },
   "fixtures": [
     {
@@ -190,6 +190,74 @@
         "short_name": "COV",
         "name": "Coventry City",
         "score": 1
+      }
+    },
+    {
+      "id": 49,
+      "kickoff": "2026-09-20T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "BOU",
+        "name": "Bournemouth",
+        "score": 0
+      },
+      "away": {
+        "short_name": "LIV",
+        "name": "Liverpool",
+        "score": 1
+      }
+    },
+    {
+      "id": 44,
+      "kickoff": "2026-09-20T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LEE",
+        "name": "Leeds",
+        "score": 0
+      },
+      "away": {
+        "short_name": "CRY",
+        "name": "Crystal Palace",
+        "score": 0
+      }
+    },
+    {
+      "id": 45,
+      "kickoff": "2026-09-20T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "MCI",
+        "name": "Man City",
+        "score": 5
+      },
+      "away": {
+        "short_name": "SUN",
+        "name": "Sunderland",
+        "score": 3
+      }
+    },
+    {
+      "id": 50,
+      "kickoff": "2026-09-20T15:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "FUL",
+        "name": "Fulham",
+        "score": null
+      },
+      "away": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": null
       }
     }
   ],
@@ -331,6 +399,14 @@
       "fixture_id": 42
     },
     {
+      "player_id": 155,
+      "web_name": "Enzo",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
       "player_id": 166,
       "web_name": "N.Jackson",
       "team": 2,
@@ -355,6 +431,14 @@
       "fixture_id": 43
     },
     {
+      "player_id": 237,
+      "web_name": "Ndiaye",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
       "player_id": 249,
       "web_name": "Barry",
       "team": 9,
@@ -369,6 +453,70 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 46
+    },
+    {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 49
+    },
+    {
+      "player_id": 379,
+      "web_name": "Isak",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 49
+    },
+    {
+      "player_id": 388,
+      "web_name": "Gu\u00e9hi",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 391,
+      "web_name": "Gvardiol",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 397,
+      "web_name": "Semenyo",
+      "team": 15,
+      "event": "goal",
+      "count": 2,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 397,
+      "web_name": "Semenyo",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 399,
+      "web_name": "Cherki",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 411,
+      "web_name": "Haaland",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 45
     },
     {
       "player_id": 449,
@@ -427,6 +575,38 @@
       "fixture_id": 48
     },
     {
+      "player_id": 541,
+      "web_name": "Meunier",
+      "team": 20,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 542,
+      "web_name": "E.Le F\u00e9e",
+      "team": 20,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 551,
+      "web_name": "N.Angulo",
+      "team": 20,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 45
+    },
+    {
+      "player_id": 552,
+      "web_name": "Brobbey",
+      "team": 20,
+      "event": "goal",
+      "count": 3,
+      "fixture_id": 45
+    },
+    {
       "player_id": 572,
       "web_name": "Tzolakis",
       "team": 11,
@@ -451,5 +631,5 @@
       "fixture_id": 42
     }
   ],
-  "generated_at": "2026-09-19T23:39:53.038892+00:00"
+  "generated_at": "2026-09-20T15:33:03.500306+00:00"
 }
