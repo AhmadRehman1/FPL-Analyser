@@ -414,13 +414,13 @@
   "parameters_still_invented": 54,
   "planner_decision_accuracy": {
     "ready": false,
-    "n_realized": 4,
+    "n_realized": 6,
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2,
     "preliminary": true,
-    "mean_point_delta_if_followed": -3.25,
-    "total_point_delta_if_followed": -13,
-    "n_recommendation_would_have_scored_more": 2,
+    "mean_point_delta_if_followed": -0.17,
+    "total_point_delta_if_followed": -1,
+    "n_recommendation_would_have_scored_more": 4,
     "n_actual_scored_more": 2,
     "n_tied": 0,
     "by_gameweek": [
@@ -455,10 +455,26 @@
         "actual": 84,
         "if_followed": 67,
         "delta": -17
+      },
+      {
+        "gameweek": 5,
+        "entry_id": 1305242,
+        "recommended_action": "hold",
+        "actual": 52,
+        "if_followed": 56,
+        "delta": 4
+      },
+      {
+        "gameweek": 5,
+        "entry_id": 7139944,
+        "recommended_action": "hold",
+        "actual": 52,
+        "if_followed": 60,
+        "delta": 8
       }
     ]
   },
-  "generated_at": "2026-09-21T13:46:28.900065",
+  "generated_at": "2026-09-21T22:14:56.589974",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": null,
@@ -496,41 +512,20 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 46.165692634915686,
+        "total_projected_ep": 47.1582953108182,
         "captain_name": "Erling Haaland",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
     "latest_diff": {
-      "has_previous": true,
-      "previous_gameweek": 3,
-      "current_gameweek": 4,
-      "squad_changes": {
-        "in": [
-          "Bart Verbruggen",
-          "James Tarkowski",
-          "Alex Palmer",
-          "Braiden Graham",
-          "Luke O'Nien",
-          "Granit Xhaka",
-          "C\u00e9dric Kipr\u00e9"
-        ],
-        "out": [
-          "James Garner",
-          "Bernd Leno",
-          "Marcos Senesi Bar\u00f3n",
-          "Adam Aznou",
-          "Alex Cairns",
-          "Chido Obi",
-          "Abdoul Ouattara"
-        ]
-      },
-      "captain_changed": false,
-      "previous_captain": "Ethan Ampadu",
-      "current_captain": "Ethan Ampadu",
-      "total_projected_ep_delta": -2.68363717126325,
-      "newly_doubtful_flags": []
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 1,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
     },
     "provenance": {
       "data_asof": "2026-09-21",
@@ -538,8 +533,8 @@
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "1f6a7339e757d7ab936c93908392b4016a351572",
-      "fpl_core_insights_commit_sha": "6aca7d9a5d06578a911b9591a2727f56124faae2",
+      "fpl_analyser_commit_sha": "45c08f75be9800d36b77d263ebc53d9fe89188b1",
+      "fpl_core_insights_commit_sha": "75e74565b50bc481a38393b73ced31eee798c4f1",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -551,7 +546,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-09-21T12:02:09.132480+00:00",
+      "recorded_at": "2026-09-21T21:17:50.661712+00:00",
       "research_pull_workbook": {
         "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
         "size_bytes": 26007
