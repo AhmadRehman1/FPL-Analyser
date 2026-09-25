@@ -897,8 +897,16 @@ def _captain_objective_component(
     closed-form, not a re-solve, since with the XI already fixed only one binary choice (which
     of the 11 is captain) remains free, and solve()'s own w_i=xi_i+captain_i risk weighting
     (see its own docstring) reduces to a simple sum over 11 candidates rather than a new MIQP.
+
+    linear_ep sums over `xi_uids` explicitly (not `mu_by_uid.values()`) so this stays correct
+    even when the caller passes a mu_by_uid covering more than the XI (e.g. a full candidate
+    pool) -- the risk term already did this via its own `for uid in xi_uids` loop; the linear
+    term silently didn't, a real inconsistency the 2026-09 captain-objective audit's regression
+    test caught (tests/test_captain_objective_diagnostics.py) before it ever produced a wrong
+    number for the one caller that mattered (captain_choice_with_differential, which happens to
+    always pass an already-XI-scoped dict).
     """
-    linear_ep = sum(mu_by_uid.values()) + mu_by_uid[captain_uid]
+    linear_ep = sum(mu_by_uid[uid] for uid in xi_uids) + mu_by_uid[captain_uid]
     if lam <= 0:
         return linear_ep
     risk = sum((1 + (3 if uid == captain_uid else 0)) * var_by_uid[uid] for uid in xi_uids)

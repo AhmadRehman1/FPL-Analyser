@@ -103,6 +103,34 @@ def _would_regress_track_record(new_track_record: dict, existing_track_record: d
     )
 
 
+def _merge_track_record_onto_committed(track_record: dict, existing_track_record: dict) -> dict:
+    """The actual merge this script applies when `_would_regress_track_record` says the fresh
+    (backtest-less) `track_record` would otherwise wipe out a real committed backtest: keep
+    `existing_track_record`'s real backtest data, but refresh the daily-cadence halves
+    (planner_decision_accuracy, snapshot timeline, diff, provenance) from the fresh run.
+
+    Extracted as a pure, DB-free function (same reasoning as `_would_regress_track_record`
+    itself) specifically so the 2026-09 headline-suppression bug -- a real committed file whose
+    top-level `headline` was correct but whose `transparency_log.backtest.headline` was
+    silently null in every commit, because export_track_record.py never wrote
+    transparency_log at all -- has a regression test that exercises this exact merge, not just
+    the upstream boolean guard. See reporting.backtest_transparency_section()'s own docstring
+    for the self-healing fallback below."""
+    merged = dict(existing_track_record)
+    merged["planner_decision_accuracy"] = track_record["planner_decision_accuracy"]
+    refreshed_tlog = dict(track_record["transparency_log"])
+    committed_bt = (existing_track_record.get("transparency_log") or {}).get("backtest")
+    if not committed_bt or committed_bt.get("headline") is None:
+        reconstructed = reporting.backtest_transparency_section(existing_track_record)
+        if reconstructed.get("headline") is not None:
+            committed_bt = reconstructed
+    if committed_bt:
+        refreshed_tlog["backtest"] = committed_bt
+    merged["transparency_log"] = refreshed_tlog
+    merged["generated_at"] = track_record["generated_at"]
+    return merged
+
+
 def main() -> None:
     current_event = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else None
     con = db.connect()
@@ -198,22 +226,7 @@ def main() -> None:
         except (json.JSONDecodeError, OSError):
             existing_track_record = None
     if _would_regress_track_record(track_record, existing_track_record):
-        # Keep the committed file's real backtest data -- but still refresh the daily-cadence
-        # halves (planner_decision_accuracy from the decision logs, the snapshot timeline, the
-        # diff, provenance) onto it, so a real backtest landing once doesn't freeze the forward
-        # track record until the next one does.
-        merged = dict(existing_track_record)
-        merged["planner_decision_accuracy"] = track_record["planner_decision_accuracy"]
-        # Refresh the daily-cadence halves of the transparency log (snapshot timeline, diff,
-        # provenance) but KEEP the committed backtest sub-object -- metrics / headline / step
-        # count are written only by the walk-forward job, and this daily run's DB has no
-        # backtest, so transparency_log.backtest would otherwise be blanked back to []/None.
-        refreshed_tlog = dict(track_record["transparency_log"])
-        committed_bt = (existing_track_record.get("transparency_log") or {}).get("backtest")
-        if committed_bt:
-            refreshed_tlog["backtest"] = committed_bt
-        merged["transparency_log"] = refreshed_tlog
-        merged["generated_at"] = track_record["generated_at"]
+        merged = _merge_track_record_onto_committed(track_record, existing_track_record)
         track_record_path.write_text(json.dumps(merged, indent=2))
         print(
             f"\n[dashboard] app_track_record.json: kept committed backtest_run_id "
