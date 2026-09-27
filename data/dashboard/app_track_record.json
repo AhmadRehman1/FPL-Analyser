@@ -474,5 +474,106 @@
       }
     ]
   },
-  "generated_at": "2026-09-27T11:55:40.741055"
+  "generated_at": "2026-09-27T13:00:01.629528",
+  "transparency_log": {
+    "backtest": {
+      "n_gameweek_steps": null,
+      "seasons_covered": [],
+      "headline": null,
+      "metrics": [],
+      "parameters_total": 62,
+      "parameters_backtested": 8
+    },
+    "snapshots": [
+      {
+        "season": "2026-2027",
+        "gameweek": 4,
+        "total_projected_ep": 50.79197218745945,
+        "captain_name": "Ethan Ampadu",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 3,
+        "total_projected_ep": 53.325642670484626,
+        "captain_name": "Ethan Ampadu",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 2,
+        "total_projected_ep": 42.71257365366756,
+        "captain_name": "Igor Jesus Maciel da Cruz",
+        "squad_size": 15,
+        "in_xi_count": 11
+      },
+      {
+        "season": "2026-2027",
+        "gameweek": 1,
+        "total_projected_ep": 47.208081761295176,
+        "captain_name": "Erling Haaland",
+        "squad_size": 15,
+        "in_xi_count": 11
+      }
+    ],
+    "latest_diff": {
+      "has_previous": true,
+      "previous_gameweek": 3,
+      "current_gameweek": 4,
+      "squad_changes": {
+        "in": [
+          "Yoane Wissa",
+          "Will Dennis",
+          "David Raya Martin",
+          "James Tarkowski",
+          "Bendito Mantato",
+          "Luke O'Nien",
+          "Granit Xhaka",
+          "Charlie Hughes"
+        ],
+        "out": [
+          "Declan Rice",
+          "James Garner",
+          "Bernd Leno",
+          "Marcos Senesi Bar\u00f3n",
+          "Adam Aznou",
+          "Alex Cairns",
+          "Chido Obi",
+          "Abdoul Ouattara"
+        ]
+      },
+      "captain_changed": false,
+      "previous_captain": "Ethan Ampadu",
+      "current_captain": "Ethan Ampadu",
+      "total_projected_ep_delta": -2.533670483025176,
+      "newly_doubtful_flags": []
+    },
+    "provenance": {
+      "data_asof": "2026-09-27",
+      "evidence_workbook": {
+        "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
+        "size_bytes": 695705
+      },
+      "fpl_analyser_commit_sha": "2e1a885e2ef4e5f9fe9b17a2a68dfb024eb01b79",
+      "fpl_core_insights_commit_sha": "699de8e1f25c8bd003e775c2c6ba3f65fdce2cf8",
+      "installed_packages": {
+        "duckdb": "1.5.5",
+        "numpy": "2.4.6",
+        "openpyxl": "3.1.5",
+        "pandas": "3.0.5",
+        "pyscipopt": "6.2.1",
+        "pytest": "9.1.1",
+        "python-dateutil": "2.9.0.post0",
+        "requests": "2.34.2",
+        "scipy": "1.17.1"
+      },
+      "recorded_at": "2026-09-27T11:25:44.591890+00:00",
+      "research_pull_workbook": {
+        "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
+        "size_bytes": 26007
+      }
+    }
+  }
 }
