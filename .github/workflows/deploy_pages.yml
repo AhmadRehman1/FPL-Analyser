@@ -49,6 +49,9 @@ jobs:
           mkdir -p site
           cp index.html landing.html track-record.html sw.js manifest.json .nojekyll site/
           cp -r icons site/
+          # Built landing-page WebGL effects (shader gradient hero, liquid logo/glass).
+          # Source + build step: web/effects/. Committed output, no build needed here.
+          cp -r assets site/
           # Track D-4 (docs/plans/2026-08_roadmap_plan.md; docs/BUSINESS_PLAN.md 2.7): stages a
           # real `CNAME` file only if one exists at the repo root -- there isn't one today (see
           # CNAME.example for the placeholder + the exact steps to go live), so this is a no-op
