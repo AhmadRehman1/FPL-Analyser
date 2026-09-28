@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FPL Quant — Fantasy Premier League decisions, backed by transparent model evidence</title>
 <meta name="description" content="FPL Quant turns your real Fantasy Premier League squad into weekly transfer, captain and chip decisions — with a public track record and data provenance behind every recommendation. Free.">
+<meta name="theme-color" content="#0f2a1d">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap">
@@ -25,237 +26,336 @@
   document.head.appendChild(s);
 })();
 </script>
+<script>document.documentElement.classList.add('js');</script>
 <style>
   :root{
-    --bg-deep: oklch(0.29 0.065 152);
-    --card: oklch(0.985 0.004 90);
-    --card-2: oklch(0.955 0.006 90);
-    --ink: oklch(0.2 0.01 90);
-    --ink-dim: oklch(0.5 0.01 90);
-    --ink-dim2: oklch(0.55 0.01 90);
-    --on-dark: oklch(0.98 0.005 90);
-    --on-dark-dim: oklch(0.85 0.03 150);
-    --green: oklch(0.38 0.12 150);
-    --green-soft: oklch(0.93 0.15 145);
-    --gold: oklch(0.94 0.1 85);
-    --gold-ink: oklch(0.36 0.13 60);
-    --red: oklch(0.52 0.19 25);
-    --amber: oklch(0.75 0.14 75);
-    --divider: oklch(0.92 0.005 90);
+    --bg: oklch(0.19 0.04 158);
+    --bg-2: oklch(0.155 0.03 160);
+    --surface: oklch(1 0 0 / 0.045);
+    --surface-hi: oklch(1 0 0 / 0.075);
+    --line: oklch(1 0 0 / 0.09);
+    --line-hi: oklch(1 0 0 / 0.18);
+    --text: oklch(0.97 0.008 95);
+    --text-dim: oklch(0.84 0.025 150);
+    --text-mute: oklch(0.7 0.03 150);
+    --green: oklch(0.8 0.15 150);
+    --green-deep: oklch(0.38 0.1 152);
+    --gold: oklch(0.9 0.12 85);
+    --gold-2: oklch(0.82 0.15 78);
+    --gold-ink: oklch(0.3 0.09 60);
+    --radius: 22px;
+    --ease: cubic-bezier(.2,.7,.2,1);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
-  html,body{margin:0;background:var(--bg-deep);color:var(--ink);font-family:"Barlow",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  html{background:var(--bg-2);scroll-behavior:smooth;}
   body{
-    position:relative;
+    margin:0;color:var(--text);font-family:"Barlow",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;
     background:
-      radial-gradient(140% 60% at 10% -10%, oklch(0.52 0.12 150 / 0.85), transparent 55%),
-      radial-gradient(120% 55% at 105% 0%, oklch(0.4 0.1 155 / 0.75), transparent 50%),
-      var(--bg-deep);
-    background-attachment:fixed;
+      radial-gradient(60% 40% at 85% 55%, oklch(0.4 0.1 150 / 0.22), transparent 70%),
+      radial-gradient(50% 35% at 10% 80%, oklch(0.55 0.12 85 / 0.08), transparent 70%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
   }
-  a{color:oklch(0.62 0.18 40);}
-  .wrap{max-width:780px;margin:0 auto;padding:0 18px 90px;position:relative;z-index:2;}
+  a{color:var(--gold);}
+  :focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:10px;}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px;}
 
-  /* Top bar */
-  .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 0 0;position:relative;}
-  .brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--on-dark);}
-  .brand .mark-wrap{position:relative;width:34px;height:34px;flex-shrink:0;}
-  .brand .mark{width:34px;height:34px;flex-shrink:0;display:block;}
-  .brand .mark-wrap canvas{position:absolute;inset:0;width:100%;height:100%;border-radius:11px;}
-  .brand .name{font-family:"Anton",sans-serif;font-size:22px;letter-spacing:0.02em;line-height:1;}
-  .topbar .top-links{display:flex;gap:8px;}
-  .topbar .top-links a{font-size:12.5px;font-weight:600;color:var(--on-dark);text-decoration:none;background:oklch(0.2 0.05 152 / 0.5);padding:8px 13px;border-radius:999px;}
-  .topbar .top-links a:hover{background:oklch(0.2 0.05 152 / 0.85);}
+  /* Nav: CSS glass pill, floats over the hero and follows the scroll */
+  .nav{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:100;width:min(1040px, calc(100% - 24px));
+    display:flex;align-items:center;justify-content:space-between;padding:8px 8px 8px 14px;border-radius:999px;
+    background:oklch(0.17 0.035 158 / 0.42);border:1px solid oklch(1 0 0 / 0.12);
+    -webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);
+    box-shadow:inset 0 1px 0 oklch(1 0 0 / 0.14), 0 10px 30px oklch(0.1 0.03 160 / 0.35);}
+  .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text);}
+  .brand .mark{width:30px;height:30px;display:block;}
+  .brand .name{font-family:"Anton",sans-serif;font-size:19px;letter-spacing:0.03em;line-height:1;}
+  .nav-links{display:flex;gap:6px;}
+  .nav-links a{font-size:13px;font-weight:600;color:var(--text);text-decoration:none;padding:9px 15px;border-radius:999px;transition:background .2s;}
+  .nav-links a:hover{background:oklch(1 0 0 / 0.08);}
+  .nav-links a.solid{background:var(--gold);color:var(--gold-ink);}
+  .nav-links a.solid:hover{background:oklch(0.94 0.12 88);}
 
-  /* Hero */
-  .hero{padding:40px 0 26px;color:var(--on-dark);position:relative;overflow:hidden;}
-  .hero-bg{position:absolute;inset:-10%;z-index:0;pointer-events:none;}
-  /* Keeps body text readable over the animated gradient without hiding it */
-  .hero-scrim{position:absolute;inset:0;z-index:0;pointer-events:none;background:linear-gradient(180deg, oklch(0.15 0.03 152 / 0.25), oklch(0.15 0.03 152 / 0.6));}
-  .hero-content{position:relative;z-index:1;}
-  .hero .eyebrow-wrap{position:relative;display:inline-block;}
-  /* Decorative glass panel behind the eyebrow badge, over the shader gradient -- never intercepts clicks/keyboard */
-  .hero .eyebrow-glass{position:absolute;inset:-8px -14px;z-index:-1;pointer-events:none;border-radius:999px;overflow:hidden;}
-  .hero .eyebrow{font-size:12px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--on-dark-dim);margin-bottom:10px;}
-  .hero h1{font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(34px,9.2vw,56px);line-height:0.98;margin:0 0 14px;letter-spacing:0.01em;}
-  .hero p.lede{font-size:16px;line-height:1.55;color:var(--on-dark-dim);max-width:58ch;margin:0 0 22px;}
-  /* prefers-reduced-motion / no-WebGL fallback: keep the existing body gradient, no extra work needed */
+  /* Hero: full-bleed shader gradient, fades into the page at the bottom */
+  .hero{position:relative;min-height:min(100svh, 900px);display:flex;align-items:center;padding:120px 0 90px;overflow:hidden;}
+  .hero-bg{position:absolute;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(55% 60% at 78% 30%, oklch(0.78 0.14 85 / 0.55), transparent 65%),
+      radial-gradient(70% 80% at 15% 20%, oklch(0.5 0.13 150 / 0.9), transparent 70%),
+      linear-gradient(160deg, oklch(0.3 0.08 155), oklch(0.17 0.04 160));
+    -webkit-mask-image:linear-gradient(180deg, #000 70%, transparent 100%);mask-image:linear-gradient(180deg, #000 70%, transparent 100%);}
+  .hero-bg canvas{opacity:0;transition:opacity 1.2s var(--ease);}
+  .hero-bg.is-live canvas{opacity:1;}
+  .hero-scrim{position:absolute;inset:0;z-index:0;pointer-events:none;
+    background:linear-gradient(90deg, oklch(0.14 0.03 160 / 0.62) 0%, oklch(0.14 0.03 160 / 0.28) 55%, transparent 100%),
+               linear-gradient(180deg, transparent 60%, var(--bg) 100%);}
+  .hero-inner{position:relative;z-index:1;width:100%;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:48px;align-items:center;}
+  .chip{display:inline-flex;align-items:center;gap:9px;font-size:12px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--text-dim);
+    padding:8px 14px;border-radius:999px;background:oklch(1 0 0 / 0.07);border:1px solid oklch(1 0 0 / 0.12);
+    -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);margin-bottom:22px;}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 oklch(0.8 0.15 150 / 0.6);animation:pulse 2.4s infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 oklch(0.8 0.15 150 / 0.55);}70%{box-shadow:0 0 0 9px oklch(0.8 0.15 150 / 0);}100%{box-shadow:0 0 0 0 oklch(0.8 0.15 150 / 0);}}
+  .hero h1{font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(44px,6.6vw,84px);line-height:0.95;margin:0 0 22px;letter-spacing:0.005em;text-wrap:balance;}
+  .hero h1 .accent{background:linear-gradient(100deg, var(--gold) 10%, oklch(0.95 0.06 95) 50%, var(--gold-2) 90%);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .lede{font-size:clamp(16px,1.6vw,18.5px);line-height:1.6;color:var(--text-dim);max-width:54ch;margin:0 0 30px;}
+  .ticks{display:flex;flex-wrap:wrap;gap:8px 22px;margin:26px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--text-mute);}
+  .ticks li{display:flex;align-items:center;gap:7px;}
+  .ticks svg{width:15px;height:15px;color:var(--green);flex-shrink:0;}
+
+  /* Big liquid-metal logo; the SVG is the static fallback until the shader is ready */
+  .hero-mark{position:relative;justify-self:center;width:min(100%, 320px);aspect-ratio:1;}
+  .hero-mark::before{content:"";position:absolute;inset:-18%;border-radius:50%;background:radial-gradient(closest-side, oklch(0.85 0.13 85 / 0.28), transparent);filter:blur(10px);}
+  .hero-mark .mark-static{position:absolute;inset:6%;width:88%;height:88%;filter:drop-shadow(0 20px 40px oklch(0.1 0.03 160 / 0.5));transition:opacity .8s var(--ease);}
+  .hero-mark canvas{opacity:0;transition:opacity .8s var(--ease);}
+  .hero-mark.is-live canvas{opacity:1;}
+  .hero-mark.is-live .mark-static{opacity:0;}
+
+  /* Buttons */
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px;}
+  .btn{display:inline-flex;align-items:center;gap:10px;font-size:15px;font-weight:700;padding:15px 24px;border-radius:14px;text-decoration:none;border:none;cursor:pointer;font-family:inherit;line-height:1;
+    transition:transform .25s var(--ease), box-shadow .25s var(--ease), background .25s;}
+  .btn-primary{color:var(--gold-ink);background:linear-gradient(180deg, oklch(0.95 0.1 90), var(--gold-2));
+    box-shadow:inset 0 1px 0 oklch(1 0 0 / 0.6), 0 10px 28px oklch(0.8 0.14 80 / 0.28);}
+  .btn-primary:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 oklch(1 0 0 / 0.6), 0 16px 36px oklch(0.8 0.14 80 / 0.4);}
+  .btn-ghost{color:var(--text);background:oklch(1 0 0 / 0.07);border:1px solid oklch(1 0 0 / 0.16);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);}
+  .btn-ghost:hover{background:oklch(1 0 0 / 0.13);transform:translateY(-2px);}
+  .btn .arrow{transition:transform .25s var(--ease);}
+  .btn:hover .arrow{transform:translateX(3px);}
+
+  /* Sections */
+  .block{padding:72px 0 8px;}
+  .kicker{display:flex;align-items:center;gap:12px;font-size:12px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--gold);margin-bottom:14px;}
+  .kicker::after{content:"";height:1px;width:48px;background:linear-gradient(90deg, var(--gold), transparent);}
+  .block h2{font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(32px,4.4vw,52px);line-height:1;margin:0 0 14px;letter-spacing:0.005em;text-wrap:balance;}
+  .block .sub{font-size:16.5px;line-height:1.6;color:var(--text-dim);max-width:60ch;margin:0 0 34px;}
+
+  /* Glass cards with a cursor-following glow */
+  .grid{display:grid;gap:16px;}
+  .grid-4{grid-template-columns:repeat(4, 1fr);}
+  .grid-2{grid-template-columns:repeat(2, 1fr);}
+  .card{position:relative;overflow:hidden;padding:26px;border-radius:var(--radius);background:linear-gradient(180deg, var(--surface-hi), var(--surface));
+    border:1px solid var(--line);box-shadow:inset 0 1px 0 oklch(1 0 0 / 0.06);transition:transform .35s var(--ease), border-color .35s;}
+  .card::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .35s;
+    background:radial-gradient(420px circle at var(--mx, 50%) var(--my, 0%), oklch(0.85 0.13 85 / 0.12), transparent 45%);}
+  .card:hover{transform:translateY(-4px);border-color:var(--line-hi);}
+  .card:hover::before{opacity:1;}
+  .card .ico{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;margin-bottom:20px;color:var(--gold);
+    background:linear-gradient(145deg, oklch(0.45 0.11 152), oklch(0.28 0.07 156));box-shadow:inset 0 1px 0 oklch(1 0 0 / 0.18), 0 8px 18px oklch(0.1 0.03 160 / 0.4);}
+  .card .ico svg{width:22px;height:22px;}
+  .card h3{font-size:18px;font-weight:700;margin:0 0 8px;line-height:1.25;}
+  .card p{font-size:14.5px;line-height:1.6;color:var(--text-mute);margin:0;}
+
+  /* Steps */
+  .steps{display:grid;grid-template-columns:repeat(3, 1fr);gap:16px;counter-reset:step;}
+  .step{position:relative;padding:28px 26px 26px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);}
+  .step .n{font-family:"Anton",sans-serif;font-size:64px;line-height:1;margin-bottom:14px;color:transparent;-webkit-text-stroke:1.2px oklch(0.88 0.12 85 / 0.8);}
+  .step h3{font-size:17px;font-weight:700;margin:0 0 8px;}
+  .step p{font-size:14.5px;line-height:1.6;color:var(--text-mute);margin:0;}
+
+  .note{display:flex;gap:14px;align-items:flex-start;margin-top:16px;padding:18px 22px;border-radius:18px;
+    background:oklch(0.85 0.13 85 / 0.08);border:1px solid oklch(0.85 0.13 85 / 0.3);color:var(--text-dim);font-size:14.5px;line-height:1.6;}
+  .note svg{width:20px;height:20px;color:var(--gold);flex-shrink:0;margin-top:2px;}
+  .note strong{color:var(--text);}
+
+  /* Final CTA: a drawn pitch with a liquid-glass card floating over it */
+  .pitch-cta{position:relative;isolation:isolate;overflow:hidden;margin:88px 0 0;border-radius:32px;padding:clamp(64px,9vw,110px) 20px;
+    display:grid;place-items:center;border:1px solid var(--line);box-shadow:0 30px 80px oklch(0.08 0.03 160 / 0.5);}
+  .pitch{position:absolute;inset:0;z-index:0;
+    background:
+      radial-gradient(60% 70% at 50% 50%, transparent 40%, oklch(0.14 0.04 158 / 0.75) 100%),
+      radial-gradient(40% 50% at 8% 0%, oklch(0.95 0.08 90 / 0.35), transparent 70%),
+      radial-gradient(40% 50% at 92% 0%, oklch(0.95 0.08 90 / 0.3), transparent 70%),
+      repeating-linear-gradient(90deg, oklch(0.47 0.12 148) 0 64px, oklch(0.42 0.11 149) 64px 128px);}
+  .pitch svg{position:absolute;inset:0;width:100%;height:100%;}
+  .cta-card{position:relative;z-index:3;width:min(560px, 100%);text-align:center;padding:40px 34px;border-radius:28px;
+    background:oklch(0.16 0.04 158 / 0.55);border:1px solid oklch(1 0 0 / 0.16);
+    -webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%);
+    box-shadow:inset 0 1px 0 oklch(1 0 0 / 0.2), 0 20px 50px oklch(0.08 0.03 160 / 0.45);}
+  .pitch-cta.has-lens .cta-card{background:transparent;border-color:transparent;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;}
+  .cta-card h2{font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(34px,4.6vw,50px);line-height:1;margin:0 0 12px;text-shadow:0 2px 18px oklch(0.1 0.03 160 / 0.6);}
+  .cta-card p{font-size:16px;line-height:1.6;color:var(--text);margin:0 auto 26px;max-width:40ch;text-shadow:0 1px 10px oklch(0.1 0.03 160 / 0.7);}
+  .cta-card .cta-row{justify-content:center;}
+
+  .footer{color:var(--text-mute);font-size:13px;line-height:1.7;margin-top:64px;padding:26px 0 60px;border-top:1px solid var(--line);}
+  .footer a{color:var(--text-dim);}
+  .footer code{font-size:12px;}
+  .footer .frow{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:14px;}
+
+  /* Scroll reveal (only when JS is running, see <head>) */
+  .js .reveal{opacity:0;transform:translateY(22px);transition:opacity .8s var(--ease), transform .8s var(--ease);transition-delay:calc(var(--i, 0) * 80ms);}
+  .js .reveal.in{opacity:1;transform:none;}
+
+  @media (max-width:980px){
+    .grid-4{grid-template-columns:repeat(2, 1fr);}
+  }
+  @media (max-width:760px){
+    .hero{min-height:auto;padding:104px 0 70px;}
+    .hero-inner{grid-template-columns:1fr;gap:10px;}
+    .hero-mark{grid-row:1;justify-self:start;width:112px;margin-bottom:6px;}
+    .hero-scrim{background:linear-gradient(180deg, oklch(0.14 0.03 160 / 0.45), oklch(0.14 0.03 160 / 0.65) 60%, var(--bg) 100%);}
+    .steps, .grid-2{grid-template-columns:1fr;}
+    .nav-links a.hide-sm{display:none;}
+  }
+  @media (max-width:520px){
+    .chip{font-size:10.5px;letter-spacing:0.12em;padding:7px 12px;}
+    .grid-4{grid-template-columns:1fr;}
+    .block{padding-top:56px;}
+    .cta-card{padding:32px 22px;}
+  }
   @media (prefers-reduced-motion: reduce){
-    .hero-bg{display:none;}
-  }
-
-  /* CTAs */
-  .cta-row{display:flex;flex-wrap:wrap;gap:10px;}
-  .btn{display:inline-flex;align-items:center;gap:8px;font-size:14.5px;font-weight:700;padding:13px 20px;border-radius:14px;text-decoration:none;border:none;cursor:pointer;font-family:inherit;line-height:1;}
-  .btn-primary{background:var(--gold);color:var(--gold-ink);}
-  .btn-primary:hover{background:oklch(0.96 0.13 80);}
-  .btn-ghost{background:oklch(0.2 0.05 152 / 0.5);color:var(--on-dark);}
-  .btn-ghost:hover{background:oklch(0.2 0.05 152 / 0.85);}
-  .btn .arrow{font-size:16px;line-height:1;}
-
-  /* Cards */
-  .card{background:var(--card);border-radius:18px;padding:22px;margin-top:16px;box-shadow:0 1px 0 oklch(0.2 0.02 90 / 0.04),0 8px 30px oklch(0.2 0.02 90 / 0.06);}
-  .card h2{font-family:"Anton",sans-serif;font-weight:400;font-size:23px;margin:0 0 4px;letter-spacing:0.01em;color:var(--ink);}
-  .card .sub{font-size:13.5px;color:var(--ink-dim);margin:0 0 14px;line-height:1.5;}
-
-  /* Section heading (dark) */
-  .section-h{color:var(--on-dark);font-family:"Anton",sans-serif;font-size:21px;letter-spacing:0.01em;margin:34px 0 2px;}
-  .section-sub{color:var(--on-dark-dim);font-size:13.5px;line-height:1.55;margin:0 0 6px;max-width:58ch;}
-
-  /* Feature grid */
-  .feat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;}
-  .feat{background:var(--card);border-radius:16px;padding:18px;}
-  .feat .ico{width:30px;height:30px;color:var(--green);margin-bottom:10px;}
-  .feat .t{font-size:14.5px;font-weight:700;color:var(--ink);margin-bottom:4px;line-height:1.25;}
-  .feat .d{font-size:12.5px;line-height:1.5;color:var(--ink-dim);}
-
-  /* Numbered steps */
-  .step{display:grid;grid-template-columns:38px 1fr;gap:14px;align-items:start;padding:14px 0;border-bottom:1px solid var(--divider);}
-  .step:last-child{border-bottom:none;}
-  .step .n{font-family:"Anton",sans-serif;font-size:24px;line-height:1;color:var(--green);}
-  .step .st{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:3px;}
-  .step .sd{font-size:12.5px;line-height:1.5;color:var(--ink-dim);}
-
-  /* Honest banner */
-  .banner{display:flex;gap:13px;align-items:flex-start;background:var(--gold);color:var(--gold-ink);border-radius:16px;padding:16px 18px;margin-top:16px;}
-  .banner .ico{font-size:20px;line-height:1.2;flex-shrink:0;}
-  .banner .txt{font-size:13.5px;line-height:1.5;}
-  .banner strong{font-weight:700;}
-
-  /* Final CTA band */
-  .final{margin-top:26px;background:oklch(0.2 0.05 152 / 0.55);border:1px solid oklch(0.5 0.06 150 / 0.35);border-radius:20px;padding:26px 22px;color:var(--on-dark);}
-  .final h2{font-family:"Anton",sans-serif;font-weight:400;font-size:26px;margin:0 0 8px;letter-spacing:0.01em;}
-  .final p{font-size:14px;line-height:1.55;color:var(--on-dark-dim);margin:0 0 18px;max-width:52ch;}
-
-  .footer{color:var(--on-dark-dim);font-size:12.5px;line-height:1.6;margin-top:30px;padding-top:18px;border-top:1px solid oklch(0.5 0.03 150 / 0.3);}
-  .footer a{color:var(--on-dark);}
-  .footer .frow{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:10px;}
-
-  @media (max-width:560px){
-    .feat-grid{grid-template-columns:1fr;}
-    .topbar .top-links a.lbl-cta{display:none;}
+    html{scroll-behavior:auto;}
+    .js .reveal{opacity:1;transform:none;transition:none;}
+    .chip .dot{animation:none;}
+    .card, .btn, .btn .arrow{transition:none;}
+    .card:hover, .btn:hover{transform:none;}
   }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="topbar">
-    <a class="brand" href="index.html" aria-label="FPL Quant home">
-      <span class="mark-wrap" id="brand-mark">
-        <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+<nav class="nav" aria-label="Main">
+  <a class="brand" href="index.html" aria-label="FPL Quant home">
+    <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+      <rect x="1.5" y="1.5" width="37" height="37" rx="11" fill="oklch(0.38 0.12 150)"/>
+      <path d="M9 27 L16 20 L21 24 L31 13" stroke="oklch(0.98 0.005 90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <circle cx="31" cy="13" r="3.2" fill="oklch(0.94 0.1 85)"/>
+    </svg>
+    <span class="name">FPL&nbsp;Quant</span>
+  </a>
+  <div class="nav-links">
+    <a href="track-record.html" class="hide-sm">Track record</a>
+    <a href="index.html" class="solid">Open app</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="hero-bg" id="hero-shader-bg" aria-hidden="true"></div>
+  <div class="hero-scrim" aria-hidden="true"></div>
+  <div class="wrap">
+    <div class="hero-inner">
+      <div>
+        <div class="chip reveal"><span class="dot" aria-hidden="true"></span>Fantasy Premier League · Decision support</div>
+        <h1 class="reveal" style="--i:1">Weekly FPL decisions, <span class="accent">backed by model evidence.</span></h1>
+        <p class="lede reveal" style="--i:2">FPL Quant reads your real Fantasy Premier League squad and turns it into clear transfer, captain and chip calls each gameweek &mdash; with a dated audit trail and data provenance behind every recommendation. No invented accuracy scores.</p>
+        <div class="cta-row reveal" style="--i:3">
+          <a class="btn btn-primary" href="index.html">Open the app <span class="arrow" aria-hidden="true">&rarr;</span></a>
+          <a class="btn btn-ghost" href="track-record.html">View model track record</a>
+        </div>
+        <ul class="ticks reveal" style="--i:4">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Free</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>No signup</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Read-only &mdash; never touches your FPL account</li>
+        </ul>
+      </div>
+      <div class="hero-mark reveal" id="hero-mark" style="--i:2" aria-hidden="true">
+        <svg class="mark-static" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
           <rect x="1.5" y="1.5" width="37" height="37" rx="11" fill="oklch(0.38 0.12 150)"/>
           <path d="M9 27 L16 20 L21 24 L31 13" stroke="oklch(0.98 0.005 90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
           <circle cx="31" cy="13" r="3.2" fill="oklch(0.94 0.1 85)"/>
         </svg>
-      </span>
-      <span class="name">FPL&nbsp;Quant</span>
-    </a>
-    <div class="top-links">
-      <a href="track-record.html" class="lbl-cta">Track record</a>
-      <a href="index.html">Open app</a>
+      </div>
     </div>
   </div>
+</header>
 
-  <header class="hero">
-    <div class="hero-bg" id="hero-shader-bg" aria-hidden="true"></div>
-    <div class="hero-scrim" aria-hidden="true"></div>
-    <div class="hero-content">
-      <div class="eyebrow-wrap">
-        <div class="eyebrow-glass" id="hero-glass" aria-hidden="true"></div>
-        <div class="eyebrow">Fantasy Premier League · Decision support</div>
+<main class="wrap">
+  <section class="block">
+    <div class="kicker reveal">01 &middot; What you get</div>
+    <h2 class="reveal">What it gives you</h2>
+    <p class="sub reveal">A second opinion on the three decisions that decide most FPL gameweeks &mdash; built from your actual squad, not a generic template.</p>
+    <div class="grid grid-4">
+      <article class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div>
+        <h3>Transfer calls</h3>
+        <p>Hold vs. use your free transfer, ranked player swaps, and the horizon value of each &mdash; per gameweek.</p>
+      </article>
+      <article class="card reveal" style="--i:1">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <h3>Captain &amp; chips</h3>
+        <p>Who gets the armband this week, and whether Wildcard, Free Hit, Triple Captain or Bench Boost is worth playing now.</p>
+      </article>
+      <article class="card reveal" style="--i:2">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
+        <h3>Future planner</h3>
+        <p>See your squad and projected points across upcoming gameweeks, and try a hypothetical transfer before you commit.</p>
+      </article>
+      <article class="card reveal" style="--i:3">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <h3>Live tracking</h3>
+        <p>Rank movement and live points during matches, plus price-watch and injury news surfaced when they matter.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="kicker reveal">02 &middot; Get started</div>
+    <h2 class="reveal">Add your team in a minute</h2>
+    <p class="sub reveal">No account to create here &mdash; it runs on free infrastructure you already have.</p>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="n" aria-hidden="true">01</div>
+        <h3>Open the app</h3>
+        <p>Tap &ldquo;Open the app&rdquo; above. It loads instantly as a installable web app &mdash; no install required to try it.</p>
       </div>
-      <h1>Weekly FPL decisions,<br>backed by model evidence.</h1>
-      <p class="lede">FPL Quant reads your real Fantasy Premier League squad and turns it into clear transfer, captain and chip calls each gameweek &mdash; with a dated audit trail and data provenance behind every recommendation. No invented accuracy scores.</p>
+      <div class="step reveal" style="--i:1">
+        <div class="n" aria-hidden="true">02</div>
+        <h3>Add your FPL team ID</h3>
+        <p>From your team&rsquo;s URL on fantasy.premierleague.com. This opens a GitHub issue that a workflow processes automatically &mdash; usually ready in 1&ndash;2 minutes, no approval needed.</p>
+      </div>
+      <div class="step reveal" style="--i:2">
+        <div class="n" aria-hidden="true">03</div>
+        <h3>Get your weekly plan</h3>
+        <p>Your real squad&rsquo;s transfer, captain and chip recommendations refresh on a schedule. Everything is read-only &mdash; nothing is ever submitted to FPL for you.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="kicker reveal">03 &middot; Transparency</div>
+    <h2 class="reveal">Trust, not marketing</h2>
+    <p class="sub reveal">Every recommendation links to the evidence behind it &mdash; and there&rsquo;s a public page for the model&rsquo;s whole history.</p>
+    <div class="grid grid-2">
+      <article class="card reveal">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>Public track record</h3>
+        <p>A dated, per-gameweek audit trail of what the model recommended &mdash; plus data provenance for every run. <a href="track-record.html">See it &rsaquo;</a></p>
+      </article>
+      <article class="card reveal" style="--i:1">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6 4 4 6-7"/><path d="M14 8h6v6"/></svg></div>
+        <h3>Honest about limits</h3>
+        <p>The model is v1 &mdash; not yet recalibrated or walk-forward backtested. The track record page says so plainly rather than hiding it.</p>
+      </article>
+    </div>
+    <div class="note reveal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <div><strong>What this is, and isn&rsquo;t.</strong> FPL Quant is decision support, not a promise of points. The model is early-stage and openly not yet backtested &mdash; treat its calls as a transparent second opinion alongside your own judgement.</div>
+    </div>
+  </section>
+
+  <section class="pitch-cta reveal" id="pitch-cta">
+    <div class="pitch" id="pitch-decor" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1050 680" preserveAspectRatio="xMidYMid slice" fill="none" stroke="oklch(0.98 0.01 100 / 0.6)" stroke-width="3">
+        <rect x="30" y="30" width="990" height="620"/>
+        <line x1="525" y1="30" x2="525" y2="650"/>
+        <circle cx="525" cy="340" r="91.5"/>
+        <circle cx="525" cy="340" r="4" fill="oklch(0.98 0.01 100 / 0.7)"/>
+        <rect x="30" y="138.5" width="165" height="403"/>
+        <rect x="855" y="138.5" width="165" height="403"/>
+        <rect x="30" y="248.5" width="55" height="183"/>
+        <rect x="965" y="248.5" width="55" height="183"/>
+        <circle cx="140" cy="340" r="4" fill="oklch(0.98 0.01 100 / 0.7)"/>
+        <circle cx="910" cy="340" r="4" fill="oklch(0.98 0.01 100 / 0.7)"/>
+        <path d="M195 267 A91.5 91.5 0 0 1 195 413"/>
+        <path d="M855 267 A91.5 91.5 0 0 0 855 413"/>
+        <path d="M30 45 A15 15 0 0 0 45 30M1005 30 A15 15 0 0 0 1020 45M1020 635 A15 15 0 0 0 1005 650M45 650 A15 15 0 0 0 30 635"/>
+      </svg>
+    </div>
+    <div class="cta-card" id="cta-card">
+      <h2>Try it with your team</h2>
+      <p>Free, no signup, installable as an app on your phone. Your squad&rsquo;s real recommendations load in a couple of minutes.</p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="index.html">Open the app <span class="arrow">&rsaquo;</span></a>
-        <a class="btn btn-ghost" href="track-record.html">View model track record</a>
+        <a class="btn btn-primary" href="index.html">Open the app <span class="arrow" aria-hidden="true">&rarr;</span></a>
+        <a class="btn btn-ghost" href="track-record.html">See the track record</a>
       </div>
     </div>
-  </header>
-
-  <h2 class="section-h">What it gives you</h2>
-  <p class="section-sub">A second opinion on the three decisions that decide most FPL gameweeks &mdash; built from your actual squad, not a generic template.</p>
-  <div class="card">
-    <div class="feat-grid">
-      <div class="feat">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
-        <div class="t">Transfer calls</div>
-        <div class="d">Hold vs. use your free transfer, ranked player swaps, and the horizon value of each &mdash; per gameweek.</div>
-      </div>
-      <div class="feat">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        <div class="t">Captain &amp; chips</div>
-        <div class="d">Who gets the armband this week, and whether Wildcard, Free Hit, Triple Captain or Bench Boost is worth playing now.</div>
-      </div>
-      <div class="feat">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-        <div class="t">Future planner</div>
-        <div class="d">See your squad and projected points across upcoming gameweeks, and try a hypothetical transfer before you commit.</div>
-      </div>
-      <div class="feat">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/></svg>
-        <div class="t">Live tracking</div>
-        <div class="d">Rank movement and live points during matches, plus price-watch and injury news surfaced when they matter.</div>
-      </div>
-    </div>
-  </div>
-
-  <h2 class="section-h">Add your team in a minute</h2>
-  <p class="section-sub">No account to create here &mdash; it runs on free infrastructure you already have.</p>
-  <div class="card">
-    <div class="step">
-      <div class="n">1</div>
-      <div>
-        <div class="st">Open the app</div>
-        <div class="sd">Tap &ldquo;Open the app&rdquo; above. It loads instantly as a installable web app &mdash; no install required to try it.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="n">2</div>
-      <div>
-        <div class="st">Add your FPL team ID</div>
-        <div class="sd">From your team&rsquo;s URL on fantasy.premierleague.com. This opens a GitHub issue that a workflow processes automatically &mdash; usually ready in 1&ndash;2 minutes, no approval needed.</div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="n">3</div>
-      <div>
-        <div class="st">Get your weekly plan</div>
-        <div class="sd">Your real squad&rsquo;s transfer, captain and chip recommendations refresh on a schedule. Everything is read-only &mdash; nothing is ever submitted to FPL for you.</div>
-      </div>
-    </div>
-  </div>
-
-  <h2 class="section-h">Trust, not marketing</h2>
-  <p class="section-sub">Every recommendation links to the evidence behind it &mdash; and there&rsquo;s a public page for the model&rsquo;s whole history.</p>
-  <div class="card">
-    <div class="feat-grid">
-      <div class="feat">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
-        <div class="t">Public track record</div>
-        <div class="d">A dated, per-gameweek audit trail of what the model recommended &mdash; plus data provenance for every run. <a href="track-record.html">See it &rsaquo;</a></div>
-      </div>
-      <div class="feat">
-        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-6 4 4 6-7"/><path d="M14 8h6v6"/></svg>
-        <div class="t">Honest about limits</div>
-        <div class="d">The model is v1 &mdash; not yet recalibrated or walk-forward backtested. The track record page says so plainly rather than hiding it.</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="banner">
-    <span class="ico" aria-hidden="true">&#9432;</span>
-    <div class="txt"><strong>What this is, and isn&rsquo;t.</strong> FPL Quant is decision support, not a promise of points. The model is early-stage and openly not yet backtested &mdash; treat its calls as a transparent second opinion alongside your own judgement.</div>
-  </div>
-
-  <div class="final">
-    <h2>Try it with your team</h2>
-    <p>Free, no signup, installable as an app on your phone. Your squad&rsquo;s real recommendations load in a couple of minutes.</p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="index.html">Open the app <span class="arrow">&rsaquo;</span></a>
-      <a class="btn btn-ghost" href="track-record.html">See the track record</a>
-    </div>
-  </div>
+  </section>
 
   <footer class="footer">
     FPL Quant is an open, free project &mdash; the model code, data pipeline, and this page are all on
@@ -271,156 +371,134 @@
       <a href="index.html">Open the app</a>
     </div>
   </footer>
-</div>
-<script type="module">
-// Loads the hero shader gradient, liquid-metal logo and liquid-glass badge from
-// assets/effects/ (built from web/effects/, see that folder for source). Each is
-// lazy-loaded on scroll-near-viewport and torn down off-screen; all three are
-// skipped outright under prefers-reduced-motion or when WebGL is unavailable --
-// the page already looks right without them (CSS gradient, plain SVG logo, plain pill).
+</main>
+<script>
+// Scroll reveal + cursor glow on cards. Plain CSS fallback: everything visible.
 (function () {
-  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduceMotion) return;
-
-  function hasWebGL() {
-    try {
-      var c = document.createElement('canvas');
-      return !!(c.getContext('webgl2') || c.getContext('webgl'));
-    } catch (e) {
-      return false;
-    }
+  var els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    els.forEach(function (el) { el.classList.add('in'); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    els.forEach(function (el) { io.observe(el); });
   }
-  if (!hasWebGL()) return;
+  document.querySelectorAll('.card').forEach(function (card) {
+    card.addEventListener('pointermove', function (e) {
+      var r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+      card.style.setProperty('--my', (e.clientY - r.top) + 'px');
+    });
+  });
+})();
+</script>
+<script type="module">
+// WebGL effects from assets/effects/ (source: web/effects/). Each loads when its
+// section nears the viewport and is torn down when it leaves. All are skipped under
+// prefers-reduced-motion or without WebGL; the CSS underneath already looks finished.
+(function () {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  try {
+    var probe = document.createElement('canvas');
+    if (!(probe.getContext('webgl2') || probe.getContext('webgl'))) return;
+  } catch (e) {
+    return;
+  }
 
   var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
   var modules = {};
-  function loadModule(path) {
-    if (!modules[path]) modules[path] = import(path);
-    return modules[path];
+  function load(name) {
+    if (!modules[name]) modules[name] = import('./assets/effects/' + name + '.js');
+    return modules[name];
   }
 
-  function observe(el, onEnter, onExit) {
+  // Mounts on enter, destroys on exit. Handles a mount that resolves after exit.
+  function whileVisible(el, mount) {
     if (!el) return;
-    var instance = null;
-    var io = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (entry.isIntersecting && !instance) {
-            Promise.resolve(onEnter()).then(function (result) {
-              instance = result || true;
-            });
-          } else if (!entry.isIntersecting && instance) {
-            if (typeof onExit === 'function') onExit(instance);
-            instance = null;
-          }
-        });
-      },
-      { rootMargin: '200px 0px' }
-    );
-    io.observe(el);
+    var current = null;
+    var visible = false;
+    new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        visible = entry.isIntersecting;
+        if (visible && !current) {
+          current = Promise.resolve(mount()).catch(function () { return null; });
+        } else if (!visible && current) {
+          var pending = current;
+          current = null;
+          pending.then(function (inst) { if (inst) inst.destroy(); });
+        }
+      });
+    }, { rootMargin: '200px 0px' }).observe(el);
   }
 
-  // Hero background (ShaderGradient via react-three-fiber)
   var heroBg = document.getElementById('hero-shader-bg');
-  var heroGlass = document.getElementById('hero-glass');
-  var heroBgMount = null;
-  observe(
-    heroBg,
-    function () {
-      return loadModule('./assets/effects/shader-gradient-bg.js').then(function (mod) {
-        heroBgMount = mod.mount(heroBg, { pixelDensity: dpr });
-        // Liquid glass clones this element's current pixels -- mount it once
-        // the gradient canvas exists, then keep it fresh as the gradient animates.
-        mountHeroGlass();
-        return heroBgMount;
-      });
-    },
-    function (mount) {
-      if (mount && mount.destroy) mount.destroy();
-      heroBgMount = null;
-      destroyHeroGlass();
-    }
-  );
-
-  // Liquid glass badge over the hero gradient. liquid-glass-js positions itself
-  // with `position:fixed` in viewport coordinates (it's a draggable-lens library),
-  // so we pin it to the eyebrow badge's screen rect and re-pin on scroll/resize.
-  var glassInstance = null;
-  var glassRefreshTimer = null;
-  var glassTrackHandler = null;
-  function trackGlassPosition() {
-    if (!glassInstance || !heroGlass) return;
-    var rect = heroGlass.getBoundingClientRect();
-    glassInstance.moveTo(rect.left, rect.top);
-  }
-  function mountHeroGlass() {
-    if (!heroGlass || !heroBg || glassInstance) return;
-    loadModule('./assets/effects/liquid-glass.js').then(function (mod) {
-      if (!heroBg || glassInstance) return;
-      var LiquidGlass = mod.default;
-      var rect = heroGlass.getBoundingClientRect();
-      glassInstance = new LiquidGlass({
-        background: heroBg,
-        width: Math.max(1, Math.round(rect.width)),
-        height: Math.max(1, Math.round(rect.height)),
-        radius: 999,
-        draggable: false,
-        scale: 24,
-        chroma: 0.08,
-        tint: 0,
-        x: rect.left,
-        y: rect.top,
-      });
-      // Decorative and non-draggable -- never intercept clicks/keyboard focus.
-      if (glassInstance.glassEl) glassInstance.glassEl.style.pointerEvents = 'none';
-      glassTrackHandler = trackGlassPosition;
-      window.addEventListener('scroll', glassTrackHandler, { passive: true });
-      window.addEventListener('resize', glassTrackHandler);
-      // The shader gradient keeps animating; periodically re-clone so the glass
-      // reflects current pixels instead of a stale first frame.
-      glassRefreshTimer = window.setInterval(function () {
-        if (glassInstance) glassInstance.refresh();
-      }, 4000);
+  whileVisible(heroBg, function () {
+    return load('shader-gradient-bg').then(function (mod) {
+      var inst = mod.mount(heroBg, { pixelDensity: dpr });
+      requestAnimationFrame(function () { heroBg.classList.add('is-live'); });
+      return {
+        destroy: function () {
+          heroBg.classList.remove('is-live');
+          inst.destroy();
+        },
+      };
     });
-  }
-  function destroyHeroGlass() {
-    if (glassRefreshTimer) {
-      window.clearInterval(glassRefreshTimer);
-      glassRefreshTimer = null;
-    }
-    if (glassTrackHandler) {
-      window.removeEventListener('scroll', glassTrackHandler);
-      window.removeEventListener('resize', glassTrackHandler);
-      glassTrackHandler = null;
-    }
-    if (glassInstance) {
-      glassInstance.destroy();
-      glassInstance = null;
-    }
-  }
+  });
 
-  // Liquid logo mark in the header
-  var brandMark = document.getElementById('brand-mark');
-  observe(
-    brandMark,
-    function () {
-      var svg = brandMark.querySelector('svg.mark');
-      if (!svg) return null;
-      var svgData = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg.outerHTML)));
-      return loadModule('./assets/effects/liquid-logo.js').then(function (mod) {
-        return mod.mount(brandMark, {
-          image: svgData,
-          minPixelRatio: 1,
-          maxPixelCount: 400 * 400,
-        });
+  // Knockout version of the logo: the liquid-metal shader reads the shape's edges,
+  // so the trend line and dot are cut out of the tile and catch the light.
+  var LOGO_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 40 40">' +
+    '<defs><mask id="m"><rect width="40" height="40" fill="#fff"/>' +
+    '<path d="M9 27 L16 20 L21 24 L31 13" stroke="#000" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
+    '<circle cx="31" cy="13" r="3.8" fill="#000"/></mask></defs>' +
+    '<rect x="1.5" y="1.5" width="37" height="37" rx="11" fill="#000" mask="url(#m)"/></svg>';
+  var heroMark = document.getElementById('hero-mark');
+  whileVisible(heroMark, function () {
+    return load('liquid-logo').then(function (mod) {
+      return mod.mount(heroMark, {
+        image: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(LOGO_SVG),
+        minPixelRatio: 1,
+        maxPixelCount: 700 * 700,
       });
-    },
-    function (mount) {
-      if (mount && mount.destroy) mount.destroy();
-      var canvas = brandMark.querySelector('canvas');
-      if (canvas) canvas.remove();
-    }
-  );
+    }).then(function (inst) {
+      heroMark.classList.add('is-live');
+      return {
+        destroy: function () {
+          heroMark.classList.remove('is-live');
+          inst.destroy();
+        },
+      };
+    });
+  });
+
+  var pitchCta = document.getElementById('pitch-cta');
+  whileVisible(pitchCta, function () {
+    return load('liquid-glass').then(function (mod) {
+      var inst = mod.mountInSection(pitchCta, document.getElementById('pitch-decor'), document.getElementById('cta-card'), {
+        radius: 28,
+        scale: 58,
+        depth: 34,
+        curvature: 3.2,
+        chroma: 0.14,
+        blur: 1.5,
+        glow: 0.25,
+        edge: 0.8,
+        tint: 0.28,
+        tintColor: 'oklch(0.2 0.05 158)',
+      });
+      pitchCta.classList.add('has-lens');
+      return {
+        destroy: function () {
+          pitchCta.classList.remove('has-lens');
+          inst.destroy();
+        },
+      };
+    });
+  });
 })();
 </script>
 </body>
