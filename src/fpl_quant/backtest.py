@@ -1953,10 +1953,17 @@ _METRIC_DIRECTION = {
 }
 _NOT_A_SCORE_METRICS = {"rho_hat"}
 
+# 2026-09 model failure diagnosis, Finding 1/5 (docs/reports/2026-09_model_failure_diagnosis.md):
+# the automated gate's old default (0.0) had no real noise floor at all -- it auto-confirmed
+# grid-search "improvements" as small as 0.029% (k_minutes 450->900), which then made the
+# £9.0m+ price-band calibration bias measurably worse, not better. 1% is a real signal for a
+# metric this noisy; callers that genuinely need a different floor still pass their own.
+_DEFAULT_MIN_RELATIVE_IMPROVEMENT = 0.01
+
 
 def evaluate_and_promote_proposal(
     con: duckdb.DuckDBPyConnection, proposal_id: int, seed_dir: Path | str,
-    min_relative_improvement: float = 0.0, reviewed_by: str = "auto-regression-gate",
+    min_relative_improvement: float = _DEFAULT_MIN_RELATIVE_IMPROVEMENT, reviewed_by: str = "auto-regression-gate",
 ) -> dict:
     """Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md [A2]): the automated
     counterpart to review_recalibration.py's human --confirm/--reject -- evaluates one pending
@@ -2037,7 +2044,7 @@ def evaluate_and_promote_proposal(
 
 def auto_promote_pending_proposals(
     con: duckdb.DuckDBPyConnection, backtest_run_id: int, seed_dir: Path | str,
-    min_relative_improvement: float = 0.0, reviewed_by: str = "auto-regression-gate",
+    min_relative_improvement: float = _DEFAULT_MIN_RELATIVE_IMPROVEMENT, reviewed_by: str = "auto-regression-gate",
 ) -> list[dict]:
     """Runs evaluate_and_promote_proposal() over every pending proposal for one backtest run --
     the whole-run entry point scripts/run_backtest.py calls right after recalibrate()."""

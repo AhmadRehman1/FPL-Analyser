@@ -6,7 +6,7 @@
 //
 // App gap 1: also handles real Web Push -- `push` renders the deadline/injury alert the
 // scheduled pipeline sent via scripts/push_notify.py; `notificationclick` opens the app.
-const CACHE_NAME = "fq-shell-v6";
+const CACHE_NAME = "fq-shell-v7";
 const SHELL_URLS = [
   "./",
   "./index.html",

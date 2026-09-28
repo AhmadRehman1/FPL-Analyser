@@ -62,17 +62,26 @@ def _q_glyph_mask(x: float, y: float, size: float, glyph_radius: float) -> bool:
     return False
 
 
-def render(size: int, *, maskable: bool = False) -> bytes:
-    """Returns raw RGBA bytes, row-major, top-to-bottom."""
-    corner_radius = 0 if maskable else size * 0.22
-    glyph_radius = size * (0.235 if maskable else 0.30)
+def render(size: int, *, maskable: bool = False, full_bleed: bool = False) -> bytes:
+    """Returns raw RGBA bytes, row-major, top-to-bottom.
+
+    full_bleed (used for the apple-touch-icon): edge-to-edge opaque square, no transparency
+    anywhere. iOS applies its own corner rounding (squircle mask) to home-screen icons and, per
+    Apple's HIG, expects a fully opaque square source -- any alpha channel gets flattened to
+    black by the OS before masking, which on a dark-green icon like this one washes the corners
+    out to solid black and reads as a missing/broken logo on the iPad home screen. Same safer
+    (smaller) glyph radius as maskable, since iOS's own mask crops in from the edges too.
+    """
+    corner_radius = 0 if (maskable or full_bleed) else size * 0.22
+    glyph_radius = size * (0.235 if (maskable or full_bleed) else 0.30)
     pixels = bytearray(size * size * 4)
     for py in range(size):
         for px in range(size):
             idx = (py * size + px) * 4
-            in_bg = _rounded_square_mask(px + 0.5, py + 0.5, size, corner_radius)
+            in_bg = full_bleed or _rounded_square_mask(px + 0.5, py + 0.5, size, corner_radius)
             if not in_bg:
-                # fully transparent outside the rounded square (only relevant for non-maskable)
+                # fully transparent outside the rounded square (only relevant for non-maskable,
+                # non-full-bleed renders)
                 pixels[idx:idx + 4] = (0, 0, 0, 0)
                 continue
             if _q_glyph_mask(px + 0.5, py + 0.5, size, glyph_radius):
@@ -86,15 +95,28 @@ def _png_chunk(tag: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
 
 
-def write_png(path: Path, size: int, *, maskable: bool = False) -> None:
-    rgba = render(size, maskable=maskable)
+def write_png(path: Path, size: int, *, maskable: bool = False, full_bleed: bool = False) -> None:
+    rgba = render(size, maskable=maskable, full_bleed=full_bleed)
     raw = bytearray()
-    stride = size * 4
-    for row in range(size):
-        raw.append(0)  # filter type: none
-        raw.extend(rgba[row * stride:(row + 1) * stride])
 
-    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)  # 8-bit RGBA, no interlace
+    if full_bleed:
+        # No alpha channel at all (RGB, color type 2) -- belt-and-suspenders on top of the
+        # already-opaque render, since apple-touch-icon is documented by Apple to want a fully
+        # opaque source image.
+        stride = size * 3
+        for row in range(size):
+            raw.append(0)  # filter type: none
+            row_rgba = rgba[row * size * 4:(row + 1) * size * 4]
+            for px in range(size):
+                raw.extend(row_rgba[px * 4:px * 4 + 3])
+        ihdr = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)  # 8-bit RGB, no interlace
+    else:
+        stride = size * 4
+        for row in range(size):
+            raw.append(0)  # filter type: none
+            raw.extend(rgba[row * stride:(row + 1) * stride])
+        ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)  # 8-bit RGBA, no interlace
+
     idat = zlib.compress(bytes(raw), level=9)
 
     png = b"\x89PNG\r\n\x1a\n"
@@ -109,7 +131,7 @@ def main() -> None:
     write_png(ICONS_DIR / "icon-192.png", 192)
     write_png(ICONS_DIR / "icon-512.png", 512)
     write_png(ICONS_DIR / "icon-512-maskable.png", 512, maskable=True)
-    write_png(ICONS_DIR / "apple-touch-icon.png", 180)
+    write_png(ICONS_DIR / "apple-touch-icon.png", 180, full_bleed=True)
     print(f"[icons] wrote 4 PNGs to {ICONS_DIR}")
 
 
