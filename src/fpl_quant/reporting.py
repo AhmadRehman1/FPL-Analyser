@@ -44,6 +44,12 @@ from . import uncertainty as un
 
 HUMAN_PROMPT = "Does this squad look defensible to you?"
 
+# Shared by build_report()'s own headline captain pick and build_captain_recommendation()'s
+# weekly recommendation for real squads (both rank by analytic E[points] and only fall back to
+# variance to break a near-tie) -- a near-tie within this many expected points is "close enough
+# that the higher ceiling wins," not "materially behind."
+_CAPTAIN_TIE_EPSILON = 0.15
+
 
 def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # Priority 2's own exact spec values ("no clearly-nailed (p_start_final >= 0.75)... every
@@ -243,7 +249,6 @@ def build_report(
         for uid, name, position, in_xi, is_captain, is_vice in squad_rows
     ]
     xi_uids = {p["player_uid"] for p in squad if p["in_xi"]}
-    captain = next((p for p in squad if p["is_captain"]), None)
 
     minutes_model_version = con.execute(
         "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [uncertainty_model_version]
@@ -266,7 +271,6 @@ def build_report(
         [squad_optimizer_run_id, ep_model_version, uncertainty_model_version],
     ).fetchone()[0]
 
-    total_ep = 0.0
     category_breakdown, risk_analytic, risk_empirical, evidence_provenance, understat_signal = {}, {}, {}, {}, {}
     for p in squad:
         uid = p["player_uid"]
@@ -280,8 +284,6 @@ def build_report(
         breakdown = ep.explain_player_ep(con, ep_model_version, uid)
         if breakdown:
             category_breakdown[uid] = breakdown
-            if uid in xi_uids:
-                total_ep += breakdown["total"] * (2 if p["is_captain"] else 1)
         risk = un.explain_player_risk(con, uncertainty_model_version, uid)
         if risk:
             risk_analytic[uid] = risk
@@ -298,6 +300,35 @@ def build_report(
             if empirical:
                 risk_empirical[uid] = empirical
         evidence_provenance[uid] = mm.explain_player_adjustment(con, minutes_model_version, uid)
+
+    # 2026-09 model failure diagnosis, Finding 3/7: the squad_optimizer's own in-solve captain
+    # pick is risk-penalized (the MIQP objective weights the captain's variance at 3x -- see
+    # squad_optimizer.py's own captain_ep_gap diagnostic) and can crown a low-ceiling player over
+    # the XI's actual highest expected scorer (confirmed live: GW4's model-optimal captain was
+    # Ethan Ampadu, not the XI's top scorer). This headline -- and every number derived from it
+    # (total_projected_ep, the rationale line) -- now picks the captain the same way
+    # build_captain_recommendation() already picks a WEEKLY captain for the real tracked
+    # accounts: by analytic E[points], breaking a near-tie toward the higher-variance (higher-
+    # ceiling) option, never by the risk-adjusted solve-time score. Falls back to the optimizer's
+    # own pick only if no XI player has an analytic EP to rank by (missing data, not expected in
+    # practice).
+    xi_candidates = [p for p in squad if p["player_uid"] in xi_uids and p["player_uid"] in category_breakdown]
+    if xi_candidates:
+        top_ep = max(category_breakdown[p["player_uid"]]["total"] for p in xi_candidates)
+        near_top = [
+            p for p in xi_candidates
+            if top_ep - category_breakdown[p["player_uid"]]["total"] <= _CAPTAIN_TIE_EPSILON
+        ]
+        captain = max(near_top, key=lambda p: risk_analytic.get(p["player_uid"], {}).get("var_total", 0.0))
+        for p in squad:
+            p["is_captain"] = p is captain
+    else:
+        captain = next((p for p in squad if p["is_captain"]), None)
+
+    total_ep = sum(
+        category_breakdown[uid]["total"] * (2 if captain and uid == captain["player_uid"] else 1)
+        for uid in xi_uids if uid in category_breakdown
+    )
 
     guardrail_audit = squad_optimizer.explain_run(con, squad_optimizer_run_id)
     automated_flags = compute_automated_flags(con, squad_optimizer_run_id, sanity_check_params_version)
@@ -764,11 +795,6 @@ def build_transparency_log(track_record: dict, history_dir: Path | str, diff: di
         "provenance": load_latest_provenance(history_dir),
     }
 
-
-# Within this much E[points] of each other, two captain candidates are a "near-tie" and the
-# wider Monte-Carlo spread (higher ceiling) wins -- captaincy doubles the score so the payoff is
-# dominated by the upside. Matches projections.build_captain_ranking's own tie_epsilon.
-_CAPTAIN_TIE_EPSILON = 0.15
 
 
 def build_captain_recommendation(

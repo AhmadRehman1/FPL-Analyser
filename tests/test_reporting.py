@@ -308,6 +308,24 @@ def test_build_report_headline_and_sections(con):
     assert report["automated_flags"] != report["human_prompt"]
 
 
+def test_build_report_headline_captain_follows_analytic_ep_not_the_raw_solve_pick(con):
+    # 2026-09 model failure diagnosis, Finding 3/7: squad_optimizer's own in-solve captain pick
+    # is risk-penalized (3x variance weight) and can crown a lower-EP player. p1 is DB-flagged
+    # is_captain here (ep_total=5.0) but p2 (ep_total=4.0 in the shared fixture) is boosted past
+    # it -- the headline must follow the higher analytic EP, not the stale DB flag.
+    run_id, ep_mv, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    con.execute("UPDATE ep_outputs SET ep_total = 9.0 WHERE model_version = ? AND player_uid = 'p2'", [ep_mv])
+
+    report = reporting.build_report(con, run_id)
+
+    headline = report["headline"]
+    assert headline["captain"]["player_uid"] == "p2"
+    assert next(p for p in headline["squad"] if p["player_uid"] == "p2")["is_captain"] is True
+    assert next(p for p in headline["squad"] if p["player_uid"] == "p1")["is_captain"] is False
+    # p2 (captain, doubled) + p1, both in_xi: 9.0*2 + 5.0 = 23.0
+    assert headline["total_projected_ep"] == pytest.approx(23.0)
+
+
 def test_build_report_z_fixture_correlation_dilution_absent_without_empirical_pairs(con):
     run_id, *_ = _seed_full_squad_scenario(con)
     report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
@@ -1111,22 +1129,33 @@ def test_diff_reports_no_previous_snapshot(con):
 
 
 def test_diff_reports_detects_squad_and_captain_changes(con):
-    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
     report_prev = reporting.build_report(con, run_id)
     previous_snapshot = reporting.snapshot_for_diff(report_prev)
 
-    # p2 transferred out, p3 (new signing) transferred in, captaincy moves to p2
+    # p2 transferred out, p3 (new signing, with a real EP/risk row of its own -- since the
+    # headline captain is now picked by analytic E[points] (Finding 3/7 fix), a bare DB
+    # is_captain flag flip no longer drives who's captain) transferred in, with a big enough EP
+    # edge over p1 to actually take the armband.
     con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'Player Three', 'Forward')")
+    con.execute(
+        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
+        "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
+        "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'p3', 'm1', 2.0,1.5,0.5,1.0,0,0.5,0.3,0,0,0,0, 8.0, 20.0)",
+        [ep_mv],
+    )
+    con.execute(
+        "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
+        "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
+        "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
+        "VALUES (?, 'p3', 'm1', 0,0,0,0,0,0,0,0, 2.0, 0,0, 1.0, 3.0, 7.0, 9.0)",
+        [un_mv],
+    )
     con.execute("UPDATE squad_optimizer_selections SET in_squad = FALSE, in_xi = FALSE WHERE run_id = ? AND player_uid = 'p2'", [run_id])
     con.execute(
         "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
         "VALUES (?, 'p3', TRUE, TRUE, FALSE, FALSE)", [run_id],
     )
-    con.execute("UPDATE squad_optimizer_selections SET is_captain = FALSE WHERE run_id = ? AND player_uid = 'p1'", [run_id])
-    con.execute("UPDATE squad_optimizer_selections SET is_captain = TRUE WHERE run_id = ? AND player_uid = 'p2'", [run_id])
-    # p2 needs its own category_breakdown/risk rows to still appear in the new report despite
-    # no longer being "in_squad" -- simplest is to just leave it out of the new report's squad
-    # read entirely, which is exactly what in_squad=FALSE already achieves.
 
     report_cur = reporting.build_report(con, run_id)
     diff = reporting.diff_reports(previous_snapshot, report_cur)
@@ -1135,7 +1164,7 @@ def test_diff_reports_detects_squad_and_captain_changes(con):
     assert diff["squad_changes"]["out"] == ["Player Two"]
     assert diff["captain_changed"] is True
     assert diff["previous_captain"] == "Player One"
-    assert diff["current_captain"] is None or diff["current_captain"] != "Player One"
+    assert diff["current_captain"] == "Player Three"
 
 
 def test_diff_reports_flags_newly_doubtful_starters(con):
