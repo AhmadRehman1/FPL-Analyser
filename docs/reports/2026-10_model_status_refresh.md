@@ -296,3 +296,22 @@ What this says:
 - **Role blend, assists calibration, minutes floor:** each fixes the thing it targets (flatter
   bands; log score -0.68, beating the -1.099 baseline) without improving squad points on their own.
   Kept on branches, not merged. See "Tried and didn't work" in the overnight report.
+- 2026-09-29 06:45 UTC: second round. Role blend and assists re-tested **on top of** Fix D + lambda
+  0.10 (the new control), all 70 GWs matched. The minutes floor 0.005 arm was still running.
+
+| arm (all on Fix D + lambda 0.10) | beats avg /GW | model pts /GW | vs control, model pts | weekly beats-avg vs control | EP bias / MAE | resid `<5 / 5-7 / 7-9 / 9+` |
+|---|---|---|---|---|---|---|
+| control | +5.41 | 55.27 | - | - | -0.013 / 1.159 | -0.24 / +0.31 / +0.78 / +0.93 |
+| + assist calibration | +6.25 | **55.86** | **+0.59** | +0.84 +/- 0.54, better in 48 of 70 weeks | -0.038 / 1.168 | -0.25 / +0.28 / +0.69 / +0.80 |
+| + role blend | +1.94* | **56.34** | **+1.07** | contaminated* | -0.079 / 1.180 | -0.27 / +0.20 / +0.57 / +0.72 |
+
+What this says:
+- **Assists calibration now helps.** Once the captain and lambda problems are fixed, the better
+  assist EP changes who gets picked: +0.59 model pts/GW, and the benchmark barely moved (49.86 ->
+  49.61), so its beats-avg (+0.84/GW, about 1.5 standard errors, 48 of 70 weeks better) is roughly
+  clean too. The cost: global bias -0.013 -> -0.038 and MAE +0.009. Modest but consistent.
+- **Role blend gives the most squad points (+1.07/GW)** and the flattest price bands, but it
+  worsens bias and MAE more and shifts the benchmark by +4.5, so its beats-avg can't be read.
+  It needs the EP-independent benchmark before it can be judged on the headline.
+- Neither got a PR: both improve squad points but make another metric (bias/MAE) worse, which is
+  the "breaks something else" rule. Both are the first candidates once the captain fix is live.
