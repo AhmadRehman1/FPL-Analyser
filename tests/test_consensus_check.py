@@ -181,3 +181,40 @@ def test_raises_on_unknown_run(con):
             con, 999, datetime(2026, 8, 10), decay_params_version=1, fact_multiplier_params_version=1,
             price_band=0.5, divergence_ratio_threshold=0.2,
         )
+
+
+# ---- Fix G: model vs expert consensus (check only) ----
+
+def _consensus():
+    return {
+        "expert_captain_share": {"Erling Haaland": 0.7, "Bruno Fernandes": 0.2},
+        "expert_transfer_net": {"Pascal Gross": 0.8, "Cole Palmer": -0.9},
+        "expert_avoid": {"Cole Palmer": -0.6},
+    }
+
+
+def test_expert_disagreements_flags_each_kind():
+    model = {"captain": "Virgil van Dijk", "squad": ["Virgil van Dijk", "Cole Palmer"],
+             "transfers_in": ["Cole Palmer"], "transfers_out": ["Pascal Gross"]}
+    out = cc.expert_disagreements(model, _consensus(), {"Virgil van Dijk": 4.7, "Erling Haaland": 6.4})
+    kinds = {d["kind"] for d in out}
+    assert kinds == {"captain", "transfer_in", "transfer_out", "squad_avoid"}
+    cap = next(d for d in out if d["kind"] == "captain")
+    assert cap["expert_pick"] == "Erling Haaland" and "4.70" in cap["model_reason"]
+
+
+def test_no_disagreement_when_model_matches_experts():
+    model = {"captain": "Erling Haaland", "squad": ["Erling Haaland", "Pascal Gross"], "transfers_in": [], "transfers_out": []}
+    assert cc.expert_disagreements(model, _consensus()) == []
+
+
+def test_scoring_and_record(tmp_path):
+    model = {"captain": "Virgil van Dijk", "squad": ["Pascal Gross"], "transfers_in": [], "transfers_out": []}
+    [d] = cc.expert_disagreements(model, _consensus())
+    scored = cc.score_disagreement(d, {"Virgil van Dijk": 2, "Erling Haaland": 13})
+    assert scored["winner"] == "experts"
+    assert cc.model_vs_experts_record([scored]) == {"model": 0, "experts": 1, "tie": 0, "unscored": 0, "model_win_rate": 0.0}
+    log = tmp_path / "log.jsonl"
+    assert cc.append_disagreement_log(log, 6, "expert_consensus_GW6_2026-10-02.md", [d]) == 1
+    import json
+    assert json.loads(log.read_text().splitlines()[0])["gameweek"] == 6
