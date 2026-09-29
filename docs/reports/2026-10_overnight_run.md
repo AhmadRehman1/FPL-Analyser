@@ -78,6 +78,7 @@ Commit the Cowork output to `data/external/expert_consensus/expert_consensus_GW<
 | #193 | Tooling: branch walk-forward workflow (`bt/**`) + scoreboard | 10 experiments run overnight | Ready |
 | #195 | **Fix D**: one captain rule for every user-facing captain; versioned captain variance weight | Weight 0: beats-avg **-0.71 -> +2.14**, captain pts 3.24 -> 5.67 /GW | Ready (activation is your call) |
 | #196 | Walk-forward measures the live k_minutes (it always used 450) | Live 900: 49.26 vs 49.16 pts/GW, 9.0+ bias worse | Ready; the nightly headline will honestly drop to about -0.99 |
+| #197 | **Fix F**: versioned minutes probability floor 0.005 (opt-in) | Log score -1.256 -> -0.717, model pts 55.27 -> 55.37 | Ready (activation is your call) |
 
 Branches kept without a PR (see section 4): `claude/fix-c-assist-calibration`,
 `claude/fix-f-minutes-floor`, and experiment branches `bt/*`.
@@ -107,7 +108,7 @@ Second round (on top of captain fix + lambda 0.10, same 70 weeks): assists calib
 model pts/GW (+0.59, better in 48 of 70 weeks), role blend **56.34** (+1.07). Both made the EP
 bias slightly worse, so neither has a PR yet (section 4). The minutes floor 0.005 run was still
 going when I wrote this. Update 07:40: floor 0.005 gives log score -1.256 -> -0.717 at no cost
-in points (55.37), so it now has a PR.
+in points (55.37), so it now has a PR (#197).
 
 ## 4. Tried and didn't work (yet)
 
@@ -127,8 +128,8 @@ in points (55.37), so it now has a PR.
   the optimizer picks, likely because the 3x captain penalty and lambda 0.15 dominated. **Re-test
   on top of the captain fix + lambda 0.10.**
 - **Minutes probability floor 0.02.** **Update: 0.005 fixes it** (on top of the captain fix +
-  lambda 0.10): log score -1.256 -> **-0.717**, model pts +0.10/GW, better in 54 of 70 weeks. Now a
-  PR (Fix F). First pass at 0.02: log score -1.256 -> **-0.679**, beating the -1.099 target
+  lambda 0.10): log score -1.256 -> **-0.717**, model pts +0.10/GW, better in 54 of 70 weeks. Now PR
+  #197. First pass at 0.02: log score -1.256 -> **-0.679**, beating the -1.099 target
   outright. But model points -0.50/GW: a 2% floor adds phantom appearance points to non-players and
   trims nailed starters. Try 0.005: most of the damage came from hard zeros, so a smaller floor
   should keep most of the log-score gain.
