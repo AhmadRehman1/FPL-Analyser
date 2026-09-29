@@ -44,6 +44,8 @@ def test_wrangler_builds_its_own_assets_dir():
     cfg = (ROOT / "wrangler.toml").read_text()
     assert re.search(r'^\[build\]\s*\ncommand = "bash scripts/build_cloudflare_site\.sh"', cfg, re.M)
     assert re.search(r'^directory = "public"', cfg, re.M)
+    # PR preview builds run `wrangler preview`, which errors out without this block.
+    assert re.search(r"^\[previews\]", cfg, re.M)
 
 
 def test_sw_never_caches_redirected_responses():
