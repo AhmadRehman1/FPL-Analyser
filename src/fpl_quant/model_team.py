@@ -34,6 +34,10 @@ from . import transfer_planner
 
 STATE_FILENAME = "state.json"
 SEASON = "2026-2027"
+# Bumped when realised scoring changes, so realize() re-scores rows it had already locked.
+# 2: real FPL rules -- per-gameweek minutes (the column is a season running total), so the
+# vice-captain rule and bench auto-subs actually fire.
+SCORING_VERSION = 2
 
 
 # ------------------------------------------------------------------ state I/O
@@ -74,7 +78,7 @@ def seed_squad(con: duckdb.DuckDBPyConnection, season: str = SEASON) -> list[dic
     if not run:
         raise ValueError(f"no from-scratch GW1 squad_optimizer_runs row for {season} -- run scripts/run_ingestion.py first")
     rows = con.execute(
-        "SELECT s.player_uid, s.in_xi, s.is_captain, s.is_vice, dp.canonical_name "
+        "SELECT s.player_uid, s.in_xi, s.is_captain, s.is_vice, dp.canonical_name, s.bench_order "
         "FROM squad_optimizer_selections s JOIN dim_player dp ON dp.player_uid = s.player_uid "
         "WHERE s.run_id = ? AND s.in_squad",
         [run[0]],
@@ -82,8 +86,9 @@ def seed_squad(con: duckdb.DuckDBPyConnection, season: str = SEASON) -> list[dic
     if len(rows) != 15:
         raise ValueError(f"GW1 solve run_id={run[0]} has {len(rows)} in_squad players, expected 15")
     return [
-        {"player_name": name, "in_xi": bool(in_xi), "is_captain": bool(is_cap), "is_vice": bool(is_vice)}
-        for _uid, in_xi, is_cap, is_vice, name in rows
+        {"player_name": name, "in_xi": bool(in_xi), "is_captain": bool(is_cap), "is_vice": bool(is_vice),
+         "bench_order": bench_order}
+        for _uid, in_xi, is_cap, is_vice, name, bench_order in rows
     ]
 
 
@@ -98,6 +103,7 @@ def _resolve(con: duckdb.DuckDBPyConnection, names: list[str]) -> dict[str, str]
 def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: str, current_event: int) -> dict:
     by_name = _resolve(con, [p["player_name"] for p in seed])
     squad_uids, xi_uids, captain_uid, vice_captain_uid = [], [], None, None
+    bench_order: dict[str, int] = {}
     for p in seed:
         uid = by_name.get(p["player_name"])
         if not uid:
@@ -105,6 +111,8 @@ def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: st
         squad_uids.append(uid)
         if p["in_xi"]:
             xi_uids.append(uid)
+        elif p.get("bench_order") is not None:
+            bench_order[uid] = p["bench_order"]
         if p["is_captain"]:
             captain_uid = uid
         if p["is_vice"]:
@@ -116,6 +124,7 @@ def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: st
     realized = (
         round(bt._realized_xi_points(
             con, season, 1, frozenset(xi_uids), captain_uid, vice_captain_uid=vice_captain_uid,
+            squad_uids=frozenset(squad_uids), bench_order=bench_order,
         ), 1) if played else None
     )
     return {
@@ -125,7 +134,25 @@ def _gw1_ledger_row(con: duckdb.DuckDBPyConnection, seed: list[dict], season: st
         "free_hit_gain": None, "free_hit_recommended": False, "current_squad_horizon_value": None,
         "chips_used": [], "squad_uids": sorted(squad_uids), "xi_uids": sorted(xi_uids),
         "captain_uid": captain_uid, "vice_captain_uid": vice_captain_uid, "realized_points": realized,
+        "bench_order": bench_order, "scoring_version": SCORING_VERSION,
     }
+
+
+def _bench_order(con: duckdb.DuckDBPyConnection, season: str, gw: int, row_bench_order: dict | None,
+                 bench_uids: set[str]) -> dict[str, int]:
+    """The row's own stored bench order, or -- for rows written before one was stored -- FPL's
+    own projection for the gameweek (`ep_next` on the previous gameweek's row), highest first."""
+    if row_bench_order:
+        return row_bench_order
+    if not bench_uids or gw <= 1:
+        return {}
+    ph = ",".join("?" * len(bench_uids))
+    ep = dict(con.execute(
+        f"SELECT player_uid, ep_next FROM fact_player_season_stats WHERE season = ? AND gw = ? AND player_uid IN ({ph})",
+        [season, gw - 1, *sorted(bench_uids)],
+    ).fetchall())
+    ranked = sorted(bench_uids, key=lambda u: (-(ep.get(u) or 0.0), u))
+    return {u: rank for rank, u in enumerate(ranked, start=1)}
 
 
 def _carryforward_fields(row: dict) -> tuple[list[str], set[str], str | None]:
@@ -266,8 +293,11 @@ def realize(
     dirty = False
     for row in state["ledger"]:
         # `realized_final` locks a row once its gameweek has finished -- re-score everything else
-        # (a row never scored, or scored to a provisional figure off an in-progress gameweek).
-        if not row.get("xi_uids") or row.get("realized_final"):
+        # (a row never scored, or scored to a provisional figure off an in-progress gameweek),
+        # plus any locked row scored under an older SCORING_VERSION.
+        if not row.get("xi_uids"):
+            continue
+        if row.get("realized_final") and row.get("scoring_version", 1) >= SCORING_VERSION:
             continue
         gw = row["gameweek"]
         is_final = finished_gameweeks is None or gw in finished_gameweeks
@@ -278,18 +308,23 @@ def realize(
         if not played:
             continue
         mult = 3 if row.get("action") == "triple_captain" else 2
+        xi = frozenset(row["xi_uids"])
+        squad = frozenset(row.get("squad_uids") or xi)
+        bench_order = _bench_order(con, season, gw, row.get("bench_order"), set(squad - xi))
         new_points = round(
-            bt._realized_xi_points(con, season, gw, frozenset(row["xi_uids"]), row.get("captain_uid"),
-                                   captain_multiplier=mult, vice_captain_uid=row.get("vice_captain_uid")),
+            bt._realized_xi_points(con, season, gw, xi, row.get("captain_uid"),
+                                   captain_multiplier=mult, vice_captain_uid=row.get("vice_captain_uid"),
+                                   squad_uids=squad, bench_order=bench_order),
             1,
         )
         if new_points != row.get("realized_points"):
             n += 1
             dirty = True
-        if bool(row.get("realized_final")) != is_final:
+        if bool(row.get("realized_final")) != is_final or row.get("scoring_version") != SCORING_VERSION:
             dirty = True
         row["realized_points"] = new_points
         row["realized_final"] = is_final
+        row["scoring_version"] = SCORING_VERSION
     if dirty:
         save_state(state_dir, state)
     return {"realized": n}
@@ -386,6 +421,7 @@ def _free_hit_audit(
     gw = fhr["gameweek"]
     prev = next((r for r in reversed(ordered_ledger) if r["gameweek"] < gw), None)
     hold_xi = fhr.get("carryforward_xi_uids") or (prev["xi_uids"] if prev else None)
+    hold_squad = fhr.get("carryforward_squad_uids") or (prev.get("squad_uids") if prev else None) or hold_xi or []
     hold_cap = fhr.get("carryforward_captain_uid") or (prev.get("captain_uid") if prev else None)
     hold_vice = fhr.get("carryforward_vice_captain_uid") or (prev.get("vice_captain_uid") if prev else None)
 
@@ -396,8 +432,12 @@ def _free_hit_audit(
             [season, gw],
         ).fetchone()[0]
         if played:
+            bench = set(hold_squad) - set(hold_xi)
             counterfactual_hold = round(
-                bt._realized_xi_points(con, season, gw, frozenset(hold_xi), hold_cap, vice_captain_uid=hold_vice), 1
+                bt._realized_xi_points(
+                    con, season, gw, frozenset(hold_xi), hold_cap, vice_captain_uid=hold_vice,
+                    squad_uids=frozenset(hold_squad), bench_order=_bench_order(con, season, gw, None, bench),
+                ), 1
             )
 
     realized = fhr.get("realized_points")
