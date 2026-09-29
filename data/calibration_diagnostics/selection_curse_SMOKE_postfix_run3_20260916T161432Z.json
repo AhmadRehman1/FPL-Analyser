@@ -1,0 +1,267 @@
+{
+  "artefact": "selection_curse_report",
+  "backtest_run_id": 3,
+  "tier": "mature",
+  "scoring_params_version": 1,
+  "n_boot": 2000,
+  "seed": 0,
+  "git_sha": "ff7df3ff0af31a30d39b8137a7cafe5cd1c0950b",
+  "generated_at": "2026-09-16T16:14:32.420155+00:00",
+  "n_steps_scored": 5,
+  "n_steps_with_selection": 5,
+  "missing_data_counts": {
+    "missing_realized_or_predicted": 30,
+    "missing_price": 0,
+    "missing_position": 0
+  },
+  "variants": {
+    "price_band__xi": {
+      "per_gameweek": [
+        {
+          "season": "2025-2026",
+          "gameweek": 32,
+          "n": 11,
+          "sel_resid": 0.9722149900811016,
+          "band_resid": -0.16374218460781687,
+          "curse": -1.1359571746889183,
+          "curse_sum_scale": -12.495528921578101,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 34,
+          "n": 11,
+          "sel_resid": 1.2616440001196052,
+          "band_resid": 0.28111481745721384,
+          "curse": -0.9805291826623914,
+          "curse_sum_scale": -10.785821009286305,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 35,
+          "n": 11,
+          "sel_resid": -0.13688467076912267,
+          "band_resid": 0.13016284795321922,
+          "curse": 0.2670475187223419,
+          "curse_sum_scale": 2.937522705945761,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 37,
+          "n": 11,
+          "sel_resid": 1.64904339614828,
+          "band_resid": 0.14290742019920444,
+          "curse": -1.5061359759490756,
+          "curse_sum_scale": -16.56749573543983,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 38,
+          "n": 11,
+          "sel_resid": -0.48603147105896044,
+          "band_resid": -0.0677844007885113,
+          "curse": 0.41824707027044916,
+          "curse_sum_scale": 4.6007177729749404,
+          "missing_selected_players": 0
+        }
+      ],
+      "n_gameweeks": 5,
+      "mean_curse": -0.5874655488615188,
+      "median_curse": -0.9805291826623914,
+      "curse_ci95_gw_clustered": [
+        -1.2529430967876758,
+        0.07716631096895421
+      ],
+      "frac_positive": 0.4
+    },
+    "price_band__squad": {
+      "per_gameweek": [
+        {
+          "season": "2025-2026",
+          "gameweek": 32,
+          "n": 15,
+          "sel_resid": 0.4133098526257225,
+          "band_resid": -0.18219704429617806,
+          "curse": -0.5955068969219006,
+          "curse_sum_scale": -8.93260345382851,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 34,
+          "n": 15,
+          "sel_resid": 1.3121623491221743,
+          "band_resid": 0.16165425918410647,
+          "curse": -1.150508089938068,
+          "curse_sum_scale": -17.25762134907102,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 35,
+          "n": 15,
+          "sel_resid": 0.04451796472418682,
+          "band_resid": 0.024027036018059385,
+          "curse": -0.020490928706127436,
+          "curse_sum_scale": -0.3073639305919115,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 37,
+          "n": 15,
+          "sel_resid": 0.9615987464263976,
+          "band_resid": 0.03129152357463763,
+          "curse": -0.93030722285176,
+          "curse_sum_scale": -13.954608342776401,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 38,
+          "n": 15,
+          "sel_resid": -0.02590328486777973,
+          "band_resid": -0.1012062513541124,
+          "curse": -0.07530296648633267,
+          "curse_sum_scale": -1.12954449729499,
+          "missing_selected_players": 0
+        }
+      ],
+      "n_gameweeks": 5,
+      "mean_curse": -0.5544232209808377,
+      "median_curse": -0.5955068969219006,
+      "curse_ci95_gw_clustered": [
+        -0.928507612731601,
+        -0.1683813450174052
+      ],
+      "frac_positive": 0.0
+    },
+    "position_price_band__xi": {
+      "per_gameweek": [
+        {
+          "season": "2025-2026",
+          "gameweek": 32,
+          "n": 11,
+          "sel_resid": 0.9722149900811016,
+          "band_resid": -0.3056106424344499,
+          "curse": -1.2778256325155515,
+          "curse_sum_scale": -14.056081957671067,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 34,
+          "n": 11,
+          "sel_resid": 1.2616440001196052,
+          "band_resid": 0.1503771172035435,
+          "curse": -1.1112668829160617,
+          "curse_sum_scale": -12.223935712076678,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 35,
+          "n": 11,
+          "sel_resid": -0.13688467076912267,
+          "band_resid": -0.07699358208812843,
+          "curse": 0.05989108868099424,
+          "curse_sum_scale": 0.6588019754909367,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 37,
+          "n": 11,
+          "sel_resid": 1.64904339614828,
+          "band_resid": -0.11391694862126506,
+          "curse": -1.762960344769545,
+          "curse_sum_scale": -19.392563792464994,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 38,
+          "n": 11,
+          "sel_resid": -0.48603147105896044,
+          "band_resid": -0.31363459517319625,
+          "curse": 0.1723968758857642,
+          "curse_sum_scale": 1.8963656347434061,
+          "missing_selected_players": 0
+        }
+      ],
+      "n_gameweeks": 5,
+      "mean_curse": -0.78395297912688,
+      "median_curse": -1.1112668829160617,
+      "curse_ci95_gw_clustered": [
+        -1.438567767497251,
+        -0.14014878323545293
+      ],
+      "frac_positive": 0.4
+    },
+    "position_price_band__squad": {
+      "per_gameweek": [
+        {
+          "season": "2025-2026",
+          "gameweek": 32,
+          "n": 15,
+          "sel_resid": 0.4133098526257225,
+          "band_resid": -0.31789693881558295,
+          "curse": -0.7312067914413054,
+          "curse_sum_scale": -10.96810187161958,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 34,
+          "n": 15,
+          "sel_resid": 1.3121623491221743,
+          "band_resid": 0.27063741991960594,
+          "curse": -1.0415249292025683,
+          "curse_sum_scale": -15.622873938038525,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 35,
+          "n": 15,
+          "sel_resid": 0.04451796472418682,
+          "band_resid": -0.15738040095184466,
+          "curse": -0.20189836567603148,
+          "curse_sum_scale": -3.028475485140472,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 37,
+          "n": 15,
+          "sel_resid": 0.9615987464263976,
+          "band_resid": -0.24574692620962113,
+          "curse": -1.2073456726360188,
+          "curse_sum_scale": -18.11018508954028,
+          "missing_selected_players": 0
+        },
+        {
+          "season": "2025-2026",
+          "gameweek": 38,
+          "n": 15,
+          "sel_resid": -0.02590328486777973,
+          "band_resid": -0.29683991498018203,
+          "curse": -0.2709366301124023,
+          "curse_sum_scale": -4.064049451686035,
+          "missing_selected_players": 0
+        }
+      ],
+      "n_gameweeks": 5,
+      "mean_curse": -0.6905824778136653,
+      "median_curse": -0.7312067914413054,
+      "curse_ci95_gw_clustered": [
+        -1.045789599023696,
+        -0.3491830094909088
+      ],
+      "frac_positive": 0.0
+    }
+  }
+}

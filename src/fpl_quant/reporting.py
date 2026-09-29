@@ -44,12 +44,6 @@ from . import uncertainty as un
 
 HUMAN_PROMPT = "Does this squad look defensible to you?"
 
-# Shared by build_report()'s own headline captain pick and build_captain_recommendation()'s
-# weekly recommendation for real squads (both rank by analytic E[points] and only fall back to
-# variance to break a near-tie) -- a near-tie within this many expected points is "close enough
-# that the higher ceiling wins," not "materially behind."
-_CAPTAIN_TIE_EPSILON = 0.15
-
 
 def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # Priority 2's own exact spec values ("no clearly-nailed (p_start_final >= 0.75)... every
@@ -249,6 +243,9 @@ def build_report(
         for uid, name, position, in_xi, is_captain, is_vice in squad_rows
     ]
     xi_uids = {p["player_uid"] for p in squad if p["in_xi"]}
+    # The solver's own in-solve pick, kept for transparency only. The headline captain is
+    # re-ranked below with rank_captain(), same as every other user-facing captain field.
+    solver_captain = next((dict(p) for p in squad if p["is_captain"]), None)
 
     minutes_model_version = con.execute(
         "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [uncertainty_model_version]
@@ -271,6 +268,7 @@ def build_report(
         [squad_optimizer_run_id, ep_model_version, uncertainty_model_version],
     ).fetchone()[0]
 
+    total_ep = 0.0
     category_breakdown, risk_analytic, risk_empirical, evidence_provenance, understat_signal = {}, {}, {}, {}, {}
     for p in squad:
         uid = p["player_uid"]
@@ -284,6 +282,8 @@ def build_report(
         breakdown = ep.explain_player_ep(con, ep_model_version, uid)
         if breakdown:
             category_breakdown[uid] = breakdown
+            if uid in xi_uids:
+                total_ep += breakdown["total"]
         risk = un.explain_player_risk(con, uncertainty_model_version, uid)
         if risk:
             risk_analytic[uid] = risk
@@ -301,34 +301,22 @@ def build_report(
                 risk_empirical[uid] = empirical
         evidence_provenance[uid] = mm.explain_player_adjustment(con, minutes_model_version, uid)
 
-    # 2026-09 model failure diagnosis, Finding 3/7: the squad_optimizer's own in-solve captain
-    # pick is risk-penalized (the MIQP objective weights the captain's variance at 3x -- see
-    # squad_optimizer.py's own captain_ep_gap diagnostic) and can crown a low-ceiling player over
-    # the XI's actual highest expected scorer (confirmed live: GW4's model-optimal captain was
-    # Ethan Ampadu, not the XI's top scorer). This headline -- and every number derived from it
-    # (total_projected_ep, the rationale line) -- now picks the captain the same way
-    # build_captain_recommendation() already picks a WEEKLY captain for the real tracked
-    # accounts: by analytic E[points], breaking a near-tie toward the higher-variance (higher-
-    # ceiling) option, never by the risk-adjusted solve-time score. Falls back to the optimizer's
-    # own pick only if no XI player has an analytic EP to rank by (missing data, not expected in
-    # practice).
-    xi_candidates = [p for p in squad if p["player_uid"] in xi_uids and p["player_uid"] in category_breakdown]
-    if xi_candidates:
-        top_ep = max(category_breakdown[p["player_uid"]]["total"] for p in xi_candidates)
-        near_top = [
-            p for p in xi_candidates
-            if top_ep - category_breakdown[p["player_uid"]]["total"] <= _CAPTAIN_TIE_EPSILON
-        ]
-        captain = max(near_top, key=lambda p: risk_analytic.get(p["player_uid"], {}).get("var_total", 0.0))
-        for p in squad:
-            p["is_captain"] = p is captain
-    else:
-        captain = next((p for p in squad if p["is_captain"]), None)
-
-    total_ep = sum(
-        category_breakdown[uid]["total"] * (2 if captain and uid == captain["player_uid"] else 1)
-        for uid in xi_uids if uid in category_breakdown
+    # Headline captain via the shared rule (Finding 7): outfield XI players by analytic EP.
+    captain_pool = [
+        p for p in squad
+        if p["in_xi"] and p["position"] != "Goalkeeper" and p["player_uid"] in category_breakdown
+    ]
+    captain_uid = rank_captain(
+        {p["player_uid"]: category_breakdown[p["player_uid"]]["total"] for p in captain_pool},
+        {p["player_uid"]: (risk_analytic.get(p["player_uid"]) or {}).get("var_total") for p in captain_pool},
     )
+    if captain_uid is None and solver_captain is not None:
+        captain_uid = solver_captain["player_uid"]
+    for p in squad:
+        p["is_captain"] = p["player_uid"] == captain_uid
+    captain = next((p for p in squad if p["is_captain"]), None)
+    if captain is not None and captain["player_uid"] in category_breakdown:
+        total_ep += category_breakdown[captain["player_uid"]]["total"]
 
     guardrail_audit = squad_optimizer.explain_run(con, squad_optimizer_run_id)
     automated_flags = compute_automated_flags(con, squad_optimizer_run_id, sanity_check_params_version)
@@ -411,7 +399,7 @@ def build_report(
     return {
         "headline": {
             "target_season": target_season, "target_gameweek": target_gameweek,
-            "squad": squad, "captain": captain, "total_projected_ep": total_ep,
+            "squad": squad, "captain": captain, "solver_captain": solver_captain, "total_projected_ep": total_ep,
             "total_projected_ep_range": total_ep_range, "rationale": rationale,
         },
         "category_breakdown": category_breakdown,
@@ -712,6 +700,10 @@ def _backtest_headline(metrics: list[dict]) -> dict | None:
         # on average, <0 it over-predicts. The per-position/price split is in segment_calibration.
         "ep_points_bias_per_player": by_name.get("ep_total_calibration_mean_resid"),
         "ep_points_mae_per_player": by_name.get("ep_total_calibration_mae"),
+        # Phase 1D (2026-09 audit): explicit provenance, so a consumer of this dict (the app,
+        # a report) can tell this is a synthetic oracle-vs-oracle comparison without having to
+        # already know backtest.py's internals -- see bt.synthetic_crowd_benchmark_provenance().
+        "benchmark_metadata": bt.synthetic_crowd_benchmark_provenance(),
     }
 
 
@@ -773,6 +765,27 @@ def load_latest_provenance(history_dir: Path | str) -> dict | None:
         return None
 
 
+def backtest_transparency_section(track_record: dict) -> dict:
+    """The `backtest` sub-object of build_transparency_log()'s payload, factored out so it can
+    be reconstructed directly from a track_record dict's own top-level fields -- e.g.
+    scripts/export_track_record.py populating it at write time, or scripts/run_report.py's
+    merge-preservation fallback rebuilding it from a previously-committed file's top-level
+    fields when that file's own transparency_log.backtest is missing or was itself written from
+    a backtest-less run (see run_report.py's own comment on the 2026-09 headline-suppression
+    bug this closes: export_track_record.py used to write real backtest data only at the top
+    level and never into transparency_log, so track-record.html -- which reads ONLY
+    transparency_log.backtest.headline -- never actually rendered it)."""
+    tr = track_record or {}
+    return {
+        "n_gameweek_steps": tr.get("n_gameweek_steps"),
+        "seasons_covered": tr.get("seasons_covered", []),
+        "headline": tr.get("headline"),
+        "metrics": tr.get("metrics", []),
+        "parameters_total": tr.get("parameters_total"),
+        "parameters_backtested": tr.get("parameters_backtested"),
+    }
+
+
 def build_transparency_log(track_record: dict, history_dir: Path | str, diff: dict | None) -> dict:
     """Assemble the public Track Record page's full payload from pieces that already exist:
     the model's own backtest status (build_track_record_summary's two honest numbers), the dated
@@ -780,21 +793,30 @@ def build_transparency_log(track_record: dict, history_dir: Path | str, diff: di
     (diff_reports), and the data provenance (load_latest_provenance). Nothing here is a new
     claim -- every field is a pass-through of something the pipeline already produced, kept
     honest (None/empty rather than fabricated) when the underlying artifact doesn't exist yet."""
-    tr = track_record or {}
     return {
-        "backtest": {
-            "n_gameweek_steps": tr.get("n_gameweek_steps"),
-            "seasons_covered": tr.get("seasons_covered", []),
-            "headline": tr.get("headline"),
-            "metrics": tr.get("metrics", []),
-            "parameters_total": tr.get("parameters_total"),
-            "parameters_backtested": tr.get("parameters_backtested"),
-        },
+        "backtest": backtest_transparency_section(track_record),
         "snapshots": list_report_snapshots(history_dir),
         "latest_diff": diff,
         "provenance": load_latest_provenance(history_dir),
     }
 
+
+# Within this much E[points] of each other, two captain candidates are a "near-tie" and the
+# wider Monte-Carlo spread (higher ceiling) wins -- captaincy doubles the score so the payoff is
+# dominated by the upside. Matches projections.build_captain_ranking's own tie_epsilon.
+_CAPTAIN_TIE_EPSILON = 0.15
+
+
+def rank_captain(ep_by_uid: dict[str, float], var_by_uid: dict[str, float] | None = None) -> str | None:
+    """The one captain rule every user-facing captain field uses: highest expected points,
+    with a near-tie (within _CAPTAIN_TIE_EPSILON) going to the wider spread, since captaincy
+    doubles the score and the upside is what pays. No risk penalty."""
+    if not ep_by_uid:
+        return None
+    var_by_uid = var_by_uid or {}
+    top_ep = max(ep_by_uid.values())
+    near_top = sorted(uid for uid, v in ep_by_uid.items() if top_ep - v <= _CAPTAIN_TIE_EPSILON)
+    return max(near_top, key=lambda uid: (var_by_uid.get(uid) or 0.0, ep_by_uid[uid]))
 
 
 def build_captain_recommendation(
@@ -841,12 +863,11 @@ def build_captain_recommendation(
         v = ep_map.get(c["player_uid"])
         return v if v is not None else c["mean_total"]
 
-    top_ep = max(_ep(c) for c in all_candidates)
-    # Near-tie on E[points] -> prefer the wider MC spread (higher ceiling on a doubled score).
-    near_top = [c for c in all_candidates if top_ep - _ep(c) <= _CAPTAIN_TIE_EPSILON]
-    recommended = max(near_top, key=lambda c: c.get("var_total", 0.0))
-    best_ep = _ep(recommended)
-    recommended_uid = recommended["player_uid"]
+    recommended_uid = rank_captain(
+        {c["player_uid"]: _ep(c) for c in all_candidates},
+        {c["player_uid"]: c.get("var_total", 0.0) for c in all_candidates},
+    )
+    best_ep = _ep(candidates_by_uid[recommended_uid])
     current = candidates_by_uid.get(actual_captain_uid) if actual_captain_uid else None
     current_ep = _ep(current) if current else None
     matches_current = actual_captain_uid is not None and actual_captain_uid == recommended_uid

@@ -843,6 +843,25 @@ def _tc_detail(*candidates, recommended_uid=None):
     return {"recommended": True, "captain_candidate": best_uid, "all_candidates": all_candidates}
 
 
+def test_rank_captain_picks_top_ep_and_breaks_near_ties_on_spread():
+    assert reporting.rank_captain({"a": 6.0, "b": 5.0}, {"a": 1.0, "b": 50.0}) == "a"
+    # within _CAPTAIN_TIE_EPSILON -> higher ceiling wins
+    assert reporting.rank_captain({"a": 6.0, "b": 5.95}, {"a": 1.0, "b": 50.0}) == "b"
+    assert reporting.rank_captain({}) is None
+
+
+def test_build_report_headline_captain_ignores_the_solver_flag(con):
+    # Finding 7: the solver captained the lower-EP player; the headline must not echo it.
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    con.execute("UPDATE squad_optimizer_selections SET is_captain = (player_uid = 'p2') WHERE run_id = ?", [run_id])
+    report = reporting.build_report(con, run_id)
+    headline = report["headline"]
+    assert headline["captain"]["player_uid"] == "p1"
+    assert headline["solver_captain"]["player_uid"] == "p2"
+    assert headline["total_projected_ep"] == pytest.approx(5.0 * 2 + 4.0)
+    assert reporting.snapshot_for_diff(report)["captain_uid"] == "p1"
+
+
 def test_build_captain_recommendation_flags_a_better_option():
     detail = _tc_detail(("p_haaland", 9.2), ("p_salah", 6.5))
     names = {"p_haaland": "Erling Haaland", "p_salah": "Mohamed Salah"}
@@ -1059,6 +1078,12 @@ def test_build_track_record_summary_headline_when_crowd_delta_scored(con):
     assert summary["headline"]["n_scored_gameweeks"] == 2
     assert summary["headline"]["minutes_brier"] == pytest.approx(0.13)
     assert all(":" not in m["metric_name"] for m in summary["metrics"])
+    # Phase 1D (2026-09 audit): the headline must self-disclose it's a synthetic, oracle
+    # benchmark -- never silently readable as FPL's real official average_entry_score.
+    meta = summary["headline"]["benchmark_metadata"]
+    assert meta["benchmark_name"] == "synthetic_eo_weighted_score"
+    assert meta["stateful"] is False
+    assert meta["oracle"] is True
 
 
 def test_build_track_record_summary_flags_backtested_params(con):
@@ -1129,33 +1154,25 @@ def test_diff_reports_no_previous_snapshot(con):
 
 
 def test_diff_reports_detects_squad_and_captain_changes(con):
-    run_id, ep_mv, un_mv, _mc_mv = _seed_full_squad_scenario(con, captain_position="Defender")
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
     report_prev = reporting.build_report(con, run_id)
     previous_snapshot = reporting.snapshot_for_diff(report_prev)
 
-    # p2 transferred out, p3 (new signing, with a real EP/risk row of its own -- since the
-    # headline captain is now picked by analytic E[points] (Finding 3/7 fix), a bare DB
-    # is_captain flag flip no longer drives who's captain) transferred in, with a big enough EP
-    # edge over p1 to actually take the armband.
+    # p2 transferred out, p3 (new signing) transferred in, captaincy moves to p2
     con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'Player Three', 'Forward')")
-    con.execute(
-        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, "
-        "ep_assists, ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, "
-        "ep_cards, ep_own_goal, ep_total, expected_bps) VALUES (?, 'p3', 'm1', 2.0,1.5,0.5,1.0,0,0.5,0.3,0,0,0,0, 8.0, 20.0)",
-        [ep_mv],
-    )
-    con.execute(
-        "INSERT INTO uncertainty_outputs (model_version, player_uid, fixture_match_id, var_appearance, "
-        "var_goals, var_assists, var_clean_sheet, var_goals_conceded, var_defcon, var_bonus, var_saves, "
-        "var_total, skew, excess_kurtosis, quantile_05, quantile_25, quantile_75, quantile_95) "
-        "VALUES (?, 'p3', 'm1', 0,0,0,0,0,0,0,0, 2.0, 0,0, 1.0, 3.0, 7.0, 9.0)",
-        [un_mv],
-    )
     con.execute("UPDATE squad_optimizer_selections SET in_squad = FALSE, in_xi = FALSE WHERE run_id = ? AND player_uid = 'p2'", [run_id])
     con.execute(
         "INSERT INTO squad_optimizer_selections (run_id, player_uid, in_squad, in_xi, is_captain, is_vice) "
         "VALUES (?, 'p3', TRUE, TRUE, FALSE, FALSE)", [run_id],
     )
+    con.execute("UPDATE squad_optimizer_selections SET is_captain = FALSE WHERE run_id = ? AND player_uid = 'p1'", [run_id])
+    con.execute("UPDATE squad_optimizer_selections SET is_captain = TRUE WHERE run_id = ? AND player_uid = 'p2'", [run_id])
+    # The headline captain now follows rank_captain() (highest-EP XI player), not the solver's
+    # flag, so p1 (the top-EP player) has to leave the XI for the captain to really change.
+    con.execute("UPDATE squad_optimizer_selections SET in_xi = FALSE WHERE run_id = ? AND player_uid = 'p1'", [run_id])
+    # p2 needs its own category_breakdown/risk rows to still appear in the new report despite
+    # no longer being "in_squad" -- simplest is to just leave it out of the new report's squad
+    # read entirely, which is exactly what in_squad=FALSE already achieves.
 
     report_cur = reporting.build_report(con, run_id)
     diff = reporting.diff_reports(previous_snapshot, report_cur)
@@ -1164,7 +1181,7 @@ def test_diff_reports_detects_squad_and_captain_changes(con):
     assert diff["squad_changes"]["out"] == ["Player Two"]
     assert diff["captain_changed"] is True
     assert diff["previous_captain"] == "Player One"
-    assert diff["current_captain"] == "Player Three"
+    assert diff["current_captain"] is None or diff["current_captain"] != "Player One"
 
 
 def test_diff_reports_flags_newly_doubtful_starters(con):

@@ -4,7 +4,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from run_report import _resolve_report_run_id, _would_regress_track_record  # noqa: E402
+from run_report import (  # noqa: E402
+    _merge_track_record_onto_committed, _resolve_report_run_id, _would_regress_track_record,
+)
 
 
 def _seed_model_versions(con):
@@ -75,3 +77,88 @@ def test_no_regression_guard_needed_when_existing_file_also_has_no_backtest():
     new = {"backtest_run_id": None, "n_gameweek_steps": None}
     existing = {"backtest_run_id": None, "n_gameweek_steps": None}
     assert _would_regress_track_record(new, existing) is False
+
+
+# ============================================================
+# _merge_track_record_onto_committed: regression tests for the 2026-09 headline-suppression bug
+# (real top-level backtest_run_id/headline committed correctly, but transparency_log.backtest --
+# the ONLY thing track-record.html actually reads -- silently stuck at a null headline forever,
+# because export_track_record.py never wrote transparency_log at all).
+# ============================================================
+
+def _fresh_backtest_less_track_record(transparency_log_backtest=None):
+    return {
+        "backtest_run_id": None, "n_gameweek_steps": None, "headline": None,
+        "planner_decision_accuracy": {"followed": 3, "total": 5},
+        "generated_at": "2026-09-16T00:00:00",
+        "transparency_log": {
+            "backtest": transparency_log_backtest or {
+                "n_gameweek_steps": None, "seasons_covered": [], "headline": None,
+                "metrics": [], "parameters_total": None, "parameters_backtested": None,
+            },
+            "snapshots": [{"season": "2026-2027", "gameweek": 5}],
+            "latest_diff": {"some": "diff"},
+            "provenance": {"git_sha": "abc123"},
+        },
+    }
+
+
+def test_merge_preserves_a_correctly_populated_committed_transparency_log():
+    fresh = _fresh_backtest_less_track_record()
+    existing = {
+        "backtest_run_id": 1, "n_gameweek_steps": 71,
+        "headline": {"beats_avg_manager_by_points_per_gw": -0.88},
+        "transparency_log": {
+            "backtest": {
+                "n_gameweek_steps": 71, "seasons_covered": ["2024-2025", "2025-2026"],
+                "headline": {"beats_avg_manager_by_points_per_gw": -0.88},
+                "metrics": [{"metric_name": "x", "mean_value": 1.0, "n_observations": 71}],
+                "parameters_total": 62, "parameters_backtested": 8,
+            },
+        },
+    }
+    merged = _merge_track_record_onto_committed(fresh, existing)
+    assert merged["transparency_log"]["backtest"]["headline"] == {"beats_avg_manager_by_points_per_gw": -0.88}
+    assert merged["transparency_log"]["backtest"]["n_gameweek_steps"] == 71
+    # daily-cadence halves still refresh from the fresh run
+    assert merged["planner_decision_accuracy"] == {"followed": 3, "total": 5}
+    assert merged["transparency_log"]["snapshots"] == fresh["transparency_log"]["snapshots"]
+    assert merged["backtest_run_id"] == 1  # top-level committed data preserved
+
+
+def test_merge_self_heals_a_corrupted_transparency_log_with_a_null_headline():
+    # The exact real bug: top-level headline/backtest_run_id are real (export_track_record.py
+    # DID write those), but transparency_log.backtest was never populated by that script, so a
+    # committed file could look exactly like this -- a truthy dict whose headline is None.
+    fresh = _fresh_backtest_less_track_record()
+    existing = {
+        "backtest_run_id": 1, "n_gameweek_steps": 71,
+        "headline": {"beats_avg_manager_by_points_per_gw": -0.88},
+        "metrics": [{"metric_name": "x", "mean_value": 1.0, "n_observations": 71}],
+        "seasons_covered": ["2024-2025", "2025-2026"],
+        "parameters_total": 62, "parameters_backtested": 8,
+        "transparency_log": {
+            "backtest": {
+                "n_gameweek_steps": None, "seasons_covered": [], "headline": None,
+                "metrics": [], "parameters_total": None, "parameters_backtested": None,
+            },
+        },
+    }
+    merged = _merge_track_record_onto_committed(fresh, existing)
+    assert merged["transparency_log"]["backtest"]["headline"] == {"beats_avg_manager_by_points_per_gw": -0.88}, (
+        "the real committed headline must be recoverable from existing_track_record's own "
+        "top-level fields even when transparency_log.backtest was never correctly populated -- "
+        "this is the exact bug that silenced track-record.html's oracle headline in every "
+        "commit of app_track_record.json until this fix"
+    )
+    assert merged["transparency_log"]["backtest"]["n_gameweek_steps"] == 71
+
+
+def test_merge_stays_honestly_none_when_nothing_real_was_ever_committed():
+    fresh = _fresh_backtest_less_track_record()
+    existing = {
+        "backtest_run_id": None, "n_gameweek_steps": None, "headline": None,
+        "transparency_log": {"backtest": {"n_gameweek_steps": None, "headline": None}},
+    }
+    merged = _merge_track_record_onto_committed(fresh, existing)
+    assert merged["transparency_log"]["backtest"]["headline"] is None

@@ -13,6 +13,9 @@ data/external/
 # ...and the raw Perplexity answers it was built from (provenance -- small markdown)
 !data/external/evidence_pull_sources/
 !data/external/evidence_pull_sources/**
+# ...and the weekly expert-consensus research files (scripts/ingest_expert_consensus.py)
+!data/external/expert_consensus/
+!data/external/expert_consensus/**
 .pytest_cache/
 .mypy_cache/
 *.egg-info/
@@ -31,3 +34,7 @@ data/lambda_study/arms/
 # kept out of git anyway per the plan's "no entry_id, no persistence beyond the fetch step
 # guarantee" spirit -- regenerable via scripts/run_retrospective_sample.py)
 data/retrospective/
+
+# Cloudflare build output and local wrangler state
+public/
+.wrangler/

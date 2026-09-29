@@ -57,19 +57,32 @@
   .wrap{max-width:780px;margin:0 auto;padding:0 18px 90px;position:relative;z-index:2;}
 
   /* Top bar */
-  .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 0 0;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 0 0;position:relative;}
   .brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--on-dark);}
-  .brand .mark{width:34px;height:34px;flex-shrink:0;}
+  .brand .mark-wrap{position:relative;width:34px;height:34px;flex-shrink:0;}
+  .brand .mark{width:34px;height:34px;flex-shrink:0;display:block;}
+  .brand .mark-wrap canvas{position:absolute;inset:0;width:100%;height:100%;border-radius:11px;}
   .brand .name{font-family:"Anton",sans-serif;font-size:22px;letter-spacing:0.02em;line-height:1;}
   .topbar .top-links{display:flex;gap:8px;}
   .topbar .top-links a{font-size:12.5px;font-weight:600;color:var(--on-dark);text-decoration:none;background:oklch(0.2 0.05 152 / 0.5);padding:8px 13px;border-radius:999px;}
   .topbar .top-links a:hover{background:oklch(0.2 0.05 152 / 0.85);}
 
   /* Hero */
-  .hero{padding:40px 0 26px;color:var(--on-dark);}
+  .hero{padding:40px 0 26px;color:var(--on-dark);position:relative;overflow:hidden;}
+  .hero-bg{position:absolute;inset:-10%;z-index:0;pointer-events:none;}
+  /* Keeps body text readable over the animated gradient without hiding it */
+  .hero-scrim{position:absolute;inset:0;z-index:0;pointer-events:none;background:linear-gradient(180deg, oklch(0.15 0.03 152 / 0.25), oklch(0.15 0.03 152 / 0.6));}
+  .hero-content{position:relative;z-index:1;}
+  .hero .eyebrow-wrap{position:relative;display:inline-block;}
+  /* Decorative glass panel behind the eyebrow badge, over the shader gradient -- never intercepts clicks/keyboard */
+  .hero .eyebrow-glass{position:absolute;inset:-8px -14px;z-index:-1;pointer-events:none;border-radius:999px;overflow:hidden;}
   .hero .eyebrow{font-size:12px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--on-dark-dim);margin-bottom:10px;}
   .hero h1{font-family:"Anton",sans-serif;font-weight:400;font-size:clamp(34px,9.2vw,56px);line-height:0.98;margin:0 0 14px;letter-spacing:0.01em;}
   .hero p.lede{font-size:16px;line-height:1.55;color:var(--on-dark-dim);max-width:58ch;margin:0 0 22px;}
+  /* prefers-reduced-motion / no-WebGL fallback: keep the existing body gradient, no extra work needed */
+  @media (prefers-reduced-motion: reduce){
+    .hero-bg{display:none;}
+  }
 
   /* CTAs */
   .cta-row{display:flex;flex-wrap:wrap;gap:10px;}
@@ -128,11 +141,13 @@
 <div class="wrap">
   <div class="topbar">
     <a class="brand" href="index.html" aria-label="FPL Quant home">
-      <svg class="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-        <rect x="1.5" y="1.5" width="37" height="37" rx="11" fill="oklch(0.38 0.12 150)"/>
-        <path d="M9 27 L16 20 L21 24 L31 13" stroke="oklch(0.98 0.005 90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        <circle cx="31" cy="13" r="3.2" fill="oklch(0.94 0.1 85)"/>
-      </svg>
+      <span class="mark-wrap" id="brand-mark">
+        <svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+          <rect x="1.5" y="1.5" width="37" height="37" rx="11" fill="oklch(0.38 0.12 150)"/>
+          <path d="M9 27 L16 20 L21 24 L31 13" stroke="oklch(0.98 0.005 90)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <circle cx="31" cy="13" r="3.2" fill="oklch(0.94 0.1 85)"/>
+        </svg>
+      </span>
       <span class="name">FPL&nbsp;Quant</span>
     </a>
     <div class="top-links">
@@ -142,12 +157,19 @@
   </div>
 
   <header class="hero">
-    <div class="eyebrow">Fantasy Premier League · Decision support</div>
-    <h1>Weekly FPL decisions,<br>backed by model evidence.</h1>
-    <p class="lede">FPL Quant reads your real Fantasy Premier League squad and turns it into clear transfer, captain and chip calls each gameweek &mdash; with a dated audit trail and data provenance behind every recommendation. No invented accuracy scores.</p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="index.html">Open the app <span class="arrow">&rsaquo;</span></a>
-      <a class="btn btn-ghost" href="track-record.html">View model track record</a>
+    <div class="hero-bg" id="hero-shader-bg" aria-hidden="true"></div>
+    <div class="hero-scrim" aria-hidden="true"></div>
+    <div class="hero-content">
+      <div class="eyebrow-wrap">
+        <div class="eyebrow-glass" id="hero-glass" aria-hidden="true"></div>
+        <div class="eyebrow">Fantasy Premier League · Decision support</div>
+      </div>
+      <h1>Weekly FPL decisions,<br>backed by model evidence.</h1>
+      <p class="lede">FPL Quant reads your real Fantasy Premier League squad and turns it into clear transfer, captain and chip calls each gameweek &mdash; with a dated audit trail and data provenance behind every recommendation. No invented accuracy scores.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="index.html">Open the app <span class="arrow">&rsaquo;</span></a>
+        <a class="btn btn-ghost" href="track-record.html">View model track record</a>
+      </div>
     </div>
   </header>
 
@@ -236,19 +258,165 @@
   </div>
 
   <footer class="footer">
-    FPL Quant is an open, free project &mdash; the model code, data pipeline, and this page are all on
-    <a href="https://github.com/AhmadRehman1/FPL-Analyser">GitHub</a>. Data is fetched live from
-    the same source as the app (<code>raw.githubusercontent.com/AhmadRehman1/FPL-Analyser/master</code>).
-    Analytics: off by default. If ever enabled, it will be a self-hosted, cookie-less,
-    privacy-first service (no personal data, no cross-site tracking) &mdash; see
-    <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">docs/BUSINESS_PLAN.md &sect;2.6</a>.
+    FPL Quant is a free project. Data refreshes automatically before every real gameweek
+    deadline. Analytics: off by default. If ever enabled, it will be a self-hosted, cookie-less,
+    privacy-first service (no personal data, no cross-site tracking).
     <div class="frow">
-      <a href="https://github.com/AhmadRehman1/FPL-Analyser">Source code</a>
-      <a href="https://github.com/AhmadRehman1/FPL-Analyser/blob/master/docs/BUSINESS_PLAN.md">Roadmap &amp; business plan</a>
       <a href="track-record.html">Model track record</a>
       <a href="index.html">Open the app</a>
     </div>
   </footer>
 </div>
+<script type="module">
+// Loads the hero shader gradient, liquid-metal logo and liquid-glass badge from
+// assets/effects/ (built from web/effects/, see that folder for source). Each is
+// lazy-loaded on scroll-near-viewport and torn down off-screen; all three are
+// skipped outright under prefers-reduced-motion or when WebGL is unavailable --
+// the page already looks right without them (CSS gradient, plain SVG logo, plain pill).
+(function () {
+  var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduceMotion) return;
+
+  function hasWebGL() {
+    try {
+      var c = document.createElement('canvas');
+      return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch (e) {
+      return false;
+    }
+  }
+  if (!hasWebGL()) return;
+
+  var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  var modules = {};
+  function loadModule(path) {
+    if (!modules[path]) modules[path] = import(path);
+    return modules[path];
+  }
+
+  function observe(el, onEnter, onExit) {
+    if (!el) return;
+    var instance = null;
+    var io = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting && !instance) {
+            Promise.resolve(onEnter()).then(function (result) {
+              instance = result || true;
+            });
+          } else if (!entry.isIntersecting && instance) {
+            if (typeof onExit === 'function') onExit(instance);
+            instance = null;
+          }
+        });
+      },
+      { rootMargin: '200px 0px' }
+    );
+    io.observe(el);
+  }
+
+  // Hero background (ShaderGradient via react-three-fiber)
+  var heroBg = document.getElementById('hero-shader-bg');
+  var heroGlass = document.getElementById('hero-glass');
+  var heroBgMount = null;
+  observe(
+    heroBg,
+    function () {
+      return loadModule('./assets/effects/shader-gradient-bg.js').then(function (mod) {
+        heroBgMount = mod.mount(heroBg, { pixelDensity: dpr });
+        // Liquid glass clones this element's current pixels -- mount it once
+        // the gradient canvas exists, then keep it fresh as the gradient animates.
+        mountHeroGlass();
+        return heroBgMount;
+      });
+    },
+    function (mount) {
+      if (mount && mount.destroy) mount.destroy();
+      heroBgMount = null;
+      destroyHeroGlass();
+    }
+  );
+
+  // Liquid glass badge over the hero gradient. liquid-glass-js positions itself
+  // with `position:fixed` in viewport coordinates (it's a draggable-lens library),
+  // so we pin it to the eyebrow badge's screen rect and re-pin on scroll/resize.
+  var glassInstance = null;
+  var glassRefreshTimer = null;
+  var glassTrackHandler = null;
+  function trackGlassPosition() {
+    if (!glassInstance || !heroGlass) return;
+    var rect = heroGlass.getBoundingClientRect();
+    glassInstance.moveTo(rect.left, rect.top);
+  }
+  function mountHeroGlass() {
+    if (!heroGlass || !heroBg || glassInstance) return;
+    loadModule('./assets/effects/liquid-glass.js').then(function (mod) {
+      if (!heroBg || glassInstance) return;
+      var LiquidGlass = mod.default;
+      var rect = heroGlass.getBoundingClientRect();
+      glassInstance = new LiquidGlass({
+        background: heroBg,
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+        radius: 999,
+        draggable: false,
+        scale: 24,
+        chroma: 0.08,
+        tint: 0,
+        x: rect.left,
+        y: rect.top,
+      });
+      // Decorative and non-draggable -- never intercept clicks/keyboard focus.
+      if (glassInstance.glassEl) glassInstance.glassEl.style.pointerEvents = 'none';
+      glassTrackHandler = trackGlassPosition;
+      window.addEventListener('scroll', glassTrackHandler, { passive: true });
+      window.addEventListener('resize', glassTrackHandler);
+      // The shader gradient keeps animating; periodically re-clone so the glass
+      // reflects current pixels instead of a stale first frame.
+      glassRefreshTimer = window.setInterval(function () {
+        if (glassInstance) glassInstance.refresh();
+      }, 4000);
+    });
+  }
+  function destroyHeroGlass() {
+    if (glassRefreshTimer) {
+      window.clearInterval(glassRefreshTimer);
+      glassRefreshTimer = null;
+    }
+    if (glassTrackHandler) {
+      window.removeEventListener('scroll', glassTrackHandler);
+      window.removeEventListener('resize', glassTrackHandler);
+      glassTrackHandler = null;
+    }
+    if (glassInstance) {
+      glassInstance.destroy();
+      glassInstance = null;
+    }
+  }
+
+  // Liquid logo mark in the header
+  var brandMark = document.getElementById('brand-mark');
+  observe(
+    brandMark,
+    function () {
+      var svg = brandMark.querySelector('svg.mark');
+      if (!svg) return null;
+      var svgData = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg.outerHTML)));
+      return loadModule('./assets/effects/liquid-logo.js').then(function (mod) {
+        return mod.mount(brandMark, {
+          image: svgData,
+          minPixelRatio: 1,
+          maxPixelCount: 400 * 400,
+        });
+      });
+    },
+    function (mount) {
+      if (mount && mount.destroy) mount.destroy();
+      var canvas = brandMark.querySelector('canvas');
+      if (canvas) canvas.remove();
+    }
+  );
+})();
+</script>
 </body>
 </html>

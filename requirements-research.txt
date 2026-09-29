@@ -13,7 +13,7 @@
 # Exact pins (not >=), matching requirements.lock's rationale: research/ml/'s own leakage
 # tests and walk-forward folds should be reproducible run to run, same as the production
 # pipeline's determinism concern.
-scikit-learn==1.9.0
+scikit-learn==1.9.1
 lightgbm==4.7.0
 # R13: XGBoost, an independent implementation of gradient-boosted trees added specifically as a
 # cross-check on the quant_lightgbm result (residual_model.py's XGBoostResidualModel docstring)

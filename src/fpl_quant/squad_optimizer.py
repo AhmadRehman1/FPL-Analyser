@@ -97,6 +97,10 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # constant in this project, flagged for M7 recalibration once real backtest evidence exists
     # for how much objective value a real differential swing is actually worth.
     params_mod.write_param(con, "captain_differential_params", 1, "2026-08-10", "tiebreak_epsilon", value_numeric=0.05)
+    # How much of the captain's doubled-score variance the risk term charges. v1 = 1.0 is the
+    # pre-existing behavior (full Var(2X) algebra, i.e. a 3x extra variance weight). Placeholder,
+    # not fitted -- see docs/reports/2026-10_model_status_refresh.md (Finding 3).
+    params_mod.write_param(con, "captain_risk_params", 1, "2026-09-29", "captain_variance_multiplier", value_numeric=1.0)
 
     # Priority 1 -- ownership/EO. captaincy_concentration is an invented v1 default (same
     # invented-default status as every other unpinned constant in this project): how sharply
@@ -309,6 +313,7 @@ def solve(
     p_start_by_uid: dict[str, float | None] | None = None,
     min_bench_p_start_probability: float | None = None,
     concentration_kappa: float = 0.0,
+    captain_variance_multiplier: float = 1.0,
 ) -> dict:
     """Every keyword-only argument here defaults to an exact no-op (None / 0.0) -- an
     existing caller that only ever passes the original four positional arguments gets
@@ -430,11 +435,15 @@ def solve(
         # Binary algebra (captain_i <= xi_i, at most one captain): w_i^2 = xi_i + 3*captain_i,
         # and for i != j, w_i*w_j = xi_i*xi_j + xi_i*captain_j + captain_i*xi_j (captain_i*
         # captain_j is 0 for i != j since exactly one captain is chosen).
+        # captain_variance_multiplier scales the captain's EXTRA risk (the 3*var and the captain
+        # cross terms): 1.0 is the exact algebra above, 0.0 prices the captain's risk like any
+        # other XI player so the armband goes on expected points (Finding 3).
+        m_cap = captain_variance_multiplier
         risk_expr = scip.quicksum(
-            (xi[c["player_uid"]] + 3 * captain[c["player_uid"]]) * c["var"] for c in candidates
+            (xi[c["player_uid"]] + 3 * m_cap * captain[c["player_uid"]]) * c["var"] for c in candidates
         )
         for (a, b), cov in sigma_pairs.items():
-            risk_expr += 2 * cov * (xi[a] * xi[b] + xi[a] * captain[b] + captain[a] * xi[b])
+            risk_expr += 2 * cov * (xi[a] * xi[b] + m_cap * (xi[a] * captain[b] + captain[a] * xi[b]))
         t = m.addVar(vtype="C", lb=0, name="risk")
         m.addCons(t >= risk_expr)
         objective_expr = linear_ep - lam * t
@@ -578,6 +587,7 @@ def run(
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
     horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
+    captain_risk_params_version: int | None = None,
 ) -> int:
     """The five *_params_version arguments are all independently optional and all default to
     an exact no-op (matching solve()'s own default-off convention) -- an existing caller
@@ -667,11 +677,19 @@ def run(
     if concentration_risk_params_version is not None:
         concentration_kappa, _ = params_mod.resolve_param(con, "concentration_risk_params", "kappa", concentration_risk_params_version)
 
+    # None keeps the old full captain variance weight.
+    captain_variance_multiplier = 1.0
+    if captain_risk_params_version is not None:
+        captain_variance_multiplier, _ = params_mod.resolve_param(
+            con, "captain_risk_params", "captain_variance_multiplier", captain_risk_params_version
+        )
+
     solve_kwargs = dict(
         eo_by_uid=eo_by_uid, posture=posture, eo_weight_kappa=eo_weight_kappa,
         field_cov_by_uid=field_cov_by_uid, field_cov_kappa=field_cov_kappa,
         p_start_by_uid=p_start_by_uid, min_bench_p_start_probability=min_bench_p_start_probability,
         concentration_kappa=concentration_kappa,
+        captain_variance_multiplier=captain_variance_multiplier,
     )
 
     # REQUIRED FIRST, before anything else from this optimizer is trusted: solve the same
@@ -897,8 +915,16 @@ def _captain_objective_component(
     closed-form, not a re-solve, since with the XI already fixed only one binary choice (which
     of the 11 is captain) remains free, and solve()'s own w_i=xi_i+captain_i risk weighting
     (see its own docstring) reduces to a simple sum over 11 candidates rather than a new MIQP.
+
+    linear_ep sums over `xi_uids` explicitly (not `mu_by_uid.values()`) so this stays correct
+    even when the caller passes a mu_by_uid covering more than the XI (e.g. a full candidate
+    pool) -- the risk term already did this via its own `for uid in xi_uids` loop; the linear
+    term silently didn't, a real inconsistency the 2026-09 captain-objective audit's regression
+    test caught (tests/test_captain_objective_diagnostics.py) before it ever produced a wrong
+    number for the one caller that mattered (captain_choice_with_differential, which happens to
+    always pass an already-XI-scoped dict).
     """
-    linear_ep = sum(mu_by_uid.values()) + mu_by_uid[captain_uid]
+    linear_ep = sum(mu_by_uid[uid] for uid in xi_uids) + mu_by_uid[captain_uid]
     if lam <= 0:
         return linear_ep
     risk = sum((1 + (3 if uid == captain_uid else 0)) * var_by_uid[uid] for uid in xi_uids)
