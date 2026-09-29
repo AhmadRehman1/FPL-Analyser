@@ -190,4 +190,5 @@ def test_ruled_out_flag_keeps_the_floor_with_minutes_bounds(con):
     mv = mm.run(con, date(2026, 8, 10), "2026-2027", decay_params_version=1, adjustment_params_version=1,
                 shrinkage_params_version=1, fact_multiplier_params_version=1, minutes_bounds_params_version=1)
     p0, p1, p60 = _probs(con, mv)
-    assert abs(p0 - 0.96) < 1e-9 and abs(p1 - 0.02) < 1e-9 and abs(p60 - 0.02) < 1e-9
+    f = mm.PLACEHOLDER_MINUTES_P_FLOOR
+    assert abs(p0 - (1 - 2 * f)) < 1e-9 and abs(p1 - f) < 1e-9 and abs(p60 - f) < 1e-9

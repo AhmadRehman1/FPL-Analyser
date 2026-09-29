@@ -600,8 +600,9 @@ def role_change_evidence_flags(
 # ============================================================
 
 # Placeholder, not fitted (Finding 4): the smallest probability any minutes state can get. A hard
-# 0 or 1 (e.g. a "ruled out" flag that turns out wrong) is unrecoverable under log score.
-PLACEHOLDER_MINUTES_P_FLOOR = 0.02
+# 0 or 1 (e.g. a "ruled out" flag that turns out wrong) is unrecoverable under log score. 0.005
+# from a 2-value walk-forward: 0.02 cost 0.5 squad pts/GW, 0.005 kept the points.
+PLACEHOLDER_MINUTES_P_FLOOR = 0.005
 
 
 def seed_minutes_bounds_params(con: duckdb.DuckDBPyConnection) -> None:
