@@ -11,7 +11,18 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="FPL Quant">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#2b5230">
+<meta name="theme-color" content="#0f2a1d">
+<script>
+// Theme before first paint (dark by default, "light" opt-in from Profile -> Appearance).
+(function () {
+  try {
+    if (localStorage.getItem("fq_theme") === "light") {
+      document.documentElement.setAttribute("data-theme", "light");
+      document.querySelector('meta[name="theme-color"]').setAttribute("content", "#2b5230");
+    }
+  } catch (e) {}
+})();
+</script>
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/icon-192.png">
 
@@ -52,9 +63,17 @@
     --gold-ink: oklch(0.36 0.13 60);
     --red: oklch(0.52 0.19 25);
     --amber: oklch(0.75 0.14 75);
-    --fdr-easy: oklch(0.72 0.16 145);
+    --fdr-1: oklch(0.52 0.14 158);
+    --fdr-2: oklch(0.74 0.15 148);
+    --fdr-3: oklch(0.86 0.05 95);
+    --fdr-4: oklch(0.72 0.15 45);
+    --fdr-5: oklch(0.54 0.19 22);
+    --fdr-none: oklch(0.6 0.01 90 / 0.35);
+    --fdr-ink-dark: oklch(0.2 0.02 150);
+    --fdr-ink-light: oklch(0.98 0.01 100);
+    --fdr-easy: var(--fdr-2);
     --fdr-mid: oklch(0.8 0.14 85);
-    --fdr-hard: oklch(0.6 0.2 25);
+    --fdr-hard: var(--fdr-5);
     --divider: oklch(0.92 0.005 90);
     --tabbar-bg: oklch(0.2 0.05 152 / 0.94);
     --live: oklch(0.94 0.18 130);
@@ -106,6 +125,59 @@
     --text-faint: var(--ink-dim2);
     --text-inverse: var(--on-dark);
     --text-inverse-muted: var(--on-dark-dim);
+  }
+  /* Dark theme is the default: raised green-black cards on a deep pitch-green shell.
+     The original light-card look is kept as data-theme="light" (Profile -> Appearance). */
+  :root{
+    color-scheme: dark;
+    --bg-deep: oklch(0.2 0.04 158);
+    --card: oklch(0.255 0.028 160);
+    --card-2: oklch(0.305 0.03 160);
+    --ink: oklch(0.96 0.008 100);
+    --ink-dim: oklch(0.78 0.02 150);
+    --ink-dim2: oklch(0.7 0.022 150);
+    --green: oklch(0.5 0.13 152);
+    --green-text: oklch(0.82 0.15 150);
+    --divider: oklch(1 0 0 / 0.08);
+    --border: oklch(1 0 0 / 0.16);
+    --raised-surface: oklch(0.34 0.03 160);
+    --subtle-surface: oklch(0.23 0.035 158);
+    --tabbar-bg: oklch(0.17 0.035 158 / 0.92);
+    --shadow-card: 0 1px 0 oklch(1 0 0 / 0.06) inset, 0 0 0 1px oklch(1 0 0 / 0.05), 0 14px 34px oklch(0.06 0.03 160 / 0.5);
+    --shadow-card-strong: 0 1px 0 oklch(1 0 0 / 0.08) inset, 0 0 0 1px oklch(1 0 0 / 0.07), 0 22px 48px oklch(0.05 0.03 160 / 0.6);
+    --on-light-ink: oklch(0.24 0.03 150);
+    --pos-text: oklch(0.82 0.15 150);
+    --neg-text: oklch(0.74 0.17 25);
+    --gold-text: oklch(0.86 0.13 85);
+    --chip-v: oklch(0.9 0.1 80);
+    --skel-a: oklch(0.29 0.028 160);
+    --skel-b: oklch(0.34 0.03 160);
+    --team-card-bg: linear-gradient(160deg, oklch(0.34 0.07 152), oklch(0.27 0.04 156) 70%);
+  }
+  :root[data-theme="light"]{
+    color-scheme: light;
+    --bg-deep: oklch(0.29 0.065 152);
+    --card: oklch(0.985 0.004 90);
+    --card-2: oklch(0.955 0.006 90);
+    --ink: oklch(0.2 0.01 90);
+    --ink-dim: oklch(0.5 0.01 90);
+    --ink-dim2: oklch(0.55 0.01 90);
+    --green: oklch(0.38 0.12 150);
+    --green-text: oklch(0.38 0.12 150);
+    --divider: oklch(0.92 0.005 90);
+    --border: oklch(0.85 0.01 90);
+    --raised-surface: oklch(1 0 0);
+    --subtle-surface: oklch(0.26 0.06 152);
+    --tabbar-bg: oklch(0.2 0.05 152 / 0.94);
+    --shadow-card: 0 1px 0 oklch(1 0 0/0.6) inset, 0 14px 34px oklch(0.14 0.05 150/0.4);
+    --shadow-card-strong: 0 1px 0 oklch(1 0 0/0.7) inset, 0 22px 48px oklch(0.12 0.06 150/0.5);
+    --pos-text: oklch(0.38 0.12 150);
+    --neg-text: var(--red);
+    --gold-text: var(--gold-ink);
+    --chip-v: oklch(0.34 0.09 40);
+    --skel-a: oklch(0.93 0.005 90);
+    --skel-b: oklch(0.97 0.004 90);
+    --team-card-bg: linear-gradient(160deg,oklch(0.93 0.03 150),oklch(0.9 0.03 150) 70%);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html, body{margin:0;background:var(--bg-deep);color:var(--ink);font-family:"Barlow",sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
@@ -160,7 +232,7 @@
   .fresh-badge.is-fresh::before{background:var(--fdr-easy);}
   .fresh-badge.is-stale{color:var(--amber);}
   .fresh-badge.is-stale::before{background:var(--amber);}
-  .fresh-badge.is-failed{color:var(--red);}
+  .fresh-badge.is-failed{color:var(--neg-text);}
   .fresh-badge.is-failed::before{background:var(--red);}
   .ts .fresh-badge{color:var(--on-dark-dim);}
   .ts .fresh-badge.is-stale{color:var(--fdr-mid);}
@@ -236,7 +308,7 @@
   .empty-state{text-align:center;color:var(--on-dark-dim);font-size:12.5px;padding:20px 10px;}
 
   /* ---- skeleton / loading ---- */
-  .skel{background:linear-gradient(100deg, oklch(0.93 0.005 90) 35%, oklch(0.97 0.004 90) 50%, oklch(0.93 0.005 90) 65%);background-size:200% 100%;animation:shimmer 1.6s ease-in-out infinite;border-radius:8px;}
+  .skel{background:linear-gradient(100deg, var(--skel-a) 35%, var(--skel-b) 50%, var(--skel-a) 65%);background-size:200% 100%;animation:shimmer 1.6s ease-in-out infinite;border-radius:8px;}
   @keyframes shimmer{to{background-position:-200% 0;}}
   .skel-line{height:13px;margin-bottom:10px;}
   .skel-block{height:80px;border-radius:16px;margin-bottom:12px;}
@@ -246,11 +318,11 @@
   .stat-tile{flex:1;background:var(--card-2);border-radius:14px;padding:10px 10px;display:flex;flex-direction:column;gap:2px;}
   .stat-tile .k{font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-dim2);font-weight:700;}
   .stat-tile .v{font-family:"Anton",sans-serif;font-size:16px;color:var(--ink);}
-  .stat-tile .v.g{color:var(--green);}
+  .stat-tile .v.g{color:var(--green-text);}
 
   /* ---- verdict banner ---- */
-  .verdict{background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));border-radius:13px;padding:13px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
-  .verdict.transfer-now{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));}
+  .verdict{background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));border-radius:13px;padding:13px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;color:var(--on-light-ink);}
+  .verdict.transfer-now{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));color:var(--on-light-ink);}
   .verdict .action{font-family:"Anton",sans-serif;font-size:15px;color:oklch(0.3 0.1 150);min-width:0;}
   .verdict.transfer-now .action{color:oklch(0.32 0.1 250);}
   .verdict .nums{font-size:10.5px;color:oklch(0.4 0.05 150);font-weight:600;text-align:right;line-height:1.35;flex-shrink:0;white-space:nowrap;}
@@ -261,9 +333,9 @@
   .rec:first-of-type{border-top:none;padding-top:0;}
   .rec .move{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;flex:1;}
   .club-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 2px oklch(1 0 0/0.6);display:inline-block;}
-  .rec .out{color:var(--red);font-weight:700;text-decoration:line-through;text-decoration-color:oklch(0.52 0.19 25/0.4);}
-  .rec .in{color:oklch(0.38 0.12 150);font-weight:700;}
-  .rec .net{font-family:"Anton",sans-serif;font-size:15px;color:oklch(0.38 0.12 150);flex-shrink:0;white-space:nowrap;}
+  .rec .out{color:var(--neg-text);font-weight:700;text-decoration:line-through;text-decoration-color:oklch(0.52 0.19 25/0.4);}
+  .rec .in{color:var(--pos-text);font-weight:700;}
+  .rec .net{font-family:"Anton",sans-serif;font-size:15px;color:var(--pos-text);flex-shrink:0;white-space:nowrap;}
 
   /* ---- action list (home directives) ---- */
   .action-row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1.5px solid var(--divider);}
@@ -281,15 +353,15 @@
 .icon-btn svg{width:16px;height:16px;}
 .lmc{display:flex;flex-direction:column;gap:8px;}
 .lmc-fixtures{display:flex;flex-wrap:wrap;gap:6px;}
-.lmc-fx{display:flex;align-items:center;gap:6px;background:oklch(0.97 0.01 90);border:1px solid oklch(0.9 0.01 90);border-radius:9px;padding:4px 9px;font-size:11.5px;}
+.lmc-fx{display:flex;align-items:center;gap:6px;background:oklch(0.97 0.01 90);border:1px solid oklch(0.9 0.01 90);border-radius:9px;padding:4px 9px;font-size:11.5px;color:var(--on-light-ink);}
 .lmc-fx .s{font-family:'Anton',sans-serif;font-size:14px;min-width:11px;text-align:center;}
-.lmc-fx .sc{color:var(--green);font-weight:700;}
+.lmc-fx .sc{color:var(--green-text);font-weight:700;}
 .lmc-fx .vs{color:var(--ink-dim2);font-size:9.5px;}
 .lmc-fx .min{color:var(--ink-dim2);font-size:9px;margin-left:2px;}
 .lmc-fx.ft{opacity:0.7;}
 .lmc-events{display:flex;flex-direction:column;gap:3px;margin-top:2px;}
 .lmc-ev{display:flex;align-items:center;gap:7px;font-size:11.5px;padding:2px 0;}
-.lmc-ev .badge{font-size:9px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;background:var(--green-soft);color:var(--green);border-radius:5px;padding:2px 6px;min-width:34px;text-align:center;}
+.lmc-ev .badge{font-size:9px;font-weight:800;letter-spacing:0.04em;text-transform:uppercase;background:var(--green-soft);color:var(--green-text);border-radius:5px;padding:2px 6px;min-width:34px;text-align:center;}
 .lmc-ev.own{font-weight:700;}
 .lmc-ev.own .badge{background:var(--green);color:#fff;}
 .lmc-empty{font-size:11px;color:var(--ink-dim2);font-style:italic;}
@@ -299,17 +371,18 @@
   .chip-tile{background:var(--card-2);border-radius:11px;padding:9px 4px 8px;text-align:center;position:relative;overflow:hidden;}
   /* Thin "model edge" bar at the base of each chip tile -- width maps the chip's score to the
      best chip this week, so a glance shows which chips are genuinely close vs. clear winners. */
-  .chip-tile .edge{position:absolute;left:6px;right:6px;bottom:5px;height:3px;border-radius:3px;background:oklch(0.2 0.02 90/0.1);overflow:hidden;}
-  .chip-tile .edge::after{content:"";position:absolute;inset:0;width:var(--edge,0%);background:linear-gradient(90deg,var(--gold-ink),var(--gold));border-radius:3px;}
+  .chip-tile .edge{position:absolute;left:6px;right:6px;bottom:5px;height:3px;border-radius:3px;background:color-mix(in oklch, var(--ink) 12%, transparent);overflow:hidden;}
+  .chip-tile .edge::after{content:"";position:absolute;inset:0;width:var(--edge,0%);background:linear-gradient(90deg,var(--gold-ink),var(--gold));border-radius:3px;color:var(--on-light-ink);}
   .chip-tile.top .edge{background:oklch(0.36 0.13 60/0.25);}
   .chip-tile.top .edge::after{background:oklch(0.3 0.11 60);}
-  .chip-tile.top{background:var(--gold);}
+  .chip-tile.top{background:var(--gold);color:var(--on-light-ink);}
   .chip-tile .k{font-size:9px;font-weight:700;color:var(--ink-dim2);letter-spacing:0.02em;}
-  .chip-tile .v{font-family:"Anton",sans-serif;font-size:16px;margin-top:2px;color:oklch(0.34 0.09 40);}
+  .chip-tile .v{font-family:"Anton",sans-serif;font-size:16px;margin-top:2px;color:var(--chip-v);}
   .chip-tile.top .v{color:var(--gold-ink);}
+  .chip-tile.top .k{color:var(--gold-ink);opacity:0.75;}
 
   /* ---- team card (home) ---- */
-  .team-card{background:linear-gradient(160deg,oklch(0.93 0.03 150),oklch(0.9 0.03 150) 70%);border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;}
+  .team-card{background:var(--team-card-bg);border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;}
   .pitch-mini{width:52px;height:52px;border-radius:12px;background:linear-gradient(180deg,oklch(0.4 0.11 150),oklch(0.3 0.09 150));position:relative;flex-shrink:0;overflow:hidden;border:1px solid oklch(0.5 0.1 150/0.4);}
   .pitch-mini .ln{position:absolute;background:oklch(0.9 0.02 150/0.35);}
   .team-card-body{flex:1;min-width:0;}
@@ -322,7 +395,7 @@
   .p-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 0 0 2px oklch(1 0 0/0.6);}
   .p-name{font-size:10.5px;font-weight:700;text-align:center;line-height:1.2;}
   .p-team{font-size:8.5px;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;}
-  .p-pts{font-family:"Anton",sans-serif;font-size:14px;color:var(--green);}
+  .p-pts{font-family:"Anton",sans-serif;font-size:14px;color:var(--green-text);}
 
   /* ---- league mini table ---- */
   .league-tiles{display:flex;gap:10px;overflow-x:auto;margin:0 -16px;padding:0 16px 4px;}
@@ -395,7 +468,7 @@
 
   /* ---- fixtures ---- */
   .gw-switch{display:flex;align-items:center;gap:10px;background:oklch(0.98 0.005 90/0.14);border:1px solid oklch(0.98 0.005 90/0.3);border-radius:100px;padding:5px 6px;}
-  .gw-btn{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--on-dark);}
+  .gw-btn{background:oklch(1 0 0 / 0.1);border:0;cursor:pointer;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--on-dark);}
   .gw-btn:disabled{opacity:0.3;}
   .gw-label{font-size:12px;font-weight:700;min-width:44px;text-align:center;color:var(--on-dark);}
   .day-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--on-dark-dim);font-weight:700;margin:14px 0 8px;}
@@ -436,6 +509,28 @@
   .p-form-col{display:flex;flex-direction:column;align-items:flex-end;gap:1px;flex-shrink:0;}
   .p-price{font-family:"Anton",sans-serif;font-size:13px;}
   .p-own{font-size:9.5px;color:var(--ink-dim2);}
+  .p-own b{color:var(--ink);font-weight:800;}
+  .p-main{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;}
+  .p-row{transition:transform var(--transition-interactive),background var(--transition-interactive);}
+  @media (hover:hover){ .p-row:hover{transform:translateY(-1px);background:var(--card-2);} }
+  .p-main:focus-visible{outline:2px solid var(--green-text);outline-offset:4px;border-radius:10px;}
+  .p-fix{display:flex;gap:3px;margin-top:5px;}
+  .p-fx{font-size:9px;font-weight:800;border-radius:4px;padding:2px 5px;letter-spacing:0.02em;}
+  .kit{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;filter:drop-shadow(0 1px 1.5px oklch(0 0 0 / 0.35));}
+  .pt-flag{display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;padding:1px 5px;border-radius:5px;background:oklch(0.85 0.14 80);color:oklch(0.3 0.08 60);flex-shrink:0;}
+  .pt-flag.severe{background:oklch(0.6 0.19 25);color:#fff;}
+  .search-wrap{position:relative;}
+  .search-wrap svg{position:absolute;left:13px;top:12px;color:var(--ink-dim);pointer-events:none;}
+  .search-wrap .search-input{padding-left:38px;}
+  .browse-meta{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin:10px 0 12px;}
+  .browse-count{font-size:12px;font-weight:800;color:var(--on-dark);}
+  .browse-hint{font-size:10.5px;color:var(--on-dark-dim);}
+  .load-more{display:block;width:100%;margin:6px 0 4px;padding:12px;border-radius:14px;border:1px dashed oklch(1 0 0 / 0.25);background:transparent;color:var(--on-dark);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;}
+  .load-more:hover{background:oklch(1 0 0 / 0.06);}
+  .empty-card{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:28px 18px;border-radius:16px;background:var(--card);color:var(--ink-dim);}
+  .empty-card .empty-title{font-size:14px;font-weight:800;color:var(--ink);}
+  .empty-card .empty-sub{font-size:12px;max-width:34ch;margin-bottom:8px;line-height:1.5;}
+  @media (min-width:700px){ .filters-done{display:none;} }
 
   /* ---- tabbar ---- */
   .tabbar{position:fixed;left:0;right:0;bottom:0;height:calc(78px + env(safe-area-inset-bottom));background:var(--tabbar-bg);backdrop-filter:blur(10px);border-top:1px solid oklch(0.98 0.005 90/0.15);display:flex;z-index:5;}
@@ -459,6 +554,68 @@
   .player-hero .sub{font-size:12px;color:var(--on-dark-dim);font-weight:600;}
   .player-hero .price{font-family:"Anton",sans-serif;font-size:14px;color:var(--live);}
 
+  /* Rich player sheet */
+  .player-hero.ph-rich{flex-direction:row;align-items:center;gap:14px;padding:4px 44px 14px 0;}
+  .ph-kit{width:72px;height:72px;border-radius:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    background:radial-gradient(circle at 30% 25%, oklch(1 0 0 / 0.16), oklch(1 0 0 / 0.04));border:1px solid oklch(1 0 0 / 0.12);}
+  .ph-id{flex:1;min-width:0;}
+  .ph-rich .name{font-size:24px;line-height:1.05;}
+  .ph-rich .sub{font-weight:500;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ph-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
+  .ph-tag{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:999px;background:oklch(1 0 0 / 0.08);color:var(--on-dark-dim);}
+  .ph-tag-accent{background:oklch(0.85 0.17 130 / 0.16);color:var(--live);}
+  .ph-price{font-family:"Anton",sans-serif;font-size:26px;color:var(--live);flex-shrink:0;}
+  .hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;border-radius:16px;overflow:hidden;background:oklch(1 0 0 / 0.08);margin-bottom:12px;}
+  .hero-stat{background:var(--bg-deep);background:color-mix(in oklch, var(--bg-deep) 88%, white);padding:12px 6px;text-align:center;}
+  .hero-stat-v{font-family:"Anton",sans-serif;font-size:20px;color:var(--on-dark);line-height:1.1;font-variant-numeric:tabular-nums;}
+  .hero-stat-l{font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--on-dark-dim);margin-top:3px;}
+  .why-line{font-size:12.5px;line-height:1.55;color:var(--on-dark-dim);margin:0 0 12px;}
+  .why-line b{color:var(--on-dark);font-weight:700;}
+  .ph-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:6px;}
+  .ph-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;border-radius:12px;border:1px solid oklch(1 0 0 / 0.14);background:oklch(1 0 0 / 0.05);color:var(--on-dark);font:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:background var(--transition-interactive),transform var(--transition-interactive),border-color var(--transition-interactive);}
+  .ph-btn:hover{background:oklch(1 0 0 / 0.1);}
+  .ph-btn:active{transform:scale(0.98);}
+  .ph-btn.on{background:oklch(0.85 0.17 130 / 0.14);border-color:oklch(0.85 0.17 130 / 0.45);color:var(--live);}
+  .sheet-section-title{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:18px 0 8px;font-size:13px;font-weight:800;color:var(--on-dark);}
+  .sheet-section-note{font-size:11px;font-weight:600;color:var(--on-dark-dim);}
+  .sheet-card{background:var(--card);border-radius:16px;padding:12px 12px 10px;margin-bottom:6px;}
+
+  /* xPts chart */
+  .xp-chart{position:relative;}
+  .xp-chart svg{display:block;overflow:visible;}
+  .xp-grid{stroke:var(--divider);stroke-width:1;}
+  .xp-axis{fill:var(--ink-dim);font-size:10px;font-weight:700;}
+  .xp-val{fill:var(--ink);font-size:11px;font-weight:800;}
+  .xp-bar{fill:oklch(0.62 0.13 152);transition:fill var(--transition-interactive);}
+  .xp-bar.is-next{fill:oklch(0.5 0.13 152);}
+  .xp-ci{stroke:var(--ink-dim);stroke-width:1.5;stroke-linecap:round;opacity:0.75;}
+  .xp-slot{outline:none;cursor:default;}
+  .xp-slot:hover .xp-bar, .xp-slot.is-active .xp-bar, .xp-slot:focus-visible .xp-bar{fill:oklch(0.72 0.16 145);}
+  .xp-slot:focus-visible .xp-hit{stroke:var(--green);stroke-width:2;rx:8;}
+  .xp-chart.is-hovering .xp-slot:not(.is-active) .xp-bar{opacity:0.55;}
+  .xp-tip{position:absolute;top:0;transform:translate(-50%, -8px);background:var(--ink);color:var(--card);font-size:11.5px;font-weight:700;padding:7px 10px;border-radius:9px;pointer-events:none;white-space:nowrap;box-shadow:0 6px 18px oklch(0 0 0 / 0.25);z-index:2;}
+  .xp-foot{display:flex;gap:16px;justify-content:flex-end;font-size:10.5px;color:var(--ink-dim);font-weight:700;margin-top:4px;}
+  .xp-key{display:inline-flex;align-items:center;gap:6px;}
+  .xp-key-bar{width:10px;height:10px;border-radius:3px;background:oklch(0.62 0.13 152);}
+  .xp-key-ci{width:2px;height:12px;background:var(--ink-dim);border-radius:1px;}
+
+  /* Same-position comparison */
+  .peer-card{padding:6px 12px;}
+  .peer-row{display:grid;grid-template-columns:minmax(96px, 1.1fr) 2fr 40px 78px;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--divider);}
+  .peer-row:first-child{border-top:0;}
+  .peer-label{font-size:12px;font-weight:700;color:var(--ink);}
+  .peer-bar{position:relative;height:8px;border-radius:999px;background:var(--card-2);overflow:hidden;}
+  .peer-fill{position:absolute;inset:0 auto 0 0;border-radius:999px;background:linear-gradient(90deg, oklch(0.7 0.12 152), oklch(0.55 0.14 152));}
+  .peer-mid{position:absolute;left:50%;top:-2px;bottom:-2px;width:1.5px;background:var(--ink-dim);opacity:0.4;}
+  .peer-val{font-size:12.5px;font-weight:800;color:var(--ink);text-align:right;font-variant-numeric:tabular-nums;}
+  .peer-rank{font-size:11px;font-weight:700;color:var(--ink-dim);text-align:right;}
+  @media (max-width:420px){
+    .peer-row{grid-template-columns:1fr 40px 70px;row-gap:5px;}
+    .peer-bar{grid-column:1 / -1;grid-row:2;}
+    .ph-rich .name{font-size:21px;}
+    .ph-price{font-size:21px;}
+  }
+
   .stat-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;}
   .g-tile{background:var(--card);border-radius:13px;padding:11px 4px;display:flex;flex-direction:column;align-items:center;gap:3px;}
   .g-tile .g-label{font-size:8.5px;text-transform:uppercase;letter-spacing:0.03em;color:var(--ink-dim2);font-weight:700;text-align:center;}
@@ -474,6 +631,35 @@
   .fdr-strip .fdr-item{flex:1;background:var(--card);border-radius:11px;padding:9px 5px;display:flex;flex-direction:column;align-items:center;gap:5px;}
   .fdr-strip .fdr-opp{font-size:9.5px;font-weight:700;color:var(--ink-dim);}
   .fdr-strip .fdr-num{width:20px;height:20px;border-radius:6px;color:#0B0B12;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+
+  /* Segmented control (ticker sort, table density, chart toggles) */
+  .seg{display:inline-flex;padding:3px;border-radius:999px;background:var(--card-2);gap:2px;flex-shrink:0;}
+  .seg-btn{border:0;background:transparent;color:var(--ink-dim);font:inherit;font-size:11.5px;font-weight:700;padding:6px 11px;border-radius:999px;cursor:pointer;transition:background var(--transition-interactive),color var(--transition-interactive);}
+  .seg-btn:hover{color:var(--ink);}
+  .seg-btn.active{background:var(--card);color:var(--ink);box-shadow:0 1px 3px oklch(0 0 0 / 0.18);}
+
+  .appearance-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin:10px 0;border-radius:14px;background:var(--card);color:var(--ink);font-size:13px;font-weight:700;}
+
+  /* Fixture ticker */
+  .fdr-ticker{padding-bottom:12px;}
+  .tk-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+  .tk-sub{font-size:11px;color:var(--ink-dim);margin-top:3px;}
+  .tk-scroll{overflow-x:auto;margin:0 -4px;padding:0 4px;-webkit-overflow-scrolling:touch;}
+  .tk-table{width:100%;border-collapse:separate;border-spacing:3px;font-variant-numeric:tabular-nums;min-width:520px;}
+  .tk-table thead th{font-size:10px;font-weight:800;letter-spacing:0.06em;color:var(--ink-dim);text-align:center;padding:2px 0 6px;}
+  .tk-table thead th.tk-team-h{text-align:left;}
+  .tk-team{position:sticky;left:0;z-index:1;background:var(--card);text-align:left;font-size:12px;font-weight:800;color:var(--ink);white-space:nowrap;padding:0 8px 0 2px;}
+  .tk-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px;}
+  .tk-mine{color:var(--gold-2, oklch(0.8 0.15 80));margin-left:4px;font-size:14px;line-height:0;vertical-align:-1px;}
+  .tk-cell{padding:0;height:30px;}
+  .tk-stack{display:flex;flex-direction:column;gap:2px;height:100%;}
+  .tk-game{display:flex;align-items:center;justify-content:center;height:100%;min-height:30px;border-radius:7px;font-size:10.5px;font-weight:800;letter-spacing:0.02em;transition:transform var(--transition-interactive);}
+  .tk-double .tk-game{min-height:14px;font-size:9px;}
+  .tk-game:hover{transform:scale(1.06);}
+  .tk-blank{text-align:center;color:var(--ink-dim);font-weight:800;background:repeating-linear-gradient(135deg, var(--card-2) 0 6px, transparent 6px 12px);border-radius:7px;}
+  .tk-avg{text-align:center;font-size:11.5px;font-weight:800;color:var(--ink);padding:0 4px;}
+  .fdr-legend{display:flex;align-items:center;gap:5px;justify-content:flex-end;margin-top:10px;font-size:10.5px;color:var(--ink-dim);font-weight:700;}
+  .fdr-legend-sw{width:22px;height:18px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;}
 
   .profile-menu-link{display:block;text-align:center;background:var(--card);border-radius:14px;padding:13px;font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:10px;text-decoration:none;}
   .tip-list{background:var(--card);border-radius:16px;padding:6px 14px 4px;margin-bottom:16px;box-shadow:var(--shadow-card);}
@@ -565,7 +751,7 @@
   .chip-btn.active{background:linear-gradient(155deg,var(--gold),oklch(0.88 0.12 85));color:var(--gold-ink);border-color:oklch(0.7 0.14 80/0.6);}
   .chip-btn:disabled{opacity:0.4;}
   .view-toggle{display:flex;background:var(--card-2);border-radius:100px;padding:3px;margin-bottom:12px;width:fit-content;}
-  .view-toggle button{padding:7px 16px;border-radius:100px;font-size:11.5px;font-weight:700;color:var(--ink-dim);}
+  .view-toggle button{background:transparent;border:0;cursor:pointer;padding:7px 16px;border-radius:100px;font-size:11.5px;font-weight:700;color:var(--ink-dim);}
   .view-toggle button.active{background:var(--card);color:var(--ink);box-shadow:0 1px 4px oklch(0.2 0.05 150/0.15);}
   .plan-list-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--divider);font-size:12.5px;}
   .plan-list-row:first-child{border-top:none;}
@@ -573,11 +759,11 @@
   .plan-list-row .name-block{flex:1;min-width:0;}
   .plan-list-row .name-block .nm{font-weight:700;color:var(--ink);}
   .plan-list-row .name-block .sub{font-size:10.5px;color:var(--ink-dim2);}
-  .plan-list-row .ep-val{font-family:"Anton",sans-serif;font-size:14px;color:var(--green);flex-shrink:0;min-width:34px;text-align:right;}
+  .plan-list-row .ep-val{font-family:"Anton",sans-serif;font-size:14px;color:var(--green-text);flex-shrink:0;min-width:34px;text-align:right;}
   .plan-list-row.selected-out{background:oklch(0.95 0.1 25/0.5);border-radius:10px;}
-  .plan-pending{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));border-radius:16px;padding:14px 16px;margin-bottom:14px;}
+  .plan-pending{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));border-radius:16px;padding:14px 16px;margin-bottom:14px;color:var(--on-light-ink);}
   .watch-star{background:none;border:none;font-size:16px;line-height:1;color:var(--ink-dim2);flex-shrink:0;}
-  .watch-star.on{color:var(--gold-ink);}
+  .watch-star.on{color:var(--gold-text);}
   .compare-table{width:100%;border-collapse:collapse;font-size:11.5px;}
   .compare-table th, .compare-table td{padding:8px 6px;text-align:left;border-top:1px solid var(--divider);}
   .compare-table th{font-size:9.5px;text-transform:uppercase;color:var(--ink-dim2);}
@@ -616,14 +802,14 @@
   .tl-cell:active{transform:scale(0.96);}
   .tl-cell.is-current{border-color:oklch(0.55 0.16 150/0.55);box-shadow:0 0 0 1px oklch(0.55 0.16 150/0.25) inset;}
   .tl-cell.is-focused{border-color:oklch(0.6 0.2 250/0.6);background:oklch(0.96 0.03 250/0.35);}
-  .tl-cell.has-transfer{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));}
-  .tl-cell.has-chip{background:linear-gradient(155deg,var(--gold-soft,oklch(0.95 0.08 85)),oklch(0.92 0.1 85/0.6));}
+  .tl-cell.has-transfer{background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));color:var(--on-light-ink);}
+  .tl-cell.has-chip{background:linear-gradient(155deg,var(--gold-soft,oklch(0.95 0.08 85)),oklch(0.92 0.1 85/0.6));color:var(--on-light-ink);}
   .tl-cell-gw{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-dim2);display:flex;align-items:center;gap:4px;}
   .tl-cell-state-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
   .tl-cell-pts{font-family:"Anton",sans-serif;font-size:19px;line-height:1;color:var(--ink);}
   .tl-cell-pts .unit{font-family:inherit;font-size:9.5px;font-weight:600;color:var(--ink-dim2);margin-left:2px;}
   .tl-cell-tag{font-size:9.5px;font-weight:700;color:var(--ink-dim);line-height:1.35;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
-  .tl-cell-cost{font-size:9.5px;font-weight:700;color:var(--red);}
+  .tl-cell-cost{font-size:9.5px;font-weight:700;color:var(--neg-text);}
   .tl-cell:focus-visible{outline:2.5px solid var(--gold);outline-offset:2px;}
   .tl-legend{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:10px;color:var(--on-dark-dim);margin:0 0 10px;}
   .tl-legend-item{display:flex;align-items:center;gap:5px;}
@@ -635,17 +821,17 @@
   .plan-compare-col{flex:1;min-width:0;background:var(--card-2);border-radius:14px;padding:11px 12px;}
   .plan-compare-col .pc-label{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-dim2);margin-bottom:4px;}
   .plan-compare-col .pc-value{font-family:"Anton",sans-serif;font-size:20px;color:var(--ink);}
-  .plan-compare-col.is-recommended{background:var(--green-soft);}
+  .plan-compare-col.is-recommended{background:var(--green-soft);color:var(--on-light-ink);}
   .plan-compare-col.is-recommended .pc-label,.plan-compare-col.is-recommended .pc-value{color:oklch(0.3 0.1 150);}
   .plan-why{background:var(--card);border-radius:14px;padding:12px 14px;margin-bottom:12px;border-left:3px solid oklch(0.6 0.2 250/0.6);}
   .plan-why .explain-line{font-size:11.5px;color:var(--ink-dim);line-height:1.6;margin:0;}
   .plan-why .explain-line b{color:var(--ink);}
   .plan-horizon-switch{display:flex;align-items:center;gap:8px;background:var(--card-2);border-radius:100px;padding:4px 4px;margin:0 0 12px;width:fit-content;}
-  .plan-horizon-switch button{padding:12px 15px;border-radius:100px;font-size:11px;font-weight:700;color:var(--ink-dim);min-height:44px;min-width:44px;}
+  .plan-horizon-switch button{background:transparent;border:0;cursor:pointer;padding:12px 15px;border-radius:100px;font-size:11px;font-weight:700;color:var(--ink-dim);min-height:44px;min-width:44px;}
   .plan-horizon-switch button.active{background:var(--card);color:var(--ink);box-shadow:0 1px 4px oklch(0.2 0.05 150/0.15);}
   /* Risk-posture segmented toggle (app gap 6) */
   .risk-seg{display:flex;gap:4px;background:var(--card-2);border-radius:100px;padding:4px;width:100%;}
-  .risk-seg button{flex:1;padding:11px 10px;border-radius:100px;font-size:11.5px;font-weight:700;color:var(--ink-dim);border:none;cursor:pointer;font-family:inherit;min-height:44px;transition:background var(--transition-interactive),color var(--transition-interactive);}
+  .risk-seg button{background:transparent;flex:1;padding:11px 10px;border-radius:100px;font-size:11.5px;font-weight:700;color:var(--ink-dim);border:none;cursor:pointer;font-family:inherit;min-height:44px;transition:background var(--transition-interactive),color var(--transition-interactive);}
   .risk-seg button.active{background:var(--green);color:white;}
   .risk-seg button:disabled{opacity:0.4;cursor:not-allowed;}
   .risk-seg button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
@@ -692,7 +878,27 @@
   .dlog-btn.active{background:var(--green);color:white;border-color:var(--green);}
   .dlog-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
   /* One-line toast for share/install feedback */
-  .fq-toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0) + 14px);left:50%;transform:translateX(-50%) translateY(20px);background:oklch(0.2 0.06 152);color:oklch(0.98 0.005 90);font-size:12.5px;font-weight:600;padding:11px 18px;border-radius:999px;z-index:1000;opacity:0;transition:opacity 0.18s ease,transform 0.18s ease;max-width:88vw;overflow-wrap:anywhere;box-shadow:0 8px 24px oklch(0.2 0.02 90 / 0.3);}
+  .toast-stack{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:1000;display:flex;flex-direction:column;align-items:center;gap:8px;width:min(420px, calc(100vw - 24px));pointer-events:none;}
+  @media (min-width:1024px){ .toast-stack{left:auto;right:24px;transform:none;bottom:24px;align-items:flex-end;} }
+  .toast{pointer-events:auto;display:flex;align-items:center;gap:10px;width:100%;padding:11px 10px 11px 14px;border-radius:14px;
+    background:oklch(0.22 0.03 158 / 0.92);color:oklch(0.97 0.01 100);border:1px solid oklch(1 0 0 / 0.1);
+    -webkit-backdrop-filter:blur(14px) saturate(150%);backdrop-filter:blur(14px) saturate(150%);
+    box-shadow:0 12px 32px oklch(0.08 0.03 160 / 0.45);font-size:13px;font-weight:600;line-height:1.35;
+    opacity:0;transform:translateY(12px) scale(0.98);transition:opacity 0.22s var(--ease-out),transform 0.22s var(--ease-out);}
+  .toast.toast-in{opacity:1;transform:none;}
+  .toast.toast-out{opacity:0;transform:translateY(6px) scale(0.98);}
+  .toast-ico{width:18px;height:18px;flex-shrink:0;}
+  .toast-success .toast-ico{color:oklch(0.8 0.17 150);}
+  .toast-info .toast-ico{color:oklch(0.82 0.1 230);}
+  .toast-warning .toast-ico{color:oklch(0.85 0.15 80);}
+  .toast-error{border-color:oklch(0.62 0.19 25 / 0.5);}
+  .toast-error .toast-ico{color:oklch(0.72 0.18 25);}
+  .toast-msg{flex:1;overflow-wrap:anywhere;}
+  .toast-action{border:0;background:oklch(1 0 0 / 0.1);color:inherit;font:inherit;font-size:12px;font-weight:800;padding:6px 10px;border-radius:8px;cursor:pointer;}
+  .toast-action:hover{background:oklch(1 0 0 / 0.18);}
+  .toast-close{border:0;background:transparent;color:oklch(1 0 0 / 0.55);font-size:18px;line-height:1;width:26px;height:26px;border-radius:8px;cursor:pointer;flex-shrink:0;}
+  .toast-close:hover{color:oklch(1 0 0 / 0.9);background:oklch(1 0 0 / 0.08);}
+  @media (prefers-reduced-motion: reduce){ .toast{transition:none;} }
 
   /* ---- chip cards ---- */
   .chip-tile{cursor:pointer;border:none;text-align:center;font:inherit;transition:transform 0.15s ease;position:relative;}
@@ -732,7 +938,7 @@
   .compare-table{width:100%;border-collapse:collapse;font-size:12px;}
   .compare-table th, .compare-table td{padding:9px 8px;text-align:center;border-bottom:1px solid var(--divider);}
   .compare-table th:first-child, .compare-table td:first-child{text-align:left;color:var(--ink-dim);font-weight:600;width:38%;}
-  .compare-table td.win{color:var(--green);font-weight:800;}
+  .compare-table td.win{color:var(--green-text);font-weight:800;}
 
   /* ---- transfer review ---- */
   .review-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
@@ -925,17 +1131,34 @@
   @media (min-width: 1024px){
     .transfer-card-list{display:none;}
     .transfer-table-wrap{display:block;}
-    .transfer-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:16px;overflow:hidden;}
-    .transfer-table th, .transfer-table td{padding:10px 14px;text-align:left;font-size:12.5px;}
-    .transfer-table thead th{background:var(--card-2);font-size:10.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-dim2);font-weight:700;border-bottom:1px solid var(--divider);}
-    .transfer-table tbody tr{border-bottom:1px solid var(--divider);cursor:pointer;}
-    .transfer-table tbody tr:last-child{border-bottom:none;}
-    .transfer-table tbody tr:hover{background:var(--card-2);}
-    .transfer-table tbody tr:focus-visible{outline:2.5px solid var(--green);outline-offset:-2px;}
-    .table-sort-btn{display:inline-flex;align-items:center;gap:4px;background:none;border:none;padding:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;min-height:24px;}
-    .table-sort-btn svg{opacity:0.4;}
-    .table-sort-btn.active{color:var(--ink);}
-    .table-sort-btn.active svg{opacity:1;color:var(--green);}
+    .ptable-scroll{max-height:min(74vh, 860px);overflow:auto;border-radius:16px;background:var(--card);border:1px solid var(--divider);overscroll-behavior:contain;}
+    .ptable{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;font-variant-numeric:tabular-nums;}
+    .ptable col.c-player{width:25%;}
+    .ptable col.c-fix{width:132px;}
+    .ptable thead th{position:sticky;top:0;z-index:2;background:var(--card-2);border-bottom:1px solid var(--divider);padding:0;text-align:right;}
+    .ptable thead th.pt-h-name, .ptable thead th.pt-h-fix{text-align:left;}
+    .pt-sort{display:inline-flex;align-items:center;gap:3px;width:100%;justify-content:inherit;background:none;border:0;padding:11px 7px;font:inherit;font-size:10.5px;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-dim);cursor:pointer;white-space:nowrap;transition:color var(--transition-interactive);}
+    th:not(.pt-h-name):not(.pt-h-fix) .pt-sort{justify-content:flex-end;}
+    .pt-sort:hover{color:var(--ink);}
+    .pt-sort svg{opacity:0.35;flex-shrink:0;}
+    .is-sorted .pt-sort{color:var(--ink);}
+    .is-sorted .pt-sort svg{opacity:1;color:var(--accent-ink, var(--green));}
+    .pt-sort-n{font-size:9px;min-width:14px;height:14px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;background:var(--green);color:var(--card);}
+    .pt-row{height:46px;cursor:pointer;transition:background var(--transition-interactive);}
+    .pt-row td{padding:0 10px;border-bottom:1px solid var(--divider);font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .pt-row:hover{background:var(--card-2);}
+    .pt-row:focus-visible{outline:2px solid var(--green);outline-offset:-2px;}
+    .pt-spacer td{padding:0;border:0;}
+    .pt-num{text-align:right;}
+    .pt-strong{font-weight:800;}
+    .pt-price{font-weight:700;}
+    .pt-na{color:var(--ink-dim2);opacity:0.6;}
+    .pt-player-in{display:flex;align-items:center;gap:8px;min-width:0;}
+    .pt-name{font-weight:800;overflow:hidden;text-overflow:ellipsis;}
+    .pt-meta{font-size:11px;color:var(--ink-dim);margin-left:auto;padding-left:6px;flex-shrink:0;}
+    .pt-fix{display:flex;gap:3px;align-items:center;height:46px;}
+    .pt-fx{flex:1;text-align:center;font-size:10px;font-weight:800;border-radius:5px;padding:4px 0;letter-spacing:0.02em;}
+    .ptable-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--on-dark-dim);margin-top:8px;padding:0 4px;}
   }
 </style>
 </head>
@@ -1139,7 +1362,15 @@ const CLUB_COLORS = {
   "Spurs": "oklch(0.3 0.08 260)", "Sunderland": "oklch(0.5 0.2 25)",
 };
 const clubColor = (name) => CLUB_COLORS[name] || "oklch(0.6 0.01 90)";
-const FDR_COLOR = (d) => d == null ? "oklch(0.85 0.005 90)" : d <= 2 ? "var(--fdr-easy)" : d === 3 ? "var(--fdr-mid)" : "var(--fdr-hard)";
+// FPL's difficulty is a 1-5 scale, so five steps on one perceptual ramp (--fdr-1..5 in :root)
+// rather than three buckets that painted a 4 and a 5 the same red.
+function fdrLevel(d) {
+  const n = Math.round(Number(d));
+  return Number.isFinite(n) && d != null ? Math.min(5, Math.max(1, n)) : null;
+}
+const FDR_COLOR = (d) => { const n = fdrLevel(d); return n ? `var(--fdr-${n})` : "var(--fdr-none)"; };
+const FDR_INK = (d) => { const n = fdrLevel(d); return n === 1 || n === 5 ? "var(--fdr-ink-light)" : "var(--fdr-ink-dark)"; };
+const fdrStyle = (d) => `background:${FDR_COLOR(d)};color:${FDR_INK(d)}`;
 // Text label mirroring FDR_COLOR's own easy/mid/hard split -- same three buckets, just spoken
 // out loud so fixture difficulty is never color-only (used in playerWhyLine()).
 const DIFFICULTY_WORD = (d) => d == null ? "unknown-difficulty" : d <= 2 ? "favourable" : d === 3 ? "middling" : "tough";
@@ -1302,13 +1533,22 @@ function setLocalVice(playerId) {
 function toggleLock(playerId) {
   const s = loadLocalState(state.accountId);
   const ids = new Set(s.lockedIds || []);
-  ids.has(playerId) ? ids.delete(playerId) : ids.add(playerId);
+  const unlocking = ids.has(playerId);
+  unlocking ? ids.delete(playerId) : ids.add(playerId);
   saveLocalState(state.accountId, { lockedIds: [...ids] });
   renderCurrentTab();
+  const name = (state.playersById[playerId] || {}).web_name || "Player";
+  toast(unlocking ? `${name} unlocked` : `${name} locked — kept out of transfer ideas`, { type: "success" });
 }
 function resetLocalOverrides() {
-  localStorage.removeItem(localStateKey(state.accountId));
+  const key = localStateKey(state.accountId);
+  const saved = localStorage.getItem(key);
+  localStorage.removeItem(key);
   renderCurrentTab();
+  toast("Captain, vice and locks reset", {
+    type: "info",
+    action: saved ? { label: "Undo", onClick: () => { try { localStorage.setItem(key, saved); } catch {} renderCurrentTab(); } } : null,
+  });
 }
 function moveBenchLocal(benchIds, playerId, delta) {
   const idx = benchIds.indexOf(playerId);
@@ -1354,14 +1594,22 @@ function clearPlannerTransfer() {
 // no model output attached to it; see README's app_export.py module docstring)
 // ============================================================
 
-function toggleCompare(playerId) {
+function toggleCompare(playerId, quiet) {
+  const name = (state.playersById[playerId] || {}).web_name || "Player";
+  const before = [...state.compareSelection];
   const i = state.compareSelection.indexOf(playerId);
-  if (i >= 0) state.compareSelection.splice(i, 1);
+  let msg;
+  if (i >= 0) { state.compareSelection.splice(i, 1); msg = `${name} removed from comparison`; }
   else {
-    if (state.compareSelection.length >= 2) state.compareSelection.shift();
+    let dropped = null;
+    if (state.compareSelection.length >= 2) dropped = state.compareSelection.shift();
     state.compareSelection.push(playerId);
+    msg = dropped != null
+      ? `${name} added, replacing ${(state.playersById[dropped] || {}).web_name || "the oldest pick"}`
+      : `${name} added to comparison${state.compareSelection.length === 2 ? " — ready to compare" : ""}`;
   }
   renderCurrentTab();
+  if (!quiet) toast(msg, { type: i >= 0 ? "info" : "success", action: { label: "Undo", onClick: () => { state.compareSelection = before; renderCurrentTab(); } } });
 }
 
 function compareBarBlock() {
@@ -1763,10 +2011,22 @@ function buildMockDashboard() {
   };
 }
 
+// A hung request (flaky mobile network, a stalled proxy) would otherwise keep the skeletons up
+// forever and never reach the cached-copy fallback or the error card below.
+const FETCH_TIMEOUT_MS = 15000;
+function fetchWithTimeout(url, opts) {
+  if (typeof AbortController === "undefined") return fetch(url, opts);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  return fetch(url, { ...opts, signal: ctrl.signal })
+    .catch((err) => { throw err && err.name === "AbortError" ? new Error("request timed out") : err; })
+    .finally(() => clearTimeout(timer));
+}
+
 async function fetchJSON(path) {
   const primary = DATA_BASE ? `${DATA_BASE}/${path}` : path;
   try {
-    const res = await fetch(`${primary}?t=${Date.now()}`, { cache: "no-store" });
+    const res = await fetchWithTimeout(`${primary}?t=${Date.now()}`, { cache: "no-store" });
     if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
     const data = await res.json();
     try { localStorage.setItem(cacheKeyFor(path), JSON.stringify({ data, cachedAt: Date.now() })); } catch {}
@@ -1776,7 +2036,7 @@ async function fetchJSON(path) {
     // before falling back to a stale cached copy, same as track-record.html's fallback order.
     if (!DATA_BASE && RAW_FALLBACK) {
       try {
-        const res = await fetch(`${RAW_FALLBACK}/${path}?t=${Date.now()}`, { cache: "no-store" });
+        const res = await fetchWithTimeout(`${RAW_FALLBACK}/${path}?t=${Date.now()}`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
           try { localStorage.setItem(cacheKeyFor(path), JSON.stringify({ data, cachedAt: Date.now() })); } catch {}
@@ -1943,7 +2203,7 @@ async function unregisterPushSubscription() {
 async function toggleNotifications() {
   const p = notifPrefs();
   if (!p.enabled) {
-    if (!("Notification" in window)) { alert("Notifications aren't supported in this browser."); return; }
+    if (!("Notification" in window)) { toast("Notifications aren't supported in this browser.", { type: "warning" }); return; }
     let perm = Notification.permission;
     if (perm !== "granted") perm = await Notification.requestPermission();
     if (perm !== "granted") return; // denied or dismissed -- leave the toggle off
@@ -2102,25 +2362,54 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Transient bottom toast for non-critical feedback (share link copied, etc.).
-let toastTimer = null;
-function flashToast(msg) {
-  let el = document.querySelector(".fq-toast");
-  if (!el) {
-    el = document.createElement("div");
-    el.className = "fq-toast";
-    el.setAttribute("role", "status");
-    document.body.appendChild(el);
+// Stacked, typed toasts for non-critical feedback. At most 3 on screen; the oldest leaves first.
+// `action` adds one button (e.g. Undo). Errors use role=alert so screen readers interrupt.
+const TOAST_ICONS = {
+  success: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/>',
+  warning: '<path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/>',
+  error: '<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/>',
+};
+const TOAST_MAX = 3;
+function toast(msg, opts) {
+  const { type = "info", action = null, duration = type === "error" ? 6000 : 3200 } = opts || {};
+  let stack = document.getElementById("toast-stack");
+  if (!stack) {
+    stack = document.createElement("div");
+    stack.id = "toast-stack";
+    stack.className = "toast-stack";
+    document.body.appendChild(stack);
   }
-  el.textContent = msg;
-  // restart the entrance transition on each call
-  requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translateX(-50%) translateY(0)"; });
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    el.style.opacity = "0";
-    el.style.transform = "translateX(-50%) translateY(20px)";
-  }, 2600);
+  const el = document.createElement("div");
+  el.className = `toast toast-${TOAST_ICONS[type] ? type : "info"}`;
+  el.setAttribute("role", type === "error" ? "alert" : "status");
+  el.innerHTML = `<svg class="toast-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TOAST_ICONS[type] || TOAST_ICONS.info}</svg>
+    <span class="toast-msg"></span>
+    ${action ? `<button class="toast-action" type="button"></button>` : ""}
+    <button class="toast-close" type="button" aria-label="Dismiss">&times;</button>`;
+  el.querySelector(".toast-msg").textContent = msg;
+  let timer = null;
+  const dismiss = () => {
+    clearTimeout(timer);
+    el.classList.remove("toast-in");
+    el.classList.add("toast-out");
+    setTimeout(() => el.remove(), prefersReducedMotion() ? 0 : 220);
+  };
+  if (action) {
+    const btn = el.querySelector(".toast-action");
+    btn.textContent = action.label;
+    btn.onclick = () => { dismiss(); action.onClick(); };
+  }
+  el.querySelector(".toast-close").onclick = dismiss;
+  el.addEventListener("mouseenter", () => clearTimeout(timer));
+  el.addEventListener("mouseleave", () => { timer = setTimeout(dismiss, 1500); });
+  stack.appendChild(el);
+  while (stack.children.length > TOAST_MAX) stack.firstElementChild.remove();
+  requestAnimationFrame(() => el.classList.add("toast-in"));
+  timer = setTimeout(dismiss, duration);
+  return dismiss;
 }
+function flashToast(msg) { return toast(msg); }
 
 // Every new roadmap panel (projections, squad grade, explain-my-move, leaderboard, elite
 // divergence) carries a real model_version + data_asof on its own payload -- this renders
@@ -2128,7 +2417,7 @@ function flashToast(msg) {
 // came from and how fresh it is, never just a bare figure with no source.
 function provenanceLine(p) {
   if (!p || (!p.model_version && !p.data_asof)) return "";
-  return `<div style="font-size:9.5px;color:var(--ink-dim2);margin-top:8px;line-height:1.5;">
+  return `<div style="font-size:9.5px;color:var(--ink-dim2);margin-top:8px;line-height:1.5;overflow-wrap:anywhere;">
     ${p.model_version ? `Model ${escapeHtml(p.model_version)}` : ""}${p.model_version && p.data_asof ? " &middot; " : ""}${p.data_asof ? `as of ${escapeHtml(p.data_asof)}` : ""}
   </div>`;
 }
@@ -2655,8 +2944,8 @@ function renderTransferReviewBody() {
     `}
     ${outPlayer && inPlayer ? `
       <div class="stat-grid4" style="grid-template-columns:repeat(3,1fr);">
-        <div class="g-tile"><div class="g-label">Price change</div><div class="g-value" style="color:${priceDiff > 0 ? "var(--danger)" : priceDiff < 0 ? "var(--green)" : "var(--ink)"};font-size:13px;">${priceDiff > 0 ? "+" : ""}${priceDiff.toFixed(1)}m</div></div>
-        <div class="g-tile"><div class="g-label">Form change</div><div class="g-value" style="color:${formDiff > 0 ? "var(--green)" : formDiff < 0 ? "var(--danger)" : "var(--ink)"};font-size:13px;">${formDiff != null ? (formDiff > 0 ? "+" : "") + formDiff.toFixed(1) : "&mdash;"}</div></div>
+        <div class="g-tile"><div class="g-label">Price change</div><div class="g-value" style="color:${priceDiff > 0 ? "var(--neg-text)" : priceDiff < 0 ? "var(--pos-text)" : "var(--ink)"};font-size:13px;">${priceDiff > 0 ? "+" : ""}${priceDiff.toFixed(1)}m</div></div>
+        <div class="g-tile"><div class="g-label">Form change</div><div class="g-value" style="color:${formDiff > 0 ? "var(--pos-text)" : formDiff < 0 ? "var(--neg-text)" : "var(--ink)"};font-size:13px;">${formDiff != null ? (formDiff > 0 ? "+" : "") + formDiff.toFixed(1) : "&mdash;"}</div></div>
         <div class="g-tile"><div class="g-label">Owned % change</div><div class="g-value" style="font-size:13px;">${ownDiff != null ? (ownDiff >= 0 ? "+" : "") + ownDiff.toFixed(1) : "&mdash;"}</div></div>
       </div>
       <div class="section-title" style="color:var(--on-dark);"><span>Why</span></div>
@@ -2759,7 +3048,7 @@ function plannerTrajectoryBlock(trajectory, hypoTrajectory) {
   return `
     <div class="card" style="margin:14px 0 10px;">
       <div style="font-size:10.5px;font-weight:700;color:var(--ink-dim2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">
-        Projected XI points by gameweek${hasHypo ? ` <span style="color:var(--green);">(green = current)</span> <span style="color:oklch(0.62 0.19 45);">(orange = with transfer)</span>` : ""}
+        Projected XI points by gameweek${hasHypo ? ` <span style="color:var(--green-text);">(green = current)</span> <span style="color:oklch(0.62 0.19 45);">(orange = with transfer)</span>` : ""}
       </div>
       <div style="display:flex;align-items:flex-end;gap:5px;height:${hasHypo ? "72px" : "36px"};">
         ${trajectory.map((t, i) => `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;">${bar(t.totalEp ?? 0)}${hasHypo ? hypoBar(hypoTrajectory[i].totalEp ?? 0) : ""}</div>`).join("")}
@@ -3238,7 +3527,7 @@ function explainMoveCard() {
           <div class="card-title">Explain my move</div>
           ${freshnessBadge(freshnessTsOf(state.realSquad) || freshnessTsOf(d), "model", "Model")}
         </div>
-        <div class="verdict" style="background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));margin-bottom:12px;">
+        <div class="verdict" style="background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));margin-bottom:12px;color:var(--on-light-ink);">
           <span class="action" style="color:oklch(0.32 0.1 250);">${escapeHtml(d.action_display || d.action)}</span>
           <span class="nums" style="color:oklch(0.38 0.05 250);">${d.ep_lift >= 0 ? "+" : ""}${d.ep_lift.toFixed(2)}&nbsp;EP</span>
         </div>
@@ -3487,7 +3776,7 @@ function liveMatchCenterBlock(live) {
   }).join("") : `<div class="lmc-empty">No live fixtures right now.</div>`;
   const eventsHtml = evs.length ? evs.map(e => {
     const mine = owned.has(e.player_id);
-    return `<div class="lmc-ev ${mine ? "own" : ""}"><span class="badge">${EVENT_LABEL[e.event] || e.event}</span><span>${e.web_name}</span>${e.count > 1 ? `<span style="color:var(--ink-dim2)">×${e.count}</span>` : ""}${mine ? `<span style="color:var(--green);font-size:10px;margin-left:auto">your squad</span>` : ""}</div>`;
+    return `<div class="lmc-ev ${mine ? "own" : ""}"><span class="badge">${EVENT_LABEL[e.event] || e.event}</span><span>${e.web_name}</span>${e.count > 1 ? `<span style="color:var(--ink-dim2)">×${e.count}</span>` : ""}${mine ? `<span style="color:var(--green-text);font-size:10px;margin-left:auto">your squad</span>` : ""}</div>`;
   }).join("") : `<div class="lmc-empty">No goals or assists yet this gameweek.</div>`;
   return `<div class="card" style="padding-top:14px;">
     <div class="card-title" style="margin:0 0 10px;">Live Match Center</div>
@@ -3507,7 +3796,7 @@ function liveNowBlock() {
   const changed = state.lastLiveTotal != null && state.lastLiveTotal !== live.live_total;
   return `
     <div class="section anim-in">
-      <div class="card ${changed ? "score-glow" : ""}" style="background:linear-gradient(155deg,oklch(0.95 0.05 130),oklch(0.92 0.08 130));">
+      <div class="card ${changed ? "score-glow" : ""}" style="background:linear-gradient(155deg,oklch(0.95 0.05 130),oklch(0.92 0.08 130));color:var(--on-light-ink);">
         <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px;">
           <span class="live"><span class="dot"></span>Live now &middot; GW${live.gameweek}</span>
         </div>
@@ -3550,7 +3839,7 @@ function rankTrajectoryBlock() {
           ${lr.stale ? `<span style="font-size:9.5px;color:var(--amber);font-weight:700;text-transform:uppercase;">Stale</span>` : ""}
         </div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
-          <span style="font-family:'Anton',sans-serif;font-size:22px;color:${improved ? "var(--green)" : worsened ? "var(--red)" : "var(--ink)"};">${last.toLocaleString()}</span>
+          <span style="font-family:'Anton',sans-serif;font-size:22px;color:${improved ? "var(--pos-text)" : worsened ? "var(--neg-text)" : "var(--ink)"};">${last.toLocaleString()}</span>
           <span style="font-size:11px;color:var(--ink-dim);">${improved ? "&darr; improved" : worsened ? "&uarr; slipped" : "unchanged"} from ${first.toLocaleString()} earlier today</span>
         </div>
         <div style="display:flex;align-items:flex-end;gap:5px;height:34px;">
@@ -3702,7 +3991,7 @@ function pitchCardFixtureBadge(p) {
   const next = fixturesForClub(p.team, currentGw, 1)[0];
   if (!next) return "";
   const label = next.difficulty == null ? "?" : next.difficulty;
-  return `<div class="pcard-fdr" style="background:${FDR_COLOR(next.difficulty)}" title="Next fixture: ${escapeHtml(next.opp)} (${next.home ? "H" : "A"}), difficulty ${label}">${escapeHtml(next.opp)} <span class="pcard-fdr-num">${label}</span></div>`;
+  return `<div class="pcard-fdr" style="${fdrStyle(next.difficulty)}" title="Next fixture: ${escapeHtml(next.opp)} (${next.home ? "H" : "A"}), difficulty ${label}">${escapeHtml(next.opp)} <span class="pcard-fdr-num">${label}</span></div>`;
 }
 function pitchCardRiskBadge(p) {
   const full = state.playersById && state.playersById[p.player_id];
@@ -3990,7 +4279,7 @@ function whatIfRow(label, r) {
   return `
     <div class="sl-row">
       <div class="sl-label">${label}${r.flipped ? ` <span style="color:var(--ink-dim2);">&middot; flips plan to '${escapeHtml(r.perturbed_action)}'</span>` : ""}</div>
-      <div class="sl-value" style="color:${r.delta_ep > 0 ? "var(--green)" : r.delta_ep < 0 ? "var(--red)" : "var(--ink-dim)"};">${r.delta_ep >= 0 ? "+" : ""}${r.delta_ep.toFixed(1)}</div>
+      <div class="sl-value" style="color:${r.delta_ep > 0 ? "var(--pos-text)" : r.delta_ep < 0 ? "var(--neg-text)" : "var(--ink-dim)"};">${r.delta_ep >= 0 ? "+" : ""}${r.delta_ep.toFixed(1)}</div>
     </div>`;
 }
 function whatIfCard() {
@@ -4108,21 +4397,24 @@ function renderTeam() {
 // TRANSFERS
 // ============================================================
 
-function playerRow(p) {
+function playerRow(p, m) {
+  m = m || {};
   const inCompare = state.compareSelection.includes(p.id);
   return `
     <div class="p-row">
       <button class="compare-check ${inCompare ? "checked" : ""}" aria-label="${inCompare ? "Remove" : "Add"} ${escapeHtml(p.web_name)} ${inCompare ? "from" : "to"} comparison" onclick="toggleCompare(${p.id})">${inCompare ? "&check;" : ""}</button>
-      <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer;" onclick="location.hash='player-${p.id}'">
-        <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
+      <div class="p-main" role="button" tabindex="0" onclick="location.hash='player-${p.id}'" onkeydown="if(event.key==='Enter'){location.hash='player-${p.id}'}">
+        ${kitBadge(p, 32)}
         <div class="p-info">
-          <div class="p-name-row">${p.web_name}${p.penalties_order === 1 ? ` <span class="badge badge-setpiece" style="padding:1px 5px;font-size:8px;vertical-align:middle;">Pens</span>` : ""}</div>
-          <div class="p-meta">${p.team || ""} &middot; ${p.position || ""} &middot; Form ${p.form ?? "&mdash;"}</div>
+          <div class="p-name-row">${escapeHtml(p.web_name)}${isFlagged(p) ? ` <span class="pt-flag ${isSevereFlag(p) ? "severe" : ""}">${p.chance_of_playing_next_round != null ? p.chance_of_playing_next_round + "%" : "!"}</span>` : ""}${p.penalties_order === 1 ? ` <span class="badge badge-setpiece" style="padding:1px 5px;font-size:8px;vertical-align:middle;">Pens</span>` : ""}</div>
+          <div class="p-meta">${escapeHtml(p.team || "")} &middot; ${escapeHtml(p.position || "")} &middot; Form ${p.form ?? "&mdash;"}</div>
+          <div class="p-fix">${fixtureChips(m.fix, "p-fx")}</div>
         </div>
       </div>
       <div class="p-form-col">
         <div class="p-price">${fmtMoney(p.price)}</div>
-        <div class="p-own">${p.selected_by_percent ?? "&mdash;"}% owned</div>
+        <div class="p-own">${m.x5 != null ? `<b>${m.x5.toFixed(1)}</b> xPts 5GW` : `${p.selected_by_percent ?? "&mdash;"}% owned`}</div>
+        ${m.x5 != null ? `<div class="p-own">${p.selected_by_percent ?? "&mdash;"}% owned</div>` : ""}
       </div>
     </div>`;
 }
@@ -4141,61 +4433,232 @@ const PRICE_BANDS = {
   mid: { label: "£5.5&ndash;8.5m", test: (p) => (p.price ?? 0) > 5.5 && (p.price ?? 0) <= 8.5 },
   premium: { label: "£8.5m+", test: (p) => (p.price ?? 0) > 8.5 },
 };
+// ---- Players table: derived metrics, fuzzy search, multi-column sort ----------------------
+// Metrics are computed once per data load (cached on the source arrays' identity) and the
+// filtered + sorted list once per filter change; the card list, the table and the live count
+// all read that one cached result.
+
+// Quick-sort chips. Any column in PLAYER_COLUMNS can also be sorted from the table header.
 const SORTS = {
-  form: { label: "Form", cmp: (a, b) => (b.form ?? -1) - (a.form ?? -1) },
-  price: { label: "Price", cmp: (a, b) => (b.price ?? -1) - (a.price ?? -1) },
-  ownership: { label: "Ownership", cmp: (a, b) => (b.selected_by_percent ?? -1) - (a.selected_by_percent ?? -1) },
-  // ict_index is real, already-exported bootstrap-static data (the player sheet's own "Season
-  // breakdown" already shows it) -- just never offered as a sort here before. Model-derived
-  // stats (xG, expected points) deliberately still aren't: see PRICE_BANDS' own comment above
-  // on why this list only offers what's actually exported, not what would be nice to have.
-  ict: { label: "ICT Index", cmp: (a, b) => (b.ict_index ?? -1) - (a.ict_index ?? -1) },
+  form: { label: "Form" },
+  x5: { label: "xPts 5GW" },
+  value: { label: "Pts / £m" },
+  price: { label: "Price" },
+  ownership: { label: "Ownership" },
+  ict: { label: "ICT Index" },
 };
 
+// get(player, metrics) -> sortable value (null sorts last in either direction).
+// dir is the direction a first click sorts in.
+const PLAYER_COLUMNS = {
+  name: { label: "Player", dir: "asc", get: (p) => p.web_name },
+  price: { label: "Price", get: (p) => p.price },
+  form: { label: "Form", get: (p) => p.form },
+  points: { label: "Pts", title: "Season points", get: (p) => p.total_points },
+  ppg: { label: "PPG", title: "Points per game", get: (p) => p.points_per_game },
+  value: { label: "Pts/£m", title: "Season points per £1m of price", get: (p, m) => m.value },
+  xnext: { label: "xPts", title: "Model expected points, next gameweek", get: (p, m) => m.xNext },
+  x5: { label: "xPts 5GW", title: "Model expected points over the next five gameweeks", get: (p, m) => m.x5 },
+  ownership: { label: "Owned", title: "Selected by % of managers", get: (p) => p.selected_by_percent },
+  ict: { label: "ICT", title: "ICT index", get: (p) => p.ict_index },
+  fix: { label: "Next 3", title: "Next three fixtures (sorts by average difficulty)", dir: "asc", get: (p, m) => m.fixAvg },
+};
+
+function compareBySortKeys(a, b, sortKeys, columns, metricsOf) {
+  for (const { key, dir } of sortKeys) {
+    const col = columns[key];
+    if (!col) continue;
+    const va = col.get(a, metricsOf(a)), vb = col.get(b, metricsOf(b));
+    const aMissing = va == null || va === "" || Number.isNaN(va);
+    const bMissing = vb == null || vb === "" || Number.isNaN(vb);
+    if (aMissing || bMissing) {
+      if (aMissing && bMissing) continue;
+      return aMissing ? 1 : -1;
+    }
+    const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    if (c !== 0) return dir === "asc" ? c : -c;
+  }
+  return 0;
+}
+
+function foldText(s) {
+  return String(s == null ? "" : s)
+    .replace(/[øØ]/g, "o").replace(/[æÆ]/g, "ae").replace(/ß/g, "ss").replace(/[łŁ]/g, "l").replace(/[đĐ]/g, "d")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase();
+}
+
+// True when a and b differ by at most one insertion, deletion or substitution.
+function withinOneEdit(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+// Every query token has to match some word: as a substring, or (4+ letters) within one typo of
+// the word or its same-length prefix. So "haland", "salah liv" and "odegard" all find the player.
+function fuzzyMatch(query, haystack) {
+  const tokens = foldText(query).split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  const text = foldText(haystack);
+  const words = text.split(/[^a-z0-9]+/).filter(Boolean);
+  return tokens.every(t => text.includes(t)
+    || (t.length >= 4 && words.some(w => withinOneEdit(t, w) || withinOneEdit(t, w.slice(0, t.length)))));
+}
+
+let _metricsCache = null;
+function playerMetricsMap() {
+  const players = state.players || [], proj = state.projections, fixtures = state.fixtures;
+  if (_metricsCache && _metricsCache.players === players && _metricsCache.proj === proj && _metricsCache.fixtures === fixtures) {
+    return _metricsCache.map;
+  }
+  const projBy = projectionsByElementId();
+  const fromGw = tickerStartGw();
+  const clubFix = new Map();
+  const map = new Map();
+  let maxX5 = 0, maxValue = 0;
+  for (const p of players) {
+    if (!clubFix.has(p.team)) clubFix.set(p.team, p.team && fixtures ? fixturesForClub(p.team, fromGw, 3) : []);
+    const fix = clubFix.get(p.team);
+    const bands = (projBy.get(p.id) || {}).ep_per_gw || [];
+    const x5 = bands.length ? bands.slice(0, 5).reduce((s, b) => s + (b.ep || 0), 0) : null;
+    const value = p.price > 0 && p.total_points != null ? p.total_points / p.price : null;
+    if (x5 != null) maxX5 = Math.max(maxX5, x5);
+    if (value != null) maxValue = Math.max(maxValue, value);
+    map.set(p.id, {
+      value,
+      xNext: bands.length ? bands[0].ep : null,
+      xNextGw: bands.length ? bands[0].gw : null,
+      x5,
+      fix,
+      fixAvg: fix.length ? fix.reduce((s, f) => s + (f.difficulty ?? 3), 0) / fix.length : null,
+      search: `${p.web_name} ${p.full_name || ""} ${p.team || ""} ${p.team_name || ""} ${p.position || ""}`,
+    });
+  }
+  map.maxX5 = maxX5;
+  map.maxValue = maxValue;
+  _metricsCache = { players, proj, fixtures, map };
+  return map;
+}
+
+function transferSortKeys() {
+  const f = state.transferFilter;
+  if (!f.sortKeys || !f.sortKeys.length) f.sortKeys = [{ key: f.sort || "form", dir: (PLAYER_COLUMNS[f.sort] || {}).dir || "desc" }];
+  return f.sortKeys;
+}
+
+let _filterCache = null;
 function filteredPlayers() {
-  const { position, strategy, priceBand, sort, query } = state.transferFilter;
-  return state.players
-    .filter(p => position === "All" || p.position === position)
-    .filter(p => strategy !== "differentials" || (p.selected_by_percent ?? 100) < DIFFERENTIAL_MAX_OWNED)
-    .filter(p => strategy !== "template" || (p.selected_by_percent ?? 0) >= TEMPLATE_MIN_OWNED)
-    .filter((PRICE_BANDS[priceBand] || PRICE_BANDS.any).test)
-    .filter(p => !query || p.web_name.toLowerCase().includes(query.toLowerCase()))
-    .sort((SORTS[sort] || SORTS.form).cmp);
+  const { position, strategy, priceBand, query } = state.transferFilter;
+  const sortKeys = transferSortKeys();
+  const metrics = playerMetricsMap();
+  const sig = JSON.stringify([position, strategy, priceBand, query, sortKeys, state.players && state.players.length]);
+  if (_filterCache && _filterCache.sig === sig && _filterCache.metrics === metrics) return _filterCache.rows;
+  const inBand = (PRICE_BANDS[priceBand] || PRICE_BANDS.any).test;
+  const metricsOf = (p) => metrics.get(p.id) || {};
+  const rows = (state.players || []).filter(p =>
+    (position === "All" || p.position === position)
+    && (strategy !== "differentials" || (p.selected_by_percent ?? 100) < DIFFERENTIAL_MAX_OWNED)
+    && (strategy !== "template" || (p.selected_by_percent ?? 0) >= TEMPLATE_MIN_OWNED)
+    && inBand(p)
+    && (!query || fuzzyMatch(query, metricsOf(p).search)));
+  rows.sort((a, b) => compareBySortKeys(a, b, sortKeys, PLAYER_COLUMNS, metricsOf) || a.id - b.id);
+  _filterCache = { sig, metrics, rows };
+  return rows;
+}
+
+function emptyPlayersState() {
+  return `
+    <div class="empty-card" role="status">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5M8.5 11h5"/></svg>
+      <div class="empty-title">No players match</div>
+      <div class="empty-sub">Try a shorter search, or clear the filters to see all ${(state.players || []).length} players.</div>
+      <button class="local-btn active" onclick="resetTransferFilters()">Clear filters</button>
+    </div>`;
+}
+
+const CARD_PAGE = 30;
+let cardLimit = CARD_PAGE;
+let _cardObserver = null;
+function renderTransferCards() {
+  const listEl = document.getElementById("transfer-list");
+  if (!listEl) return;
+  const all = filteredPlayers();
+  const rows = all.slice(0, cardLimit);
+  const metrics = playerMetricsMap();
+  listEl.innerHTML = rows.length
+    ? rows.map(p => playerRow(p, metrics.get(p.id))).join("")
+      + (all.length > rows.length ? `<button class="load-more" id="transfer-more" onclick="loadMoreCards()">Show more &middot; ${all.length - rows.length} more</button>` : "")
+    : emptyPlayersState();
+  if (_cardObserver) _cardObserver.disconnect();
+  const more = document.getElementById("transfer-more");
+  if (more && "IntersectionObserver" in window) {
+    _cardObserver = new IntersectionObserver((entries) => { if (entries.some(e => e.isIntersecting)) loadMoreCards(); }, { rootMargin: "600px 0px" });
+    _cardObserver.observe(more);
+  }
+}
+function loadMoreCards() {
+  if (cardLimit >= filteredPlayers().length) return;
+  cardLimit += CARD_PAGE;
+  renderTransferCards();
 }
 
 function renderTransferList() {
-  const listEl = document.getElementById("transfer-list");
-  if (!listEl) return;
-  const rows = filteredPlayers().slice(0, 40);
-  listEl.innerHTML = rows.map(playerRow).join("") || `<p class="empty-state">No players match.</p>`;
-  // Phase 2: the desktop <table> (>=1024px) and the aria-live filter-applied status both
-  // derive from the exact same filteredPlayers() call as the card list above -- one
-  // render path, three presentations, never three separate filter states to fall out of sync.
+  cardLimit = CARD_PAGE;
+  renderTransferCards();
   renderTransferTable();
+  const n = filteredPlayers().length;
+  const count = document.getElementById("transfer-count");
+  if (count) count.textContent = `${n} of ${(state.players || []).length} players`;
   announceTransferFilterChange();
+}
+
+function syncFilterChips() {
+  const f = state.transferFilter;
+  const primary = transferSortKeys()[0].key;
+  document.querySelectorAll(".filter-chip[data-pos]").forEach(el => el.classList.toggle("active", el.dataset.pos === f.position));
+  document.querySelectorAll(".filter-chip[data-strategy]").forEach(el => el.classList.toggle("active", el.dataset.strategy === f.strategy));
+  document.querySelectorAll(".filter-chip[data-price]").forEach(el => el.classList.toggle("active", el.dataset.price === f.priceBand));
+  document.querySelectorAll(".filter-chip[data-sort]").forEach(el => el.classList.toggle("active", el.dataset.sort === primary));
+}
+
+function resetTransferFilters() {
+  Object.assign(state.transferFilter, { position: "All", strategy: "all", priceBand: "any", query: "" });
+  const input = document.getElementById("player-search");
+  if (input) input.value = "";
+  syncFilterChips();
+  renderTransferList();
 }
 
 function setTransferFilter(position) {
   state.transferFilter.position = position;
-  document.querySelectorAll(".filter-chip[data-pos]").forEach(el => el.classList.toggle("active", el.dataset.pos === position));
+  syncFilterChips();
   renderTransferList();
 }
 
 function setStrategyFilter(strategy) {
   state.transferFilter.strategy = strategy;
-  document.querySelectorAll(".filter-chip[data-strategy]").forEach(el => el.classList.toggle("active", el.dataset.strategy === strategy));
+  syncFilterChips();
   renderTransferList();
 }
 
 function setPriceFilter(band) {
   state.transferFilter.priceBand = band;
-  document.querySelectorAll(".filter-chip[data-price]").forEach(el => el.classList.toggle("active", el.dataset.price === band));
+  syncFilterChips();
   renderTransferList();
 }
 
 function setSortFilter(sort) {
   state.transferFilter.sort = sort;
-  document.querySelectorAll(".filter-chip[data-sort]").forEach(el => el.classList.toggle("active", el.dataset.sort === sort));
+  state.transferFilter.sortKeys = [{ key: sort, dir: (PLAYER_COLUMNS[sort] || {}).dir || "desc" }];
+  syncFilterChips();
   renderTransferList();
 }
 
@@ -4210,7 +4673,7 @@ function priceWatchBlock(opts) {
       <div class="p-avatar" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
       <div class="p-name">${p.web_name}</div>
       <div class="p-team">${p.team || ""}</div>
-      <div class="p-pts" style="color:${p.net_transfers > 0 ? "var(--green)" : "var(--red)"};font-size:12px;">${p.net_transfers > 0 ? "+" : ""}${fmtCompact(p.net_transfers)}</div>
+      <div class="p-pts" style="color:${p.net_transfers > 0 ? "var(--pos-text)" : "var(--neg-text)"};font-size:12px;">${p.net_transfers > 0 ? "+" : ""}${fmtCompact(p.net_transfers)}</div>
     </div>`;
   return `
     <div class="section">
@@ -4255,61 +4718,153 @@ function captainRankingBlock() {
     </div>`;
 }
 
-// ---- Phase 2: sortable desktop table -- same filteredPlayers() data + SORTS map the card
-// list already uses, just rendered as a real <table> with aria-sort so a mouse/keyboard user
-// gets proper sortable-column semantics at the width where a dense table actually fits
-// (>=1024px, see .transfer-table-wrap's own media rule). Clicking a header re-uses
-// setSortFilter() -- the exact same state + re-render path the existing filter chips call --
-// so both views can never drift out of sync with each other.
-const TRANSFER_TABLE_COLUMNS = [
-  { key: "name", label: "Player", sortKey: null },
-  { key: "team", label: "Club / Pos", sortKey: null },
-  { key: "price", label: "Price", sortKey: "price" },
-  { key: "form", label: "Form", sortKey: "form" },
-  { key: "ownership", label: "Owned", sortKey: "ownership" },
-  { key: "ict", label: "ICT Index", sortKey: "ict" },
-];
-function transferTableHeaderCell(col) {
-  if (!col.sortKey) return `<th scope="col">${escapeHtml(col.label)}</th>`;
-  const active = state.transferFilter.sort === col.sortKey;
-  const ariaSort = active ? "descending" : "none"; // every SORTS cmp() is already a descending sort
-  return `<th scope="col" aria-sort="${ariaSort}">
-    <button class="table-sort-btn ${active ? "active" : ""}" onclick="setSortFilter('${col.sortKey}')">
-      ${escapeHtml(col.label)}
-      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10l5-5 5 5M7 14l5 5 5-5"/></svg>
+// ---- Desktop players table (>=1024px): every matching player, virtualized ---------------
+// Only the rows in view (plus a small overscan) exist in the DOM; spacer rows keep the scroll
+// height right. Click a header to sort by it (click again to flip), Shift+click to add it as a
+// secondary sort (up to three).
+const TABLE_COLUMNS = ["name", "price", "form", "points", "ppg", "value", "xnext", "x5", "ownership", "ict", "fix"];
+const PT_ROW_H = 46;
+const PT_OVERSCAN = 8;
+let _ptStart = -1;
+let _ptRaf = 0;
+
+function onSortHeader(event, key) {
+  const f = state.transferFilter;
+  const keys = transferSortKeys().slice();
+  const col = PLAYER_COLUMNS[key];
+  const i = keys.findIndex(k => k.key === key);
+  const flip = (d) => (d === "asc" ? "desc" : "asc");
+  if (event && event.shiftKey) {
+    if (i >= 0) keys[i] = { key, dir: flip(keys[i].dir) };
+    else keys.push({ key, dir: col.dir || "desc" });
+    f.sortKeys = keys.slice(0, 3);
+  } else if (i === 0 && keys.length === 1) {
+    f.sortKeys = [{ key, dir: flip(keys[0].dir) }];
+  } else {
+    f.sortKeys = [{ key, dir: col.dir || "desc" }];
+  }
+  f.sort = f.sortKeys[0].key;
+  syncFilterChips();
+  renderTransferList();
+}
+
+function playerTableHeaderCell(key, sortKeys) {
+  const col = PLAYER_COLUMNS[key];
+  const idx = sortKeys.findIndex(k => k.key === key);
+  const active = idx >= 0 ? sortKeys[idx] : null;
+  const ariaSort = idx === 0 ? (active.dir === "asc" ? "ascending" : "descending") : "none";
+  const arrow = active
+    ? (active.dir === "asc" ? '<path d="M7 14l5-5 5 5"/>' : '<path d="M7 10l5 5 5-5"/>')
+    : '<path d="M7 10l5-5 5 5M7 14l5 5 5-5"/>';
+  return `<th scope="col" aria-sort="${ariaSort}" class="pt-h-${key}${active ? " is-sorted" : ""}">
+    <button type="button" class="pt-sort" onclick="onSortHeader(event,'${key}')" ${col.title ? `title="${escapeHtml(col.title)}"` : ""}>
+      <span>${escapeHtml(col.label)}</span>
+      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${arrow}</svg>
+      ${active && sortKeys.length > 1 ? `<span class="pt-sort-n" aria-label="sort priority ${idx + 1}">${idx + 1}</span>` : ""}
     </button>
   </th>`;
 }
-function transferTableRow(p) {
+
+// Club shirt filled in the club colour, with a thin outline so dark kits still read.
+function kitBadge(p, size) {
+  const s = size || 26;
+  return `<span class="kit" style="width:${s}px;height:${s}px;" title="${escapeHtml(p.team_name || p.team || "")}">
+    <svg viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true"><path d="M8.5 3.5L12 5l3.5-1.5 4.5 2.5-1.6 4.4-2.4-.9V20.5h-8V9.5l-2.4.9L4 6z" fill="${clubColor(p.team_name)}" stroke="oklch(1 0 0 / 0.55)" stroke-width="1" stroke-linejoin="round"/></svg>
+  </span>`;
+}
+
+function fixtureChips(fix, cls) {
+  if (!fix || !fix.length) return `<span class="pt-na">&ndash;</span>`;
+  return fix.map(f => `<span class="${cls}" style="${fdrStyle(f.difficulty)}" title="${escapeHtml(f.opp)} ${f.home ? "(home)" : "(away)"}, difficulty ${f.difficulty ?? "?"}">${escapeHtml(f.home ? f.opp : String(f.opp).toLowerCase())}</span>`).join("");
+}
+
+// A soft green wash behind a number, stronger for the column's best values.
+function heatStyle(v, max) {
+  if (v == null || !(max > 0)) return "";
+  const a = Math.max(0, Math.min(1, v / max));
+  return `background:oklch(0.72 0.15 150 / ${(0.04 + a * a * 0.32).toFixed(3)});`;
+}
+
+function playerTableRow(p, m) {
+  m = m || {};
+  const metrics = playerMetricsMap();
   const inCompare = state.compareSelection.includes(p.id);
+  const num = (v, d) => (v == null || Number.isNaN(v) ? `<span class="pt-na">&ndash;</span>` : Number(v).toFixed(d));
+  const flag = isFlagged(p)
+    ? `<span class="pt-flag ${isSevereFlag(p) ? "severe" : ""}" title="${escapeHtml(p.news || "Flagged")}">${p.chance_of_playing_next_round != null ? p.chance_of_playing_next_round + "%" : "!"}</span>`
+    : "";
   return `
-    <tr class="transfer-table-row" tabindex="0" onclick="location.hash='player-${p.id}'" onkeydown="if(event.key==='Enter'){location.hash='player-${p.id}'}">
-      <td>
-        <div style="display:flex;align-items:center;gap:8px;">
+    <tr class="pt-row" tabindex="0" onclick="location.hash='player-${p.id}'" onkeydown="if(event.key==='Enter'){location.hash='player-${p.id}'}">
+      <td class="pt-player">
+        <div class="pt-player-in">
           <button class="compare-check ${inCompare ? "checked" : ""}" aria-label="${inCompare ? "Remove" : "Add"} ${escapeHtml(p.web_name)} ${inCompare ? "from" : "to"} comparison" onclick="event.stopPropagation();toggleCompare(${p.id})">${inCompare ? "&check;" : ""}</button>
-          <div class="p-avatar-sm" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
-          <span style="font-weight:700;font-size:12.5px;">${escapeHtml(p.web_name)}</span>
+          ${kitBadge(p, 24)}
+          <span class="pt-name">${escapeHtml(p.web_name)}</span>
+          ${flag}
           ${p.penalties_order === 1 ? `<span class="badge badge-setpiece">Pens</span>` : ""}
+          <span class="pt-meta">${escapeHtml(p.team || "")} &middot; ${escapeHtml(p.position || "")}</span>
         </div>
       </td>
-      <td>${escapeHtml(p.team || "&mdash;")} <span style="color:var(--ink-dim2);">&middot; ${escapeHtml(p.position || "&mdash;")}</span></td>
-      <td>${fmtMoney(p.price)}</td>
-      <td>${p.form ?? "&mdash;"}</td>
-      <td>${p.selected_by_percent != null ? p.selected_by_percent + "%" : "&mdash;"}</td>
-      <td>${p.ict_index ?? "&mdash;"}</td>
+      <td class="pt-num pt-price">${fmtMoney(p.price)}</td>
+      <td class="pt-num">${num(p.form, 1)}</td>
+      <td class="pt-num">${p.total_points ?? `<span class="pt-na">&ndash;</span>`}</td>
+      <td class="pt-num">${num(p.points_per_game, 1)}</td>
+      <td class="pt-num" style="${heatStyle(m.value, metrics.maxValue)}">${num(m.value, 1)}</td>
+      <td class="pt-num">${num(m.xNext, 1)}</td>
+      <td class="pt-num pt-strong" style="${heatStyle(m.x5, metrics.maxX5)}">${num(m.x5, 1)}</td>
+      <td class="pt-num">${p.selected_by_percent != null ? `${p.selected_by_percent}%` : `<span class="pt-na">&ndash;</span>`}</td>
+      <td class="pt-num">${num(p.ict_index, 1)}</td>
+      <td class="pt-fix">${fixtureChips(m.fix, "pt-fx")}</td>
     </tr>`;
 }
+
 function renderTransferTable() {
   const wrap = document.getElementById("transfer-table-wrap");
   if (!wrap) return;
-  const rows = filteredPlayers().slice(0, 40);
-  wrap.innerHTML = rows.length ? `
-    <table class="transfer-table">
-      <caption class="sr-only">Browse players, sortable by column</caption>
-      <thead><tr>${TRANSFER_TABLE_COLUMNS.map(transferTableHeaderCell).join("")}</tr></thead>
-      <tbody>${rows.map(transferTableRow).join("")}</tbody>
-    </table>` : `<p class="empty-state">No players match.</p>`;
+  const rows = filteredPlayers();
+  if (!rows.length) { wrap.innerHTML = emptyPlayersState(); return; }
+  const sortKeys = transferSortKeys();
+  wrap.innerHTML = `
+    <div class="ptable-scroll" id="ptable-scroll" onscroll="onPlayerTableScroll()">
+      <table class="ptable">
+        <caption class="sr-only">${rows.length} players. Activate a column header to sort by it; Shift plus click adds a secondary sort.</caption>
+        <colgroup><col class="c-player">${TABLE_COLUMNS.slice(1, -1).map(() => "<col>").join("")}<col class="c-fix"></colgroup>
+        <thead><tr>${TABLE_COLUMNS.map(k => playerTableHeaderCell(k, sortKeys)).join("")}</tr></thead>
+        <tbody id="ptable-body"></tbody>
+      </table>
+    </div>
+    <div class="ptable-foot">
+      <span>${sortKeys.map((k, i) => `${i ? "then " : "Sorted by "}${escapeHtml(PLAYER_COLUMNS[k.key].label)} ${k.dir === "asc" ? "&uarr;" : "&darr;"}`).join(", ")}</span>
+      <span>Shift+click a column to add a second sort &middot; xPts from the model's projections</span>
+    </div>`;
+  _ptStart = -1;
+  paintPlayerTableRows(true);
 }
+
+function paintPlayerTableRows(force) {
+  const scroller = document.getElementById("ptable-scroll");
+  const body = document.getElementById("ptable-body");
+  if (!scroller || !body) return;
+  const rows = filteredPlayers();
+  const viewH = scroller.clientHeight || 640;
+  const first = Math.max(0, Math.floor(scroller.scrollTop / PT_ROW_H) - PT_OVERSCAN);
+  const start = first - (first % 4);
+  if (!force && start === _ptStart) return;
+  _ptStart = start;
+  const end = Math.min(rows.length, start + Math.ceil(viewH / PT_ROW_H) + PT_OVERSCAN * 2 + 4);
+  const metrics = playerMetricsMap();
+  const span = TABLE_COLUMNS.length;
+  const spacer = (h) => `<tr class="pt-spacer" aria-hidden="true"><td colspan="${span}" style="height:${h}px"></td></tr>`;
+  body.innerHTML = (start > 0 ? spacer(start * PT_ROW_H) : "")
+    + rows.slice(start, end).map(p => playerTableRow(p, metrics.get(p.id))).join("")
+    + (end < rows.length ? spacer((rows.length - end) * PT_ROW_H) : "");
+}
+
+function onPlayerTableScroll() {
+  if (_ptRaf) return;
+  _ptRaf = requestAnimationFrame(() => { _ptRaf = 0; paintPlayerTableRows(false); });
+}
+
 // ---- Phase 2: mobile filter sheet toggle -- filters stay in the normal document flow (so
 // tablet/desktop just show them inline, unchanged), but on phone .transfer-filters is visually
 // promoted into a real bottom sheet via .filters-open (see the <700px media rule) instead of
@@ -4370,7 +4925,10 @@ function renderTransfers() {
           <span>Filter &amp; sort players</span>
           <button class="sheet-close" style="position:static;width:36px;height:36px;" aria-label="Close filters" onclick="toggleTransferFilterSheet(false)">&times;</button>
         </div>
-        <input class="search-input" id="player-search" type="search" placeholder="Search players&hellip;" value="${state.transferFilter.query}">
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input class="search-input" id="player-search" type="search" autocomplete="off" spellcheck="false" aria-label="Search players by name or club" placeholder="Search name or club &mdash; typos are fine" value="${escapeHtml(state.transferFilter.query)}">
+        </div>
         <div class="filter-row">
           ${["All", "GKP", "DEF", "MID", "FWD"].map(pos => `<button class="filter-chip ${pos === state.transferFilter.position ? "active" : ""}" data-pos="${pos}" onclick="setTransferFilter('${pos}')">${pos}</button>`).join("")}
         </div>
@@ -4386,14 +4944,22 @@ function renderTransfers() {
           <span style="align-self:center;font-size:10.5px;color:var(--ink-dim2);font-weight:700;flex-shrink:0;">Sort:</span>
           ${Object.entries(SORTS).map(([key, s]) => `<button class="filter-chip ${state.transferFilter.sort === key ? "active" : ""}" data-sort="${key}" onclick="setSortFilter('${key}')">${s.label}</button>`).join("")}
         </div>
-        <button class="local-btn active" style="width:100%;text-align:center;margin-top:4px;" onclick="toggleTransferFilterSheet(false)">Show results</button>
+        <button class="local-btn active filters-done" style="width:100%;text-align:center;margin-top:4px;" onclick="toggleTransferFilterSheet(false)">Show results</button>
       </div>
-      <p style="font-size:10.5px;color:var(--ink-dim2);margin:10px 0 12px;">Tap the checkbox to compare up to 2 players &middot; tap a row for full details.</p>
+      <div class="browse-meta">
+        <span id="transfer-count" class="browse-count"></span>
+        <span class="browse-hint">Tick to compare two players &middot; open a row for the full profile</span>
+      </div>
       <div id="transfer-list" class="transfer-card-list"></div>
       <div id="transfer-table-wrap" class="transfer-table-wrap"></div>
     </div>
   `;
-  document.getElementById("player-search").oninput = (e) => { state.transferFilter.query = e.target.value; renderTransferList(); };
+  let searchTimer = null;
+  document.getElementById("player-search").oninput = (e) => {
+    clearTimeout(searchTimer);
+    const q = e.target.value;
+    searchTimer = setTimeout(() => { state.transferFilter.query = q; renderTransferList(); }, 120);
+  };
   renderTransferList();
 }
 
@@ -4417,13 +4983,20 @@ function planWatchlistKey() { return `fq_planner_watchlist_${state.accountId}`; 
 function loadPlanWatchlist() {
   try { return JSON.parse(localStorage.getItem(planWatchlistKey())) || []; } catch { return []; }
 }
-function togglePlanWatchlist(playerId) {
+function togglePlanWatchlist(playerId, quiet) {
   const ids = new Set(state.planWatchlist || loadPlanWatchlist());
-  ids.has(playerId) ? ids.delete(playerId) : ids.add(playerId);
+  const removing = ids.has(playerId);
+  removing ? ids.delete(playerId) : ids.add(playerId);
   state.planWatchlist = [...ids];
-  localStorage.setItem(planWatchlistKey(), JSON.stringify(state.planWatchlist));
-  renderPlanSidebarSheet();
-  renderPlan();
+  try { localStorage.setItem(planWatchlistKey(), JSON.stringify(state.planWatchlist)); } catch {}
+  if (document.getElementById("plan-sidebar-sheet-body")) renderPlanSidebarSheet();
+  if (state.lastTab === "plan") renderPlan();
+  if (quiet) return;
+  const name = (state.playersById[playerId] || {}).web_name || "Player";
+  toast(removing ? `${name} removed from your watchlist` : `${name} added to your watchlist`, {
+    type: removing ? "info" : "success",
+    action: { label: "Undo", onClick: () => togglePlanWatchlist(playerId, true) },
+  });
 }
 
 // FPL's own chip codes (app_profile_<id>.json's chips[].chip_type, straight from bootstrap's
@@ -4723,7 +5296,7 @@ function planSidebarRowHtml(p, opts) {
         <div class="nm">${escapeHtml(p.web_name)} <span style="font-weight:500;color:var(--ink-dim2);">${fmtMoney(p.price)}</span></div>
         <div class="sub">${p.team_name || ""} &middot; ${p.selected_by_percent ?? "&mdash;"}% owned${upcoming ? ` &middot; ${upcoming.opp} (${upcoming.home ? "H" : "A"})` : ""}</div>
       </div>
-      ${upcoming ? `<span class="fdr-num" style="background:${FDR_COLOR(upcoming.difficulty)};width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;flex-shrink:0;">${upcoming.difficulty ?? "-"}</span>` : ""}
+      ${upcoming ? `<span class="fdr-num" style="${fdrStyle(upcoming.difficulty)};width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;flex-shrink:0;">${upcoming.difficulty ?? "-"}</span>` : ""}
       <div class="ep-val">${hasEp ? ep : "&mdash;"}</div>
       <button class="watch-star ${watched ? "on" : ""}" aria-label="${watched ? "Remove from" : "Add to"} watchlist" onclick="event.stopPropagation();togglePlanWatchlist(${p.id})">${watched ? "&#9733;" : "&#9734;"}</button>
     </div>`;
@@ -4756,6 +5329,7 @@ function renderPlanSidebarSheet() {
   pool = pool.slice(0, 60);
 
   content.innerHTML = `
+    <span id="plan-sidebar-sheet-body" hidden></span>
     <div class="player-hero" style="padding-bottom:6px;">
       <div class="name" style="font-size:16px;">${pickMode ? `Replace ${escapeHtml(outPlayer ? outPlayer.web_name : "")}` : "Search &amp; watchlist"}</div>
       ${pickMode ? `<div class="sub">Spending power ${fmtMoney(computed.bank + (outPlayer ? outPlayer.price : 0))} &middot; same position only</div>` : ""}
@@ -5453,7 +6027,7 @@ function planWhyThisPlanBlock(computed, rows) {
 let fixturesGwIndex = null;
 
 function fdrChip(side) {
-  return `<div class="fdr-chip" style="background:${FDR_COLOR(side.difficulty)}">${side.short_name || "?"} &middot; FDR ${side.difficulty ?? "-"}</div>`;
+  return `<div class="fdr-chip" style="${fdrStyle(side.difficulty)}">${side.short_name || "?"} &middot; FDR ${side.difficulty ?? "-"}</div>`;
 }
 
 function groupByDay(fixtures) {
@@ -5493,6 +6067,98 @@ function shiftFixturesGw(delta) {
   renderFixturesGw();
 }
 
+// ---- Fixture ticker: every club x the next N gameweeks, sortable by how easy the run is ----
+// A blank gameweek scores 5 (no fixture means no points, worse than any fixture); a double
+// gameweek shows both games, averages them and takes a point off for the extra game.
+const TICKER_BLANK_SCORE = 5;
+function fdrTickerRows(gameweeks, fromGw, count) {
+  const span = (gameweeks || []).filter(g => g.gameweek >= fromGw).slice(0, count);
+  const teams = new Map();
+  for (const g of gameweeks || []) {
+    for (const f of g.fixtures || []) {
+      for (const side of [f.home, f.away]) {
+        if (side && side.short_name && !teams.has(side.short_name)) teams.set(side.short_name, side.name || side.short_name);
+      }
+    }
+  }
+  return [...teams].map(([short, name]) => {
+    const cells = span.map(g => {
+      const games = [];
+      for (const f of g.fixtures || []) {
+        if (f.home.short_name === short) games.push({ opp: f.away.short_name, home: true, difficulty: f.home.difficulty });
+        else if (f.away.short_name === short) games.push({ opp: f.home.short_name, home: false, difficulty: f.away.difficulty });
+      }
+      return { gw: g.gameweek, games };
+    });
+    const perGw = cells.map(c => c.games.length
+      ? c.games.reduce((s, x) => s + (x.difficulty ?? 3), 0) / c.games.length - (c.games.length - 1)
+      : TICKER_BLANK_SCORE);
+    const score = perGw.length ? perGw.reduce((a, b) => a + b, 0) / perGw.length : null;
+    return { short, name, cells, score };
+  });
+}
+
+function tickerStartGw() {
+  const now = Date.now();
+  const upcoming = (state.fixtures || []).find(g => g.deadline_time && new Date(g.deadline_time).getTime() > now);
+  if (upcoming) return upcoming.gameweek;
+  const cur = (state.fixtures || []).find(g => g.is_current);
+  return cur ? cur.gameweek + 1 : 1;
+}
+
+let tickerSort = "easiest";
+const TICKER_GWS = 6;
+function setTickerSort(mode) {
+  tickerSort = mode;
+  const el = document.getElementById("fdr-ticker");
+  if (el) el.outerHTML = fdrTickerBlock();
+}
+
+function fdrTickerBlock() {
+  const fromGw = tickerStartGw();
+  const rows = fdrTickerRows(state.fixtures, fromGw, TICKER_GWS);
+  if (!rows.length || !rows[0].cells.length) return "";
+  const mySquadClubs = new Set(((state.team && state.team.squad) || []).map(s => (state.playersById[s.player_id] || {}).team).filter(Boolean));
+  rows.sort(tickerSort === "az" ? (a, b) => a.short.localeCompare(b.short)
+    : tickerSort === "hardest" ? (a, b) => b.score - a.score : (a, b) => a.score - b.score);
+  const gws = rows[0].cells.map(c => c.gw);
+  const cell = (c) => {
+    if (!c.games.length) return `<td class="tk-cell tk-blank" title="Blank gameweek">&ndash;</td>`;
+    return `<td class="tk-cell"><div class="tk-stack${c.games.length > 1 ? " tk-double" : ""}">${c.games.map(g =>
+      `<span class="tk-game" style="${fdrStyle(g.difficulty)}" title="GW${c.gw}: ${escapeHtml(g.opp)} ${g.home ? "home" : "away"}, difficulty ${g.difficulty ?? "?"}">${escapeHtml(g.home ? g.opp : g.opp.toLowerCase())}</span>`).join("")}</div></td>`;
+  };
+  const sortBtn = (mode, label) => `<button class="seg-btn ${tickerSort === mode ? "active" : ""}" aria-pressed="${tickerSort === mode}" onclick="setTickerSort('${mode}')">${label}</button>`;
+  return `
+    <div class="card fdr-ticker" id="fdr-ticker">
+      <div class="tk-head">
+        <div>
+          <div class="card-title" style="margin:0;">Fixture ticker &middot; GW${gws[0]}&ndash;${gws[gws.length - 1]}</div>
+          <div class="tk-sub">Home in capitals, away in lower case. Your squad's clubs are marked.</div>
+        </div>
+        <div class="seg" role="group" aria-label="Sort clubs">${sortBtn("easiest", "Easiest")}${sortBtn("hardest", "Hardest")}${sortBtn("az", "A&ndash;Z")}</div>
+      </div>
+      <div class="tk-scroll">
+        <table class="tk-table">
+          <thead><tr><th scope="col" class="tk-team-h">Club</th>${gws.map(g => `<th scope="col">GW${g}</th>`).join("")}<th scope="col" title="Average difficulty over the run (lower is easier)">Avg</th></tr></thead>
+          <tbody>${rows.map(r => `
+            <tr>
+              <th scope="row" class="tk-team"><span class="tk-dot" style="background:${clubColor(r.name)}"></span>${escapeHtml(r.short)}${mySquadClubs.has(r.short) ? `<span class="tk-mine" title="You own a player from this club">&bull;</span>` : ""}</th>
+              ${r.cells.map(cell).join("")}
+              <td class="tk-avg">${r.score != null ? r.score.toFixed(1) : "&ndash;"}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+      ${fdrLegend()}
+    </div>`;
+}
+
+function fdrLegend() {
+  return `<div class="fdr-legend" aria-label="Difficulty scale">
+    <span>Easier</span>${[1, 2, 3, 4, 5].map(n => `<span class="fdr-legend-sw" style="${fdrStyle(n)}">${n}</span>`).join("")}<span>Harder</span>
+  </div>`;
+}
+
 function swingRoadmapCard(account, maxAbs) {
   const rows = account.weekly_swing.map(w => {
     const v = w.avg_squad_swing;
@@ -5527,19 +6193,19 @@ function swingRoadmapCard(account, maxAbs) {
       ${thinSample ? `<div style="font-size:10.5px;color:oklch(0.55 0.15 60);background:oklch(0.94 0.06 60);border-radius:8px;padding:6px 9px;margin-bottom:12px;">Only ${roadmap.n_matches_played_this_season} matches played so far this season &mdash; ${roadmap.reliability_note}</div>` : ""}
       ${rows}
       <div style="display:flex;gap:8px;margin-top:14px;">
-        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));">
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--green-soft),var(--green-soft-2));color:var(--on-light-ink);">
           <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Easiest run</div>
           <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.3 0.1 150);margin-top:2px;">${best ? `GW${best.gameweek}` : "&mdash;"}</div>
           <div style="font-size:8.5px;color:oklch(0.3 0.1 150);opacity:0.75;margin-top:1px;">Bench Boost / Triple Captain</div>
         </div>
-        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));">
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,oklch(0.93 0.1 30),oklch(0.9 0.1 30));color:var(--on-light-ink);">
           <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Toughest run</div>
           <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.4 0.16 30);margin-top:2px;">${worst ? `GW${worst.gameweek}` : "&mdash;"}</div>
           <div style="font-size:8.5px;color:oklch(0.4 0.16 30);opacity:0.85;margin-top:1px;">
             ${wc ? `Wildcard ${wc.gain >= 0 ? "+" : ""}${wc.gain.toFixed(1)} EP &mdash; ${wc.recommended ? "recommended" : "below threshold"}` : (worst ? "Wildcard candidate" : "")}
           </div>
         </div>
-        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));">
+        <div style="flex:1;min-width:0;border-radius:13px;padding:10px 10px;background:linear-gradient(155deg,var(--blue-soft),var(--blue-soft-2));color:var(--on-light-ink);">
           <div style="font-size:8.5px;font-weight:700;text-transform:uppercase;opacity:0.7;">Free Hit week</div>
           <div style="font-family:'Anton',sans-serif;font-size:14px;color:oklch(0.32 0.1 250);margin-top:2px;">${freeHit ? `GW${freeHit.gameweek}` : "&mdash;"}</div>
           <div style="font-size:8.5px;color:oklch(0.32 0.1 250);opacity:0.85;margin-top:1px;">
@@ -5563,15 +6229,17 @@ function renderFixtures() {
     maxAbs = Math.max(0.05, ...allSwings.map(Math.abs));
   }
   el.innerHTML = `
-    <div class="section-title" style="margin-bottom:12px;">
-      <span>Fixtures</span>
+    <div class="section-title" style="margin-bottom:6px;"><span>Fixtures</span></div>
+    <div style="margin:0 0 12px;">${freshnessBadge(state.liveDataTs, "live", "Live data")}</div>
+    <div class="section">${fdrTickerBlock()}</div>
+    <div class="section-title" style="margin:18px 0 12px;">
+      <span>Matches</span>
       <div class="gw-switch">
         <button class="gw-btn" id="fixtures-prev" onclick="shiftFixturesGw(-1)" aria-label="Previous gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg></button>
         <span class="gw-label" id="fixtures-gw-label"></span>
         <button class="gw-btn" id="fixtures-next" onclick="shiftFixturesGw(1)" aria-label="Next gameweek"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></button>
       </div>
     </div>
-    <div style="margin:-6px 0 12px;">${freshnessBadge(state.liveDataTs, "live", "Live data")}</div>
     <div id="fixtures-list"></div>
     ${account ? `<div class="section" style="margin-top:6px;">${swingRoadmapCard(account, maxAbs)}</div>` : ""}
   `;
@@ -5628,7 +6296,7 @@ function eliteDivergenceBlock() {
               <span style="font-size:12.5px;font-weight:700;">${escapeHtml(m.name)}</span>
               ${m.diverged
                 ? `<span style="font-size:9.5px;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0;">Diverged</span>`
-                : `<span style="font-size:9.5px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0;">Matched model</span>`}
+                : `<span style="font-size:9.5px;font-weight:700;color:var(--green-text);text-transform:uppercase;letter-spacing:0.04em;flex-shrink:0;">Matched model</span>`}
             </div>
             <div style="font-size:11px;color:var(--ink-dim);line-height:1.6;">
               Actual: ${escapeHtml(m.actual_move)}<br>Model: ${escapeHtml(m.model_move)}
@@ -5689,9 +6357,9 @@ function renderLeagues() {
           <div class="table-head"><div class="col-rk">Rk</div><div class="col-name">Manager</div><div class="col-pts">Pts</div></div>
           ${table.standings.map(r => `
             <div class="t-row ${r.is_you ? "you" : ""}">
-              <div class="t-rk" style="${r.is_you ? "color:var(--green);" : ""}">${r.rank}</div>
+              <div class="t-rk" style="${r.is_you ? "color:var(--green-text);" : ""}">${r.rank}</div>
               <div class="t-name-wrap"><div class="t-name">${escapeHtml(r.player_name)}${r.is_you ? " (you)" : ""}</div><div class="t-team">${escapeHtml(r.entry_name || "")}</div></div>
-              <div class="t-pts" style="${r.is_you ? "color:var(--green);" : ""}">${r.total}</div>
+              <div class="t-pts" style="${r.is_you ? "color:var(--green-text);" : ""}">${r.total}</div>
             </div>`).join("")}
         </div>
         ${ownershipBlock(table.ownership)}
@@ -5728,10 +6396,15 @@ function fixturesForClubAtGw(shortName, gw) {
   return out;
 }
 
+let _projMapCache = { src: undefined, map: new Map() };
 function projectionsByElementId() {
   const proj = state.projections;
-  if (!proj || !proj.players) return new Map();
-  return new Map(proj.players.filter(p => p.fpl_element_id != null).map(p => [p.fpl_element_id, p]));
+  if (_projMapCache.src === proj) return _projMapCache.map;
+  const map = proj && proj.players
+    ? new Map(proj.players.filter(p => p.fpl_element_id != null).map(p => [p.fpl_element_id, p]))
+    : new Map();
+  _projMapCache = { src: proj, map };
+  return map;
 }
 
 function epForElementAtGw(projByElement, elementId, gw) {
@@ -5836,30 +6509,6 @@ function setPieceBadgeRow(p) {
   </div>`;
 }
 
-// ---- Phase 2: real, non-fabricated "xPts horizon" block for the player sheet -- pulls the
-// SAME projections_latest.json rows captainRankingBlock()/planner already use
-// (projectionsByElementId()/epForElementAtGw()), so a player only ever shows this section when
-// the model pipeline has actually published a projection for them; otherwise it's silently
-// absent, same graceful-degradation convention as every other optional panel in this file. The
-// ci_low/ci_high band is real (Cornish-Fisher quantiles per projections.py, already surfaced
-// elsewhere as a captain-ranking confidence range) -- labeled here as a "range", never
-// oversold as a literal "minutes confidence" percentage the pipeline doesn't actually export.
-function playerXptsHorizonBlock(p) {
-  const projByElement = projectionsByElementId();
-  const row = projByElement.get(p.id);
-  if (!row || !row.ep_per_gw || !row.ep_per_gw.length) return "";
-  const bands = row.ep_per_gw.slice(0, 5);
-  const total = bands.reduce((sum, b) => sum + (b.ep || 0), 0);
-  return `
-    <div class="section-title" style="color:var(--on-dark);"><span>Expected points horizon</span></div>
-    <div class="stat-grid4" style="grid-template-columns:repeat(${Math.min(bands.length, 5)},1fr);margin-bottom:8px;">
-      ${bands.map(b => `<div class="g-tile"><div class="g-label">GW${b.gw}</div><div class="g-value">${b.ep.toFixed(1)}</div></div>`).join("")}
-    </div>
-    <p style="font-size:10.5px;color:var(--on-dark-dim);margin:0 0 12px;line-height:1.5;">
-      ${bands.length} GW total ${total.toFixed(1)} xPts &middot; GW${bands[0].gw} range ${bands[0].ci_low.toFixed(1)}&ndash;${bands[0].ci_high.toFixed(1)}
-      (model uncertainty band, not a minutes guarantee).
-    </p>`;
-}
 // A short, plain-English "why" line built only from fields the sheet already displays
 // elsewhere (form/fixture difficulty/flag/ownership) -- never a new invented signal, just a
 // synthesis of the real ones so a manager doesn't have to piece it together themselves.
@@ -5870,61 +6519,240 @@ function playerWhyLine(p, nextFixture) {
   if (isFlagged(p)) bits.push(isSevereFlag(p) ? "a live injury/availability flag" : "a fitness doubt");
   if (p.selected_by_percent != null) bits.push(`${p.selected_by_percent}% ownership`);
   if (!bits.length) return "";
-  return `<p class="explain-line" style="margin:0 0 12px;">Why this view: ${bits.join(", ")}.</p>`;
+  return `<p class="why-line"><b>Why this view:</b> ${escapeHtml(bits.join(", "))}.</p>`;
 }
+// Share of values this one beats (ties count half), as 0-100. null when there's nothing to rank.
+function percentileRank(value, values) {
+  if (value == null || Number.isNaN(value) || !values || !values.length) return null;
+  let below = 0, equal = 0;
+  for (const v of values) {
+    if (v < value) below++;
+    else if (v === value) equal++;
+  }
+  return Math.round(((below + equal / 2) / values.length) * 100);
+}
+
+// Same-position comparison pools, built once per data load. Only players who have actually
+// played count, so a 0-minute third-choice keeper doesn't flatter everyone above him.
+const PEER_METRICS = [
+  { key: "form", label: "Form", get: (p) => p.form, fmt: (v) => v.toFixed(1) },
+  { key: "ppg", label: "Points per game", get: (p) => p.points_per_game, fmt: (v) => v.toFixed(1) },
+  { key: "value", label: "Points per £m", get: (p, m) => m.value, fmt: (v) => v.toFixed(1) },
+  { key: "x5", label: "xPts, next 5 GWs", get: (p, m) => m.x5, fmt: (v) => v.toFixed(1) },
+  { key: "ict", label: "ICT index", get: (p) => p.ict_index, fmt: (v) => v.toFixed(1) },
+  { key: "minutes", label: "Minutes", get: (p) => p.minutes, fmt: (v) => String(Math.round(v)) },
+];
+let _peerPoolCache = null;
+function peerPools() {
+  const metrics = playerMetricsMap();
+  if (_peerPoolCache && _peerPoolCache.metrics === metrics) return _peerPoolCache.pools;
+  const pools = {};
+  for (const p of state.players || []) {
+    if (!(p.minutes > 0) || !p.position) continue;
+    const m = metrics.get(p.id) || {};
+    const pos = pools[p.position] || (pools[p.position] = { n: 0 });
+    pos.n++;
+    for (const pm of PEER_METRICS) {
+      const v = pm.get(p, m);
+      if (v == null || Number.isNaN(v)) continue;
+      (pos[pm.key] || (pos[pm.key] = [])).push(v);
+    }
+  }
+  _peerPoolCache = { metrics, pools };
+  return pools;
+}
+
+function peerComparisonBlock(p) {
+  const pool = peerPools()[p.position];
+  if (!pool || pool.n < 5) return "";
+  const m = playerMetricsMap().get(p.id) || {};
+  const rows = PEER_METRICS.map(pm => {
+    const v = pm.get(p, m);
+    const pct = percentileRank(v, pool[pm.key]);
+    if (pct == null) return "";
+    const top = Math.max(1, 100 - pct);
+    return `
+      <div class="peer-row">
+        <div class="peer-label">${pm.label}</div>
+        <div class="peer-bar" role="img" aria-label="${pm.label}: ${pm.fmt(v)}, better than ${pct}% of ${escapeHtml(p.position)}s">
+          <span class="peer-fill" style="width:${Math.max(2, pct)}%"></span>
+          <span class="peer-mid" aria-hidden="true"></span>
+        </div>
+        <div class="peer-val">${pm.fmt(v)}</div>
+        <div class="peer-rank">${pct >= 50 ? `Top ${top}%` : `Bottom ${Math.max(1, pct)}%`}</div>
+      </div>`;
+  }).join("");
+  return `
+    <div class="sheet-section-title"><span>Against other ${escapeHtml(p.position)}s</span><span class="sheet-section-note">${pool.n} with minutes this season</span></div>
+    <div class="sheet-card peer-card">${rows}</div>`;
+}
+
+// Next eight gameweeks of model expected points: bar = central estimate, whisker = the
+// model's uncertainty band. Chips under each bar show the opponent(s) coloured by difficulty.
+function xptsHorizonChart(p) {
+  const row = projectionsByElementId().get(p.id);
+  const bands = row && row.ep_per_gw ? row.ep_per_gw.slice(0, 8) : [];
+  if (!bands.length) return "";
+  const W = 600, H = 220, padL = 30, padR = 6, padT = 16, padB = 50;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const top = Math.max(4, ...bands.map(b => Math.max(b.ep || 0, b.ci_high || 0)));
+  const step = top <= 8 ? 2 : top <= 16 ? 4 : 5;
+  const maxY = Math.ceil(top / step) * step;
+  const y = (v) => padT + innerH - (Math.max(0, Math.min(maxY, v)) / maxY) * innerH;
+  const slot = innerW / bands.length;
+  const barW = Math.min(30, slot * 0.46);
+  const total = bands.reduce((s, b) => s + (b.ep || 0), 0);
+  const peak = bands.reduce((best, b) => (b.ep > best.ep ? b : best), bands[0]);
+  const ticks = [];
+  for (let v = 0; v <= maxY; v += step) ticks.push(v);
+  const opps = bands.map(b => fixturesForClubAtGw(p.team, b.gw));
+  const bars = bands.map((b, i) => {
+    const cx = padL + slot * i + slot / 2;
+    const yTop = y(b.ep), y0 = y(0);
+    const h = Math.max(0, y0 - yTop);
+    const r = Math.min(4, h / 2, barW / 2);
+    const x1 = cx - barW / 2, x2 = cx + barW / 2;
+    const barPath = h > 0.5
+      ? `M${x1},${y0} V${yTop + r} Q${x1},${yTop} ${x1 + r},${yTop} H${x2 - r} Q${x2},${yTop} ${x2},${yTop + r} V${y0} Z`
+      : "";
+    const lo = y(b.ci_low), hi = y(b.ci_high);
+    const games = opps[i];
+    const chipW = Math.min(slot - 6, 44);
+    const chips = games.length
+      ? games.map((g, gi) => {
+        const chipH = games.length > 1 ? 11 : 16;
+        const cy = y0 + 22 + gi * (chipH + 2);
+        const n = fdrLevel(g.difficulty);
+        return `<g class="xp-chip"><rect x="${cx - chipW / 2}" y="${cy}" width="${chipW}" height="${chipH}" rx="4" fill="var(--fdr-${n || "none"})"/><text x="${cx}" y="${cy + chipH / 2 + 3.5}" text-anchor="middle" fill="${FDR_INK(g.difficulty)}" font-size="${games.length > 1 ? 7.5 : 9.5}" font-weight="800">${escapeHtml(g.home ? g.opp : String(g.opp).toLowerCase())}</text></g>`;
+      }).join("")
+      : `<text x="${cx}" y="${y0 + 34}" text-anchor="middle" class="xp-axis">blank</text>`;
+    const oppText = games.length ? games.map(g => `${g.opp} (${g.home ? "H" : "A"})`).join(" + ") : "no fixture";
+    const tip = `GW${b.gw} vs ${oppText}: ${b.ep.toFixed(1)} xPts, likely range ${Math.max(0, b.ci_low).toFixed(1)}–${b.ci_high.toFixed(1)}`;
+    const showLabel = i === 0 || b === peak;
+    return `
+      <g class="xp-slot" tabindex="0" role="img" aria-label="${escapeHtml(tip)}" data-tip="${escapeHtml(tip)}">
+        <rect class="xp-hit" x="${padL + slot * i}" y="${padT}" width="${slot}" height="${innerH + 50}" fill="transparent"/>
+        ${barPath ? `<path class="xp-bar${i === 0 ? " is-next" : ""}" d="${barPath}"/>` : ""}
+        <line class="xp-ci" x1="${cx}" x2="${cx}" y1="${hi}" y2="${lo}"/>
+        <line class="xp-ci" x1="${cx - 5}" x2="${cx + 5}" y1="${hi}" y2="${hi}"/>
+        ${lo < y0 - 0.5 ? `<line class="xp-ci" x1="${cx - 5}" x2="${cx + 5}" y1="${lo}" y2="${lo}"/>` : ""}
+        ${showLabel ? `<text class="xp-val" x="${cx + barW / 2 + 5}" y="${yTop + 4}">${b.ep.toFixed(1)}</text>` : ""}
+        <text class="xp-axis" x="${cx}" y="${y0 + 15}" text-anchor="middle">GW${b.gw}</text>
+        ${chips}
+      </g>`;
+  }).join("");
+  return `
+    <div class="sheet-section-title"><span>Expected points, next ${bands.length} GWs</span><span class="sheet-section-note">${total.toFixed(1)} total &middot; peak GW${peak.gw}</span></div>
+    <div class="sheet-card xp-card">
+      <div class="xp-chart" onmousemove="xpChartHover(event)" onmouseleave="xpChartHover(null)" onfocusin="xpChartHover(event)" onfocusout="xpChartHover(null)">
+        <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" aria-label="Expected points by gameweek for ${escapeHtml(p.web_name)}">
+          ${ticks.map(t => `<line class="xp-grid" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/><text class="xp-axis" x="${padL - 6}" y="${y(t) + 3.5}" text-anchor="end">${t}</text>`).join("")}
+          ${bars}
+        </svg>
+        <div class="xp-tip" hidden></div>
+      </div>
+      <div class="xp-foot"><span class="xp-key"><span class="xp-key-bar"></span>Expected points</span><span class="xp-key"><span class="xp-key-ci"></span>Model's likely range</span></div>
+      <table class="sr-only">
+        <caption>Expected points by gameweek</caption>
+        <thead><tr><th>Gameweek</th><th>Opponent</th><th>xPts</th><th>Range</th></tr></thead>
+        <tbody>${bands.map((b, i) => `<tr><td>GW${b.gw}</td><td>${escapeHtml(opps[i].map(g => `${g.opp} (${g.home ? "H" : "A"})`).join(", ") || "none")}</td><td>${b.ep.toFixed(1)}</td><td>${Math.max(0, b.ci_low).toFixed(1)}–${b.ci_high.toFixed(1)}</td></tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+}
+
+function xpChartHover(event) {
+  const chart = event ? event.currentTarget : document.querySelector(".xp-chart.is-hovering");
+  document.querySelectorAll(".xp-slot.is-active").forEach(el => el.classList.remove("is-active"));
+  if (!chart) return;
+  const tipEl = chart.querySelector(".xp-tip");
+  const slot = event && event.target && event.target.closest ? event.target.closest(".xp-slot") : null;
+  if (!slot) { chart.classList.remove("is-hovering"); if (tipEl) tipEl.hidden = true; return; }
+  chart.classList.add("is-hovering");
+  slot.classList.add("is-active");
+  const box = chart.getBoundingClientRect();
+  const r = slot.querySelector(".xp-hit").getBoundingClientRect();
+  tipEl.textContent = slot.dataset.tip;
+  tipEl.hidden = false;
+  const left = Math.min(Math.max(r.left - box.left + r.width / 2, 90), box.width - 90);
+  tipEl.style.left = `${left}px`;
+}
+
 function openPlayerSheet(id) {
   const p = state.playersById && state.playersById[id];
   const content = document.getElementById("sheet-content");
-  if (!p) { content.innerHTML = `<p class="empty-state">Player not found.</p>`; }
-  else {
-    const currentGw = (state.team && state.team.gameweek) || (state.fixtures.find(g => g.is_current) || {}).gameweek || 1;
-    const upcoming = fixturesForClub(p.team, currentGw, 4);
-    const inSquad = state.team && state.team.squad.some(s => s.player_id === p.id);
-    const recTopIn = state.realSquad && state.realSquad.transfer_recommendations && state.realSquad.transfer_recommendations.find(r => r.player_in === p.web_name);
-    const recTopOut = state.realSquad && state.realSquad.transfer_recommendations && state.realSquad.transfer_recommendations.find(r => r.player_out === p.web_name);
-    let recStatus = "";
-    if (inSquad) recStatus = "In your squad";
-    else if (recTopIn) recStatus = `Model's suggested transfer target (+${recTopIn.net.toFixed(1)} vs current)`;
-    else if (recTopOut) recStatus = "Model suggests moving this player on";
-    content.innerHTML = `
-      <div class="player-hero">
-        <div class="p-avatar-xl" style="background:${clubColor(p.team_name)}">${jerseyIcon()}</div>
-        <div class="name">${p.web_name}</div>
-        <div class="sub">${p.team_name || ""} &middot; ${p.position || ""}</div>
-        <div class="price">${fmtMoney(p.price)}</div>
-        ${recStatus ? `<div class="badge badge-confidence-medium" style="margin-top:8px;">${escapeHtml(recStatus)}</div>` : ""}
-      </div>
-      ${isFlagged(p) ? `<div class="flag-banner ${isSevereFlag(p) ? "severe" : ""}"><b>${p.news || "Flagged by the club"}</b>${p.chance_of_playing_next_round != null ? ` &mdash; ${p.chance_of_playing_next_round}% chance of playing` : ""}</div>` : ""}
-      ${setPieceBadgeRow(p)}
-      ${playerWhyLine(p, upcoming[0])}
-      <div class="stat-grid4">
-        <div class="g-tile"><div class="g-label">Total Pts</div><div class="g-value">${p.total_points}</div></div>
-        <div class="g-tile"><div class="g-label">Form</div><div class="g-value" style="color:var(--green);">${p.form ?? "&mdash;"}</div></div>
-        <div class="g-tile"><div class="g-label">Owned</div><div class="g-value">${p.selected_by_percent ?? "&mdash;"}%</div></div>
-        <div class="g-tile"><div class="g-label">PPG</div><div class="g-value">${p.points_per_game ?? "&mdash;"}</div></div>
-      </div>
-      ${playerXptsHorizonBlock(p)}
-      <div class="section-title" style="color:var(--on-dark);"><span>Season breakdown</span></div>
-      <div class="stat-list">
-        <div class="sl-row"><div class="sl-label">Minutes played</div><div class="sl-value">${p.minutes}</div></div>
-        <div class="sl-row"><div class="sl-label">Goals</div><div class="sl-value">${p.goals_scored}</div></div>
-        <div class="sl-row"><div class="sl-label">Assists</div><div class="sl-value">${p.assists}</div></div>
-        <div class="sl-row"><div class="sl-label">Clean sheets</div><div class="sl-value">${p.clean_sheets}</div></div>
-        <div class="sl-row"><div class="sl-label">Bonus points</div><div class="sl-value">${p.bonus}</div></div>
-        <div class="sl-row"><div class="sl-label">ICT Index</div><div class="sl-value">${p.ict_index ?? "&mdash;"}</div></div>
-        <div class="sl-row"><div class="sl-label">Yellow / red cards</div><div class="sl-value">${p.yellow_cards} / ${p.red_cards}</div></div>
-      </div>
-      ${upcoming.length ? `
-      <div class="section-title" style="color:var(--on-dark);"><span>Upcoming fixtures</span></div>
-      <div class="fdr-strip">
-        ${upcoming.map(u => `<div class="fdr-item"><div class="fdr-opp">${u.opp} (${u.home ? "H" : "A"})</div><div class="fdr-num" style="background:${FDR_COLOR(u.difficulty)}">${u.difficulty ?? "-"}</div></div>`).join("")}
-      </div>` : ""}
-      ${playerSheetLocalActions(p)}
-      <button class="local-btn ${state.compareSelection.includes(p.id) ? "active" : ""}" style="width:100%;margin-top:12px;text-align:center;" onclick="toggleCompare(${p.id});openPlayerSheet(${p.id});">
-        ${state.compareSelection.includes(p.id) ? "Remove from comparison" : "Add to comparison"}
-      </button>
-    `;
+  if (!p) {
+    content.innerHTML = `<div class="empty-card"><div class="empty-title">Player not found</div><div class="empty-sub">They may have left the league since this link was made.</div></div>`;
+    openSheet();
+    return;
   }
+  const m = playerMetricsMap().get(p.id) || {};
+  const currentGw = tickerStartGw();
+  const upcoming = fixturesForClub(p.team, currentGw, 5);
+  const inSquad = state.team && state.team.squad.some(s => s.player_id === p.id);
+  const recs = state.realSquad && state.realSquad.transfer_recommendations;
+  const recTopIn = recs && recs.find(r => r.player_in === p.web_name);
+  const recTopOut = recs && recs.find(r => r.player_out === p.web_name);
+  let recStatus = "";
+  if (inSquad) recStatus = "In your squad";
+  else if (recTopIn) recStatus = `Model's suggested transfer target (+${recTopIn.net.toFixed(1)} vs current)`;
+  else if (recTopOut) recStatus = "Model suggests moving this player on";
+  const watched = (state.planWatchlist || loadPlanWatchlist()).includes(p.id);
+  const inCompare = state.compareSelection.includes(p.id);
+  const stat = (label, value, sub) => `<div class="hero-stat"><div class="hero-stat-v">${value}</div><div class="hero-stat-l">${label}</div>${sub ? `<div class="hero-stat-s">${sub}</div>` : ""}</div>`;
+  content.innerHTML = `
+    <div class="player-hero ph-rich">
+      <div class="ph-kit">${kitBadge(p, 64)}</div>
+      <div class="ph-id">
+        <div class="name">${escapeHtml(p.web_name)}</div>
+        <div class="sub">${escapeHtml(p.full_name || "")}</div>
+        <div class="ph-tags">
+          <span class="ph-tag">${escapeHtml(p.team_name || p.team || "")}</span>
+          <span class="ph-tag">${escapeHtml(p.position || "")}</span>
+          ${recStatus ? `<span class="ph-tag ph-tag-accent">${escapeHtml(recStatus)}</span>` : ""}
+        </div>
+      </div>
+      <div class="ph-price">${fmtMoney(p.price)}</div>
+    </div>
+    ${isFlagged(p) ? `<div class="flag-banner ${isSevereFlag(p) ? "severe" : ""}"><b>${escapeHtml(p.news || "Flagged by the club")}</b>${p.chance_of_playing_next_round != null ? ` &mdash; ${p.chance_of_playing_next_round}% chance of playing` : ""}</div>` : ""}
+    ${setPieceBadgeRow(p)}
+    <div class="hero-stats">
+      ${stat("Total pts", p.total_points ?? "&ndash;")}
+      ${stat("Form", p.form ?? "&ndash;")}
+      ${stat("xPts 5GW", m.x5 != null ? m.x5.toFixed(1) : "&ndash;")}
+      ${stat("Owned", p.selected_by_percent != null ? `${p.selected_by_percent}%` : "&ndash;")}
+    </div>
+    ${playerWhyLine(p, upcoming[0])}
+    <div class="ph-actions">
+      <button class="ph-btn ${inCompare ? "on" : ""}" aria-pressed="${inCompare}" onclick="toggleCompare(${p.id});openPlayerSheet(${p.id});">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4v16M16 4v16M4 8h8M12 16h8"/></svg>
+        ${inCompare ? "Comparing" : "Compare"}
+      </button>
+      <button class="ph-btn ${watched ? "on" : ""}" aria-pressed="${watched}" onclick="togglePlanWatchlist(${p.id});openPlayerSheet(${p.id});">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="${watched ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/></svg>
+        ${watched ? "Watching" : "Watchlist"}
+      </button>
+    </div>
+    ${upcoming.length ? `
+      <div class="sheet-section-title"><span>Next fixtures</span></div>
+      <div class="fdr-strip">
+        ${upcoming.map(u => `<div class="fdr-item"><div class="fdr-opp">${escapeHtml(u.opp)} (${u.home ? "H" : "A"})</div><div class="fdr-num" style="${fdrStyle(u.difficulty)}">${u.difficulty ?? "-"}</div></div>`).join("")}
+      </div>` : ""}
+    ${xptsHorizonChart(p)}
+    ${peerComparisonBlock(p)}
+    <div class="sheet-section-title"><span>Season so far</span></div>
+    <div class="stat-list">
+      <div class="sl-row"><div class="sl-label">Minutes played</div><div class="sl-value">${p.minutes ?? "&ndash;"}</div></div>
+      <div class="sl-row"><div class="sl-label">Goals / assists</div><div class="sl-value">${p.goals_scored ?? 0} / ${p.assists ?? 0}</div></div>
+      <div class="sl-row"><div class="sl-label">Clean sheets</div><div class="sl-value">${p.clean_sheets ?? 0}</div></div>
+      <div class="sl-row"><div class="sl-label">Bonus points</div><div class="sl-value">${p.bonus ?? 0}</div></div>
+      <div class="sl-row"><div class="sl-label">Points per game</div><div class="sl-value">${p.points_per_game ?? "&ndash;"}</div></div>
+      <div class="sl-row"><div class="sl-label">Points per £m</div><div class="sl-value">${m.value != null ? m.value.toFixed(1) : "&ndash;"}</div></div>
+      <div class="sl-row"><div class="sl-label">ICT index</div><div class="sl-value">${p.ict_index ?? "&ndash;"}</div></div>
+      <div class="sl-row"><div class="sl-label">Transfers in / out this GW</div><div class="sl-value">${fmtCompact(p.transfers_in_event || 0)} / ${fmtCompact(p.transfers_out_event || 0)}</div></div>
+      <div class="sl-row"><div class="sl-label">Yellow / red cards</div><div class="sl-value">${p.yellow_cards ?? 0} / ${p.red_cards ?? 0}</div></div>
+    </div>
+    ${playerSheetLocalActions(p)}
+  `;
   openSheet();
 }
 
@@ -5991,7 +6819,7 @@ function leaderboardBlock() {
         const beats = r.model_beats_baseline_by > 0;
         const tie = r.model_beats_baseline_by === 0;
         return `<div class="sl-row"><div class="sl-label">${escapeHtml(r.name)}${r.n_gameweeks_skipped ? ` <span style="color:var(--ink-dim2);">(${r.n_gameweeks_skipped} skipped)</span>` : ""}</div>
-          <div class="sl-value" style="color:${tie ? "var(--ink-dim)" : beats ? "var(--green)" : "var(--red)"};font-size:12px;">
+          <div class="sl-value" style="color:${tie ? "var(--ink-dim)" : beats ? "var(--pos-text)" : "var(--neg-text)"};font-size:12px;">
             ${r.total_points.toFixed(1)} pts ${tie ? "&mdash;" : beats ? "&#10003;" : "&#10007;"} <span style="font-weight:500;">(${beats ? "+" : ""}${r.model_beats_baseline_by.toFixed(1)})</span>
           </div></div>`;
       }).join("")}
@@ -6018,7 +6846,7 @@ function modelTeamBlock() {
     <div class="section-title" style="color:var(--on-dark);"><span>The model's own team</span></div>
     <div class="stat-list" style="margin-bottom:8px;">
       <div class="sl-row"><div class="sl-label">Total points &middot; GW${mt.current_gameweek}</div><div class="sl-value">${mt.total_realized_points}</div></div>
-      <div class="sl-row"><div class="sl-label">vs the average manager</div><div class="sl-value" style="color:${vsField > 0 ? "var(--pos,#1a7f37)" : vsField < 0 ? "var(--neg,#cf222e)" : "inherit"};">${sign(vsField)}</div></div>
+      <div class="sl-row"><div class="sl-label">vs the average manager</div><div class="sl-value" style="color:${vsField > 0 ? "var(--pos-text)" : vsField < 0 ? "var(--neg-text)" : "inherit"};">${sign(vsField)}</div></div>
       <div class="sl-row"><div class="sl-label">Gameweeks scored</div><div class="sl-value">${mt.n_gameweeks_scored} <span style="color:var(--ink-dim2);font-weight:500;">(${mt.n_gameweeks_simulated} simulated)</span></div></div>
       ${mt.chips_used && mt.chips_used.length ? `<div class="sl-row"><div class="sl-label">Chips played</div><div class="sl-value">${mt.chips_used.join(", ")}</div></div>` : ""}
       ${mt.next_decision ? `<div class="sl-row"><div class="sl-label">Next call &middot; GW${mt.next_decision.gameweek}</div><div class="sl-value" style="font-size:11px;">${escapeHtml(mt.next_decision.action === "hold" ? "hold" : (mt.next_decision.detail || mt.next_decision.action))}</div></div>` : ""}
@@ -6170,7 +6998,7 @@ async function shareFplQuant() {
   } catch (e) { /* user cancelled or share failed -- fall through to clipboard */ }
   try {
     await navigator.clipboard.writeText(url);
-    flashToast("Link copied — paste it anywhere.");
+    toast("Link copied — paste it anywhere.", { type: "success" });
   } catch {
     flashToast("Copy this link: " + url);
   }
@@ -6259,7 +7087,7 @@ function seasonTrendBlock() {
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
         <span style="font-family:'Anton',sans-serif;font-size:22px;color:var(--ink);">GW${last.gameweek}: ${last.points ?? "&mdash;"} pts</span>
-        ${rankKnown ? `<span style="font-size:11px;color:${rankImproved ? "var(--green)" : rankWorsened ? "var(--red)" : "var(--ink-dim)"};">rank ${last.overall_rank.toLocaleString()}${rankImproved ? " &darr; improved" : rankWorsened ? " &uarr; slipped" : " unchanged"} vs GW${first.gameweek}</span>` : ""}
+        ${rankKnown ? `<span style="font-size:11px;color:${rankImproved ? "var(--pos-text)" : rankWorsened ? "var(--neg-text)" : "var(--ink-dim)"};">rank ${last.overall_rank.toLocaleString()}${rankImproved ? " &darr; improved" : rankWorsened ? " &uarr; slipped" : " unchanged"} vs GW${first.gameweek}</span>` : ""}
       </div>
       <div style="display:flex;align-items:flex-end;gap:5px;height:34px;">
         ${hist.map(r => {
@@ -6315,21 +7143,47 @@ function decisionLogBlock() {
 
 function copyDecisionLog() {
   const txt = JSON.stringify(loadDecisionLog(state.accountId), null, 2);
-  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => flashToast("Decision log copied.")).catch(() => flashToast("Couldn't copy."));
-  else flashToast("Clipboard not available.");
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(() => toast("Decision log copied.", { type: "success" })).catch(() => flashToast("Couldn't copy."));
+  else toast("Clipboard not available.", { type: "warning" });
 }
 function clearDecisionLog() {
   const all = loadDecisionLogAll();
   delete all[state.accountId];
   try { localStorage.setItem(DECISION_LOG_KEY, JSON.stringify(all)); } catch {}
-  flashToast("Decision log cleared.");
+  toast("Decision log cleared.", { type: "success" });
   openProfileSheet();
+}
+
+function currentTheme() {
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+function setTheme(theme) {
+  const light = theme === "light";
+  if (light) document.documentElement.setAttribute("data-theme", "light");
+  else document.documentElement.removeAttribute("data-theme");
+  try { localStorage.setItem("fq_theme", light ? "light" : "dark"); } catch {}
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", light ? "#2b5230" : "#0f2a1d");
+  document.querySelectorAll(".appearance-seg .seg-btn").forEach(b => {
+    const on = b.dataset.theme === (light ? "light" : "dark");
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+}
+function appearanceBlock() {
+  const t = currentTheme();
+  const btn = (key, label) => `<button class="seg-btn ${t === key ? "active" : ""}" data-theme="${key}" aria-pressed="${t === key}" onclick="setTheme('${key}')">${label}</button>`;
+  return `
+    <div class="appearance-row">
+      <span>Appearance</span>
+      <div class="seg appearance-seg" role="group" aria-label="Appearance">${btn("dark", "Dark")}${btn("light", "Light")}</div>
+    </div>`;
 }
 
 function openProfileSheet() {
   const content = document.getElementById("sheet-content");
   const profile = state.profile;
-  if (!profile) { content.innerHTML = `<p class="empty-state">No profile data available for this account.</p><a class="profile-menu-link" href="#welcome">Show tips again &rsaquo;</a>` + devToggleBlock(); }
+  if (!profile) { content.innerHTML = `<p class="empty-state">No profile data available for this account.</p><a class="profile-menu-link" href="#welcome">Show tips again &rsaquo;</a>` + appearanceBlock() + devToggleBlock(); }
   else {
     content.innerHTML = `
       <div class="player-hero">
@@ -6356,6 +7210,7 @@ function openProfileSheet() {
       ${leaderboardBlock()}
       <a class="profile-menu-link" href="https://fantasy.premierleague.com/entry/${profile.entry_id}/history" target="_blank" rel="noopener">View on official FPL site &rsaquo;</a>
       ${shareInstallBlock()}
+      ${appearanceBlock()}
       <a class="profile-menu-link" href="#welcome">Show tips again &rsaquo;</a>
       ${devToggleBlock()}
     `;
@@ -6535,12 +7390,14 @@ async function init() {
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refetchAllData(); });
     window.addEventListener("online", refetchAllData);
   } catch (err) {
+    const updated = document.getElementById("updated-at");
+    if (updated) updated.textContent = "Couldn't reach the data feed";
     document.getElementById("home-content").innerHTML = `
       <div class="card">
         <div style="text-align:center;padding:10px 6px 4px;">
           <div style="font-weight:700;font-size:14.5px;margin:12px 0 5px;">Couldn't load live data</div>
           <div style="font-size:12px;color:var(--ink-dim);line-height:1.5;max-width:300px;margin:0 auto 16px;">${err.message}. The scheduled pipeline may not have run yet, or GitHub's raw-content cache hasn't caught up &mdash; try again shortly.</div>
-          <button onclick="location.reload()" style="display:inline-flex;align-items:center;gap:6px;background:oklch(0.3 0.07 152);color:white;font-weight:700;font-size:12px;padding:9px 16px;border-radius:999px;border:none;">Retry</button>
+          <button onclick="location.reload()" style="display:inline-flex;align-items:center;gap:6px;background:var(--green);color:white;font-weight:700;font-size:12.5px;padding:10px 18px;border-radius:999px;border:none;cursor:pointer;">Retry</button>
         </div>
       </div>`;
   }
