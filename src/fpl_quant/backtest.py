@@ -1229,7 +1229,7 @@ def _decide_gameweek_action(
             continue
         if chip_wait is not None and candidate in CHIP_WAIT_FIELDS:
             detail = recommended[candidate]
-            per_gw = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
+            per_gw: dict = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
             last_gameweek = transfer_planner.GW19_DEADLINE_GAMEWEEK - 1 if is_set1 else LAST_GAMEWEEK
             if _worth_waiting(per_gw, target_gameweek, last_gameweek, *chip_wait):
                 continue
