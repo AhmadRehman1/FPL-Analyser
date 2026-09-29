@@ -2193,9 +2193,14 @@ def _minutes_log_score_for_step(
     return sum(scores) / len(scores) if scores else None
 
 
+# Placeholder, not fitted (Finding 1): the smallest ownership weight a player gets in the
+# decision-weighted calibration loss, so an unowned player still counts a little.
+DECISION_WEIGHT_OWNERSHIP_FLOOR_PCT = 0.5
+
+
 def _ep_calibration_mae_for_step(
     con: duckdb.DuckDBPyConnection, season: str, gameweek: int, original_ep_model_version: int,
-    rate_shrinkage_params_version: int,
+    rate_shrinkage_params_version: int, *, decision_weighted: bool = False,
 ) -> float | None:
     """Re-runs only expected_points.run() (no SCIP/MIQP -- a per-fixture Python/SQL loop, same
     cost class as minutes_model.run()) inside a fresh asof_scope for this one step, with a
@@ -2225,18 +2230,42 @@ def _ep_calibration_mae_for_step(
             con, gameweek_deadline(con, season, gameweek).date(), season, gameweek, ts_mv, mm_mv,
             scoring_pv, bps_pv, tau_pv, rate_shrinkage_params_version=rate_shrinkage_params_version,
         )
-    event_points_of = dict(con.execute(
-        "SELECT player_uid, event_points FROM fact_player_season_stats WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+    rows = con.execute(
+        "SELECT player_uid, event_points, selected_by_percent FROM fact_player_season_stats "
+        "WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
         [season, gameweek],
-    ).fetchall())
-    abs_resid = []
-    for player_uid, ep_total in con.execute(
+    ).fetchall()
+    predicted = dict(con.execute(
         "SELECT player_uid, ep_total FROM ep_outputs WHERE model_version = ?", [candidate_ep_mv],
-    ).fetchall():
-        realized = event_points_of.get(player_uid)
-        if realized is not None and ep_total is not None:
-            abs_resid.append(abs(realized - ep_total))
-    return sum(abs_resid) / len(abs_resid) if abs_resid else None
+    ).fetchall())
+    return calibration_mae(
+        predicted, {uid: pts for uid, pts, _ in rows}, {uid: own for uid, _, own in rows},
+        decision_weighted=decision_weighted,
+    )
+
+
+def calibration_mae(
+    predicted: dict, realized: dict, ownership_pct: dict | None = None, *, decision_weighted: bool = False,
+) -> float | None:
+    """Mean |realized - predicted| over players with both. decision_weighted (Finding 1) weights
+    each player by that week's FPL ownership (floored), so the loss tracks the players managers
+    actually pick instead of the ~600 cheap players nobody owns."""
+    ownership_pct = ownership_pct or {}
+    total = weight_sum = 0.0
+    for uid, ep_total in predicted.items():
+        pts = realized.get(uid)
+        if pts is None or ep_total is None:
+            continue
+        w = max(ownership_pct.get(uid) or 0.0, DECISION_WEIGHT_OWNERSHIP_FLOOR_PCT) if decision_weighted else 1.0
+        total += w * abs(pts - ep_total)
+        weight_sum += w
+    return total / weight_sum if weight_sum else None
+
+
+def _decision_weighted_ep_mae_for_step(con, season, gameweek, original_ep_model_version, rate_shrinkage_params_version):
+    return _ep_calibration_mae_for_step(
+        con, season, gameweek, original_ep_model_version, rate_shrinkage_params_version, decision_weighted=True,
+    )
 
 
 def refit_rate_shrinkage(
@@ -2893,7 +2922,9 @@ def recalibrate(
     minutes_select_seasons: tuple[str, ...] = ("2024-2025",),
     minutes_holdout_flag: bool = True,
     current_rate_shrinkage_version: int | None = None,
-    rate_shrinkage_k_grid: tuple[float, ...] = (150.0, 250.0, 350.0, 450.0, 600.0, 900.0),
+    # Wide enough that the old winner (900) and 3000 are both interior points -- the gate refuses
+    # a winner on the grid's edge (Finding 1: 900 was the top of the old grid).
+    rate_shrinkage_k_grid: tuple[float, ...] = (100.0, 250.0, 450.0, 900.0, 1350.0, 1800.0, 2400.0, 3000.0, 4000.0),
     refit_rate_shrinkage_flag: bool = False,
     seed_dir: Path | str | None = None,
 ) -> list[int]:
@@ -3051,7 +3082,11 @@ def recalibrate(
             raise ValueError("refit_rate_shrinkage_flag=True requires current_rate_shrinkage_version")
         current_k, _ = params_mod.resolve_param(con, "rate_shrinkage_params", "k_minutes", current_rate_shrinkage_version)
         grid = tuple(set(rate_shrinkage_k_grid) | {current_k})
-        result = refit_rate_shrinkage(con, eval_steps, ep_by_step, k_minutes_grid=grid)
+        # Optimise the decision-weighted loss (Finding 1). The unweighted MAE stays a reported
+        # diagnostic via score_gameweek()'s ep_total_calibration_mae.
+        result = refit_rate_shrinkage(
+            con, eval_steps, ep_by_step, k_minutes_grid=grid, score_fn=_decision_weighted_ep_mae_for_step,
+        )
         if result["best_k_minutes"] != current_k:
             holdout = None
             if result.get("per_step_scores"):
@@ -3060,7 +3095,7 @@ def recalibrate(
                 )
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, "rate_shrinkage_params", "k_minutes", result["best_k_minutes"],
-                "ep_total_calibration_mae",
+                "ep_total_calibration_mae_decision_weighted",
                 result["grid"][current_k]["ep_total_calibration_mae"],
                 result["grid"][result["best_k_minutes"]]["ep_total_calibration_mae"],
                 old_params_version=current_rate_shrinkage_version, effective_date=effective_date,

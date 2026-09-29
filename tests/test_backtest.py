@@ -3476,7 +3476,8 @@ def test_recalibrate_proposes_rate_shrinkage_when_the_winning_k_differs_from_cur
         "SELECT param_family, param_key, new_value, metric_name, metric_before, metric_after "
         "FROM recalibration_proposals WHERE proposal_id = ?", [proposal_ids[0]],
     ).fetchone()
-    assert row == ("rate_shrinkage_params", "k_minutes", 250.0, "ep_total_calibration_mae", 1.2, 0.9)
+    # the proposal now optimises the decision-weighted loss (Finding 1)
+    assert row == ("rate_shrinkage_params", "k_minutes", 250.0, "ep_total_calibration_mae_decision_weighted", 1.2, 0.9)
 
 
 def test_recalibrate_proposes_nothing_for_rate_shrinkage_when_current_k_already_wins(con, monkeypatch):
@@ -3574,3 +3575,19 @@ def test_recalibrate_minutes_proposals_sharing_a_version_field_share_one_new_par
     bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
 
     assert bt.resolve_active_version("minutes_adjustment_params", 1, tmp_path, param_key=("magnitude", "cap")) == 5
+
+
+def test_calibration_mae_decision_weighting_follows_ownership():
+    predicted = {"star": 5.0, "fringe": 1.0}
+    realized = {"star": 9.0, "fringe": 1.0}       # the star is 4 short, the fringe player spot on
+    own = {"star": 60.0, "fringe": 0.1}
+    assert bt.calibration_mae(predicted, realized, own) == pytest.approx(2.0)
+    # 60 : 0.5 (floored) weights -> almost all of the loss is the star's miss
+    assert bt.calibration_mae(predicted, realized, own, decision_weighted=True) == pytest.approx(4.0 * 60 / 60.5)
+    assert bt.calibration_mae({}, {}) is None
+
+
+def test_recalibrate_rate_shrinkage_grid_brackets_the_old_winner():
+    import inspect
+    grid = inspect.signature(bt.recalibrate).parameters["rate_shrinkage_k_grid"].default
+    assert min(grid) < 900.0 < max(grid) and min(grid) < 3000.0 < max(grid)
