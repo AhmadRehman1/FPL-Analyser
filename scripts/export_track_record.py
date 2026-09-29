@@ -32,6 +32,10 @@ TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 DECISION_LOG_DIR = REPO_ROOT / "data" / "decision_log"
+# Read-only here (list_report_snapshots/load_latest_provenance only read this directory) -- this
+# script's own module docstring's "don't touch report_history" concern is about WRITING there,
+# which this doesn't do; see the transparency_log note below.
+REPORT_HISTORY_DIR = REPO_ROOT / "data" / "report_history"
 # Same two recurring, tracked accounts Phase C-1/C-2 log/realize decisions for.
 TRACKED_ENTRY_IDS = [7139944, 1305242]
 
@@ -106,6 +110,14 @@ def main() -> None:
         DECISION_LOG_DIR, TRACKED_ENTRY_IDS, TARGET_SEASON,
     )
     track_record["generated_at"] = datetime.now().isoformat()
+    # 2026-09 fix: this used to be the ONLY writer of a real backtest_run_id, but never wrote
+    # transparency_log -- track-record.html reads exclusively transparency_log.backtest.headline
+    # (never the top-level headline this script always wrote), so the real oracle headline never
+    # actually rendered on the public page; see reporting.backtest_transparency_section()'s own
+    # docstring. diff=None here (this job deliberately doesn't compute a week-over-week diff --
+    # see module docstring); snapshots/provenance are read-only lookups, not a race with
+    # run_report.py's own writes to that same directory.
+    track_record["transparency_log"] = reporting.build_transparency_log(track_record, REPORT_HISTORY_DIR, diff=None)
     DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
     track_record_path = DASHBOARD_DIR / "app_track_record.json"
     track_record_path.write_text(json.dumps(track_record, indent=2))

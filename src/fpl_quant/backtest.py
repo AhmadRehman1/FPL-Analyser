@@ -268,6 +268,8 @@ def run_gameweek_step(
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    minutes_bounds_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
@@ -323,11 +325,13 @@ def run_gameweek_step(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
             current_season_role_params_version=current_season_role_params_version,
+            minutes_bounds_params_version=minutes_bounds_params_version,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
             set_piece_params_version=set_piece_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
@@ -486,12 +490,15 @@ def _is_new_signing(con: duckdb.DuckDBPyConnection, player_uid: str, season: str
     return cur_codes != prev_codes
 
 
-# Price bands match research/ml/baselines.py::_price_band exactly -- the ML experiment already
-# slices sliced_model_comparison.csv on these same four boundaries (REPORT.md §10a names
-# `price_band=9.0+` as a safety-critical slice), so the walk-forward's own segment metrics use
-# the identical cut points rather than inventing a parallel banding nobody can line up.
+# The single source of truth for these four price-band cut points (Phase 1A calibration audit,
+# 2026-09: three independent re-derivations of "<5.0 / 5.0-7.0 / 7.0-9.0 / 9.0+" had drifted
+# apart across the codebase). research/ml/baselines.py imports this function directly rather
+# than re-deriving it (REPORT.md §10a names `price_band=9.0+` as a safety-critical slice, so it
+# matters that both lanes mean the same thing by it); calibration_diagnostics.py's raw-row
+# recompute uses it too. scripts/diagnose_ep_calibration.py's SQL-side CASE expressions are a
+# separate, still-unconsolidated duplication -- see docs/reports/2026-09_calibration_captain_headline_audit.md.
 def _price_band(now_cost: float | None) -> str:
-    if now_cost is None:
+    if now_cost is None or (isinstance(now_cost, float) and math.isnan(now_cost)):
         return "unknown"
     if now_cost < 5.0:
         return "<5.0"
@@ -599,6 +606,24 @@ def _avg_manager_benchmark_points(
         pts = points_by_uid.get(uid, 0.0)
         total += (eo / 100.0) * p_start_by_uid.get(uid, 1.0) * pts
     return total if any_eo else None
+
+
+# Phase 1D (2026-09 audit): structured provenance for the walk-forward's "beats_crowd" benchmark
+# -- additive metadata only, does not change any existing metric value. See
+# reporting._backtest_headline() for where this attaches to the public headline payload, and
+# model_team.py's own real average_entry_score comparison (a different, genuinely-official
+# benchmark, used for the live 2026-27 season tracker, not this historical walk-forward) for
+# contrast -- the two must never be described with the same unqualified "average manager" phrase.
+def synthetic_crowd_benchmark_provenance() -> dict:
+    return {
+        "benchmark_name": "synthetic_eo_weighted_score",
+        "source": "internal computation: fact_player_season_stats.selected_by_percent (EO) x realized event_points",
+        "endpoint_or_artefact": None,  # not ingested from any external endpoint or artefact -- see _avg_manager_benchmark_points()'s own docstring
+        "as_of": "computed per scored gameweek-step at walk-forward time, not a fixed snapshot",
+        "gross_or_net_of_hits": "gross (no transfer-hit adjustment)",
+        "stateful": False,
+        "oracle": True,  # backtest.run()'s squad_optimizer.run() re-solves fresh every step; see run()'s own module comment
+    }
 
 
 def _record_metric(con: duckdb.DuckDBPyConnection, backtest_run_id: int, season: str, gameweek: int, tier: str, metric_name: str, metric_value: float) -> None:
@@ -937,6 +962,8 @@ def run(
     solve_bench_quality_params_version: int | None = None,
     solve_concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    minutes_bounds_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
@@ -990,6 +1017,8 @@ def run(
             bench_quality_params_version=solve_bench_quality_params_version,
             concentration_risk_params_version=solve_concentration_risk_params_version,
             current_season_role_params_version=current_season_role_params_version,
+            minutes_bounds_params_version=minutes_bounds_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
             captain_risk_params_version=captain_risk_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
@@ -2197,9 +2226,14 @@ def _minutes_log_score_for_step(
     return sum(scores) / len(scores) if scores else None
 
 
+# Placeholder, not fitted (Finding 1): the smallest ownership weight a player gets in the
+# decision-weighted calibration loss, so an unowned player still counts a little.
+DECISION_WEIGHT_OWNERSHIP_FLOOR_PCT = 0.5
+
+
 def _ep_calibration_mae_for_step(
     con: duckdb.DuckDBPyConnection, season: str, gameweek: int, original_ep_model_version: int,
-    rate_shrinkage_params_version: int,
+    rate_shrinkage_params_version: int, *, decision_weighted: bool = False,
 ) -> float | None:
     """Re-runs only expected_points.run() (no SCIP/MIQP -- a per-fixture Python/SQL loop, same
     cost class as minutes_model.run()) inside a fresh asof_scope for this one step, with a
@@ -2229,18 +2263,42 @@ def _ep_calibration_mae_for_step(
             con, gameweek_deadline(con, season, gameweek).date(), season, gameweek, ts_mv, mm_mv,
             scoring_pv, bps_pv, tau_pv, rate_shrinkage_params_version=rate_shrinkage_params_version,
         )
-    event_points_of = dict(con.execute(
-        "SELECT player_uid, event_points FROM fact_player_season_stats WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+    rows = con.execute(
+        "SELECT player_uid, event_points, selected_by_percent FROM fact_player_season_stats "
+        "WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
         [season, gameweek],
-    ).fetchall())
-    abs_resid = []
-    for player_uid, ep_total in con.execute(
+    ).fetchall()
+    predicted = dict(con.execute(
         "SELECT player_uid, ep_total FROM ep_outputs WHERE model_version = ?", [candidate_ep_mv],
-    ).fetchall():
-        realized = event_points_of.get(player_uid)
-        if realized is not None and ep_total is not None:
-            abs_resid.append(abs(realized - ep_total))
-    return sum(abs_resid) / len(abs_resid) if abs_resid else None
+    ).fetchall())
+    return calibration_mae(
+        predicted, {uid: pts for uid, pts, _ in rows}, {uid: own for uid, _, own in rows},
+        decision_weighted=decision_weighted,
+    )
+
+
+def calibration_mae(
+    predicted: dict, realized: dict, ownership_pct: dict | None = None, *, decision_weighted: bool = False,
+) -> float | None:
+    """Mean |realized - predicted| over players with both. decision_weighted (Finding 1) weights
+    each player by that week's FPL ownership (floored), so the loss tracks the players managers
+    actually pick instead of the ~600 cheap players nobody owns."""
+    ownership_pct = ownership_pct or {}
+    total = weight_sum = 0.0
+    for uid, ep_total in predicted.items():
+        pts = realized.get(uid)
+        if pts is None or ep_total is None:
+            continue
+        w = max(ownership_pct.get(uid) or 0.0, DECISION_WEIGHT_OWNERSHIP_FLOOR_PCT) if decision_weighted else 1.0
+        total += w * abs(pts - ep_total)
+        weight_sum += w
+    return total / weight_sum if weight_sum else None
+
+
+def _decision_weighted_ep_mae_for_step(con, season, gameweek, original_ep_model_version, rate_shrinkage_params_version):
+    return _ep_calibration_mae_for_step(
+        con, season, gameweek, original_ep_model_version, rate_shrinkage_params_version, decision_weighted=True,
+    )
 
 
 def refit_rate_shrinkage(
@@ -2897,7 +2955,9 @@ def recalibrate(
     minutes_select_seasons: tuple[str, ...] = ("2024-2025",),
     minutes_holdout_flag: bool = True,
     current_rate_shrinkage_version: int | None = None,
-    rate_shrinkage_k_grid: tuple[float, ...] = (150.0, 250.0, 350.0, 450.0, 600.0, 900.0),
+    # Wide enough that the old winner (900) and 3000 are both interior points -- the gate refuses
+    # a winner on the grid's edge (Finding 1: 900 was the top of the old grid).
+    rate_shrinkage_k_grid: tuple[float, ...] = (100.0, 250.0, 450.0, 900.0, 1350.0, 1800.0, 2400.0, 3000.0, 4000.0),
     refit_rate_shrinkage_flag: bool = False,
     seed_dir: Path | str | None = None,
 ) -> list[int]:
@@ -3055,7 +3115,11 @@ def recalibrate(
             raise ValueError("refit_rate_shrinkage_flag=True requires current_rate_shrinkage_version")
         current_k, _ = params_mod.resolve_param(con, "rate_shrinkage_params", "k_minutes", current_rate_shrinkage_version)
         grid = tuple(set(rate_shrinkage_k_grid) | {current_k})
-        result = refit_rate_shrinkage(con, eval_steps, ep_by_step, k_minutes_grid=grid)
+        # Optimise the decision-weighted loss (Finding 1). The unweighted MAE stays a reported
+        # diagnostic via score_gameweek()'s ep_total_calibration_mae.
+        result = refit_rate_shrinkage(
+            con, eval_steps, ep_by_step, k_minutes_grid=grid, score_fn=_decision_weighted_ep_mae_for_step,
+        )
         if result["best_k_minutes"] != current_k:
             holdout = None
             if result.get("per_step_scores"):
@@ -3064,7 +3128,7 @@ def recalibrate(
                 )
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, "rate_shrinkage_params", "k_minutes", result["best_k_minutes"],
-                "ep_total_calibration_mae",
+                "ep_total_calibration_mae_decision_weighted",
                 result["grid"][current_k]["ep_total_calibration_mae"],
                 result["grid"][result["best_k_minutes"]]["ep_total_calibration_mae"],
                 old_params_version=current_rate_shrinkage_version, effective_date=effective_date,

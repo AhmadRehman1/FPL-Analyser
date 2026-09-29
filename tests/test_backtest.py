@@ -3476,7 +3476,8 @@ def test_recalibrate_proposes_rate_shrinkage_when_the_winning_k_differs_from_cur
         "SELECT param_family, param_key, new_value, metric_name, metric_before, metric_after "
         "FROM recalibration_proposals WHERE proposal_id = ?", [proposal_ids[0]],
     ).fetchone()
-    assert row == ("rate_shrinkage_params", "k_minutes", 250.0, "ep_total_calibration_mae", 1.2, 0.9)
+    # the proposal now optimises the decision-weighted loss (Finding 1)
+    assert row == ("rate_shrinkage_params", "k_minutes", 250.0, "ep_total_calibration_mae_decision_weighted", 1.2, 0.9)
 
 
 def test_recalibrate_proposes_nothing_for_rate_shrinkage_when_current_k_already_wins(con, monkeypatch):
@@ -3574,3 +3575,44 @@ def test_recalibrate_minutes_proposals_sharing_a_version_field_share_one_new_par
     bt.write_recalibration_seed_file(con, backtest_run_id, tmp_path)
 
     assert bt.resolve_active_version("minutes_adjustment_params", 1, tmp_path, param_key=("magnitude", "cap")) == 5
+
+
+def test_run_gameweek_step_threads_rate_shrinkage_params_version(con, monkeypatch):
+    # The walk-forward must score the same k_minutes live runs use, not the hardcoded default.
+    _seed_season_simulation_league(con)
+    seen_kwargs = []
+    real_fn = bt.ep.run
+
+    def _spy(*args, **kwargs):
+        seen_kwargs.append(kwargs)
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.ep, "run", _spy)
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.run_gameweek_step(
+        con, backtest_run_id, "2025-2026", 2, n_antithetic_pairs=200,
+        xi_params_version=1, rho_params_version=1, decay_params_version=1, adjustment_params_version=1,
+        shrinkage_params_version=1, fact_multiplier_params_version=1, scoring_params_version=1,
+        bps_params_version=1, tau_params_version=1, rho_residual_params_version=1, corr_params_version=1,
+        lambda_params_version=1, guardrail_params_version=1,
+        rate_shrinkage_params_version=1,
+    )
+
+    assert seen_kwargs
+    assert seen_kwargs[0]["rate_shrinkage_params_version"] == 1
+
+
+def test_calibration_mae_decision_weighting_follows_ownership():
+    predicted = {"star": 5.0, "fringe": 1.0}
+    realized = {"star": 9.0, "fringe": 1.0}       # the star is 4 short, the fringe player spot on
+    own = {"star": 60.0, "fringe": 0.1}
+    assert bt.calibration_mae(predicted, realized, own) == pytest.approx(2.0)
+    # 60 : 0.5 (floored) weights -> almost all of the loss is the star's miss
+    assert bt.calibration_mae(predicted, realized, own, decision_weighted=True) == pytest.approx(4.0 * 60 / 60.5)
+    assert bt.calibration_mae({}, {}) is None
+
+
+def test_recalibrate_rate_shrinkage_grid_brackets_the_old_winner():
+    import inspect
+    grid = inspect.signature(bt.recalibrate).parameters["rate_shrinkage_k_grid"].default
+    assert min(grid) < 900.0 < max(grid) and min(grid) < 3000.0 < max(grid)
