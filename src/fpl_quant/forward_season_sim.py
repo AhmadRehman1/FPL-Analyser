@@ -183,6 +183,8 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         # Fix D / Fix F, live since 2026-09-29 (None when `active` doesn't carry them).
         "captain_risk_params_version": active.get("captain_risk_params_version"),
         "minutes_bounds_params_version": active.get("minutes_bounds_params_version"),
+        # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
+        "chip_wait_params_version": active.get("chip_wait_params_version"),
     }
 
 
@@ -433,6 +435,7 @@ def run_forward_season_sim(
             else:
                 accept_rank, accept_chip = bt._decide_gameweek_action(
                     con, plan_run_id, chips_set1, chips_set2, gw, accept_transfer_if_net_value_above=0.0,
+                    chip_wait_params_version=versions["chip_wait_params_version"],
                 )
                 if hold_wildcard and accept_chip == "wildcard":
                     accept_chip = None
