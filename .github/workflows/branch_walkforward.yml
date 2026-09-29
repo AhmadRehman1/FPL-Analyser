@@ -1,0 +1,60 @@
+name: Branch walk-forward (experiment)
+
+# Before/after evidence for a model change without touching master. Runs the same walk-forward
+# as nightly_backtest.yml on an experiment branch (bt/**), against the most recent cached
+# ingested DB, then prints scripts/walkforward_summary.py's scoreboard to the log and uploads
+# it as an artifact. Commits nothing.
+
+on:
+  push:
+    branches: ["bt/**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-walkforward-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  walkforward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      - name: Fail if no cached DB
+        run: |
+          test -f db/fpl_quant_v2.duckdb || { echo "::error::no cached DB to run against"; exit 1; }
+
+      - name: Run walk-forward
+        run: PYTHONPATH=src python scripts/run_walkforward.py
+
+      - name: Scoreboard
+        run: |
+          PYTHONPATH=src python scripts/walkforward_summary.py | tee walkforward_summary.json
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat walkforward_summary.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: walkforward-summary
+          path: walkforward_summary.json
