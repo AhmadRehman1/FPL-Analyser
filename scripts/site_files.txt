@@ -1,0 +1,13 @@
+# Static PWA shell files, shared by .github/workflows/deploy_pages.yml (GitHub Pages) and
+# scripts/build_cloudflare_site.sh (Cloudflare). One path per line, files or directories.
+# data/ is deliberately not here - the app reads it from raw.githubusercontent.com.
+index.html
+landing.html
+track-record.html
+sw.js
+manifest.json
+.nojekyll
+icons
+assets
+# Multi-gameweek planner modules, loaded by index.html as planner/*.js
+planner
