@@ -86,23 +86,26 @@ def _reading(rows: list[dict]) -> list[str]:
 
     out = []
     for season, arms in sorted(by_season.items()):
-        off, on = arms.get("off"), arms.get("on")
-        if off is None or on is None:
-            out.append(f"- **{season}**: incomplete ({'off' if off is None else 'on'} arm missing) -- no comparison.")
-            continue
-        off_m, on_m = off["metrics"], on["metrics"]
-        delta_total = on_m.get("total_points", 0) - off_m.get("total_points", 0)
-        delta_sharpe = on_m.get("realized_sharpe", 0) - off_m.get("realized_sharpe", 0)
-        verdict = "improves" if delta_total > 0 else "regresses" if delta_total < 0 else "ties"
-        line = (
-            f"- **{season}**: timing-on {verdict} total realized points by {delta_total:+.1f} "
-            f"({off_m.get('total_points', 0):.0f} -> {on_m.get('total_points', 0):.0f}), "
-            f"Sharpe {delta_sharpe:+.3f}. {_chips_diff(off, on)}"
-        )
-        out.append(line)
+        off = arms.get("off")
+        for name in ("on", "wait"):
+            other = arms.get(name)
+            if other is None:
+                continue
+            if off is None:
+                out.append(f"- **{season}**: incomplete (off arm missing) -- no comparison for {name}.")
+                continue
+            off_m, other_m = off["metrics"], other["metrics"]
+            delta_total = other_m.get("total_points", 0) - off_m.get("total_points", 0)
+            delta_sharpe = other_m.get("realized_sharpe", 0) - off_m.get("realized_sharpe", 0)
+            verdict = "improves" if delta_total > 0 else "regresses" if delta_total < 0 else "ties"
+            out.append(
+                f"- **{season}**: timing-{name} {verdict} total realized points by {delta_total:+.1f} "
+                f"({off_m.get('total_points', 0):.0f} -> {other_m.get('total_points', 0):.0f}), "
+                f"Sharpe {delta_sharpe:+.3f}. {_chips_diff(off, other)}"
+            )
     out.append("")
     out.append("_This is evidence, not a decision. triple_captain_timing_params_version/"
-                "bench_boost_timing_params_version stay None (off) in forward_season_sim."
+                "bench_boost_timing_params_version/chip_wait_params_version stay None (off) in forward_season_sim."
                 "_resolve_versions() and backtest.run_season_simulation()'s own defaults until "
                 "the project owner reviews this and explicitly turns them on._")
     return out

@@ -2408,3 +2408,8 @@ def test_apply_recommendation_accepting_a_chip_records_it_in_the_right_set(con):
         "SELECT chips_used_set1 FROM manager_state_versions WHERE state_version = ?", [new_state_version]
     ).fetchone()[0]
     assert "bench_boost" in chips_used_set1
+
+
+def test_best_value_per_gw_takes_the_best_player_each_week():
+    horizon = {"a": {"per_gw": {3: 7.0, 4: 4.0}}, "b": {"per_gw": {3: 5.0, 4: 9.0}}, "bench": {"per_gw": {3: 20.0}}}
+    assert tp._best_value_per_gw(horizon, {"a", "b"}) == {3: 7.0, 4: 9.0}
