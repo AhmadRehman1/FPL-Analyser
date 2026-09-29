@@ -12,6 +12,8 @@ def test_seed_v1_params_exact_frozen_value(con):
     assert lam == 0.15
     cap, _ = params.resolve_param(con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", 1)
     assert cap == 3
+    mult, _ = params.resolve_param(con, "captain_risk_params", "captain_variance_multiplier", 1)
+    assert mult == 1.0
 
 
 def _synthetic_pool():
@@ -90,6 +92,40 @@ def test_captain_points_double_counted_in_objective():
     by_uid = {c["player_uid"]: c for c in pool}
     expected = sum(by_uid[u]["mu"] for u in result["xi"]) + by_uid[result["captain"]]["mu"]
     assert result["objective"] == pytest.approx(expected)
+
+
+def _high_variance_star_pool():
+    pool = _synthetic_pool()
+    for c in pool:
+        if c["player_uid"] == "fwd3":
+            # XI-worthy even after its own risk (8 - 0.15*12), but the 3x captain charge
+            # (0.15*3*12 = 5.4) wipes out its captaincy edge
+            c["mu"], c["var"] = 8.0, 12.0
+    return pool
+
+
+def test_captain_variance_multiplier_default_is_unchanged():
+    pool = _high_variance_star_pool()
+    default = so.solve(pool, {}, lam=0.15, guardrail_cap=3)
+    explicit = so.solve(pool, {}, lam=0.15, guardrail_cap=3, captain_variance_multiplier=1.0)
+    assert default["captain"] == explicit["captain"]
+    assert default["objective"] == pytest.approx(explicit["objective"])
+
+
+def test_full_captain_variance_weight_avoids_the_high_variance_star():
+    # Finding 3: with the 3x captain variance weight the top-EP player loses the armband.
+    pool = _high_variance_star_pool()
+    result = so.solve(pool, {}, lam=0.15, guardrail_cap=3)
+    assert "fwd3" in result["xi"]
+    assert result["captain"] != "fwd3"
+
+
+def test_zero_captain_variance_multiplier_captains_top_ep_xi_player():
+    pool = _high_variance_star_pool()
+    by_uid = {c["player_uid"]: c for c in pool}
+    result = so.solve(pool, {}, lam=0.15, guardrail_cap=3, captain_variance_multiplier=0.0)
+    assert result["captain"] == max(result["xi"], key=lambda u: by_uid[u]["mu"])
+    assert result["captain"] == "fwd3"
 
 
 def test_warn_if_sigma_not_psd_fires_on_invalid_correlation(capsys):
