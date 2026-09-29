@@ -12,3 +12,7 @@ command = "bash scripts/build_cloudflare_site.sh"
 
 [assets]
 directory = "public"
+
+# PR builds run `npx wrangler preview`, which refuses to run without a `previews` block.
+# Empty is fine: assets-only, no bindings, so previews use the settings above.
+[previews]
