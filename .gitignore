@@ -31,3 +31,7 @@ data/lambda_study/arms/
 # kept out of git anyway per the plan's "no entry_id, no persistence beyond the fetch step
 # guarantee" spirit -- regenerable via scripts/run_retrospective_sample.py)
 data/retrospective/
+
+# Cloudflare build output and local wrangler state
+public/
+.wrangler/
