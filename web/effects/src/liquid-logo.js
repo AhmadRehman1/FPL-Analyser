@@ -12,17 +12,17 @@ import {
 } from '@paper-design/shaders';
 
 const DEFAULT_PARAMS = {
-  colorBack: '#2b5230', // brand green
-  colorTint: '#e8b93b', // gold accent
-  contour: 0.4,
+  colorBack: '#00000000', // transparent, so it sits on whatever is behind
+  colorTint: '#f3d27a', // warm gold, matches the site accent
+  contour: 0.45,
   distortion: 0.08,
-  softness: 0.15,
-  repetition: 2,
-  shiftRed: 0.3,
-  shiftBlue: 0.3,
+  softness: 0.12,
+  repetition: 2.2,
+  shiftRed: 0.25,
+  shiftBlue: 0.25,
   angle: 70,
   shape: 'none',
-  scale: 0.8,
+  scale: 0.92,
 };
 
 function loadImage(src) {
