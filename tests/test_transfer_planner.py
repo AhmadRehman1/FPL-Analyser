@@ -1346,6 +1346,39 @@ def test_evaluate_hold_recommendation_prefers_hold_for_a_backloaded_double_move(
     assert result["hold_value"] == pytest.approx(result["best_hold_multi_next_week"]["net_value"])
 
 
+def test_evaluate_hold_recommendation_can_make_the_double_move_now_with_two_free_transfers(con):
+    """With 2 free transfers already banked, the 2-for-2 is available now too. Gains +1 this week
+    and +5 next for both players: hold's best is the double next week (5+5 = 10), but the same
+    double now is worth 12. Before the fix transfer-now only saw its single move (6) and held."""
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 5.0, 3: 9.0}, def_a_ep={2: 5.0, 3: 9.0},
+    )
+    result = tp.evaluate_hold_recommendation(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=2,
+        points_per_hit=4, target_gameweek=2,
+    )
+    assert result["recommended_action"] == "transfer_now"
+    assert result["transfer_now_value"] == pytest.approx(12.0)
+    assert result["hold_value"] == pytest.approx(10.0)
+    assert result["best_multi_transfer_now"]["players_in"] == sorted(["in_mid_a", "in_def_a"])
+
+
+@pytest.mark.parametrize("free_transfers, expected", [(4, "hold"), (5, "transfer_now")])
+def test_evaluate_hold_recommendation_charges_a_free_transfer_wasted_at_the_cap(con, free_transfers, expected):
+    """A back-loaded single (-2 now, +6 next week): holding is worth 6 against 4 for moving now.
+    At 5 banked, holding banks nothing and loses this week's free transfer, charged one hit."""
+    current_holdings, horizon_ep_versions = _seed_multi_gw_pool(
+        con, mid_a_ep={2: 2.0, 3: 10.0}, def_a_ep={2: 1.0, 3: 1.0},
+    )
+    result = tp.evaluate_hold_recommendation(
+        con, current_holdings, "2026-2027", horizon_ep_versions, free_transfers_available=free_transfers,
+        points_per_hit=4, target_gameweek=2,
+    )
+    assert result["recommended_action"] == expected
+    assert result["transfer_now_value"] == pytest.approx(4.0)
+    assert result["hold_value"] == pytest.approx(6.0 - (4.0 if free_transfers == 5 else 0.0))
+
+
 def _seed_run_ready_state(con):
     """A real, run()-able manager_state_versions row over
     _seed_real_squad_optimizer_candidate_pool's own candidate pool -- everything

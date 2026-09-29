@@ -833,7 +833,9 @@ def evaluate_hold_recommendation(
     strategies rather than always taking the best available move now:
 
     (A) 'transfer_now': the single best transfer available this gameweek
-        (evaluate_transfers()'s own #1 result), over the FULL horizon starting this gameweek.
+        (evaluate_transfers()'s own #1 result), or -- when 2+ free transfers are already banked
+        -- the best 2-for-2 combo this gameweek, whichever is worth more, over the FULL horizon
+        starting this gameweek.
     (B) 'hold': make no transfer this gameweek (the free transfer banks, growing
         free_transfers_available by 1 for next gameweek -- the real FPL banking rule already
         implemented in apply_recommendation()), then take the better of (i) next gameweek's
@@ -852,6 +854,14 @@ def evaluate_hold_recommendation(
     what this comparison needs to answer; documented here as a genuine simplification, not a
     silently accepted inaccuracy.
 
+    At the 5-transfer cap, holding banks nothing -- that week's free transfer is lost -- so
+    'hold' is charged one hit (points_per_hit), what a free transfer saves when it's used.
+
+    2026-10 fix (docs/reports/2026-10_live_path_diagnosis.md, finding 5): (A) used to be the
+    single transfer only, while (B) could reach for a double move, and nothing charged for a
+    wasted free transfer. Two transfers nearly always beat one, so 'hold' won most weeks and
+    the tracked account banked 4 free transfers.
+
     Recommends 'hold' only when its value strictly beats 'transfer_now's -- a tie, or an
     empty candidate set on the hold side, resolves toward acting now: a real, available gain
     today is never deferred for a merely-equal-or-worse hypothetical later one.
@@ -860,7 +870,19 @@ def evaluate_hold_recommendation(
         con, current_holdings, target_season, horizon_ep_versions, free_transfers_available,
         points_per_hit, max_club_count=max_club_count, bank=bank,
     )
-    transfer_now_value = now_results[0]["net_value"] if now_results else None
+    now_single_value = now_results[0]["net_value"] if now_results else None
+
+    now_multi = []
+    now_multi_value = None
+    if free_transfers_available >= 2:
+        now_multi = evaluate_multi_transfers(
+            con, current_holdings, target_season, horizon_ep_versions, free_transfers_available,
+            points_per_hit, max_club_count=max_club_count, bank=bank,
+            candidate_pool_limit_per_position=candidate_pool_limit_per_position,
+        )
+        now_multi_value = now_multi[0]["net_value"] if now_multi else None
+    now_candidates = [v for v in (now_single_value, now_multi_value) if v is not None]
+    transfer_now_value = max(now_candidates) if now_candidates else None
 
     next_week_horizon = {gw: v for gw, v in horizon_ep_versions.items() if gw > target_gameweek}
     held_free_transfers = min(5, free_transfers_available + 1)
@@ -882,12 +904,15 @@ def evaluate_hold_recommendation(
         hold_multi_value = hold_multi[0]["net_value"] if hold_multi else None
 
     hold_candidates = [v for v in (hold_single_value, hold_multi_value) if v is not None]
-    hold_value = max(hold_candidates) if hold_candidates else None
+    wasted_free_transfer_cost = points_per_hit if free_transfers_available >= 5 else 0.0
+    hold_value = max(hold_candidates) - wasted_free_transfer_cost if hold_candidates else None
 
     if transfer_now_value is None and hold_value is None:
         return {
             "recommended_action": "no_action_available", "transfer_now_value": None, "hold_value": None,
-            "best_transfer_now": None, "best_hold_single_next_week": None, "best_hold_multi_next_week": None,
+            "best_transfer_now": None, "best_multi_transfer_now": None,
+            "best_hold_single_next_week": None, "best_hold_multi_next_week": None,
+            "wasted_free_transfer_cost": wasted_free_transfer_cost,
         }
 
     recommend_hold = hold_value is not None and (transfer_now_value is None or hold_value > transfer_now_value)
@@ -895,8 +920,10 @@ def evaluate_hold_recommendation(
         "recommended_action": "hold" if recommend_hold else "transfer_now",
         "transfer_now_value": transfer_now_value, "hold_value": hold_value,
         "best_transfer_now": now_results[0] if now_results else None,
+        "best_multi_transfer_now": now_multi[0] if now_multi else None,
         "best_hold_single_next_week": hold_single[0] if hold_single else None,
         "best_hold_multi_next_week": hold_multi[0] if hold_multi else None,
+        "wasted_free_transfer_cost": wasted_free_transfer_cost,
     }
 
 
