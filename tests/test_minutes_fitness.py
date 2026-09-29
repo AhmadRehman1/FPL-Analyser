@@ -143,3 +143,51 @@ def test_run_gates_a_flagged_players_p_start_final(con):
     assert hist_final > 0.95                    # clean role signal: nailed
     assert abs(p_start_final - 0.25 * hist_final) < 0.02   # gated to ~25%
     assert p_0 > 0.7                            # mostly won't feature
+
+
+# ---- Finding 4: probability floor --------------------------------------------
+
+def test_probability_floor_keeps_every_state_off_zero_and_one():
+    p = mm.apply_probability_floor(1.0, 0.0, 0.0, 0.02)
+    assert abs(sum(p) - 1.0) < 1e-12
+    assert min(p) == 0.02 and max(p) == 0.96
+    assert mm.apply_probability_floor(0.2, 0.3, 0.5, 0.0) == (0.2, 0.3, 0.5)
+    # ordering preserved
+    a, b, c = mm.apply_probability_floor(0.1, 0.3, 0.6, 0.02)
+    assert a < b < c
+
+
+def _ruled_out_star(con):
+    _seed_league_with_gameweeks(con)
+    _seed_team_and_player(con, "star", "Star", "Forward")
+    con.execute("INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+                "VALUES ('Star','star','1','2026-2027','star')")
+    for season in ("2024-2025", "2025-2026"):
+        for gw in range(1, 11):
+            _played(con, "star", season, gw)
+            _season_stat(con, "star", season, gw, status="a")
+    _season_stat(con, "star", "2026-2027", 1, status="i", chance=0)
+    params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0)
+    params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+
+
+def _probs(con, mv):
+    return con.execute("SELECT p_0min, p_1_59min, p_60plus_min FROM minutes_model_outputs "
+                       "WHERE model_version = ? AND player_uid = 'star'", [mv]).fetchone()
+
+
+def test_ruled_out_flag_is_a_hard_zero_without_the_floor(con):
+    _ruled_out_star(con)
+    mv = mm.run(con, date(2026, 8, 10), "2026-2027", decay_params_version=1, adjustment_params_version=1,
+                shrinkage_params_version=1, fact_multiplier_params_version=1)
+    assert _probs(con, mv)[0] == 1.0
+
+
+def test_ruled_out_flag_keeps_the_floor_with_minutes_bounds(con):
+    _ruled_out_star(con)
+    mm.seed_minutes_bounds_params(con)
+    mv = mm.run(con, date(2026, 8, 10), "2026-2027", decay_params_version=1, adjustment_params_version=1,
+                shrinkage_params_version=1, fact_multiplier_params_version=1, minutes_bounds_params_version=1)
+    p0, p1, p60 = _probs(con, mv)
+    assert abs(p0 - 0.96) < 1e-9 and abs(p1 - 0.02) < 1e-9 and abs(p60 - 0.02) < 1e-9
