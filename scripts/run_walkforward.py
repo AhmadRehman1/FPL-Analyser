@@ -39,6 +39,11 @@ def main() -> None:
     con = db.connect()
     active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
     param_versions = _param_versions(active)
+    # EXPERIMENT (bt/fix-e-lam0.05 only): lambda sweep on top of the captain change.
+    from fpl_quant import params as _pm
+    param_versions["lambda_params_version"] = _pm.get_or_create_version(
+        con, "risk_aversion_params", "lambda_value", "2026-09-29", value_numeric=0.05,
+    )
 
     # EXPERIMENT (bt/fix-d-cap0 only): captain's extra variance weight switched off.
     from fpl_quant import params as params_mod
