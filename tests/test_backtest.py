@@ -1993,6 +1993,88 @@ def test_realized_xi_points_vice_captain_not_in_xi_is_ignored(con):
 
 
 # ============================================================
+# _gameweek_minutes -- fact_player_season_stats.minutes is a season RUNNING TOTAL, so a
+# gameweek's own minutes are the change from the player's previous row. Reading the total
+# directly meant a captain who played GW1 never counted as blank again (2026-27 model team:
+# Senesi's total sat at 90 through GW2-5, so the vice never got the armband).
+# ============================================================
+
+def _seed_running_minutes(con, season, rows):
+    """rows: {player_uid: [(gw, event_points, cumulative_minutes), ...]}."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A') ON CONFLICT DO NOTHING")
+    for player_uid, weeks in rows.items():
+        con.execute(
+            "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder') ON CONFLICT DO NOTHING",
+            [player_uid, player_uid],
+        )
+        for gw, points, minutes in weeks:
+            con.execute(
+                "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, minutes, _ingested_at) "
+                "VALUES (?, ?, ?, ?, ?, current_timestamp)",
+                [player_uid, season, gw, points, minutes],
+            )
+
+
+def test_gameweek_minutes_is_the_change_in_the_running_total(con):
+    _seed_running_minutes(con, "2026-2027", {"p1": [(1, 3, 90), (2, 0, 90), (3, 2, 180)]})
+    assert bt._gameweek_minutes(con, "2026-2027", 1, frozenset({"p1"})) == {"p1": 90}
+    assert bt._gameweek_minutes(con, "2026-2027", 2, frozenset({"p1"})) == {"p1": 0}
+    assert bt._gameweek_minutes(con, "2026-2027", 3, frozenset({"p1"})) == {"p1": 90}
+
+
+def test_gameweek_minutes_unknown_when_the_data_contradicts_itself(con):
+    _seed_running_minutes(con, "2026-2027", {
+        "scored_without_playing": [(1, 2, 90), (2, 5, 90)],  # 0 minutes but 5 points
+        "total_went_down": [(1, 2, 90), (2, 2, 60)],
+    })
+    out = bt._gameweek_minutes(con, "2026-2027", 2, frozenset({"scored_without_playing", "total_went_down", "no_row"}))
+    assert out == {"scored_without_playing": None, "total_went_down": None, "no_row": None}
+
+
+def test_realized_xi_points_vice_gets_the_armband_when_the_captains_running_total_did_not_move(con):
+    _seed_running_minutes(con, "2026-2027", {
+        "captain": [(1, 3, 90), (2, 0, 90)],   # played GW1, not GW2
+        "vice": [(1, 2, 90), (2, 8, 180)],
+    })
+    total = bt._realized_xi_points(
+        con, "2026-2027", 2, frozenset({"captain", "vice"}), captain_uid="captain", vice_captain_uid="vice",
+    )
+    assert total == pytest.approx(0 + 8 * 2)
+
+
+def _seed_2024_25_match(con, gameweek, minutes_by_uid):
+    """2024-25 has no minutes column: a PL match in `gameweek` plus per-match rows for the
+    players who appeared, the way that season's playermatchstats source lists them."""
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B') ON CONFLICT DO NOTHING")
+    match_id = f"m2425_{gameweek}"
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "finished, competition, _ingested_at) VALUES (?, '2024-2025', ?, '2024-09-14 15:00:00', 'team_a', 'team_b', "
+        "TRUE, 'Premier League', current_timestamp)",
+        [match_id, gameweek],
+    )
+    for uid, minutes in minutes_by_uid.items():
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, minutes_played, _ingested_at) "
+            "VALUES (?, ?, '2024-2025', ?, current_timestamp)",
+            [uid, match_id, minutes],
+        )
+
+
+def test_gameweek_minutes_uses_match_rows_when_the_season_has_no_minutes_column(con):
+    _seed_event_points(con, "2024-2025", 4, {"played": 6, "benched": 0})  # minutes NULL, like 2024-25
+    _seed_2024_25_match(con, 4, {"played": 90})
+    out = bt._gameweek_minutes(con, "2024-2025", 4, frozenset({"played", "benched"}))
+    assert out == {"played": 90, "benched": 0}
+
+
+def test_gameweek_minutes_unknown_without_a_running_total_or_match_rows(con):
+    _seed_event_points(con, "2024-2025", 4, {"p1": 0})
+    assert bt._gameweek_minutes(con, "2024-2025", 4, frozenset({"p1"})) == {"p1": None}
+
+
+# ============================================================
 # season_cumulative_metrics -- season-long trajectory scoring, hand-computed values
 # ============================================================
 
@@ -3158,7 +3240,7 @@ def test_bench_order_by_projected_ep_empty_for_no_bench(con):
 
 
 # ============================================================
-# run_season_simulation(simulate_auto_subs=True) -- wiring, not the underlying mechanism (see
+# run_season_simulation(simulate_auto_subs=True, the default) -- wiring, not the underlying mechanism (see
 # the direct simulate_auto_substitutions()/_realized_xi_points() tests above for that): spies
 # on _realized_xi_points() the same way test_run_season_simulation_calls_compute_bank_only_
 # while_the_asof_shadow_is_active does, since forcing a REAL blank through the full MIQP+
@@ -3166,7 +3248,7 @@ def test_bench_order_by_projected_ep_empty_for_no_bench(con):
 # orchestration threads the right arguments to the right call.
 # ============================================================
 
-def test_run_season_simulation_simulate_auto_subs_passes_squad_uids_and_bootstrap_bench_order(con, monkeypatch):
+def test_run_season_simulation_auto_subs_by_default_passes_squad_uids_and_bootstrap_bench_order(con, monkeypatch):
     _seed_season_simulation_league(con)
     seen_calls = []
     real_fn = bt._realized_xi_points
@@ -3177,8 +3259,7 @@ def test_run_season_simulation_simulate_auto_subs_passes_squad_uids_and_bootstra
 
     monkeypatch.setattr(bt, "_realized_xi_points", _spy)
     bt.run_season_simulation(
-        con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200, simulate_auto_subs=True,
-        **_SEASON_SIM_VERSIONS,
+        con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS,
     )
 
     assert len(seen_calls) == 2
@@ -3196,7 +3277,7 @@ def test_run_season_simulation_simulate_auto_subs_passes_squad_uids_and_bootstra
     assert "bench_order" in later_call["kwargs"]
 
 
-def test_run_season_simulation_without_simulate_auto_subs_passes_no_squad_uids(con, monkeypatch):
+def test_run_season_simulation_simulate_auto_subs_false_passes_no_squad_uids(con, monkeypatch):
     _seed_season_simulation_league(con)
     seen_calls = []
     real_fn = bt._realized_xi_points
@@ -3206,7 +3287,10 @@ def test_run_season_simulation_without_simulate_auto_subs_passes_no_squad_uids(c
         return real_fn(con_arg, season_arg, gw_arg, xi_uids, captain_uid, **kwargs)
 
     monkeypatch.setattr(bt, "_realized_xi_points", _spy)
-    bt.run_season_simulation(con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200, **_SEASON_SIM_VERSIONS)
+    bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200, simulate_auto_subs=False,
+        **_SEASON_SIM_VERSIONS,
+    )
 
     assert seen_calls
     for kwargs in seen_calls:

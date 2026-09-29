@@ -917,7 +917,14 @@ def score_gameweek(
             "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND is_vice", [so_run_id]
         ).fetchone()
         vice_captain_uid = vice_row[0] if vice_row else None
-        model_points = _realized_xi_points(con, season, gameweek, xi_uids, captain_uid, vice_captain_uid=vice_captain_uid)
+        run_squad_uids = frozenset(r[0] for r in con.execute(
+            "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [so_run_id]
+        ).fetchall())
+        # Real FPL rules: the bench auto-subs in for a starter who didn't play.
+        model_points = _realized_xi_points(
+            con, season, gameweek, xi_uids, captain_uid, vice_captain_uid=vice_captain_uid,
+            squad_uids=run_squad_uids or None, bench_order=_bench_order_from_squad_optimizer_run(con, so_run_id),
+        )
         avg_manager_points = _avg_manager_benchmark_points(con, season, gameweek, ep_model_version, ownership_params_version)
         if avg_manager_points is not None:
             _record_metric(con, backtest_run_id, season, gameweek, tier, "model_squad_realized_points", model_points)
@@ -1192,7 +1199,7 @@ def run_season_simulation(
     kappa_tc_params_version: int,
     accept_transfer_if_net_value_above: float = 0.0,
     n_antithetic_pairs: int = 2000,
-    simulate_auto_subs: bool = False,
+    simulate_auto_subs: bool = True,
     ownership_params_version: int | None = None,
     risk_posture_params_version: int | None = None,
     field_covariance_params_version: int | None = None,
@@ -1232,8 +1239,9 @@ def run_season_simulation(
     -- actions is the real per-gameweek decision log, for auditing what the simulated manager
     actually did, not just the final score.
 
-    simulate_auto_subs (2026-09-14 fix, opt-in -- False is the exact prior behavior): the real
-    gap docs/reports/2025-26_retrospective_validation.md's own caveat (e) discloses --
+    simulate_auto_subs (2026-09-14 fix; default True since 2026-10, real FPL rules -- False is
+    the old XI-only scoring): the real gap docs/reports/2025-26_retrospective_validation.md's
+    own caveat (e) discloses --
     _realized_xi_points() used to be structurally unable to read a bench player's points at
     all. When True, every gameweek's scoring call additionally passes squad_uids/bench_order so
     a blanked starter with a real, legal, played bench replacement is actually subbed in before
@@ -1413,7 +1421,7 @@ def run_season_simulation(
             vice_captain_uid = next((h["player_uid"] for h in holdings if h["is_vice"]), None)
             captain_multiplier = 3 if accept_chip == "triple_captain" else 2
 
-        # simulate_auto_subs=True (opt-in, see this function's own docstring): the bootstrap
+        # simulate_auto_subs=True (the default, see this function's own docstring): the bootstrap
         # gameweek's real, solve-time bench_order is read directly; every later gameweek (whose
         # squad evolved via transfers, not a fresh solve) uses the EP-projected proxy, keyed off
         # plan_run_id -- which, on a DOUBLE gameweek other than start_gameweek, is deliberately
@@ -1670,10 +1678,10 @@ def beats_baseline(
         crowd_points = _avg_manager_benchmark_points(con, season, gw, ep_mv, ownership_params_version)
 
         if recent_solve is not None and recent_solve["status"] in ("optimal", "timelimit"):
-            baseline_weekly["recent_points"].append(_realized_xi_points(con, season, gw, recent_solve["xi"], recent_solve["captain"]))
+            baseline_weekly["recent_points"].append(_realized_solve_points(con, season, gw, recent_solve))
             baseline_gameweeks["recent_points"].append(gw)
         if ownership_solve is not None and ownership_solve["status"] in ("optimal", "timelimit"):
-            baseline_weekly["ownership_popularity"].append(_realized_xi_points(con, season, gw, ownership_solve["xi"], ownership_solve["captain"]))
+            baseline_weekly["ownership_popularity"].append(_realized_solve_points(con, season, gw, ownership_solve))
             baseline_gameweeks["ownership_popularity"].append(gw)
         if crowd_points is not None:
             baseline_weekly["crowd"].append(crowd_points)
@@ -2595,6 +2603,80 @@ def _bench_order_by_projected_ep(
     return {uid: rank for rank, uid in enumerate(ranked, start=1)}
 
 
+def _gameweek_minutes(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, player_uids: frozenset,
+) -> dict[str, int | None]:
+    """Minutes each player played in this one gameweek, or None when that can't be told.
+
+    fact_player_season_stats.minutes is a season running total (reconcile._COLUMN_SEMANTICS:
+    cumulative_to_date), so a gameweek's own minutes are its row minus the player's latest
+    earlier row. Reading the running total directly (the old behavior) meant a player only
+    counted as "didn't play" if he hadn't played all season, so the vice-captain rule and
+    auto-subs almost never fired (docs/reports/2026-10_live_path_diagnosis.md, finding 1).
+
+    2024-25's source has no minutes column (NULL). There the per-match minutes in
+    fact_player_match_stats stand in: that source only lists players who appeared, so no row
+    in a gameweek that has match rows at all means 0.
+
+    Missing data stays None (unknown, never a confirmed blank), and so does a 0 that
+    contradicts non-zero event_points or a running total that went down."""
+    if not player_uids:
+        return {}
+    uids = sorted(player_uids)
+    ph = ",".join("?" * len(uids))
+    current = {
+        uid: (minutes, pts) for uid, minutes, pts in con.execute(
+            f"SELECT player_uid, minutes, event_points FROM fact_player_season_stats "
+            f"WHERE season = ? AND gw = ? AND player_uid IN ({ph})",
+            [season, gameweek, *uids],
+        ).fetchall()
+    }
+    previous = dict(con.execute(
+        f"SELECT player_uid, arg_max(minutes, gw) FROM fact_player_season_stats "
+        f"WHERE season = ? AND gw < ? AND minutes IS NOT NULL AND player_uid IN ({ph}) GROUP BY player_uid",
+        [season, gameweek, *uids],
+    ).fetchall())
+
+    out: dict[str, int | None] = {}
+    no_running_total = []
+    for uid in uids:
+        if uid not in current:
+            out[uid] = None
+        elif current[uid][0] is None:
+            no_running_total.append(uid)
+        else:
+            delta = current[uid][0] - (previous.get(uid) or 0)
+            out[uid] = delta if delta >= 0 else None
+
+    if no_running_total:
+        match_rows = con.execute(
+            "SELECT count(*) FROM fact_player_match_stats s JOIN fact_match m ON m.match_id = s.match_id "
+            "WHERE m.season = ? AND m.gameweek = ? AND m.competition = ?",
+            [season, gameweek, PL],
+        ).fetchone()[0]
+        ph2 = ",".join("?" * len(no_running_total))
+        played = dict(con.execute(
+            f"SELECT s.player_uid, sum(s.minutes_played) FROM fact_player_match_stats s "
+            f"JOIN fact_match m ON m.match_id = s.match_id "
+            f"WHERE m.season = ? AND m.gameweek = ? AND m.competition = ? AND s.player_uid IN ({ph2}) "
+            f"GROUP BY s.player_uid",
+            [season, gameweek, PL, *no_running_total],
+        ).fetchall()) if match_rows else {}
+        for uid in no_running_total:
+            if not match_rows:
+                out[uid] = None
+            elif uid in played:
+                out[uid] = None if played[uid] is None else int(played[uid])
+            else:
+                out[uid] = 0
+
+    for uid, minutes in out.items():
+        pts = current.get(uid, (None, None))[1]
+        if minutes == 0 and pts not in (None, 0):
+            out[uid] = None
+    return out
+
+
 def _realized_xi_points(
     con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None,
     captain_multiplier: int = 2, vice_captain_uid: str | None = None,
@@ -2617,12 +2699,13 @@ def _realized_xi_points(
     just doubles the captain's real points") -- this is what actually closes it, once a caller
     has a real (not reconstructed-guess) vice_captain_uid to pass.
 
-    Minutes UNKNOWN (no row at all, or a real row with a NULL minutes -- fact_player_season_stats.
-    minutes has no NOT NULL constraint) is deliberately NOT treated as "confirmed blank": only an
-    explicit minutes == 0 triggers the fallback. Conflating "never recorded" with "definitely
-    didn't play" would transfer the armband on pure missing-data noise -- a real fixture-vs-
-    production gap found via test_score_gameweek_records_beats_crowd_metrics_when_opted_in, whose
-    scenario has real event_points but no minutes column at all.
+    Minutes are this gameweek's own (_gameweek_minutes(), not the season running total the
+    column stores). Minutes UNKNOWN (no row at all, or no minutes data) is deliberately NOT
+    treated as "confirmed blank": only an explicit 0 triggers the fallback. Conflating "never
+    recorded" with "definitely didn't play" would transfer the armband on pure missing-data
+    noise -- a real fixture-vs-production gap found via
+    test_score_gameweek_records_beats_crowd_metrics_when_opted_in, whose scenario has real
+    event_points but no minutes column at all.
 
     squad_uids/bench_order (2026-09-14 fix, opt-in TOGETHER -- both None is the exact prior
     behavior, this function's original XI-only limitation): the real gap disclosed in
@@ -2645,14 +2728,15 @@ def _realized_xi_points(
     # all before this fix, and a silently-INNER-joined-away event_points/minutes row would be a
     # real regression, not an improvement, for every existing caller).
     rows = con.execute(
-        f"SELECT s.player_uid, s.event_points, s.minutes, dp.position FROM fact_player_season_stats s "
+        f"SELECT s.player_uid, s.event_points, dp.position FROM fact_player_season_stats s "
         f"LEFT JOIN dim_player dp ON dp.player_uid = s.player_uid "
         f"WHERE s.player_uid IN ({placeholders}) AND s.season = ? AND s.gw = ?",
         [*all_uids, season, gameweek],
     ).fetchall() if all_uids else []
-    stats = {uid: (0.0, None, None) for uid in all_uids}  # default: no row = unknown, never a confirmed blank
-    for uid, pts, minutes, position in rows:
-        stats[uid] = (pts if pts is not None else 0.0, minutes, position)
+    minutes_by_uid = _gameweek_minutes(con, season, gameweek, all_uids)
+    stats: dict[str, tuple[float, int | None, str | None]] = {uid: (0.0, None, None) for uid in all_uids}  # default: no row = unknown, never a confirmed blank
+    for uid, pts, position in rows:
+        stats[uid] = (pts if pts is not None else 0.0, minutes_by_uid.get(uid), position)
 
     effective_xi_uids = xi_uids
     if squad_uids is not None:
@@ -2676,6 +2760,15 @@ def _realized_xi_points(
         total += pts * captain_multiplier if player_uid == armband_uid else pts
     return total
 
+
+
+def _realized_solve_points(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, result: dict) -> float:
+    """_realized_xi_points() for a squad_optimizer.solve() result, under real FPL rules: the
+    solve's own vice-captain and bench order, so a starter who didn't play is auto-subbed."""
+    return _realized_xi_points(
+        con, season, gameweek, result["xi"], result["captain"], vice_captain_uid=result.get("vice"),
+        squad_uids=result.get("squad") or None, bench_order=result.get("bench_order"),
+    )
 
 # ============================================================
 # season-long scoring -- one evolving manager's own weekly trajectory, not independent
@@ -2761,16 +2854,14 @@ def refit_lambda(
             result = squad_optimizer.solve(candidates, sigma_pairs, lam, guardrail_cap)
             if not result["xi"]:
                 continue
-            # vice_captain_uid=result["vice"]: 2026-09 fix (docs/reports/2026-09_chip_policy_
+            # The solve's real vice (and bench, via _realized_solve_points()): 2026-09 fix (docs/reports/2026-09_chip_policy_
             # and_scoring_diagnosis.md) -- this call predates the 2026-09-07 real-vice-captain
             # fallback fix (171dc5c) and was never updated to pass it, so lambda recalibration
             # was still being scored on the stale, no-fallback numbers while the live model
             # team and the headline walk-forward metric already use the real armband-transfer
             # rule. Same real FPL rule either way: solve() already returns a real vice pick
             # (never None once xi is non-empty), so this costs nothing extra to wire in.
-            gameweek_points.append(
-                _realized_xi_points(con, season, gw, result["xi"], result["captain"], vice_captain_uid=result["vice"])
-            )
+            gameweek_points.append(_realized_solve_points(con, season, gw, result))
 
         if len(gameweek_points) >= 2:
             arr = np.array(gameweek_points)
@@ -2890,12 +2981,10 @@ def report_concentration_sensitivity(
             result = squad_optimizer.solve(candidates, sigma_pairs, lambda_value, cap)
             if not result["xi"]:
                 continue
-            # vice_captain_uid=result["vice"]: same 2026-09 fix as refit_lambda() above -- this
+            # The solve's real vice and bench: same 2026-09 fix as refit_lambda() above -- this
             # concentration-cap sensitivity report was likewise still scoring on the pre-
             # 171dc5c, no-vice-fallback numbers.
-            gameweek_points.append(
-                _realized_xi_points(con, season, gw, result["xi"], result["captain"], vice_captain_uid=result["vice"])
-            )
+            gameweek_points.append(_realized_solve_points(con, season, gw, result))
 
         if len(gameweek_points) >= 2:
             arr = np.array(gameweek_points)

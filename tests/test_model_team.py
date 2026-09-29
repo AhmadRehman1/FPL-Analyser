@@ -134,6 +134,57 @@ def test_realize_keeps_old_behavior_when_ledger_row_has_no_vice_captain_uid(con,
     assert model_team.load_state(tmp_path)["ledger"][0]["realized_points"] == 20.0
 
 
+def test_realize_rescores_a_locked_row_from_an_older_scoring_version(con, tmp_path):
+    """Rows locked before SCORING_VERSION 2 read the season running total as per-gameweek
+    minutes, so a captain who played GW1 never counted as blank. They get re-scored once."""
+    xi = [f"player_s{i}" for i in range(11)]
+    _seed_players(con, xi + [f"player_bench{i}" for i in range(4)])
+    row = _ledger_row(2, xi, "player_s0", realized=20.0, vice="player_s1")
+    row["realized_final"] = True  # locked under the old scorer, no scoring_version
+    _write_state(tmp_path, [row], gw=2)
+    _seed_points_and_minutes(con, "2026-2027", 1, {u: (2, 90) for u in xi})
+    _seed_points_and_minutes(con, "2026-2027", 2, {
+        **{u: (2, 180) for u in xi if u != "player_s0"},
+        "player_s0": (0, 90),  # running total unchanged: didn't play GW2
+    })
+    assert model_team.realize(con, tmp_path, finished_gameweeks={2}) == {"realized": 1}
+    rescored = model_team.load_state(tmp_path)["ledger"][0]
+    assert rescored["realized_points"] == 22.0  # 9*2 + vice 2*2, captain's 0 not doubled
+    assert rescored["scoring_version"] == model_team.SCORING_VERSION
+    assert rescored["realized_final"] is True
+    assert model_team.realize(con, tmp_path, finished_gameweeks={2}) == {"realized": 0}
+
+
+def test_realize_auto_subs_by_fpl_projection_when_the_row_has_no_bench_order(con, tmp_path):
+    """A starter who didn't play is replaced from the bench. With no stored bench order (rows
+    written before one was), FPL's own projection for the gameweek sets the priority."""
+    positions = {"gk": "Goalkeeper", "d1": "Defender", "d2": "Defender", "d3": "Defender", "d4": "Defender",
+                 "m1": "Midfielder", "m2": "Midfielder", "m3": "Midfielder", "m4": "Midfielder",
+                 "f1": "Forward", "f2": "Forward", "bgk": "Goalkeeper", "bd": "Defender", "bm": "Midfielder",
+                 "bf": "Forward"}
+    for uid, pos in positions.items():
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, pos])
+    xi = [u for u in positions if not u.startswith("b")]
+    row = _ledger_row(3, xi, "m1", realized=None, vice="m2")
+    row["squad_uids"] = sorted(positions)
+    _write_state(tmp_path, [row], gw=3)
+    ep_next = {"bd": 2.0, "bm": 5.0, "bf": 3.0, "bgk": 1.0}
+    for uid in positions:
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, minutes, ep_next, _ingested_at) "
+            "VALUES (?, '2026-2027', 2, 2, 90, ?, current_timestamp)", [uid, ep_next.get(uid, 4.0)],
+        )
+    week3 = {u: (2, 180) for u in positions}
+    week3["d1"] = (0, 90)      # didn't play
+    week3["bgk"] = (0, 90)
+    week3["bd"] = (1, 180)     # played, lowest projection
+    week3["bm"] = (7, 180)     # played, highest projection -> first sub
+    _seed_points_and_minutes(con, "2026-2027", 3, week3)
+    model_team.realize(con, tmp_path)
+    # 10 starters at 2 (+2 more for captain m1) with d1 swapped for bm's 7 (4 DEF left is legal)
+    assert model_team.load_state(tmp_path)["ledger"][0]["realized_points"] == 10 * 2 + 2 + 7
+
+
 # ------------------------------------------------------------------ build_summary()
 
 def test_build_summary_not_ready_before_seeding(con, tmp_path):

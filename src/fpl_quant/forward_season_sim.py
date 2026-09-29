@@ -99,6 +99,10 @@ class GameweekResult:
     # The forward-plan builder (forward_plan.py) turns these into name-resolved per-week moves
     # so the app can show the model's whole transfer path, not just this week's.
     transfers: list[dict] = field(default_factory=list)
+    # Auto-sub priority of the scored squad's bench, {player_uid: rank}, highest projected EP
+    # first (the rule squad_optimizer.solve() uses; a goalkeeper's rank is never read, since
+    # only the bench keeper can replace the starting one). Realized scoring reads it.
+    bench_order: dict[str, int] = field(default_factory=dict)
     # Real FPL points this XI actually scored, only when score_realized=True AND the gameweek
     # has been played+ingested. None for a future gameweek -- projected_points still carries the
     # forward estimate either way.
@@ -133,6 +137,7 @@ class GameweekResult:
             "carryforward_captain_uid": self.carryforward_captain_uid,
             "carryforward_vice_captain_uid": self.carryforward_vice_captain_uid,
             "transfers": self.transfers,
+            "bench_order": self.bench_order,
         }
 
 
@@ -481,19 +486,25 @@ def run_forward_season_sim(
             else:
                 mean, std = _projected_xi_points(con, target_season, gw, ep_mv_gw, un_mv_gw, xi, cap, mult)
 
-            realized = None
-            if score_realized:
-                # Real FPL scoring where the gameweek has already been played and ingested
-                # (fact_player_season_stats.event_points is populated); None otherwise -- a
-                # caller mixing realized past + projected future can tell which is which.
-                played = con.execute(
-                    "SELECT count(*) FROM fact_player_season_stats WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
-                    [target_season, gw],
-                ).fetchone()[0]
-                if played:
-                    realized = bt._realized_xi_points(
-                        con, target_season, gw, frozenset(xi), cap, captain_multiplier=mult, vice_captain_uid=vice,
-                    )
+            scored_squad = free_hit_squad if (accept_chip == "free_hit" and free_hit_squad is not None) else holdings
+            scored_squad_uids = frozenset(h["player_uid"] for h in scored_squad)
+            bench_order = bt._bench_order_by_projected_ep(con, plan_run_id, gw, scored_squad_uids - xi)
+
+        realized = None
+        if score_realized:
+            # Real FPL scoring where the gameweek has already been played and ingested
+            # (fact_player_season_stats.event_points is populated); None otherwise -- a
+            # caller mixing realized past + projected future can tell which is which. Outside
+            # the asof shadow above, which hides this gameweek's own results.
+            played = con.execute(
+                "SELECT count(*) FROM fact_player_season_stats WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+                [target_season, gw],
+            ).fetchone()[0]
+            if played:
+                realized = bt._realized_xi_points(
+                    con, target_season, gw, frozenset(xi), cap, captain_multiplier=mult, vice_captain_uid=vice,
+                    squad_uids=scored_squad_uids, bench_order=bench_order,
+                )
 
         action = accept_chip or ("transfer" if accept_rank is not None else "hold")
         detail = ""
@@ -515,7 +526,6 @@ def run_forward_season_sim(
                 detail = f"{tr[0]} -> {tr[1]} (net {tr[2]:+.2f})"
                 transfers = [{"out_uid": tr[0], "in_uid": tr[1], "net": round(float(tr[2]), 2)}]
 
-        scored_squad = free_hit_squad if (accept_chip == "free_hit" and free_hit_squad is not None) else holdings
         # `holdings` is the real persisted post-decision squad (state_version after
         # apply_recommendation) -- the squad that carries forward. On a Free Hit week it is the
         # pre-chip 15 (holdings untouched), NOT `scored_squad`.
@@ -537,6 +547,7 @@ def run_forward_season_sim(
             carryforward_captain_uid=next((h["player_uid"] for h in holdings if h["is_captain"]), None),
             carryforward_vice_captain_uid=next((h["player_uid"] for h in holdings if h["is_vice"]), None),
             transfers=transfers,
+            bench_order=bench_order,
         ))
 
     total = sum(r.projected_points for r in rows)
