@@ -2251,6 +2251,117 @@ def test_apply_recommendation_declining_transfer_leaves_bank_unchanged(con):
     assert bank == pytest.approx(3.0)
 
 
+# ============================================================
+# pick_lineup / apply_recommendation's weekly re-pick -- a manager sets the XI, captain and vice
+# every gameweek. The walk used to carry GW1's flags all season (a transferred-in player took
+# the seller's XI slot and could never captain).
+# ============================================================
+
+_LINEUP_POSITIONS = {
+    "gk1": "Goalkeeper", "gk2": "Goalkeeper",
+    "d1": "Defender", "d2": "Defender", "d3": "Defender", "d4": "Defender", "d5": "Defender",
+    "m1": "Midfielder", "m2": "Midfielder", "m3": "Midfielder", "m4": "Midfielder", "m5": "Midfielder",
+    "f1": "Forward", "f2": "Forward", "f3": "Forward",
+}
+
+
+def test_pick_lineup_best_legal_xi_then_captain_and_vice_by_ep():
+    ep = {"gk1": 3, "gk2": 1, "d1": 5, "d2": 4, "d3": 3, "d4": 2, "d5": 1,
+          "m1": 6, "m2": 2, "m3": 2, "m4": 1, "m5": 9, "f1": 7, "f2": 2, "f3": 1}
+    lineup = tp.pick_lineup(list(_LINEUP_POSITIONS), _LINEUP_POSITIONS, ep)
+    # GK1; minimums d1-d3, m5+m1, f1; then the best four left (ties at 2 by uid: d4, f2, m2, m3)
+    assert lineup["xi"] == {"gk1", "d1", "d2", "d3", "m5", "m1", "f1", "d4", "f2", "m2", "m3"}
+    assert lineup["captain"] == "m5"
+    assert lineup["vice"] == "f1"
+
+
+def test_pick_lineup_respects_position_maximums():
+    ep = {uid: 1.0 for uid in _LINEUP_POSITIONS}
+    ep.update({"d1": 10, "d2": 10, "d3": 10, "d4": 10, "d5": 10, "f1": 9, "f2": 9, "f3": 9, "gk1": 2})
+    lineup = tp.pick_lineup(list(_LINEUP_POSITIONS), _LINEUP_POSITIONS, ep)
+    positions = [_LINEUP_POSITIONS[u] for u in lineup["xi"]]
+    assert positions.count("Defender") == 5
+    assert positions.count("Forward") == 3
+    assert positions.count("Midfielder") == 2  # the minimum, even though every MID is worse
+    assert positions.count("Goalkeeper") == 1
+
+
+def test_pick_lineup_triple_captain_candidate_takes_the_armband():
+    ep = {uid: 1.0 for uid in _LINEUP_POSITIONS}
+    ep.update({"m1": 8.0, "f1": 7.0})
+    lineup = tp.pick_lineup(list(_LINEUP_POSITIONS), _LINEUP_POSITIONS, ep, captain_uid="f1")
+    assert lineup["captain"] == "f1"
+    assert lineup["vice"] == "m1"
+
+
+def _seed_lineup_plan_run(con, ep_by_uid, *, tc_candidate=None):
+    """A 15-man state with stale flags (the frozen GW1 look: d5 captain, junk XI), a plan run
+    for GW2 with real per-player EP, and one transfer m5 -> p_new."""
+    ep_mv, un_mv = _seed_model_version_chain(con)
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_b', 'B')")
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "competition, _ingested_at) VALUES ('gw2m', '2026-2027', 2, '2026-08-22 15:00:00', 'team_a', 'team_b', "
+        "'Premier League', current_timestamp)"
+    )
+    for uid, pos in {**_LINEUP_POSITIONS, "p_new": "Midfielder"}.items():
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, pos])
+    for uid, ep_total in ep_by_uid.items():
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+            "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+            "ep_total, expected_bps) VALUES (?, ?, 'gw2m', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0)",
+            [ep_mv, uid, ep_total],
+        )
+    state_version = con.execute(
+        "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
+        "chips_used_set1, chips_used_set2, bank) VALUES ('2026-2027', 2, 1, '[]', '[]', 0.0) RETURNING state_version"
+    ).fetchone()[0]
+    stale_xi = {"gk2", "d1", "d2", "d3", "d4", "d5", "m3", "m4", "m5", "f2", "f3"}
+    for uid in _LINEUP_POSITIONS:
+        con.execute(
+            "INSERT INTO manager_squad_holdings (state_version, player_uid, in_xi, is_captain, is_vice) VALUES (?, ?, ?, ?, ?)",
+            [state_version, uid, uid in stale_xi, uid == "d5", uid == "d4"],
+        )
+    run_id = con.execute(
+        "INSERT INTO transfer_plan_runs (calibration_asof_date, target_season, target_gameweek, input_state_version, "
+        "horizon_params_version, transfer_cost_params_version, ep_model_versions, uncertainty_model_versions) "
+        "VALUES ('2026-08-17', '2026-2027', 2, ?, 1, 1, ?, ?) RETURNING run_id",
+        [state_version, json.dumps({"2": ep_mv}), json.dumps({"2": un_mv})],
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO transfer_recommendations (run_id, rank, player_out, player_in, price_out, price_in, "
+        "horizon_value_gain, transfer_cost, net_value) VALUES (?, 1, 'm5', 'p_new', 5.0, 5.0, 3.0, 0.0, 3.0)",
+        [run_id],
+    )
+    if tc_candidate is not None:
+        con.execute(
+            "INSERT INTO chip_evaluations (run_id, chip_type, recommended, detail) VALUES (?, 'triple_captain', TRUE, ?)",
+            [run_id, json.dumps({"captain_candidate": tc_candidate})],
+        )
+    return run_id
+
+
+_LINEUP_EP = {"gk1": 3, "gk2": 1, "d1": 5, "d2": 4, "d3": 3, "d4": 2, "d5": 1,
+              "m1": 6, "m2": 2, "m3": 2, "m4": 1, "m5": 1, "p_new": 9, "f1": 7, "f2": 2, "f3": 1}
+
+
+def test_apply_recommendation_repicks_the_xi_captain_and_vice_for_the_gameweek(con):
+    run_id = _seed_lineup_plan_run(con, _LINEUP_EP)
+    holdings = tp._read_holdings(con, tp.apply_recommendation(con, run_id, accept_transfer_rank=1))
+    by_uid = {h["player_uid"]: h for h in holdings}
+    assert {u for u, h in by_uid.items() if h["in_xi"]} == {"gk1", "d1", "d2", "d3", "p_new", "m1", "f1", "d4", "f2", "m2", "m3"}
+    assert [u for u, h in by_uid.items() if h["is_captain"]] == ["p_new"]  # the new signing can captain
+    assert [u for u, h in by_uid.items() if h["is_vice"]] == ["f1"]
+
+
+def test_apply_recommendation_triple_captain_arms_the_chips_own_candidate(con):
+    run_id = _seed_lineup_plan_run(con, _LINEUP_EP, tc_candidate="f1")
+    holdings = tp._read_holdings(con, tp.apply_recommendation(con, run_id, accept_chip="triple_captain"))
+    assert [h["player_uid"] for h in holdings if h["is_captain"]] == ["f1"]
+    assert [h["player_uid"] for h in holdings if h["is_vice"]] == ["m1"]
+
+
 def test_apply_recommendation_accepting_a_chip_records_it_in_the_right_set(con):
     # bench_boost, not wildcard: this test is about generic chips_used_set bookkeeping, not
     # Wildcard's own real squad-rebuild behavior (see the dedicated wildcard tests below,

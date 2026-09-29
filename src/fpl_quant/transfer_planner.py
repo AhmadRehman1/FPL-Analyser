@@ -1830,6 +1830,90 @@ def read_fresh_chip_squad(con: duckdb.DuckDBPyConnection, run_id: int, chip_type
     return [{"player_uid": uid, "in_xi": in_xi, "is_captain": is_captain, "is_vice": is_vice} for uid, in_xi, is_captain, is_vice in rows]
 
 
+def pick_lineup(
+    squad_uids: list[str], position_by_uid: dict[str, str], ep_by_uid: dict[str, float],
+    var_by_uid: dict[str, float] | None = None, captain_uid: str | None = None,
+) -> dict | None:
+    """This gameweek's starting XI, captain and vice, the way a manager sets them each week:
+    the formation-legal XI with the most expected points (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD),
+    then captain and vice by reporting.rank_captain(). `captain_uid` (Triple Captain's own
+    candidate) takes the armband when it made the XI.
+
+    Greedy is exact here: after each position's minimum, the remaining slots go to the best
+    players left, skipping a position already at its maximum. None if the squad can't field a
+    legal XI (a malformed squad)."""
+    from . import reporting  # imported here: reporting imports this module
+
+    def ep_of(uid: str) -> float:
+        return ep_by_uid.get(uid) or 0.0
+
+    by_position: dict[str | None, list[str]] = {}
+    for uid in sorted(squad_uids, key=lambda u: (-ep_of(u), u)):
+        by_position.setdefault(position_by_uid.get(uid), []).append(uid)
+    goalkeepers = by_position.get("Goalkeeper", [])
+    if not goalkeepers:
+        return None
+    xi = [goalkeepers[0]]
+    counts: dict[str, int] = {}
+    for pos, need in squad_optimizer.XI_POSITION_MIN.items():
+        picks = by_position.get(pos, [])[:need]
+        if len(picks) < need:
+            return None
+        xi += picks
+        counts[pos] = need
+    rest = sorted(
+        (u for pos in squad_optimizer.XI_POSITION_MIN for u in by_position.get(pos, []) if u not in xi),
+        key=lambda u: (-ep_of(u), u),
+    )
+    for uid in rest:
+        if len(xi) == 11:
+            break
+        pos = position_by_uid[uid]
+        if counts[pos] < squad_optimizer.XI_POSITION_MAX[pos]:
+            xi.append(uid)
+            counts[pos] += 1
+    if len(xi) < 11:
+        return None
+    xi_ep = {u: ep_of(u) for u in xi}
+    captain = captain_uid if captain_uid in xi_ep else reporting.rank_captain(xi_ep, var_by_uid)
+    vice = reporting.rank_captain({u: v for u, v in xi_ep.items() if u != captain}, var_by_uid)
+    return {"xi": frozenset(xi), "captain": captain, "vice": vice}
+
+
+def _gameweek_lineup(
+    con: duckdb.DuckDBPyConnection, run_id: int, gameweek: int, squad_uids: list[str], accept_chip: str | None,
+) -> dict | None:
+    """pick_lineup() for `squad_uids` on the plan run's own EP for `gameweek`. None when the
+    run has no EP for that gameweek (the caller then keeps the squad's existing flags)."""
+    row = con.execute(
+        "SELECT ep_model_versions, uncertainty_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id]
+    ).fetchone()
+    ep_mv = json.loads(row[0]).get(str(gameweek)) if row and row[0] else None
+    if ep_mv is None or not squad_uids:
+        return None
+    un_mv = json.loads(row[1]).get(str(gameweek)) if row[1] else None
+    ph = ",".join("?" * len(squad_uids))
+    # Summed over the gameweek's fixtures, so a double gameweek counts both games.
+    ep_by_uid = dict(con.execute(
+        f"SELECT player_uid, sum(ep_total) FROM ep_outputs WHERE model_version = ? AND player_uid IN ({ph}) GROUP BY player_uid",
+        [ep_mv, *squad_uids],
+    ).fetchall())
+    var_by_uid = dict(con.execute(
+        f"SELECT player_uid, sum(var_total) FROM uncertainty_outputs WHERE model_version = ? AND player_uid IN ({ph}) GROUP BY player_uid",
+        [un_mv, *squad_uids],
+    ).fetchall()) if un_mv is not None else {}
+    positions = dict(con.execute(
+        f"SELECT player_uid, position FROM dim_player WHERE player_uid IN ({ph})", squad_uids
+    ).fetchall())
+    tc_candidate = None
+    if accept_chip == "triple_captain":
+        tc_row = con.execute(
+            "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'triple_captain'", [run_id]
+        ).fetchone()
+        tc_candidate = json.loads(tc_row[0]).get("captain_candidate") if tc_row and tc_row[0] else None
+    return pick_lineup(squad_uids, positions, ep_by_uid, var_by_uid, captain_uid=tc_candidate)
+
+
 def apply_recommendation(
     con: duckdb.DuckDBPyConnection, run_id: int, *, accept_transfer_rank: int | None = None, accept_chip: str | None = None,
 ) -> int:
@@ -1911,6 +1995,21 @@ def apply_recommendation(
         new_free_transfers = min(5, max(0, free_transfers_available - (1 if transfer_cost == 0.0 else 0)) + 1)
     else:
         new_free_transfers = min(5, free_transfers_available + 1)  # banked, unused this gameweek
+
+    # A manager re-picks the XI, captain and vice every gameweek. Before this, last week's flags
+    # were carried forward: a transferred-in player took the seller's XI slot and could never
+    # captain, and the GW1 captain kept the armband all season
+    # (docs/reports/2026-10_live_path_diagnosis.md, findings 2-3). Not on a Free Hit week: the
+    # held squad isn't played then and must carry forward untouched.
+    lineup = (
+        None if accept_chip == "free_hit"
+        else _gameweek_lineup(con, run_id, target_gameweek, sorted(holdings_by_uid), accept_chip)
+    )
+    if lineup is not None:
+        holdings_by_uid = {
+            uid: {**h, "in_xi": uid in lineup["xi"], "is_captain": uid == lineup["captain"], "is_vice": uid == lineup["vice"]}
+            for uid, h in holdings_by_uid.items()
+        }
 
     if accept_chip is not None:
         if target_gameweek < GW19_DEADLINE_GAMEWEEK:
