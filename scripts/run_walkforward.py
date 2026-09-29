@@ -52,6 +52,9 @@ def main() -> None:
         # the Track Record headline (BUSINESS_PLAN.md P0) sat null between weekly runs.
         compute_segments=True,
         ownership_params_version=1,
+        # Score the same k_minutes live runs use. Before this the walk-forward always ran the
+        # hardcoded default (450), so the confirmed 450 -> 900 change was never measured here.
+        rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")

@@ -631,20 +631,28 @@ are required. Rival-squad sampling itself now has its own, deliberately lower-ca
 (`.github/workflows/rival_squad_sample.yml`, daily, at Phase A-1's scaled-up default of 2,000
 entries) rather than running only on manual dispatch.
 
-## Hosting (free, GitHub Pages)
+## Hosting
 
-The PWA (`index.html` + `landing.html` + `track-record.html` + `sw.js` + `manifest.json` +
-`icons/`) is a static site, so it can be hosted for free on GitHub Pages via
-`.github/workflows/deploy_pages.yml` -- which deploys only the shell (never the
-`data/dashboard/*.json` payloads, which stay on `raw.githubusercontent.com` for fast per-request
-refresh; see `docs/BUSINESS_PLAN.md` for why that split is deliberate). `landing.html` is the
-public marketing/conversion page (what the app does, how to add your team, links to the app and
-the track record); `track-record.html` is the public Model Track Record page (recommendation
-timeline + data provenance), linked from the app's Profile sheet.
+Two free hosts serve the same static shell (`index.html`, `landing.html`, `track-record.html`,
+`sw.js`, `manifest.json`, `icons/`, `assets/`, `planner/`):
 
-One-time setup (repo owner): **Settings → Pages → Build and deployment → Source = "GitHub
-Actions"**. After that every push to `master` redeploys automatically to
-`https://<owner>.github.io/FPL-Analyser/`. No secrets required.
+- **GitHub Pages** - `.github/workflows/deploy_pages.yml`, at `https://<owner>.github.io/FPL-Analyser/`.
+- **Cloudflare** (Workers static assets) - `wrangler.toml`. Cloudflare runs
+  `bash scripts/build_cloudflare_site.sh` (builds `public/`) then `npx wrangler deploy`.
+
+Both read the file list from `scripts/site_files.txt`, so they can't drift apart. Neither host
+ever bundles data: every page fetches `data/dashboard/*.json` from `raw.githubusercontent.com`
+(`RAW_FALLBACK` in `index.html` / `track-record.html`) with `cache: "no-store"`. Raw reflects a
+fresh pipeline commit within about a minute, which the "add your team" flow depends on, while a
+host redeploy would take longer and would mean rebuilding on every data commit (every 1-2 hours).
+Only `localhost` / `127.0.0.1` read same-origin `data/` for local dev.
+
+`landing.html` is the public marketing page; `track-record.html` is the public Model Track Record
+page, linked from the app's Profile sheet. Cloudflare-only cache rules live in
+`scripts/cloudflare/_headers` (shell files revalidate on every load; icons/assets cache for a week).
+
+GitHub Pages setup (repo owner): **Settings -> Pages -> Build and deployment -> Source = "GitHub
+Actions"**, so the workflow's staged shell is what gets served. No secrets required.
 
 ## Layout
 
