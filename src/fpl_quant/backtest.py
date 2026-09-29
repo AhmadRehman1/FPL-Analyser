@@ -30,6 +30,7 @@ from . import minutes_model
 from . import monte_carlo
 from . import ownership as ownership_mod
 from . import params as params_mod
+from . import recalibration_gate
 from . import squad_optimizer
 from . import team_strength
 from . import transfer_planner
@@ -267,9 +268,9 @@ def run_gameweek_step(
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
-    captain_risk_params_version: int | None = None,
-    rate_shrinkage_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
+    captain_risk_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -940,9 +941,9 @@ def run(
     solve_bench_quality_params_version: int | None = None,
     solve_concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
-    captain_risk_params_version: int | None = None,
-    rate_shrinkage_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
+    captain_risk_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
@@ -995,9 +996,9 @@ def run(
             bench_quality_params_version=solve_bench_quality_params_version,
             concentration_risk_params_version=solve_concentration_risk_params_version,
             current_season_role_params_version=current_season_role_params_version,
-            captain_risk_params_version=captain_risk_params_version,
-            rate_shrinkage_params_version=rate_shrinkage_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
+            captain_risk_params_version=captain_risk_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -1696,6 +1697,9 @@ def propose_recalibration(
     old_params_version: int | None = None,
     effective_date: str = "2026-08-11",
     new_params_version: int | None = None,
+    holdout_metric_before: float | None = None,
+    holdout_metric_after: float | None = None,
+    grid_values=None,
 ) -> int:
     """Writes a candidate value as a normal new immutable param_versions row (write_param() is
     unchanged -- writing a version never activates it, resolve_param() is explicit-version-only
@@ -1728,16 +1732,22 @@ def propose_recalibration(
         new_params_version = _next_param_version(con, param_family)
         params_mod.write_param(con, param_family, new_params_version, effective_date, param_key, value_numeric=new_value, dimensions=dimensions)
 
+    # holdout_*: the score on steps the search never saw (recalibration_gate.cv_holdout_scores);
+    # grid_values: the searched candidates, so the gate can refuse a winner on the grid's edge.
+    grid_min = min(grid_values) if grid_values else None
+    grid_max = max(grid_values) if grid_values else None
     return con.execute(
         """
         INSERT INTO recalibration_proposals
             (backtest_run_id, param_family, param_key, dimensions, old_params_version, new_params_version,
-             old_value, new_value, metric_name, metric_before, metric_after)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             old_value, new_value, metric_name, metric_before, metric_after,
+             holdout_metric_before, holdout_metric_after, grid_min, grid_max)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING proposal_id
         """,
         [backtest_run_id, param_family, param_key, json.dumps(dimensions, sort_keys=True) if dimensions else None,
-         old_params_version, new_params_version, old_value, new_value, metric_name, metric_before, metric_after],
+         old_params_version, new_params_version, old_value, new_value, metric_name, metric_before, metric_after,
+         holdout_metric_before, holdout_metric_after, grid_min, grid_max],
     ).fetchone()[0]
 
 
@@ -1800,13 +1810,15 @@ def write_recalibration_seed_file(
     """
     rows = con.execute(
         "SELECT proposal_id, param_family, param_key, dimensions, old_params_version, new_params_version, "
-        "old_value, new_value, metric_name, metric_before, metric_after, status, reviewed_by, reviewed_at "
+        "old_value, new_value, metric_name, metric_before, metric_after, status, reviewed_by, reviewed_at, "
+        "holdout_metric_before, holdout_metric_after, grid_min, grid_max "
         "FROM recalibration_proposals WHERE backtest_run_id = ? ORDER BY proposal_id",
         [backtest_run_id],
     ).fetchall()
     proposals = []
     for (proposal_id, family, key, dims, old_v, new_v, old_val, new_val, metric_name,
-         metric_before, metric_after, status, reviewed_by, reviewed_at) in rows:
+         metric_before, metric_after, status, reviewed_by, reviewed_at,
+         hold_before, hold_after, grid_min, grid_max) in rows:
         proposals.append({
             "proposal_id": proposal_id, "param_family": family, "param_key": key,
             "dimensions": json.loads(dims) if dims else None,
@@ -1815,6 +1827,8 @@ def write_recalibration_seed_file(
             "metric_name": metric_name, "metric_before": metric_before, "metric_after": metric_after,
             "status": status, "reviewed_by": reviewed_by,
             "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
+            "holdout_metric_before": hold_before, "holdout_metric_after": hold_after,
+            "grid_min": grid_min, "grid_max": grid_max,
         })
     seed_dir = Path(seed_dir)
     seed_dir.mkdir(parents=True, exist_ok=True)
@@ -1949,114 +1963,66 @@ def active_recalibratable_versions(seed_dir: Path | str, default_version: int = 
     }
 
 
-# metric_name -> "higher_is_better" for every value recalibrate() actually writes into
-# recalibration_proposals.metric_name. Two are NOT a comparable before/after score at all:
-# rho_hat's metric_before/metric_after are the actual old/new rho_residual VALUE (moment-
-# matched directly against realized covariance, not a grid search over a scored objective --
-# see refit_rho_residual()'s own call site, which -- unlike xi/rho/lambda/kappa_tc -- has no
-# `if new != current:` guard, so a proposal can even represent no real change at all). Those
-# are handled as a special case in evaluate_and_promote_proposal() below, not via this table.
-_METRIC_DIRECTION = {
-    "neg_log_likelihood": "lower_is_better",
-    "log_score_minutes_mean": "higher_is_better",
-    "log_score_minutes_mean_holdout": "higher_is_better",
-    "realized_sharpe": "higher_is_better",
-    "ep_total_calibration_mae": "lower_is_better",
-}
-_NOT_A_SCORE_METRICS = {"rho_hat"}
-
-# 2026-09 model failure diagnosis, Finding 1/5 (docs/reports/2026-09_model_failure_diagnosis.md):
-# the automated gate's old default (0.0) had no real noise floor at all -- it auto-confirmed
-# grid-search "improvements" as small as 0.029% (k_minutes 450->900), which then made the
-# £9.0m+ price-band calibration bias measurably worse, not better. 1% is a real signal for a
-# metric this noisy; callers that genuinely need a different floor still pass their own.
-_DEFAULT_MIN_RELATIVE_IMPROVEMENT = 0.01
+# Direction tables and the noise floor live in recalibration_gate (shared with
+# review_recalibration.py --confirm); aliased here for existing callers.
+_METRIC_DIRECTION = recalibration_gate.METRIC_DIRECTION
+_NOT_A_SCORE_METRICS = recalibration_gate.NOT_A_SCORE_METRICS
+_DEFAULT_MIN_RELATIVE_IMPROVEMENT = recalibration_gate.PLACEHOLDER_MIN_RELATIVE_IMPROVEMENT
 
 
 def evaluate_and_promote_proposal(
     con: duckdb.DuckDBPyConnection, proposal_id: int, seed_dir: Path | str,
-    min_relative_improvement: float = _DEFAULT_MIN_RELATIVE_IMPROVEMENT, reviewed_by: str = "auto-regression-gate",
+    min_relative_improvement: float | None = None, reviewed_by: str = "auto-regression-gate",
+    gate_params_version: int | None = None,
 ) -> dict:
-    """Roadmap P1 item (Track B, docs/plans/2026-08_roadmap_plan.md [A2]): the automated
-    counterpart to review_recalibration.py's human --confirm/--reject -- evaluates one pending
-    proposal and either promotes it (same set_status() mechanism review_recalibration.py already
-    uses: UPDATE recalibration_proposals + re-write the committed seed file, so the DB and the
-    git-committed record never drift apart) or leaves it pending with a logged reason.
+    """The automated counterpart to review_recalibration.py --confirm/--reject. Promotes one
+    pending proposal only if recalibration_gate.gate_reasons() finds nothing wrong with it (the
+    same checks --confirm runs), otherwise leaves it pending with every reason logged.
 
-    Honest scope, disclosed rather than hidden behind a reassuring-looking threshold: this
-    compares each proposal's OWN before/after value in the metric its own refit already
-    optimized (metric_before/metric_after, already computed by recalibrate() -- see
-    _METRIC_DIRECTION above for the direction convention per metric_name). It does NOT re-run a
-    full walk-forward backtest to check whether the change regresses some OTHER standard metric
-    (log_score_clean_sheet_mean, etc.) -- each scripts/run_backtest.py run is a real ~1-2 hour
-    job (see its own module docstring), so re-running one per pending proposal is not something
-    an automated per-week gate can afford. That residual risk -- a proposal that improves its
-    own target metric but regresses an unrelated one -- is named in
-    docs/plans/2026-08_roadmap_plan.md's Open Items, not silently assumed away.
+    Promoting = UPDATE recalibration_proposals + re-write the committed seed file, so the DB and
+    the git record never drift apart. min_relative_improvement=None reads the versioned floor
+    (gate_params_version) or the placeholder default.
 
-    Every family except rho_residual (see _METRIC_DIRECTION/_NOT_A_SCORE_METRICS above) only
-    ever gets a proposal when the refit already found a strict improvement (refit_xi_rho() etc.
-    only call propose_recalibration() `if result[...] != current[...]`), so
-    min_relative_improvement's real job is filtering out numerically-noisy near-ties (a
-    grid-search "improvement" of 1e-6 is not a real signal), not catching genuine regressions --
-    there are none to catch in this metric space by construction. rho_residual's proposals are
-    promoted whenever the value actually changed (no score to compare), since moment-matching
-    against realized covariance IS the validation there, not a searched-and-scored candidate.
-
-    Returns a dict: {"proposal_id", "action": "promoted" | "held", "reason"}.
+    Returns {"proposal_id", "action": "promoted" | "held", "reason"}.
     """
     row = con.execute(
-        "SELECT status, backtest_run_id, param_family, param_key, metric_name, metric_before, metric_after "
-        "FROM recalibration_proposals WHERE proposal_id = ?", [proposal_id],
+        "SELECT status, backtest_run_id, metric_name, metric_before, metric_after, "
+        "holdout_metric_before, holdout_metric_after FROM recalibration_proposals WHERE proposal_id = ?",
+        [proposal_id],
     ).fetchone()
     if row is None:
         raise ValueError(f"no recalibration_proposals row for proposal_id={proposal_id}")
-    status, backtest_run_id, param_family, param_key, metric_name, metric_before, metric_after = row
+    status, backtest_run_id, metric_name, metric_before, metric_after, hold_before, hold_after = row
     if status != "pending":
         return {"proposal_id": proposal_id, "action": "held", "reason": f"already {status}, not pending"}
 
+    reasons = recalibration_gate.gate_reasons(
+        con, proposal_id, seed_dir,
+        min_relative_improvement=min_relative_improvement, gate_params_version=gate_params_version,
+    )
+    if reasons:
+        return {"proposal_id": proposal_id, "action": "held", "reason": "; ".join(reasons)}
+
     if metric_name in _NOT_A_SCORE_METRICS:
-        # metric_before/metric_after ARE the old/new value directly for this metric (see
-        # refit_rho_residual()'s own call site) -- not old_value/new_value, which resolve
-        # through a separate old_params_version lookup and needn't even be set.
-        if metric_before == metric_after:
-            return {"proposal_id": proposal_id, "action": "held", "reason": f"{metric_name}: value unchanged ({metric_before}), nothing to promote"}
         reason = f"{metric_name}: {metric_before} -> {metric_after} (moment-matched refit, no score to gate)"
+    elif hold_before is not None and hold_after is not None:
+        reason = f"{metric_name}: held-out {hold_before} -> {hold_after} (in-sample {metric_before} -> {metric_after})"
     else:
-        direction = _METRIC_DIRECTION.get(metric_name)
-        if direction is None:
-            return {"proposal_id": proposal_id, "action": "held", "reason": f"unrecognized metric_name {metric_name!r} -- refusing to guess a direction"}
-        improved = metric_after < metric_before if direction == "lower_is_better" else metric_after > metric_before
-        if not improved:
-            return {
-                "proposal_id": proposal_id, "action": "held",
-                "reason": f"{metric_name}: {metric_before} -> {metric_after} is not an improvement ({direction})",
-            }
-        denom = abs(metric_before) if metric_before != 0 else abs(metric_after) if metric_after != 0 else None
-        relative_improvement = abs(metric_after - metric_before) / denom if denom else float("inf")
-        if relative_improvement < min_relative_improvement:
-            return {
-                "proposal_id": proposal_id, "action": "held",
-                "reason": f"{metric_name}: improvement {relative_improvement:.4%} below the {min_relative_improvement:.0%} noise floor",
-            }
-        reason = f"{metric_name}: {metric_before} -> {metric_after} ({relative_improvement:.2%} improvement)"
+        reason = f"{metric_name}: {metric_before} -> {metric_after} (held-out metric)"
 
     con.execute(
         "UPDATE recalibration_proposals SET status = 'confirmed', reviewed_by = ?, reviewed_at = ? WHERE proposal_id = ?",
         [reviewed_by, datetime.now(timezone.utc), proposal_id],
     )
-    # preserve_existing_confirmed=True: this function only ever promotes pending -> confirmed,
-    # never reverses an existing confirmation, so it's always safe here -- see
-    # write_recalibration_seed_file()'s own docstring for the incident this guards against (a
-    # fresh, disconnected DB lineage's own proposals silently overwriting a confirmation that
-    # only the git file, not this DB, remembers).
+    # preserve_existing_confirmed=True: this only ever promotes pending -> confirmed, so it's
+    # always safe -- see write_recalibration_seed_file()'s docstring for the incident it guards.
     write_recalibration_seed_file(con, backtest_run_id, seed_dir, preserve_existing_confirmed=True)
     return {"proposal_id": proposal_id, "action": "promoted", "reason": reason}
 
 
 def auto_promote_pending_proposals(
     con: duckdb.DuckDBPyConnection, backtest_run_id: int, seed_dir: Path | str,
-    min_relative_improvement: float = _DEFAULT_MIN_RELATIVE_IMPROVEMENT, reviewed_by: str = "auto-regression-gate",
+    min_relative_improvement: float | None = None, reviewed_by: str = "auto-regression-gate",
 ) -> list[dict]:
     """Runs evaluate_and_promote_proposal() over every pending proposal for one backtest run --
     the whole-run entry point scripts/run_backtest.py calls right after recalibrate()."""
@@ -2311,11 +2277,12 @@ def refit_rate_shrinkage(
     recalibrate() via propose_recalibration() -- mirrors refit_lambda()/refit_kappa_tc()'s own
     shape exactly (grid search returns raw values, never writes recalibration_proposals itself).
     """
-    grid_results = {}
+    grid_results, per_step_scores = {}, {}
     for k in k_minutes_grid:
         trial_version = _next_param_version(con, "rate_shrinkage_params")
         params_mod.write_param(con, "rate_shrinkage_params", trial_version, "2026-09-06", "k_minutes", value_numeric=float(k))
         maes = []
+        per_step_scores[k] = {}
         for season, gw in eval_steps:
             original_ep_mv = ep_model_version_by_step.get((season, gw))
             if original_ep_mv is None:
@@ -2323,12 +2290,13 @@ def refit_rate_shrinkage(
             mae = score_fn(con, season, gw, original_ep_mv, trial_version)
             if mae is not None:
                 maes.append(mae)
+                per_step_scores[k][(season, gw)] = mae
         grid_results[k] = {
             "ep_total_calibration_mae": sum(maes) / len(maes) if maes else float("inf"),
             "n_gameweeks": len(maes), "params_version": trial_version,
         }
     best_k = min(grid_results, key=lambda k_val: grid_results[k_val]["ep_total_calibration_mae"])
-    return {"best_k_minutes": best_k, "grid": grid_results}
+    return {"best_k_minutes": best_k, "grid": grid_results, "per_step_scores": per_step_scores}
 
 
 def _write_family_version_with_override(
@@ -3072,7 +3040,7 @@ def recalibrate(
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, "risk_aversion_params", "lambda_value", result["best_lambda"],
                 "realized_sharpe", result["grid"][current_lambda]["realized_sharpe"], result["grid"][result["best_lambda"]]["realized_sharpe"],
-                old_params_version=current_lambda_version, effective_date=effective_date,
+                old_params_version=current_lambda_version, effective_date=effective_date, grid_values=grid,
             ))
 
     if refit_kappa_tc_flag:
@@ -3087,7 +3055,7 @@ def recalibrate(
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, "tc_risk_aversion_params", "kappa_tc", result["best_kappa_tc"],
                 "realized_sharpe", result["grid"][current_kappa_tc]["realized_sharpe"], result["grid"][result["best_kappa_tc"]]["realized_sharpe"],
-                old_params_version=current_kappa_tc_version, effective_date=effective_date,
+                old_params_version=current_kappa_tc_version, effective_date=effective_date, grid_values=grid,
             ))
 
     if refit_rate_shrinkage_flag:
@@ -3097,12 +3065,20 @@ def recalibrate(
         grid = tuple(set(rate_shrinkage_k_grid) | {current_k})
         result = refit_rate_shrinkage(con, eval_steps, ep_by_step, k_minutes_grid=grid)
         if result["best_k_minutes"] != current_k:
+            holdout = None
+            if result.get("per_step_scores"):
+                holdout = recalibration_gate.cv_holdout_scores(
+                    result["per_step_scores"], list(eval_steps), current_k, lower_is_better=True,
+                )
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, "rate_shrinkage_params", "k_minutes", result["best_k_minutes"],
                 "ep_total_calibration_mae",
                 result["grid"][current_k]["ep_total_calibration_mae"],
                 result["grid"][result["best_k_minutes"]]["ep_total_calibration_mae"],
                 old_params_version=current_rate_shrinkage_version, effective_date=effective_date,
+                holdout_metric_before=holdout["holdout_metric_before"] if holdout else None,
+                holdout_metric_after=holdout["holdout_metric_after"] if holdout else None,
+                grid_values=grid,
             ))
 
     if seed_dir is not None:
