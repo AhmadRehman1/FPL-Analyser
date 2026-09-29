@@ -268,6 +268,7 @@ def run_gameweek_step(
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
 ) -> None:
@@ -324,6 +325,7 @@ def run_gameweek_step(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
             current_season_role_params_version=current_season_role_params_version,
+            minutes_bounds_params_version=minutes_bounds_params_version,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
@@ -939,6 +941,7 @@ def run(
     solve_bench_quality_params_version: int | None = None,
     solve_concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
 ) -> int:
@@ -993,6 +996,7 @@ def run(
             bench_quality_params_version=solve_bench_quality_params_version,
             concentration_risk_params_version=solve_concentration_risk_params_version,
             current_season_role_params_version=current_season_role_params_version,
+            minutes_bounds_params_version=minutes_bounds_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             captain_risk_params_version=captain_risk_params_version,
         )
