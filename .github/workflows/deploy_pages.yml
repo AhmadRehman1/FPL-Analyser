@@ -46,12 +46,11 @@ jobs:
       # Python venv, DuckDB pipeline, tests, or the data/ dir (which lives on raw for freshness).
       - name: Stage static site
         run: |
-          mkdir -p site
-          cp index.html landing.html track-record.html sw.js manifest.json .nojekyll site/
-          cp -r icons site/
-          # Built landing-page WebGL effects (shader gradient hero, liquid logo/glass).
-          # Source + build step: web/effects/. Committed output, no build needed here.
-          cp -r assets site/
+          # Same file list (scripts/site_files.txt) and script as the Cloudflare build, so the
+          # two hosts can't drift. Fails if any listed file is missing. assets/ is the built
+          # landing-page WebGL effects (source + build step: web/effects/), committed output.
+          bash scripts/build_cloudflare_site.sh site
+          rm -f site/_headers  # Cloudflare-only
           # Track D-4 (docs/plans/2026-08_roadmap_plan.md; docs/BUSINESS_PLAN.md 2.7): stages a
           # real `CNAME` file only if one exists at the repo root -- there isn't one today (see
           # CNAME.example for the placeholder + the exact steps to go live), so this is a no-op

@@ -1275,11 +1275,22 @@ def test_active_recalibratable_versions_matches_known_confirmed_state():
     assert versions["rate_shrinkage_params_version"] == 8
 
 
-def _pending_proposal(con, backtest_run_id, *, param_family, param_key, new_value, metric_name, metric_before, metric_after, old_params_version=1):
+_SAME_AS_IN_SAMPLE = object()
+
+
+def _pending_proposal(
+    con, backtest_run_id, *, param_family, param_key, new_value, metric_name, metric_before, metric_after,
+    old_params_version=1, holdout_before=_SAME_AS_IN_SAMPLE, holdout_after=_SAME_AS_IN_SAMPLE, grid_values=None,
+):
+    # The gate needs a held-out score (recalibration_gate). By default these fixtures record one
+    # equal to the in-sample score; pass None to model a proposal with no held-out evaluation.
     return bt.propose_recalibration(
         con, backtest_run_id, param_family, param_key, new_value,
         metric_name=metric_name, metric_before=metric_before, metric_after=metric_after,
         old_params_version=old_params_version,
+        holdout_metric_before=metric_before if holdout_before is _SAME_AS_IN_SAMPLE else holdout_before,
+        holdout_metric_after=metric_after if holdout_after is _SAME_AS_IN_SAMPLE else holdout_after,
+        grid_values=grid_values,
     )
 
 

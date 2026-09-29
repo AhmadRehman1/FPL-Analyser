@@ -1,0 +1,21 @@
+# Copied to public/_headers by scripts/build_cloudflare_site.sh.
+# Shell files revalidate every load so a deploy shows up straight away.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/landing.html
+  Cache-Control: no-cache
+/track-record.html
+  Cache-Control: no-cache
+/manifest.json
+  Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+
+# Icons and effect bundles rarely change. Filenames aren't hashed, so a week rather than
+# a year - long enough to be cheap, short enough that a changed file isn't stuck.
+/icons/*
+  Cache-Control: public, max-age=604800
+/assets/*
+  Cache-Control: public, max-age=604800
