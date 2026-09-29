@@ -243,7 +243,9 @@ def build_report(
         for uid, name, position, in_xi, is_captain, is_vice in squad_rows
     ]
     xi_uids = {p["player_uid"] for p in squad if p["in_xi"]}
-    captain = next((p for p in squad if p["is_captain"]), None)
+    # The solver's own in-solve pick, kept for transparency only. The headline captain is
+    # re-ranked below with rank_captain(), same as every other user-facing captain field.
+    solver_captain = next((dict(p) for p in squad if p["is_captain"]), None)
 
     minutes_model_version = con.execute(
         "SELECT minutes_model_version FROM uncertainty_model_versions WHERE model_version = ?", [uncertainty_model_version]
@@ -281,7 +283,7 @@ def build_report(
         if breakdown:
             category_breakdown[uid] = breakdown
             if uid in xi_uids:
-                total_ep += breakdown["total"] * (2 if p["is_captain"] else 1)
+                total_ep += breakdown["total"]
         risk = un.explain_player_risk(con, uncertainty_model_version, uid)
         if risk:
             risk_analytic[uid] = risk
@@ -298,6 +300,23 @@ def build_report(
             if empirical:
                 risk_empirical[uid] = empirical
         evidence_provenance[uid] = mm.explain_player_adjustment(con, minutes_model_version, uid)
+
+    # Headline captain via the shared rule (Finding 7): outfield XI players by analytic EP.
+    captain_pool = [
+        p for p in squad
+        if p["in_xi"] and p["position"] != "Goalkeeper" and p["player_uid"] in category_breakdown
+    ]
+    captain_uid = rank_captain(
+        {p["player_uid"]: category_breakdown[p["player_uid"]]["total"] for p in captain_pool},
+        {p["player_uid"]: (risk_analytic.get(p["player_uid"]) or {}).get("var_total") for p in captain_pool},
+    )
+    if captain_uid is None and solver_captain is not None:
+        captain_uid = solver_captain["player_uid"]
+    for p in squad:
+        p["is_captain"] = p["player_uid"] == captain_uid
+    captain = next((p for p in squad if p["is_captain"]), None)
+    if captain is not None and captain["player_uid"] in category_breakdown:
+        total_ep += category_breakdown[captain["player_uid"]]["total"]
 
     guardrail_audit = squad_optimizer.explain_run(con, squad_optimizer_run_id)
     automated_flags = compute_automated_flags(con, squad_optimizer_run_id, sanity_check_params_version)
@@ -380,7 +399,7 @@ def build_report(
     return {
         "headline": {
             "target_season": target_season, "target_gameweek": target_gameweek,
-            "squad": squad, "captain": captain, "total_projected_ep": total_ep,
+            "squad": squad, "captain": captain, "solver_captain": solver_captain, "total_projected_ep": total_ep,
             "total_projected_ep_range": total_ep_range, "rationale": rationale,
         },
         "category_breakdown": category_breakdown,
@@ -771,6 +790,18 @@ def build_transparency_log(track_record: dict, history_dir: Path | str, diff: di
 _CAPTAIN_TIE_EPSILON = 0.15
 
 
+def rank_captain(ep_by_uid: dict[str, float], var_by_uid: dict[str, float] | None = None) -> str | None:
+    """The one captain rule every user-facing captain field uses: highest expected points,
+    with a near-tie (within _CAPTAIN_TIE_EPSILON) going to the wider spread, since captaincy
+    doubles the score and the upside is what pays. No risk penalty."""
+    if not ep_by_uid:
+        return None
+    var_by_uid = var_by_uid or {}
+    top_ep = max(ep_by_uid.values())
+    near_top = sorted(uid for uid, v in ep_by_uid.items() if top_ep - v <= _CAPTAIN_TIE_EPSILON)
+    return max(near_top, key=lambda uid: (var_by_uid.get(uid) or 0.0, ep_by_uid[uid]))
+
+
 def build_captain_recommendation(
     tc_detail: dict | None, actual_captain_uid: str | None, player_name_by_uid: dict[str, str],
     analytic_ep_by_uid: dict[str, float] | None = None,
@@ -815,12 +846,11 @@ def build_captain_recommendation(
         v = ep_map.get(c["player_uid"])
         return v if v is not None else c["mean_total"]
 
-    top_ep = max(_ep(c) for c in all_candidates)
-    # Near-tie on E[points] -> prefer the wider MC spread (higher ceiling on a doubled score).
-    near_top = [c for c in all_candidates if top_ep - _ep(c) <= _CAPTAIN_TIE_EPSILON]
-    recommended = max(near_top, key=lambda c: c.get("var_total", 0.0))
-    best_ep = _ep(recommended)
-    recommended_uid = recommended["player_uid"]
+    recommended_uid = rank_captain(
+        {c["player_uid"]: _ep(c) for c in all_candidates},
+        {c["player_uid"]: c.get("var_total", 0.0) for c in all_candidates},
+    )
+    best_ep = _ep(candidates_by_uid[recommended_uid])
     current = candidates_by_uid.get(actual_captain_uid) if actual_captain_uid else None
     current_ep = _ep(current) if current else None
     matches_current = actual_captain_uid is not None and actual_captain_uid == recommended_uid
