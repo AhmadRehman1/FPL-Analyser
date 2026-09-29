@@ -50,6 +50,8 @@ def _param_versions(active: dict) -> dict:
         scoring_params_version=1, bps_params_version=1, tau_params_version=1,
         rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
         lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
+        captain_risk_params_version=active["captain_risk_params_version"],
+        minutes_bounds_params_version=active["minutes_bounds_params_version"],
     )
 
 # Modest, explicit blocks for the M2 coordinate descent -- kept small deliberately (this runs

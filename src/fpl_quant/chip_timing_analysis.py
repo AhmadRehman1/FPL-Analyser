@@ -528,7 +528,10 @@ def robustness_check(
             )
         candidates = _jitter_candidates(candidates, p.ep_jitter_sigmas, rng)
         sigma_pairs = squad_optimizer.fetch_sigma_pairs(con, un_mv, {c["player_uid"] for c in candidates})
-        result = squad_optimizer.solve(candidates, sigma_pairs, p.lambda_value, guardrail_cap)
+        result = squad_optimizer.solve(
+            candidates, sigma_pairs, p.lambda_value, guardrail_cap,
+            captain_variance_multiplier=squad_optimizer.LIVE_CAPTAIN_VARIANCE_MULTIPLIER,
+        )
         squads_by_label[p.label] = sorted(result["squad"])
 
     summary = classify_core_fragile(squads_by_label)

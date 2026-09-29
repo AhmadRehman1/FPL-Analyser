@@ -116,6 +116,7 @@ def grade_squad(
     *,
     lambda_params_version: int,
     guardrail_params_version: int,
+    captain_risk_params_version: int | None = None,
 ) -> SquadGrade:
     """current_holdings: [{"player_uid": ...}, ...] -- a real manager's holdings (e.g. from
     transfer_planner._read_holdings(state_version), the same shape backtest.py's own
@@ -129,7 +130,7 @@ def grade_squad(
 
     optimal_run_id = so_mod.run(
         con, calibration_asof_date, target_season, target_gameweek, ep_mv, un_mv,
-        lambda_params_version, guardrail_params_version,
+        lambda_params_version, guardrail_params_version, captain_risk_params_version=captain_risk_params_version,
     )
     optimal_uids = {
         r[0] for r in con.execute(

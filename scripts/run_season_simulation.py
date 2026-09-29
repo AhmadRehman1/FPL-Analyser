@@ -57,6 +57,8 @@ def _param_versions(active: dict) -> dict:
         horizon_params_version=1, transfer_cost_params_version=1,
         wildcard_threshold_params_version=1, free_hit_threshold_params_version=1,
         kappa_tc_params_version=active["kappa_tc_params_version"],
+        captain_risk_params_version=active["captain_risk_params_version"],
+        minutes_bounds_params_version=active["minutes_bounds_params_version"],
     )
 
 
@@ -81,7 +83,7 @@ def main() -> None:
     baseline_version_keys = (
         "xi_params_version", "rho_params_version", "decay_params_version", "adjustment_params_version",
         "shrinkage_params_version", "fact_multiplier_params_version", "scoring_params_version",
-        "bps_params_version", "tau_params_version",
+        "bps_params_version", "tau_params_version", "minutes_bounds_params_version",
     )
     beats = backtest.beats_baseline(
         con, TARGET_SEASON, START_GAMEWEEK, END_GAMEWEEK,
