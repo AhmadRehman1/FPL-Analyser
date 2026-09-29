@@ -599,6 +599,26 @@ def role_change_evidence_flags(
 # opt-in, not defaulted)
 # ============================================================
 
+# Placeholder, not fitted (Finding 4): the smallest probability any minutes state can get. A hard
+# 0 or 1 (e.g. a "ruled out" flag that turns out wrong) is unrecoverable under log score.
+PLACEHOLDER_MINUTES_P_FLOOR = 0.02
+
+
+def seed_minutes_bounds_params(con: duckdb.DuckDBPyConnection) -> None:
+    params_mod.write_param(
+        con, "minutes_bounds_params", 1, "2026-09-29", "p_floor", value_numeric=PLACEHOLDER_MINUTES_P_FLOOR,
+    )
+
+
+def apply_probability_floor(p_0: float, p_1_59: float, p_60plus: float, p_floor: float) -> tuple[float, float, float]:
+    """Mixes the 3-state distribution with uniform so every state is at least p_floor (and at
+    most 1 - 2*p_floor). Keeps the sum at 1 and the ordering of the states."""
+    if p_floor <= 0:
+        return p_0, p_1_59, p_60plus
+    keep = 1.0 - 3.0 * p_floor
+    return tuple(keep * max(0.0, p) + p_floor for p in (p_0, p_1_59, p_60plus))
+
+
 def seed_current_season_role_params(con: duckdb.DuckDBPyConnection) -> None:
     """current_season_role_params v1 -- gates run()'s optional current-season-own-rate blend.
     Invented v1 default, same status as every other unpinned constant here: deliberately much
@@ -742,6 +762,7 @@ def run(
     fact_multiplier_params_version: int,
     lookback_seasons: tuple[str, ...] = ("2024-2025", "2025-2026", "2026-2027"),
     current_season_role_params_version: int | None = None,
+    minutes_bounds_params_version: int | None = None,
 ) -> int:
     """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
@@ -783,6 +804,10 @@ def run(
     a real walk-forward comparison (see scripts/run_minutes_model_current_season_sensitivity_
     arm.py) rather than defaulting on."""
     xi, _ = params_mod.resolve_param(con, "minutes_model_decay_params", "xi", decay_params_version)
+    # minutes_bounds_params_version=None keeps the old unbounded probabilities.
+    p_floor = 0.0
+    if minutes_bounds_params_version is not None:
+        p_floor, _ = params_mod.resolve_param(con, "minutes_bounds_params", "p_floor", minutes_bounds_params_version)
     threshold, _ = params_mod.resolve_param(
         con, "minutes_model_shrinkage_params", "competitive_matches_threshold", shrinkage_params_version
     )
@@ -901,6 +926,7 @@ def run(
         p_0 = (1 - p_start_final) * (1 - p_sub_used_eff)
         p_60plus = p_start_final * p_60_started + (1 - p_start_final) * p_sub_used_eff * p_60_subbed
         p_1_59 = 1.0 - p_0 - p_60plus  # by construction, not an independent third empirical estimate
+        p_0, p_1_59, p_60plus = apply_probability_floor(p_0, p_1_59, p_60plus, p_floor)
 
         con.execute(
             """
