@@ -268,6 +268,7 @@ def run_gameweek_step(
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
@@ -328,6 +329,7 @@ def run_gameweek_step(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
             set_piece_params_version=set_piece_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
@@ -937,6 +939,7 @@ def run(
     solve_bench_quality_params_version: int | None = None,
     solve_concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
@@ -990,6 +993,7 @@ def run(
             bench_quality_params_version=solve_bench_quality_params_version,
             concentration_risk_params_version=solve_concentration_risk_params_version,
             current_season_role_params_version=current_season_role_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
             captain_risk_params_version=captain_risk_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
