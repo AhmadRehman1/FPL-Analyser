@@ -31,6 +31,7 @@ METRIC_DIRECTION = {
     "log_score_minutes_mean_holdout": "higher_is_better",
     "realized_sharpe": "higher_is_better",
     "ep_total_calibration_mae": "lower_is_better",
+    "ep_total_calibration_mae_decision_weighted": "lower_is_better",
 }
 NOT_A_SCORE_METRICS = {"rho_hat"}
 # Metrics whose own before/after already come from held-out steps.
