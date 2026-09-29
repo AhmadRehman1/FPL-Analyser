@@ -75,6 +75,15 @@ def summarize(con, run_id: int) -> dict:
     for pos in ("Goalkeeper", "Defender", "Midfielder", "Forward"):
         out["position"][pos] = _mean_metric(con, run_id, f"ep_total_calibration_mean_resid:position={pos}")[0]
     out["captain"] = captain_stats(con, run_id)
+    # per-gameweek rows so two arms can be compared on the SAME scored steps (an arm can lose
+    # steps, e.g. to the optimizer's divergence check at very low lambda)
+    out["per_gameweek"] = [
+        {"season": s, "gw": g, "beats_crowd": round(v, 3)}
+        for s, g, v in con.execute(
+            "SELECT season, gameweek, metric_value FROM backtest_metrics WHERE backtest_run_id = ? "
+            "AND metric_name = 'beats_crowd_points_delta' ORDER BY season, gameweek", [run_id],
+        ).fetchall()
+    ]
     return out
 
 
