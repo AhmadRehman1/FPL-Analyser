@@ -94,11 +94,11 @@ jobs:
           seasons = [s.strip() for s in os.environ["SEASONS"].split(",") if s.strip()]
           arms = []
           for season in seasons:
-              for a in ("off", "on"):
+              for a in ("off", "on", "wait"):
                   arms.append({"arm": a, "season": season, "tag": f"{a}_{season}"})
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write("arms=" + json.dumps({"include": arms}) + "\n")
-          print(f"{len(arms)} arms: {len(seasons)} season(s) x 2 (off/on)")
+          print(f"{len(arms)} arms: {len(seasons)} season(s) x 3 (off/on/wait)")
           EOF
 
   sweep:

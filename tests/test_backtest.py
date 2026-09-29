@@ -2844,6 +2844,53 @@ def test_is_best_gameweek_in_visible_horizon_handles_stringified_json_keys():
     assert not bt._is_best_gameweek_in_visible_horizon({"3": 10.0, "4": 5.0}, target_gameweek=3, prefer="min")
 
 
+def test_worth_waiting_holds_only_when_a_later_week_clearly_wins():
+    # now 6, next week 12: even discounted (mean 8, edge 4 * 0.85 = 3.4 -> 11.4) it beats now + 0.5
+    assert bt._worth_waiting({20: 6.0, 21: 12.0, 22: 6.0}, 20, 38, decay=0.85, margin=0.5)
+    # a slightly better week far away doesn't justify waiting once discounted
+    assert not bt._worth_waiting({20: 8.0, 21: 6.0, 22: 6.0, 30: 8.4}, 20, 38, decay=0.85, margin=0.5)
+    # now is the best week
+    assert not bt._worth_waiting({20: 12.0, 21: 6.0}, 20, 38, decay=0.85, margin=0.5)
+
+
+def test_worth_waiting_ignores_weeks_past_the_chip_deadline_and_missing_data():
+    # set 1: GW19 belongs to the next chip set, so the better "later" week doesn't count
+    assert not bt._worth_waiting({17: 6.0, 18: 6.0, 19: 20.0}, 17, 18, decay=0.85, margin=0.5)
+    assert not bt._worth_waiting({}, 17, 18, decay=0.85, margin=0.5)
+    assert not bt._worth_waiting({"18": 9.0}, 17, 18, decay=0.85, margin=0.5)  # this week not projected
+
+
+def test_decide_gameweek_action_chip_wait_holds_triple_captain_in_set_two(con):
+    """After GW19 the old rule played TC the first week it cleared its floor. With the wait rule
+    a clearly better captain week coming up holds it; without it, it fires."""
+    from fpl_quant import transfer_planner as tp
+
+    tp.seed_v1_params(con)
+    detail = {"triple_captain": {"best_captain_value_per_gw": {"25": 6.0, "26": 13.0, "27": 7.0}}}
+    run_id = _seed_plan_run_with_recommendations(
+        con, recommended_chips=("triple_captain",), target_gameweek=25, detail_by_chip=detail,
+    )
+    _rank, chip = bt._decide_gameweek_action(con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0)
+    assert chip == "triple_captain"
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, set(), set(), target_gameweek=25, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=1,
+    )
+    assert chip is None
+
+
+def test_decide_gameweek_action_chip_wait_plays_when_now_is_worth_it(con):
+    from fpl_quant import transfer_planner as tp
+
+    tp.seed_v1_params(con)
+    detail = {"bench_boost": {"all_gameweeks": {"3": 14.0, "4": 9.0}, "season_all_gameweeks": {"3": 14.0, "4": 9.0, "9": 14.2}}}
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("bench_boost",), target_gameweek=3, detail_by_chip=detail)
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=1,
+    )
+    # the old strict check would hold for GW9's 14.2; six weeks out, 0.2 isn't worth waiting for
+    assert chip == "bench_boost"
+
+
 def test_decide_gameweek_action_holds_a_recommended_chip_when_a_later_week_looks_better(con):
     # Wildcard clears its threshold (recommended=True) but the current squad's own visible
     # trajectory says gameweek 5 is a genuinely worse week than gameweek 3 -- the real
