@@ -825,6 +825,25 @@ def _tc_detail(*candidates, recommended_uid=None):
     return {"recommended": True, "captain_candidate": best_uid, "all_candidates": all_candidates}
 
 
+def test_rank_captain_picks_top_ep_and_breaks_near_ties_on_spread():
+    assert reporting.rank_captain({"a": 6.0, "b": 5.0}, {"a": 1.0, "b": 50.0}) == "a"
+    # within _CAPTAIN_TIE_EPSILON -> higher ceiling wins
+    assert reporting.rank_captain({"a": 6.0, "b": 5.95}, {"a": 1.0, "b": 50.0}) == "b"
+    assert reporting.rank_captain({}) is None
+
+
+def test_build_report_headline_captain_ignores_the_solver_flag(con):
+    # Finding 7: the solver captained the lower-EP player; the headline must not echo it.
+    run_id, *_ = _seed_full_squad_scenario(con, captain_position="Defender")
+    con.execute("UPDATE squad_optimizer_selections SET is_captain = (player_uid = 'p2') WHERE run_id = ?", [run_id])
+    report = reporting.build_report(con, run_id)
+    headline = report["headline"]
+    assert headline["captain"]["player_uid"] == "p1"
+    assert headline["solver_captain"]["player_uid"] == "p2"
+    assert headline["total_projected_ep"] == pytest.approx(5.0 * 2 + 4.0)
+    assert reporting.snapshot_for_diff(report)["captain_uid"] == "p1"
+
+
 def test_build_captain_recommendation_flags_a_better_option():
     detail = _tc_detail(("p_haaland", 9.2), ("p_salah", 6.5))
     names = {"p_haaland": "Erling Haaland", "p_salah": "Mohamed Salah"}
@@ -1124,6 +1143,9 @@ def test_diff_reports_detects_squad_and_captain_changes(con):
     )
     con.execute("UPDATE squad_optimizer_selections SET is_captain = FALSE WHERE run_id = ? AND player_uid = 'p1'", [run_id])
     con.execute("UPDATE squad_optimizer_selections SET is_captain = TRUE WHERE run_id = ? AND player_uid = 'p2'", [run_id])
+    # The headline captain now follows rank_captain() (highest-EP XI player), not the solver's
+    # flag, so p1 (the top-EP player) has to leave the XI for the captain to really change.
+    con.execute("UPDATE squad_optimizer_selections SET in_xi = FALSE WHERE run_id = ? AND player_uid = 'p1'", [run_id])
     # p2 needs its own category_breakdown/risk rows to still appear in the new report despite
     # no longer being "in_squad" -- simplest is to just leave it out of the new report's squad
     # read entirely, which is exactly what in_squad=FALSE already achieves.
