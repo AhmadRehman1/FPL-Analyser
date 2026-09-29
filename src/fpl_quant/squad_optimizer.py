@@ -27,6 +27,10 @@ from . import params as params_mod
 
 POSITIONS = ["Goalkeeper", "Defender", "Midfielder", "Forward"]
 POSITION_QUOTA = {"Goalkeeper": 2, "Defender": 5, "Midfielder": 5, "Forward": 3}
+# The confirmed live captain_risk_params value (v2, data/recalibration/
+# seeds_live_switches_2026-09-29.json): no extra variance penalty on the captain. For solve()
+# callers that have no params version to resolve; test_live_switch_wiring.py keeps the two equal.
+LIVE_CAPTAIN_VARIANCE_MULTIPLIER = 0.0
 XI_POSITION_MIN = {"Defender": 3, "Midfielder": 2, "Forward": 1}
 XI_POSITION_MAX = {"Defender": 5, "Midfielder": 5, "Forward": 3}
 BUDGET = 100.0

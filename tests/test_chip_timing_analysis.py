@@ -212,8 +212,9 @@ def test_robustness_check_runs_one_solve_per_perturbation(monkeypatch):
     def fake_sigma(con, un_mv, uids):
         return {}
 
-    def fake_solve(candidates, sigma_pairs, lam, guardrail_cap):
+    def fake_solve(candidates, sigma_pairs, lam, guardrail_cap, captain_variance_multiplier=1.0):
         calls.append(lam)
+        assert captain_variance_multiplier == cta.squad_optimizer.LIVE_CAPTAIN_VARIANCE_MULTIPLIER
         # lambda 0.3 swaps one player, everything else identical
         base = [c["player_uid"] for c in candidates[:15]]
         if lam == 0.30:

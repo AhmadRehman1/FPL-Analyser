@@ -27,7 +27,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest, db, params  # noqa: E402
+from fpl_quant import backtest, db  # noqa: E402
 
 # Reuse run_backtest.py's own version-resolution verbatim -- the walk-forward must measure the
 # model against the same git-committed confirmed-seed versions every other script uses, not a
@@ -55,13 +55,7 @@ def main() -> None:
         # Score the same k_minutes live runs use. Before this the walk-forward always ran the
         # hardcoded default (450), so the confirmed 450 -> 900 change was never measured here.
         rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
-        # Same switches as run_ingestion.py (Fix D captain weight 0, Fix F minutes floor 0.005).
-        captain_risk_params_version=params.get_or_create_version(
-            con, "captain_risk_params", "captain_variance_multiplier", "2026-09-29", value_numeric=0.0,
-        ),
-        minutes_bounds_params_version=params.get_or_create_version(
-            con, "minutes_bounds_params", "p_floor", "2026-09-29", value_numeric=0.005,
-        ),
+        # Fix D (captain weight 0) and Fix F (minutes floor 0.005) come in via _param_versions().
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")

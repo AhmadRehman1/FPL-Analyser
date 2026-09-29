@@ -113,6 +113,7 @@ def main() -> None:
     # M2 role/club-change data-quality flag gates (role_change_flag_params) -- flag-only,
     # changes no model number; see minutes_model.role_change_evidence_flag.
     minutes_model.seed_role_change_flag_params(con)
+    minutes_model.seed_minutes_bounds_params(con)  # v1 = the live 0.005 floor (Fix F)
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
@@ -223,9 +224,7 @@ def main() -> None:
         fact_multiplier_params_version=ACTIVE["fact_multiplier_params_version"],
         # Fix F, switched on 2026-09-29: no minutes state below 0.005 (log score -1.256 -> -0.717
         # in the walk-forward, no loss of squad points).
-        minutes_bounds_params_version=params.get_or_create_version(
-            con, "minutes_bounds_params", "p_floor", "2026-09-29", value_numeric=0.005,
-        ),
+        minutes_bounds_params_version=ACTIVE["minutes_bounds_params_version"],
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]
@@ -286,9 +285,7 @@ def main() -> None:
             ownership_params_version=1, risk_posture_params_version=2,
             # Fix D, switched on 2026-09-29: no extra variance penalty on the captain, so the
             # solver captains its top-EP player (+2.8 pts/GW in the walk-forward).
-            captain_risk_params_version=params.get_or_create_version(
-                con, "captain_risk_params", "captain_variance_multiplier", "2026-09-29", value_numeric=0.0,
-            ),
+            captain_risk_params_version=ACTIVE["captain_risk_params_version"],
         )
         n_squad = con.execute(
             "SELECT count(*) FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [so_run_id]

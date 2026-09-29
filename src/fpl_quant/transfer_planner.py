@@ -1208,7 +1208,7 @@ def evaluate_wildcard(
     con: duckdb.DuckDBPyConnection, calibration_asof_date: date, target_season: str, target_gameweek: int,
     current_squad_horizon_value: float, best_transfer_net_value: float, horizon_ep_versions: dict[int, tuple[int, int]],
     lambda_params_version: int, guardrail_params_version: int, threshold_params_version: int,
-    current_holdings: list[dict] | None = None,
+    current_holdings: list[dict] | None = None, captain_risk_params_version: int | None = None,
 ) -> dict:
     """Calls M5 fresh (a real, logged, divergence-checked squad_optimizer.run() -- not raw
     solve(), so a Wildcard recommendation carries the same audit trail as any other real M5
@@ -1240,6 +1240,7 @@ def evaluate_wildcard(
     fresh_run_id = squad_optimizer.run(
         con, calibration_asof_date, target_season, target_gameweek, ep_mv, un_mv,
         lambda_params_version, guardrail_params_version, horizon_ep_versions=horizon_ep_versions,
+        captain_risk_params_version=captain_risk_params_version,
     )
     fresh_uids = {
         r[0] for r in con.execute(
@@ -1361,6 +1362,7 @@ def evaluate_free_hit(
     con: duckdb.DuckDBPyConnection, calibration_asof_date: date, target_season: str, target_gameweek: int,
     current_holdings: list[dict], horizon_ep_versions: dict[int, tuple[int, int]],
     lambda_params_version: int, guardrail_params_version: int, threshold_params_version: int,
+    captain_risk_params_version: int | None = None,
 ) -> dict:
     """One-gameweek-only rebuild (unlike Wildcard, only target_gameweek's own EP, not the
     whole horizon -- the squad reverts after this single gameweek). Given the confirmed
@@ -1376,7 +1378,7 @@ def evaluate_free_hit(
     ep_mv, un_mv = horizon_ep_versions[target_gameweek]
     fresh_run_id = squad_optimizer.run(
         con, calibration_asof_date, target_season, target_gameweek, ep_mv, un_mv,
-        lambda_params_version, guardrail_params_version,
+        lambda_params_version, guardrail_params_version, captain_risk_params_version=captain_risk_params_version,
     )
     fresh_xi_uids = {
         r[0] for r in con.execute(
@@ -1520,6 +1522,7 @@ def run(
     bench_boost_threshold_params_version: int | None = None,
     triple_captain_timing_params_version: int | None = None,
     bench_boost_timing_params_version: int | None = None,
+    captain_risk_params_version: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1670,10 +1673,12 @@ def run(
         con, calibration_asof_date, target_season, target_gameweek, current_squad_horizon_value,
         best_transfer_net_value, horizon_ep_versions, lambda_params_version, guardrail_params_version,
         wildcard_threshold_params_version, current_holdings=current_holdings,
+        captain_risk_params_version=captain_risk_params_version,
     )
     free_hit_result = evaluate_free_hit(
         con, calibration_asof_date, target_season, target_gameweek, current_holdings, horizon_ep_versions,
         lambda_params_version, guardrail_params_version, free_hit_threshold_params_version,
+        captain_risk_params_version=captain_risk_params_version,
     )
 
     xi_uids = {h["player_uid"] for h in current_holdings if h["in_xi"]}

@@ -99,6 +99,7 @@ def main() -> None:
         con, entry_id, calibration_asof_date, TARGET_SEASON, plan_for_gameweek,
         current_holdings, horizon_ep_versions,
         lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
+        captain_risk_params_version=active["captain_risk_params_version"],
     )
 
     data_asof = calibration_asof_date.isoformat()

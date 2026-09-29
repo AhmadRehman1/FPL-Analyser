@@ -180,6 +180,9 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         # recalibratable version already uses below.
         "triple_captain_timing_params_version": active.get("triple_captain_timing_params_version"),
         "bench_boost_timing_params_version": active.get("bench_boost_timing_params_version"),
+        # Fix D / Fix F, live since 2026-09-29 (None when `active` doesn't carry them).
+        "captain_risk_params_version": active.get("captain_risk_params_version"),
+        "minutes_bounds_params_version": active.get("minutes_bounds_params_version"),
     }
 
 
@@ -350,7 +353,8 @@ def run_forward_season_sim(
                                       target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season))
         mm0 = minutes_model.run(con, asof, target_season, versions["decay_params_version"],
                                 versions["adjustment_params_version"], versions["shrinkage_params_version"],
-                                versions["fact_multiplier_params_version"])
+                                versions["fact_multiplier_params_version"],
+                                minutes_bounds_params_version=versions["minutes_bounds_params_version"])
         ep0 = expected_points.run(con, asof, target_season, start_gameweek, ts0, mm0,
                                   versions["scoring_params_version"], versions["bps_params_version"],
                                   versions["tau_params_version"])
@@ -383,7 +387,8 @@ def run_forward_season_sim(
                                             target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season))
             mm_mv = minutes_model.run(con, asof, target_season, versions["decay_params_version"],
                                       versions["adjustment_params_version"], versions["shrinkage_params_version"],
-                                      versions["fact_multiplier_params_version"])
+                                      versions["fact_multiplier_params_version"],
+                                      minutes_bounds_params_version=versions["minutes_bounds_params_version"])
             plan_run_id = transfer_planner.run(
                 con, asof, target_season, gw, state_version, ts_mv, mm_mv,
                 versions["horizon_params_version"], versions["scoring_params_version"], versions["bps_params_version"],
@@ -395,6 +400,7 @@ def run_forward_season_sim(
                 bench_boost_threshold_params_version=versions["bench_boost_threshold_params_version"],
                 triple_captain_timing_params_version=versions["triple_captain_timing_params_version"],
                 bench_boost_timing_params_version=versions["bench_boost_timing_params_version"],
+                captain_risk_params_version=versions["captain_risk_params_version"],
             )
 
             state_row = con.execute(

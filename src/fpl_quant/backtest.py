@@ -1209,6 +1209,8 @@ def run_season_simulation(
     bench_boost_threshold_params_version: int | None = None,
     triple_captain_timing_params_version: int | None = None,
     bench_boost_timing_params_version: int | None = None,
+    captain_risk_params_version: int | None = None,
+    minutes_bounds_params_version: int | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1293,7 +1295,11 @@ def run_season_simulation(
     params_version, which is how docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md's
     "gated behind a real walk-forward comparison before going live" requirement gets tested --
     run this function once with these two None (the current greedy approach) and once with
-    real versions, compare beats_crowd_points_delta."""
+    real versions, compare beats_crowd_points_delta.
+
+    captain_risk_params_version/minutes_bounds_params_version: threaded to every
+    squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call this walk makes
+    (None keeps each one's old behavior). Callers pass active_recalibratable_versions()'s."""
     if not has_fittable_history(con, season, start_gameweek):
         raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
@@ -1308,6 +1314,7 @@ def run_season_simulation(
         mm_mv = minutes_model.run(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
+            minutes_bounds_params_version=minutes_bounds_params_version,
         )
         ep_mv = ep.run(
             con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
@@ -1325,6 +1332,7 @@ def run_season_simulation(
             field_covariance_params_version=field_covariance_params_version,
             bench_quality_params_version=bench_quality_params_version,
             concentration_risk_params_version=concentration_risk_params_version,
+            captain_risk_params_version=captain_risk_params_version,
         )
         # Real look-ahead leak, fixed here: bootstrap_from_squad_optimizer_run() -> its own
         # _compute_bank_for_squad() prices each held player via `ORDER BY gw DESC` with no
@@ -1368,6 +1376,7 @@ def run_season_simulation(
                 mm_mv = minutes_model.run(
                     con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
                     shrinkage_params_version, fact_multiplier_params_version,
+                    minutes_bounds_params_version=minutes_bounds_params_version,
                 )
                 plan_run_id = transfer_planner.run(
                     con, calibration_asof_date, season, gw, state_version, ts_mv, mm_mv,
@@ -1379,6 +1388,7 @@ def run_season_simulation(
                     bench_boost_threshold_params_version=bench_boost_threshold_params_version,
                     triple_captain_timing_params_version=triple_captain_timing_params_version,
                     bench_boost_timing_params_version=bench_boost_timing_params_version,
+                    captain_risk_params_version=captain_risk_params_version,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
@@ -1607,6 +1617,7 @@ def beats_baseline(
     ownership_params_version: int,
     guardrail_cap: float = 3.0,
     recent_points_lookback_gameweeks: int = 3,
+    minutes_bounds_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -1652,6 +1663,7 @@ def beats_baseline(
             mm_mv = minutes_model.run(
                 con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
                 shrinkage_params_version, fact_multiplier_params_version,
+                minutes_bounds_params_version=minutes_bounds_params_version,
             )
             ep_mv = ep.run(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
@@ -1660,11 +1672,17 @@ def beats_baseline(
 
             recent_pool = _naive_candidate_pool(con, season, "recent_points", recent_points_lookback_gameweeks)
             recent_solve = (
-                squad_optimizer.solve(recent_pool, {}, 0.0, guardrail_cap) if len(recent_pool) >= 15 else None
+                squad_optimizer.solve(
+                    recent_pool, {}, 0.0, guardrail_cap,
+                    captain_variance_multiplier=squad_optimizer.LIVE_CAPTAIN_VARIANCE_MULTIPLIER,
+                ) if len(recent_pool) >= 15 else None
             )
             ownership_pool = _naive_candidate_pool(con, season, "ownership")
             ownership_solve = (
-                squad_optimizer.solve(ownership_pool, {}, 0.0, guardrail_cap) if len(ownership_pool) >= 15 else None
+                squad_optimizer.solve(
+                    ownership_pool, {}, 0.0, guardrail_cap,
+                    captain_variance_multiplier=squad_optimizer.LIVE_CAPTAIN_VARIANCE_MULTIPLIER,
+                ) if len(ownership_pool) >= 15 else None
             )
 
         # _avg_manager_benchmark_points needs THIS gameweek's own real selected_by_percent/
@@ -1975,14 +1993,19 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     # (ep_total_calibration_mean_resid grows from -0.24 at <£5.0m to +0.84 at £9.0m+, i.e.
     # premiums shrunk hardest toward the position average). See refit_rate_shrinkage().
     "rate_shrinkage_params_version": ("rate_shrinkage_params", "k_minutes"),
+    # Not recalibrate() grid families, but switched on after a walk-forward (Fix D, Fix F) and
+    # resolved here so every caller reads one answer -- before this, only run_ingestion.py and
+    # run_walkforward.py passed them (docs/reports/2026-10_live_path_diagnosis.md, finding 4).
+    "captain_risk_params_version": ("captain_risk_params", "captain_variance_multiplier"),
+    "minutes_bounds_params_version": ("minutes_bounds_params", "p_floor"),
 }
 
 
 def active_recalibratable_versions(seed_dir: Path | str, default_version: int = 1) -> dict[str, int]:
-    """Roadmap P1 item (Track B): every real-data script that needs one or more of the 8
+    """Roadmap P1 item (Track B): every real-data script that needs one or more of the
     recalibratable version-arguments (RECALIBRATABLE_VERSION_ARGS above) calls this once and
     reads the result, rather than each hardcoding its own literal (or each calling
-    resolve_active_version() 8 times with hand-copied family/key strings -- exactly the
+    resolve_active_version() once per family with hand-copied family/key strings -- exactly the
     duplication that let xi_params_version/rho_residual_params_version drift out of sync across
     a dozen scripts before this function existed, see resolve_active_version()'s own docstring).
     One place owns the family/key mapping; every caller reads the same answer."""
@@ -2216,6 +2239,9 @@ def _minutes_log_score_for_step(
         mm_model_version = minutes_model.run(
             con, gameweek_deadline(con, season, gameweek).date(), season,
             decay_params_version, adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version,
+            # Scores the model's own probabilities, before the live floor, so the refit stays
+            # comparable with every earlier recalibration run.
+            minutes_bounds_params_version=None,
         )
     ep_fixture_of = dict(con.execute(
         "SELECT player_uid, fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]
@@ -2851,7 +2877,10 @@ def refit_lambda(
                 continue
             player_uids = {c["player_uid"] for c in candidates}
             sigma_pairs = squad_optimizer.fetch_sigma_pairs(con, un_mv, player_uids)
-            result = squad_optimizer.solve(candidates, sigma_pairs, lam, guardrail_cap)
+            result = squad_optimizer.solve(
+                candidates, sigma_pairs, lam, guardrail_cap,
+                captain_variance_multiplier=squad_optimizer.LIVE_CAPTAIN_VARIANCE_MULTIPLIER,
+            )
             if not result["xi"]:
                 continue
             # The solve's real vice (and bench, via _realized_solve_points()): 2026-09 fix (docs/reports/2026-09_chip_policy_
@@ -2978,7 +3007,10 @@ def report_concentration_sensitivity(
                 continue
             player_uids = {c["player_uid"] for c in candidates}
             sigma_pairs = squad_optimizer.fetch_sigma_pairs(con, un_mv, player_uids)
-            result = squad_optimizer.solve(candidates, sigma_pairs, lambda_value, cap)
+            result = squad_optimizer.solve(
+                candidates, sigma_pairs, lambda_value, cap,
+                captain_variance_multiplier=squad_optimizer.LIVE_CAPTAIN_VARIANCE_MULTIPLIER,
+            )
             if not result["xi"]:
                 continue
             # The solve's real vice and bench: same 2026-09 fix as refit_lambda() above -- this
