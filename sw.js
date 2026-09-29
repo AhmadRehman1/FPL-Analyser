@@ -6,7 +6,7 @@
 //
 // App gap 1: also handles real Web Push -- `push` renders the deadline/injury alert the
 // scheduled pipeline sent via scripts/push_notify.py; `notificationclick` opens the app.
-const CACHE_NAME = "fq-shell-v8";
+const CACHE_NAME = "fq-shell-v9";
 const SHELL_URLS = [
   "./",
   "./index.html",
@@ -24,9 +24,24 @@ const SHELL_URLS = [
   "./planner/storage.js",
 ];
 
+// Cloudflare 307-redirects /index.html -> / and /landing.html -> /landing. A redirected
+// response served to a page navigation is a network error in Chrome/Safari, so every link to
+// a *.html page would break once this worker is installed. Store a plain copy instead.
+async function unredirected(response) {
+  if (!response.redirected) return response;
+  const body = await response.blob();
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_URLS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => Promise.all(SHELL_URLS.map(async (url) => {
+        const response = await fetch(url, { cache: "no-cache" });
+        if (!response.ok) throw new Error(`precache failed: ${url} ${response.status}`);
+        await cache.put(url, await unredirected(response));
+      })))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -51,7 +66,7 @@ self.addEventListener("fetch", (event) => {
         .then((response) => {
           if (response.ok) {
             const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+            unredirected(copy).then((clean) => caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clean)));
           }
           return response;
         })

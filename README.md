@@ -637,8 +637,9 @@ Two free hosts serve the same static shell (`index.html`, `landing.html`, `track
 `sw.js`, `manifest.json`, `icons/`, `assets/`, `planner/`):
 
 - **GitHub Pages** - `.github/workflows/deploy_pages.yml`, at `https://<owner>.github.io/FPL-Analyser/`.
-- **Cloudflare** (Workers static assets) - `wrangler.toml`. Cloudflare runs
-  `bash scripts/build_cloudflare_site.sh` (builds `public/`) then `npx wrangler deploy`.
+- **Cloudflare** (Workers static assets) - `wrangler.toml`. Workers Builds runs
+  `npx wrangler deploy`, whose `[build]` step runs `bash scripts/build_cloudflare_site.sh`
+  (builds `public/`) first, so no build command is needed in the Cloudflare dashboard.
 
 Both read the file list from `scripts/site_files.txt`, so they can't drift apart. Neither host
 ever bundles data: every page fetches `data/dashboard/*.json` from `raw.githubusercontent.com`

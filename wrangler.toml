@@ -1,9 +1,14 @@
 # Cloudflare Workers static-assets deploy of the PWA shell. No Worker script - assets only.
-# public/ is built by scripts/build_cloudflare_site.sh (the Cloudflare build command).
+# public/ is built by scripts/build_cloudflare_site.sh, run by [build] below.
 # Data is not bundled - the app fetches data/dashboard/*.json from raw.githubusercontent.com.
 # Must match the Worker name in the Cloudflare dashboard (Workers Builds fails otherwise).
 name = "fpl-analyser"
 compatibility_date = "2026-09-01"
+
+# Wrangler runs this before every deploy/dev, so a plain `npx wrangler deploy` works on a
+# fresh checkout without a build command set in the Cloudflare dashboard.
+[build]
+command = "bash scripts/build_cloudflare_site.sh"
 
 [assets]
 directory = "public"

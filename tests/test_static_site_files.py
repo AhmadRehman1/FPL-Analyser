@@ -39,6 +39,20 @@ def test_pages_workflow_uses_shared_build():
     assert "scripts/build_cloudflare_site.sh site" in wf
 
 
+def test_wrangler_builds_its_own_assets_dir():
+    # Workers Builds runs plain `npx wrangler deploy`; without [build], public/ doesn't exist.
+    cfg = (ROOT / "wrangler.toml").read_text()
+    assert re.search(r'^\[build\]\s*\ncommand = "bash scripts/build_cloudflare_site\.sh"', cfg, re.M)
+    assert re.search(r'^directory = "public"', cfg, re.M)
+
+
+def test_sw_never_caches_redirected_responses():
+    # Cloudflare redirects /index.html -> /; a cached redirect breaks navigations to *.html.
+    sw = (ROOT / "sw.js").read_text()
+    assert "cache.addAll(" not in sw
+    assert "response.redirected" in sw
+
+
 def test_build_script_outputs_list(tmp_path):
     out = tmp_path / "public"
     subprocess.run(["bash", "scripts/build_cloudflare_site.sh", str(out)], cwd=ROOT, check=True)
