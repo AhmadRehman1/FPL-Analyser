@@ -220,7 +220,40 @@ Walk-forwards run on GitHub Actions via `.github/workflows/branch_walkforward.ym
 branches `bt/**`, restore the cached ingested DB, commit nothing). The overnight container could
 not build its own DB, because cloning the third-party FPL-Core-Insights dataset was blocked.
 
+## Plan for items not started tonight
+
+**Chip timing (Workstream B, "should I wait?").** Everything it needs is already computed and thrown
+away each week (`evaluate_triple_captain()` / `evaluate_bench_boost()` read existing MC/EP data; no
+solves).
+
+1. Carry `tc_score` and `bench_ep_sum` per visible gameweek on `forward_season_sim.GameweekResult`.
+2. Option value: `value_now - E[max(value over the remaining eligible GWs before the chip-set
+   deadline)]`, where later weeks are shrunk toward the season mean by how far out they are
+   (versioned placeholder).
+3. Fire only when `value_now >= E[max remaining] - margin` (versioned margin), the same shape as
+   the wildcard sweep's gate.
+4. Validate with `run_season_simulation()` over 2024-26 (TC/BB points per season with vs without
+   the wait rule), then through the Fix A gate.
+
+This means overriding the "per-week call, not swept" TC exemption in
+`reconcile_chips_with_timing_sweep()`. That's a deliberate reversal, so it should be named in the PR.
+
+**Bonus (Fix C suspect 4).** The BPS model leaves out passing/key-pass and winning-goal BPS
+(attackers) and the clean-sheet BPS (keepers and defenders). The net direction isn't clear without
+per-match key-pass data, which isn't reconciled. The assists calibration already raises attackers'
+BPS through `e_assists`. Next: reconcile key passes from the match data, then test.
+
+**Penalties (Fix C suspect 1).** FPL xG already includes penalty xG, and a 1.15x penalty-taker
+multiplier exists but never fires in the 2024-26 walk-forward (no dated set-piece claims). The
+expected gain is small. Do it after assists, by deriving historical takers from match data.
+
+**DefCon (Fix C suspect 5).** "Other" is -0.08 for `<5.0` and for defenders overall, a slight
+over-prediction of cheap defenders. It needs a position x band split of the DefCon component; the
+walk-forward currently folds it into "other".
+
 ## Progress log
+
+_(Plans for items not started tonight are in the section above this one.)_
 
 _Updated after each fix. Scoreboard numbers come from `scripts/walkforward_summary.py` on the same
 cached DB for every arm._
