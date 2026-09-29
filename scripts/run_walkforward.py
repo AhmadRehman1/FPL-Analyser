@@ -51,9 +51,15 @@ def main() -> None:
         con, "captain_risk_params", "captain_variance_multiplier", "2026-09-29", value_numeric=0.0,
     )
 
+    # EXPERIMENT (bt/combo-role): current-season role blend on top of captain fix + lambda 0.1.
+    role_version = params_mod.get_or_create_version(
+        con, "current_season_role_params", "current_season_matches_threshold", "2026-09-15", value_numeric=4,
+    )
+
     t0 = time.time()
     backtest_run_id = backtest.run(
         con, **param_versions, n_antithetic_pairs=5000, run_monte_carlo=True,
+        current_season_role_params_version=role_version,
         captain_risk_params_version=captain_risk_version,
         # compute_segments: the position / price_band / promoted_team / new_signing /
         # set_piece_taker breakdowns of every scored metric -- the diagnostic axis for "where is

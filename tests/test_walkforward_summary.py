@@ -21,3 +21,4 @@ def test_summarize_empty_run():
     assert out["headline"]["beats_crowd_points_delta"] is None
     assert set(out["price_band"]) == {"<5.0", "5.0-7.0", "7.0-9.0", "9.0+"}
     assert out["captain"] == {"n": 0}
+    assert out["per_gameweek"] == []
