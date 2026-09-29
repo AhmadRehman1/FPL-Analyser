@@ -230,6 +230,7 @@ function render(data) {
         <div class="kpi"><div class="v">${hl.model_squad_points_per_gw != null ? Number(hl.model_squad_points_per_gw).toFixed(1) : "—"}</div><div class="l">Fresh model squad pts/GW</div></div>
         <div class="kpi"><div class="v">${hl.avg_manager_points_per_gw != null ? Number(hl.avg_manager_points_per_gw).toFixed(1) : "—"}</div><div class="l">Synthetic crowd benchmark pts/GW</div></div>
       </div>
+      ${hl.real_benchmark ? `<p class="sub">Against FPL's official average score, on the ${hl.real_benchmark.n_scored_gameweeks} scored gameweeks that publish one (2025-26 on): <strong style="color:${hl.real_benchmark.beats_avg_manager_by_points_per_gw >= 0 ? "var(--good,#2ecc71)" : "var(--bad,#e74c3c)"};">${fmtSigned(hl.real_benchmark.beats_avg_manager_by_points_per_gw)}</strong> pts/GW (average ${hl.real_benchmark.avg_manager_points_per_gw != null ? Number(hl.real_benchmark.avg_manager_points_per_gw).toFixed(1) : "—"}). The model side is still a fresh, hit-free squad each week, so treat it as an upper bound.</p>` : ""}
       ${hl.minutes_brier != null ? `<p class="empty-note">Minutes-model calibration: Brier ${Number(hl.minutes_brier).toFixed(3)}, log score ${hl.minutes_log_score != null ? Number(hl.minutes_log_score).toFixed(3) : "—"} (lower is better).</p>` : ""}
     </section>` : "";
 

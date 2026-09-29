@@ -860,6 +860,39 @@ def test_score_gameweek_records_beats_crowd_metrics_when_opted_in(con):
     assert rows["beats_crowd_points_delta"] == pytest.approx(rows["model_squad_realized_points"] - rows["avg_manager_benchmark_points"])
 
 
+def _ingest_gameweek_summaries(con, tmp_path, season, rows):
+    """rows: [(gw, average_entry_score, finished)] as FPL-Core-Insights' gameweek_summaries.csv."""
+    from fpl_quant import ingest_csv
+
+    path = tmp_path / f"gameweek_summaries_{season}.csv"
+    path.write_text("id,name,deadline_time,average_entry_score,finished\n" + "".join(
+        f"{gw},Gameweek {gw},2025-10-01T10:00:00Z,{avg},{str(finished)}\n" for gw, avg, finished in rows
+    ))
+    ingest_csv.ingest_csv_file(con, season, "gameweek_summaries.csv", path)
+
+
+def test_real_average_entry_score_reads_finished_gameweeks_only(con, tmp_path):
+    _ingest_gameweek_summaries(con, tmp_path, "2025-2026", [(10, 48, True), (11, 0, False)])
+    assert bt._real_average_entry_score(con, "2025-2026", 10) == pytest.approx(48.0)
+    assert bt._real_average_entry_score(con, "2025-2026", 11) is None  # not finished
+    assert bt._real_average_entry_score(con, "2024-2025", 10) is None  # season has no file
+
+
+def test_score_gameweek_records_the_real_average_benchmark_when_published(con, tmp_path):
+    ep_mv, mm_mv, ts_mv, so_run_id = _seed_beats_crowd_scenario(con)
+    _ingest_gameweek_summaries(con, tmp_path, "2025-2026", [(10, 20, True)])
+    backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, mm_mv, ts_mv, 1, so_run_id=so_run_id,
+        ownership_params_version=1,
+    )
+    rows = dict(con.execute(
+        "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall())
+    assert rows["real_avg_manager_points"] == pytest.approx(20.0)
+    assert rows["beats_real_avg_points_delta"] == pytest.approx(rows["model_squad_realized_points"] - 20.0)
+
+
 def test_score_gameweek_skips_beats_crowd_metrics_when_not_opted_in(con):
     ep_mv, mm_mv, ts_mv, so_run_id = _seed_beats_crowd_scenario(con)
     backtest_run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]

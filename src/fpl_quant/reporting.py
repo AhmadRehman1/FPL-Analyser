@@ -704,6 +704,17 @@ def _backtest_headline(metrics: list[dict]) -> dict | None:
         # a report) can tell this is a synthetic oracle-vs-oracle comparison without having to
         # already know backtest.py's internals -- see bt.synthetic_crowd_benchmark_provenance().
         "benchmark_metadata": bt.synthetic_crowd_benchmark_provenance(),
+        # The same model squad against FPL's real published average, on the gameweeks that have
+        # one (2025-26 on). None until a walk-forward scores it.
+        "real_benchmark": (
+            {
+                "beats_avg_manager_by_points_per_gw": by_name["beats_real_avg_points_delta"],
+                "n_scored_gameweeks": n_by_name["beats_real_avg_points_delta"],
+                "avg_manager_points_per_gw": by_name.get("real_avg_manager_points"),
+                "benchmark_metadata": bt.real_average_benchmark_provenance(),
+            }
+            if "beats_real_avg_points_delta" in by_name else None
+        ),
     }
 
 
