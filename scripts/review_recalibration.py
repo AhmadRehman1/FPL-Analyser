@@ -41,6 +41,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest  # noqa: E402
 from fpl_quant import db  # noqa: E402
+from fpl_quant import recalibration_gate  # noqa: E402
 
 SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
@@ -86,6 +87,10 @@ def list_confirmed(con) -> None:
         )
 
 
+class GateRefused(Exception):
+    """--confirm refused by recalibration_gate.gate_reasons()."""
+
+
 def set_status(con, proposal_id: int, status: str, reviewed_by: str | None) -> None:
     row = con.execute(
         "SELECT status, backtest_run_id, param_family, param_key, dimensions "
@@ -95,6 +100,12 @@ def set_status(con, proposal_id: int, status: str, reviewed_by: str | None) -> N
         print(f"No proposal #{proposal_id} found.")
         return
     old_status, backtest_run_id, param_family, param_key, dimensions = row
+    # Same checks as the automated gate, no bypass (Finding 5: rho_residual 0.0 -> 0.0 was
+    # confirmed twice through this path). --reject stays unchecked: it's the rollback path.
+    if status == "confirmed":
+        reasons = recalibration_gate.gate_reasons(con, proposal_id, SEED_DIR)
+        if reasons:
+            raise GateRefused(f"#{proposal_id} not confirmed:\n  - " + "\n  - ".join(reasons))
     con.execute(
         "UPDATE recalibration_proposals SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE proposal_id = ?",
         [status, reviewed_by, datetime.now(timezone.utc), proposal_id],
@@ -131,7 +142,11 @@ def main() -> None:
 
     con = db.connect()
     if args.confirm is not None:
-        set_status(con, args.confirm, "confirmed", args.reviewed_by)
+        try:
+            set_status(con, args.confirm, "confirmed", args.reviewed_by)
+        except GateRefused as e:
+            con.close()
+            sys.exit(str(e))
     elif args.reject is not None:
         set_status(con, args.reject, "rejected", args.reviewed_by)
     elif args.list_confirmed:

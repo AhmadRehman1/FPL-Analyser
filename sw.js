@@ -6,7 +6,7 @@
 //
 // App gap 1: also handles real Web Push -- `push` renders the deadline/injury alert the
 // scheduled pipeline sent via scripts/push_notify.py; `notificationclick` opens the app.
-const CACHE_NAME = "fq-shell-v7";
+const CACHE_NAME = "fq-shell-v8";
 const SHELL_URLS = [
   "./",
   "./index.html",
@@ -17,6 +17,11 @@ const SHELL_URLS = [
   "./icons/icon-512.png",
   "./icons/icon-512-maskable.png",
   "./icons/apple-touch-icon.png",
+  "./planner/rules.js",
+  "./planner/model.js",
+  "./planner/fixtures.js",
+  "./planner/solver.js",
+  "./planner/storage.js",
 ];
 
 self.addEventListener("install", (event) => {
