@@ -103,14 +103,24 @@ Honest caveats:
   selection.
 - None of this is live until you merge and switch it on.
 
+Second round (on top of captain fix + lambda 0.10, same 70 weeks): assists calibration **55.86**
+model pts/GW (+0.59, better in 48 of 70 weeks), role blend **56.34** (+1.07). Both made the EP
+bias slightly worse, so neither has a PR yet (section 4). The minutes floor 0.005 run was still
+going when I wrote this.
+
 ## 4. Tried and didn't work (yet)
 
-- **Current-season role blend** (`current_season_role_params`, already in code). Model points
+- **Current-season role blend** (`current_season_role_params`, already in code). **Re-tested on top
+  of the captain fix + lambda 0.10: +1.07 model pts/GW (56.34 vs 55.27)**, the best squad-points
+  result of the night, but EP bias -0.013 -> -0.079 and MAE 1.159 -> 1.180. First pass: model points
   +0.81/GW, and the price bands are much flatter (9.0+ +0.93 -> +0.72, 5-7 +0.31 -> +0.20). But the
   global bias got worse (-0.01 -> -0.08), the log score slightly worse, and the benchmark shift makes
   its beats-avg unreadable. This is the fix aimed at the "elite owned it, model rated it low" gap,
   so it's worth another round once the benchmark is EP-independent.
-- **FPL assist calibration** (FPL awards 1.38x xA; forwards about 2x). The assists residual fell
+- **FPL assist calibration** (FPL awards 1.38x xA; forwards about 2x). **Re-tested on top of the
+  captain fix + lambda 0.10: +0.59 model pts/GW (55.86 vs 55.27), better in 48 of 70 weeks, beats-avg
+  +0.84 (about 1.5 standard errors, benchmark barely moved).** Held back only because EP bias went
+  -0.013 -> -0.038 and MAE +0.009. This is the closest to a PR. First pass: the assists residual fell
   from +0.28 to +0.16 at 9.0+, and 7-9 from +0.13 to +0.04. But squad points were unchanged (49.16)
   and the global bias moved -0.01 -> -0.04. The EP fix is real but, on its own, doesn't change who
   the optimizer picks, likely because the 3x captain penalty and lambda 0.15 dominated. **Re-test
@@ -145,8 +155,9 @@ Honest caveats:
 1. Merge #191 then #195, and switch the captain fix on (above). This is the biggest measured gain.
 2. Make the "average manager" benchmark independent of the model's own EP (use realized minutes
    for P(started)), so EP changes can be judged on the headline again.
-3. Re-run assists calibration and the role blend **on top of** the captain fix + lambda 0.10. They
-   were masked by the captain problem tonight.
+3. Assists calibration then the role blend. Both now add squad points on top of the captain fix
+   + lambda 0.10 (+0.59 and +1.07 /GW). Fix the small EP bias they add (re-centre per position),
+   re-run, and open PRs if bias holds.
 4. Wire held-out scoring into `refit_lambda` so lambda 0.10 can go through the gate properly;
    revisit the divergence check that drops weeks below lambda 0.10.
 5. Minutes floor at 0.005.
