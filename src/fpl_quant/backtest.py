@@ -614,6 +614,37 @@ def _avg_manager_benchmark_points(
 # model_team.py's own real average_entry_score comparison (a different, genuinely-official
 # benchmark, used for the live 2026-27 season tracker, not this historical walk-forward) for
 # contrast -- the two must never be described with the same unqualified "average manager" phrase.
+def _real_average_entry_score(con: duckdb.DuckDBPyConnection, season: str, gameweek: int) -> float | None:
+    """FPL's own published average score for a finished gameweek (bootstrap-static
+    events[].average_entry_score), from FPL-Core-Insights' gameweek_summaries.csv as ingested
+    into fact_raw. None when the season has no such file (2024-25 doesn't) or the gameweek
+    isn't finished."""
+    table = con.execute(
+        "SELECT raw_table_name FROM fact_raw_ingestion_log WHERE season = ? AND source_relpath = 'gameweek_summaries.csv' "
+        "ORDER BY ingested_at DESC LIMIT 1",
+        [season],
+    ).fetchone()
+    if table is None:
+        return None
+    row = con.execute(
+        f'SELECT TRY_CAST(average_entry_score AS DOUBLE) FROM "{table[0]}" '
+        "WHERE TRY_CAST(id AS INTEGER) = ? AND lower(finished) IN ('true', '1') "
+        "ORDER BY _ingested_at DESC LIMIT 1",
+        [gameweek],
+    ).fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+def real_average_benchmark_provenance() -> dict:
+    return {
+        "benchmark_name": "fpl_average_entry_score",
+        "source": "FPL bootstrap-static events[].average_entry_score, via FPL-Core-Insights gameweek_summaries.csv",
+        "coverage": "seasons with that file (2025-26 on; 2024-25 has none)",
+        "gross_or_net_of_hits": "net: FPL's average already includes managers' transfer hits",
+        "oracle": True,  # the model side is still a fresh, hit-free squad every step
+    }
+
+
 def synthetic_crowd_benchmark_provenance() -> dict:
     return {
         "benchmark_name": "synthetic_eo_weighted_score",
@@ -926,6 +957,13 @@ def score_gameweek(
             squad_uids=run_squad_uids or None, bench_order=_bench_order_from_squad_optimizer_run(con, so_run_id),
         )
         avg_manager_points = _avg_manager_benchmark_points(con, season, gameweek, ep_model_version, ownership_params_version)
+        # FPL's real average for the same week, where the season publishes it (step 5 of
+        # docs/reports/2026-10_live_path_diagnosis.md). The synthetic proxy above moves with the
+        # model's own P(plays), so it can't judge a minutes or EP change; this can.
+        real_avg = _real_average_entry_score(con, season, gameweek)
+        if real_avg is not None:
+            _record_metric(con, backtest_run_id, season, gameweek, tier, "real_avg_manager_points", real_avg)
+            _record_metric(con, backtest_run_id, season, gameweek, tier, "beats_real_avg_points_delta", model_points - real_avg)
         if avg_manager_points is not None:
             _record_metric(con, backtest_run_id, season, gameweek, tier, "model_squad_realized_points", model_points)
             _record_metric(con, backtest_run_id, season, gameweek, tier, "avg_manager_benchmark_points", avg_manager_points)

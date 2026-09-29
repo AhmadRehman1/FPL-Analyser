@@ -1066,6 +1066,34 @@ def test_build_track_record_summary_headline_when_crowd_delta_scored(con):
     assert meta["benchmark_name"] == "synthetic_eo_weighted_score"
     assert meta["stateful"] is False
     assert meta["oracle"] is True
+    assert summary["headline"]["real_benchmark"] is None  # no week with FPL's real average scored
+
+
+def test_build_track_record_summary_headline_carries_the_real_average_benchmark(con):
+    run_id, *_ = _seed_full_squad_scenario(con)
+    params.write_param(con, "squad_optimizer_guardrail_params", 1, "2026-08-10", "xi_club_concentration_cap", value_numeric=3)
+    report = reporting.build_report(con, run_id, active_param_versions={"squad_optimizer_guardrail_params": 1})
+    backtest_run_id = _seed_backtest_run(
+        con,
+        steps=[("2024-2025", 10, "warm"), ("2025-2026", 10, "warm"), ("2025-2026", 11, "warm")],
+        metrics=[
+            ("2024-2025", 10, "warm", "beats_crowd_points_delta", 9.0),
+            ("2025-2026", 10, "warm", "beats_crowd_points_delta", 4.0),
+            ("2025-2026", 11, "warm", "beats_crowd_points_delta", 6.0),
+            # FPL's real average only exists for 2025-26
+            ("2025-2026", 10, "warm", "beats_real_avg_points_delta", 1.0),
+            ("2025-2026", 11, "warm", "beats_real_avg_points_delta", -3.0),
+            ("2025-2026", 10, "warm", "real_avg_manager_points", 50.0),
+            ("2025-2026", 11, "warm", "real_avg_manager_points", 56.0),
+        ],
+    )
+    headline = reporting.build_track_record_summary(con, report, backtest_run_id)["headline"]
+    real = headline["real_benchmark"]
+    assert real["beats_avg_manager_by_points_per_gw"] == pytest.approx(-1.0)
+    assert real["n_scored_gameweeks"] == 2
+    assert real["avg_manager_points_per_gw"] == pytest.approx(53.0)
+    assert real["benchmark_metadata"]["benchmark_name"] == "fpl_average_entry_score"
+    assert headline["n_scored_gameweeks"] == 3  # the synthetic headline keeps its own coverage
 
 
 def test_build_track_record_summary_flags_backtested_params(con):

@@ -198,7 +198,8 @@ is taken with that scorer. Then 5, which unblocks 6 and 7. Each is its own small
 | 2 | Done, #203. |
 | 3 | Done, #204. `tests/test_live_switch_wiring.py` fails if a call site omits the switches. |
 | 4 | Done with this status note: transfer-now can make the 2-for-2 when 2+ free transfers are banked, and holding at the 5-transfer cap is charged one hit. |
-| 5-9 | Open. Each is judged on walk-forward runs against the pipeline's DB. |
+| 5 | Done for 2025-26: the walk-forward also scores the model squad against FPL's real `average_entry_score` (`beats_real_avg_points_delta`), read from FPL-Core-Insights' `gameweek_summaries.csv`. 2024-25 has no such file, so those weeks keep only the synthetic benchmark. |
+| 6-9 | Open. Each is judged on walk-forward runs against the pipeline's DB, using step 5's benchmark. |
 
 Walk-forward numbers from before #202 were scored without the vice rule or auto-subs, and before
 #204 most paths ran without the live captain and minutes settings. Re-run the baseline and the
