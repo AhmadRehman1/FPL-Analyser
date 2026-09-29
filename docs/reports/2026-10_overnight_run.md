@@ -106,7 +106,8 @@ Honest caveats:
 Second round (on top of captain fix + lambda 0.10, same 70 weeks): assists calibration **55.86**
 model pts/GW (+0.59, better in 48 of 70 weeks), role blend **56.34** (+1.07). Both made the EP
 bias slightly worse, so neither has a PR yet (section 4). The minutes floor 0.005 run was still
-going when I wrote this.
+going when I wrote this. Update 07:40: floor 0.005 gives log score -1.256 -> -0.717 at no cost
+in points (55.37), so it now has a PR.
 
 ## 4. Tried and didn't work (yet)
 
@@ -125,7 +126,9 @@ going when I wrote this.
   and the global bias moved -0.01 -> -0.04. The EP fix is real but, on its own, doesn't change who
   the optimizer picks, likely because the 3x captain penalty and lambda 0.15 dominated. **Re-test
   on top of the captain fix + lambda 0.10.**
-- **Minutes probability floor 0.02.** Log score -1.256 -> **-0.679**, beating the -1.099 target
+- **Minutes probability floor 0.02.** **Update: 0.005 fixes it** (on top of the captain fix +
+  lambda 0.10): log score -1.256 -> **-0.717**, model pts +0.10/GW, better in 54 of 70 weeks. Now a
+  PR (Fix F). First pass at 0.02: log score -1.256 -> **-0.679**, beating the -1.099 target
   outright. But model points -0.50/GW: a 2% floor adds phantom appearance points to non-players and
   trims nailed starters. Try 0.005: most of the damage came from hard zeros, so a smaller floor
   should keep most of the log-score gain.
@@ -160,6 +163,6 @@ going when I wrote this.
    re-run, and open PRs if bias holds.
 4. Wire held-out scoring into `refit_lambda` so lambda 0.10 can go through the gate properly;
    revisit the divergence check that drops weeks below lambda 0.10.
-5. Minutes floor at 0.005.
+5. Merge Fix F (minutes floor 0.005) and switch it on alongside the captain fix.
 6. Chip "wait for a better week" logic (plan in the status report).
 7. After a few gameweeks of the consensus disagreement log (#192), score model vs experts.

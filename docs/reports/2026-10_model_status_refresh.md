@@ -315,3 +315,15 @@ What this says:
   It needs the EP-independent benchmark before it can be judged on the headline.
 - Neither got a PR: both improve squad points but make another metric (bias/MAE) worse, which is
   the "breaks something else" rule. Both are the first candidates once the captain fix is live.
+- 2026-09-29 07:40 UTC: minutes floor **0.005** on top of Fix D + lambda 0.10, 70 GWs matched.
+
+| arm | model pts /GW | beats avg /GW | minutes log score | EP bias / MAE | resid 9+ |
+|---|---|---|---|---|---|
+| control | 55.27 | +5.41 | -1.256 | -0.013 / 1.159 | +0.93 |
+| + floor 0.005 | **55.37** | +5.67 | **-0.717** | -0.021 / 1.166 | +0.95 |
+
+The smaller floor keeps almost all of the log-score gain (-0.679 at 0.02, -0.717 at 0.005, both
+far better than the -1.099 "know nothing" line) and no longer costs points: +0.10 model pts/GW,
+beats-avg +0.26 +/- 0.21, better in 54 of 70 weeks. The benchmark barely moved (49.86 -> 49.70),
+so that comparison is roughly clean. Small cost: MAE +0.007. This one gets a PR (Fix F, placeholder
+0.005, off unless a version is passed).
