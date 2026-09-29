@@ -40,9 +40,16 @@ def main() -> None:
     active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
     param_versions = _param_versions(active)
 
+    # EXPERIMENT (bt/role-on only): current-season role blend switched on.
+    from fpl_quant import params as params_mod
+    role_version = params_mod.get_or_create_version(
+        con, "current_season_role_params", "current_season_matches_threshold", "2026-09-15", value_numeric=4,
+    )
+
     t0 = time.time()
     backtest_run_id = backtest.run(
         con, **param_versions, n_antithetic_pairs=5000, run_monte_carlo=True,
+        current_season_role_params_version=role_version,
         # compute_segments: the position / price_band / promoted_team / new_signing /
         # set_piece_taker breakdowns of every scored metric -- the diagnostic axis for "where is
         # the EP model biased" (nightly_backtest.yml -> app_track_record.json's segment_calibration).
