@@ -260,3 +260,39 @@ cached DB for every arm._
 
 - 2026-09-29: report written; experiments `bt/baseline`, `bt/fix-d-cap0`, `bt/k900`, `bt/k150`,
   `bt/role-on` started.
+- 2026-09-29 03:40 UTC: all ten overnight walk-forwards finished. Same cached DB, 2024-25 +
+  2025-26, 70 scored GWs unless noted.
+
+| arm | beats avg /GW | model pts /GW | captain pts /GW | captain = XI top-EP | min. log score | resid `<5 / 5-7 / 7-9 / 9+` |
+|---|---|---|---|---|---|---|
+| baseline (master) | -0.71 | 49.16 | 3.24 | 0% | -1.256 | -0.24 / +0.31 / +0.78 / +0.93 |
+| **Fix D: captain variance x0** | **+2.14** | **52.00** | **5.67** | 99% | -1.256 | unchanged |
+| **Fix D + lambda 0.10** | **+5.41** | **55.27** | 5.46 | 99% | -1.256 | unchanged |
+| Fix D + lambda 0.05 (66 GWs) | +7.79 | 58.64 | 5.50 | 100% | -1.256 | unchanged |
+| Fix D + lambda 0.02 (47 GWs) | +8.48 | 57.68 | 5.11 | 100% | -1.256 | unchanged |
+| k_minutes 900 (live value) | -0.99* | 49.26 | 3.34 | 0% | -1.256 | -0.24 / +0.32 / +0.81 / +1.02 |
+| k_minutes 150 | -1.12* | 48.39 | 3.24 | 0% | -1.256 | -0.24 / +0.31 / +0.75 / +0.86 |
+| current-season role blend on | -4.43* | 49.97 | 3.17 | 0% | -1.261 | -0.27 / +0.20 / +0.57 / +0.72 |
+| Fix C: FPL assist calibration | -0.45* | 49.16 | 3.33 | 0% | -1.256 | -0.25 / +0.28 / +0.69 / +0.80 |
+| Fix F: minutes floor 0.02 | -0.57* | 48.66 | 3.26 | 0% | **-0.679** | -0.28 / +0.30 / +0.81 / +1.00 |
+
+*The "average manager" benchmark (`_avg_manager_benchmark_points`) weights real ownership by the
+**model's own** P(plays) and EP, so it moves whenever the EP or minutes model changes (49.86 at
+baseline, 54.41 with the role blend). For those arms, model points per GW is the fair comparison.
+Captain and lambda arms leave EP alone, so their beats-avg numbers are clean.
+
+What this says:
+- **Captaincy was the single biggest leak.** With the 3x captain variance weight, the solver never
+  captained the XI's top-EP player (0 of 70 weeks). It picked the flattest midfielder every week.
+  Setting the weight to 0 is worth about +2.8 pts/GW on its own. Defender captaincy stays rare
+  (about 5%).
+- **Lambda 0.15 is too risk-averse.** Lower is better all the way down, but below 0.10 the
+  optimizer's own divergence check (lambda=0 vs lambda must give different squads) starts
+  dropping weeks. 0.10 is the lowest value with a full, clean sample. The step from 0.15 to 0.10
+  is another +3.3 pts/GW. Caveat: that's the best of four values on the same 70 weeks, so some of
+  it is selection.
+- **k_minutes 900 (live) didn't help** (+0.10 pts/GW vs 450, within noise) and made the 9.0+ bias
+  worse. See #196.
+- **Role blend, assists calibration, minutes floor:** each fixes the thing it targets (flatter
+  bands; log score -0.68, beating the -1.099 baseline) without improving squad points on their own.
+  Kept on branches, not merged. See "Tried and didn't work" in the overnight report.
