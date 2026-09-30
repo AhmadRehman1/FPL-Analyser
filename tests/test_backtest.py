@@ -252,6 +252,38 @@ def test_asof_scope_passes_prior_completed_season_through_whole(con):
         assert [r[0] for r in rows] == [30]  # unaffected by the 2025-2026 gw cutoff
 
 
+def test_asof_scope_drops_later_seasons_entirely(con):
+    """A 2024-25 step must not see 2025-26 (or 2026-27) season stats: expected_points' rate
+    pool, position anchors and assist ratio all read the latest row of every visible season."""
+    _seed_two_gameweek_league(con)
+    with bt.asof_scope(con, "2024-2025", 30):
+        seasons = {r[0] for r in con.execute("SELECT DISTINCT season FROM fact_player_season_stats").fetchall()}
+    assert seasons <= {"2024-2025"}
+
+
+def test_future_season_rows_do_not_change_the_rate_pool(con):
+    """Invariance: an absurd future-season row is invisible to a 2024-25 target's rate pool."""
+    from fpl_quant import expected_points as ep
+
+    _seed_two_gameweek_league(con)
+    uid = con.execute("SELECT player_uid FROM fact_player_season_stats LIMIT 1").fetchone()[0]
+    with bt.asof_scope(con, "2024-2025", 30):
+        before = ep._player_rate_pool(con, uid, ["2026-2027", "2025-2026", "2024-2025"])
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, minutes, expected_goals, _ingested_at) "
+        "VALUES (?, '2026-2027', 3, 270, 99.0, current_timestamp)", [uid],
+    )
+    with bt.asof_scope(con, "2024-2025", 30):
+        after = ep._player_rate_pool(con, uid, ["2026-2027", "2025-2026", "2024-2025"])
+    assert after == before
+
+
+def test_lookback_seasons_for_never_names_a_later_season():
+    assert bt.lookback_seasons_for("2024-2025") == ("2024-2025",)
+    assert bt.lookback_seasons_for("2025-2026") == ("2025-2026", "2024-2025")
+    assert bt.lookback_seasons_for("2026-2027") == ("2026-2027", "2025-2026", "2024-2025")
+
+
 def test_asof_scope_drops_temp_tables_on_exception():
     """finally-block cleanup must run even if the caller's code inside the scope raises --
     otherwise a crashed walk-forward step would leave a stale shadow poisoning the next one."""
