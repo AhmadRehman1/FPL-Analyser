@@ -271,6 +271,7 @@ def run_gameweek_step(
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -332,6 +333,7 @@ def run_gameweek_step(
             scoring_params_version, bps_params_version, tau_params_version,
             set_piece_params_version=set_piece_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
+            assist_calibration_params_version=assist_calibration_params_version,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
@@ -1010,6 +1012,7 @@ def run(
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
@@ -1065,6 +1068,7 @@ def run(
             minutes_bounds_params_version=minutes_bounds_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             captain_risk_params_version=captain_risk_params_version,
+            assist_calibration_params_version=assist_calibration_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
