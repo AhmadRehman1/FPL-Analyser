@@ -55,6 +55,7 @@ def _order_chip_evaluations(chips_out: list[dict]) -> list[dict]:
 
 def build_ml_horizon_ep_versions(
     con, plan_for_gameweek: int, rho_residual_params_version: int, rate_shrinkage_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ):
     """D-full ML lane: compute the quant multi-gameweek EP horizon, then a shadow copy of each
     gameweek's ep_outputs scaled to the Huber δ=4 residual model's ep_total_ml. Returns the
@@ -73,6 +74,7 @@ def build_ml_horizon_ep_versions(
         horizon_gameweeks=int(horizon_gameweeks), scoring_params_version=1, bps_params_version=1,
         tau_params_version=1, rho_residual_params_version=rho_residual_params_version, corr_params_version=1,
         rate_shrinkage_params_version=rate_shrinkage_params_version,
+        assist_calibration_params_version=assist_calibration_params_version,
     )
     if not quant_horizon:
         return None
@@ -444,6 +446,7 @@ def main() -> None:
     if ml_mode:
         ml_horizon_versions = build_ml_horizon_ep_versions(
             con, plan_for_gameweek, active["rho_residual_params_version"], active["rate_shrinkage_params_version"],
+            active["assist_calibration_params_version"],
         )
         if ml_horizon_versions is None:
             print("::warning::run_transfer_planner_for_real_squad: ML horizon unavailable "
@@ -474,6 +477,7 @@ def main() -> None:
         kappa_tc_params_version=kappa_tc_params_version,
         # Fix D: the Wildcard/Free Hit rebuilds captain their top-EP player.
         captain_risk_params_version=active["captain_risk_params_version"],
+        assist_calibration_params_version=active["assist_calibration_params_version"],
         # 2026-09 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B):
         # activates the new triple-captain/bench-boost gain thresholds for the two real
         # tracked accounts' own recommendations, same as forward_season_sim.py's live walk.

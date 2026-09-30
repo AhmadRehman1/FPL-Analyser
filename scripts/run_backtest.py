@@ -51,6 +51,7 @@ def _param_versions(active: dict) -> dict:
         rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
         lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
         captain_risk_params_version=active["captain_risk_params_version"],
+        assist_calibration_params_version=active["assist_calibration_params_version"],
         minutes_bounds_params_version=active["minutes_bounds_params_version"],
     )
 
@@ -132,6 +133,7 @@ def main() -> None:
         current_kappa_tc_version=active["kappa_tc_params_version"],
         refit_kappa_tc_flag=True,
         current_rate_shrinkage_version=active["rate_shrinkage_params_version"],
+        current_assist_calibration_version=active["assist_calibration_params_version"],
         refit_rate_shrinkage_flag=True,
         seed_dir=RECALIBRATION_SEED_DIR,
     )

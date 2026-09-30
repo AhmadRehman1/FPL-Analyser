@@ -136,6 +136,7 @@ def main() -> None:
         minutes_param_grids=MINUTES_PARAM_GRIDS,
         current_kappa_tc_version=active["kappa_tc_params_version"],
         current_rate_shrinkage_version=active["rate_shrinkage_params_version"],
+        current_assist_calibration_version=active["assist_calibration_params_version"],
         seed_dir=RECALIBRATION_SEED_DIR,
         **flags, **kwargs,
     )

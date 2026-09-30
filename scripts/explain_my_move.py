@@ -56,6 +56,7 @@ def _param_versions(active: dict) -> dict:
         wildcard_threshold_params_version=1, free_hit_threshold_params_version=1,
         kappa_tc_params_version=active["kappa_tc_params_version"],
         captain_risk_params_version=active["captain_risk_params_version"],
+        assist_calibration_params_version=active["assist_calibration_params_version"],
     )
 
 
@@ -143,6 +144,7 @@ def main() -> None:
             # also unpacked (**PARAM_VERSIONS) straight into de.recommend_best_move() below,
             # whose signature has no such argument; passed here directly instead.
             rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
+            assist_calibration_params_version=active["assist_calibration_params_version"],
         )
         shared_horizon_for_recommend = None
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]

@@ -73,6 +73,7 @@ def main() -> None:
         free_hit_threshold_params_version=1,
         kappa_tc_params_version=active["kappa_tc_params_version"],
         captain_risk_params_version=active["captain_risk_params_version"],
+        assist_calibration_params_version=active["assist_calibration_params_version"],
     )
     print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")
 

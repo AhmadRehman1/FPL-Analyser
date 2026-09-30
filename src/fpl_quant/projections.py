@@ -73,6 +73,7 @@ def build_projections(
     corr_params_version: int,
     calibrated_params_fraction: float | None = None,
     rate_shrinkage_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> list[ProjectionRow]:
     """Builds one ProjectionRow per player who has a real fixture in at least one of
     `gameweeks`. Players restricted to those present in the FIRST requested gameweek's
@@ -95,6 +96,7 @@ def build_projections(
         scoring_params_version, bps_params_version, tau_params_version,
         rho_residual_params_version, corr_params_version,
         rate_shrinkage_params_version=rate_shrinkage_params_version,
+        assist_calibration_params_version=assist_calibration_params_version,
     )
     missing = [gw for gw in gameweeks if gw not in horizon_versions]
     if missing:

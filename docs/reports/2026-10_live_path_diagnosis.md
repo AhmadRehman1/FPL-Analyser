@@ -200,7 +200,7 @@ is taken with that scorer. Then 5, which unblocks 6 and 7. Each is its own small
 | 4 | Done with this status note: transfer-now can make the 2-for-2 when 2+ free transfers are banked, and holding at the 5-transfer cap is charged one hit. |
 | 5 | Done for 2025-26: the walk-forward also scores the model squad against FPL's real `average_entry_score` (`beats_real_avg_points_delta`), read from FPL-Core-Insights' `gameweek_summaries.csv`. 2024-25 has no such file, so those weeks keep only the synthetic benchmark. |
 | 6 | Done. lambda 0.15 -> 0.10 (`seeds_lambda_2026-09-30.json`, v10): walk-forward arms 36724805099 vs 36724809697, model 53.14 -> 56.91 pts/GW, paired +1.47 ± 1.04/GW vs FPL's real average. |
-| 7 | Measuring. Walk-forward arms `--role-matches-threshold 4` and `--assist-prior-xa 30` run from master through `branch_walkforward.yml`'s `args` input and are judged on `beats_real_avg_points_delta`. |
+| 7 | Assists done: FPL/xA assist calibration on (`seeds_assists_2026-09-30.json`, prior_xa 30), arms 36724805099 vs 36724818447: model 53.14 -> 55.17 pts/GW, paired +0.94 ± 0.69/GW vs FPL's real average. Role blend dropped: +0.32 pts/GW, -0.09 vs real average, EP MAE worse. |
 | 8 | Built, #207, opt-in. `chip_timing_sensitivity.yml` (off / on / wait, both seasons) dispatched 2026-09-30. |
 | 9 | Open. |
 

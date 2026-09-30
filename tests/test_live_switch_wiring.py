@@ -26,17 +26,21 @@ from fpl_quant import squad_optimizer as so  # noqa: E402
 SEED_DIR = REPO_ROOT / "data" / "recalibration"
 CAPTAIN = "captain_risk_params_version"
 MINUTES = "minutes_bounds_params_version"
+ASSISTS = "assist_calibration_params_version"
 
 # (module, function) -> keyword every call must pass explicitly (a None is allowed: it's visible).
 REQUIRED = {
     ("squad_optimizer", "run"): [CAPTAIN],
     ("squad_optimizer", "solve"): ["captain_variance_multiplier"],
     ("minutes_model", "run"): [MINUTES],
-    ("transfer_planner", "run"): [CAPTAIN],
-    ("decision_engine", "recommend_best_move"): [CAPTAIN],
+    ("expected_points", "run"): [ASSISTS],
+    ("transfer_planner", "compute_horizon_ep"): [ASSISTS],
+    ("projections", "build_projections"): [ASSISTS],
+    ("transfer_planner", "run"): [CAPTAIN, ASSISTS],
+    ("decision_engine", "recommend_best_move"): [CAPTAIN, ASSISTS],
     ("squad_grade", "grade_squad"): [CAPTAIN],
-    ("backtest", "run"): [CAPTAIN, MINUTES],
-    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES],
+    ("backtest", "run"): [CAPTAIN, MINUTES, ASSISTS],
+    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, ASSISTS],
 }
 
 # Calls that pass their versions through a ** dict. Each one's dict builder is checked below, or it
@@ -58,6 +62,9 @@ REVIEWED_SPLATS = {
     # Deliberately "blind": every version at its pre-recalibration default.
     ("scripts/run_retrospective_engine_simulation.py", "backtest.run_season_simulation"),
     ("src/fpl_quant/squad_optimizer.py", "squad_optimizer.solve"),  # run()'s own solve_kwargs
+    ("scripts/export_projections.py", "projections.build_projections"),  # its param_versions dict
+    ("scripts/grade_squad.py", "transfer_planner.compute_horizon_ep"),  # grade_squad._param_versions()
+    ("scripts/print_chip_timing_roadmap.py", "transfer_planner.compute_horizon_ep"),  # its module-level PARAM_VERSIONS
 }
 
 
@@ -115,12 +122,13 @@ def test_every_splat_call_is_reviewed():
 
 
 @pytest.mark.parametrize("script, keys", [
-    ("run_backtest", [CAPTAIN, MINUTES]),
-    ("run_season_simulation", [CAPTAIN, MINUTES]),
-    ("export_leaderboard", [CAPTAIN, MINUTES]),
-    ("explain_my_move", [CAPTAIN]),
-    ("run_scenarios", [CAPTAIN]),
-    ("track_elite", [CAPTAIN]),
+    ("run_backtest", [CAPTAIN, MINUTES, ASSISTS]),
+    ("run_season_simulation", [CAPTAIN, MINUTES, ASSISTS]),
+    ("export_leaderboard", [CAPTAIN, MINUTES, ASSISTS]),
+    ("explain_my_move", [CAPTAIN, ASSISTS]),
+    ("run_scenarios", [CAPTAIN, ASSISTS]),
+    ("track_elite", [CAPTAIN, ASSISTS]),
+    ("grade_squad", [ASSISTS]),
 ])
 def test_script_param_dicts_carry_the_live_switches(script, keys):
     module = __import__(script)
@@ -135,6 +143,7 @@ def test_forward_sim_resolves_the_live_switches():
     versions = fss._resolve_versions(None, active)
     assert versions[CAPTAIN] == active[CAPTAIN]
     assert versions[MINUTES] == active[MINUTES]
+    assert versions[ASSISTS] == active[ASSISTS]
 
 
 def test_active_versions_resolve_to_the_live_values(con):
@@ -157,3 +166,14 @@ def test_live_switch_seed_file_is_confirmed():
     payload = json.loads((SEED_DIR / "seeds_live_switches_2026-09-29.json").read_text())
     (captain,) = payload["proposals"]
     assert (captain["param_family"], captain["status"], captain["new_value"]) == ("captain_risk_params", "confirmed", 0.0)
+
+
+def test_assist_calibration_is_live(con):
+    """The FPL/xA assist calibration (prior_xa 30) is confirmed and resolves from the seeds."""
+    payload = json.loads((SEED_DIR / "seeds_assists_2026-09-30.json").read_text())
+    (seed,) = payload["proposals"]
+    assert (seed["param_family"], seed["status"], seed["new_value"]) == ("fpl_assist_calibration_params", "confirmed", 30.0)
+    bt.materialize_confirmed_seeds(con, SEED_DIR)
+    active = bt.active_recalibratable_versions(SEED_DIR)
+    prior, _ = params.resolve_param(con, "fpl_assist_calibration_params", "prior_xa", active[ASSISTS])
+    assert prior == 30.0

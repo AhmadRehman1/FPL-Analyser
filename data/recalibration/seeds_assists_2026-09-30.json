@@ -1,0 +1,23 @@
+{
+  "backtest_run_id": null,
+  "note": "Hand-authored, same shape as backtest.write_recalibration_seed_file()'s output. Step 7 / Fix C of docs/reports/2026-10_live_path_diagnosis.md: turns on the FPL/xA assist calibration (expected_points.fpl_assist_ratio_by_position, prior_xa 30). FPL awards more assists than Opta's xA counts (2025-26 season totals: 1.3-1.7x xA in every price band), so xA-based rates under-predict FPL assist points, most for premiums. Evidence: two walk-forward arms on the same cached DB and code (master 935f3c8, 2026-09-30, branch_walkforward.yml runs 36724805099 control and 36724818447 --assist-prior-xa 30), 70 scored gameweeks over 2024-25 + 2025-26 on the fixed scorer: model squad 53.14 -> 55.17 pts/GW; vs FPL's real average_entry_score (2025-26, 34 GWs) a paired per-GW gain of +0.94 (SE 0.69); 9.0m+ ep residual +1.03 -> +0.91. Version 1 is the family's first: before this nothing ever wrote it outside expected_points.seed_assist_calibration_params() and the walk-forward arm's get_or_create_version(), both at 30.0.",
+  "written_at": "2026-09-30T00:00:00+00:00",
+  "proposals": [
+    {
+      "proposal_id": null,
+      "param_family": "fpl_assist_calibration_params",
+      "param_key": "prior_xa",
+      "dimensions": null,
+      "old_params_version": null,
+      "new_params_version": 1,
+      "old_value": null,
+      "new_value": 30.0,
+      "metric_name": "model_squad_realized_points",
+      "metric_before": 53.14,
+      "metric_after": 55.17,
+      "status": "confirmed",
+      "reviewed_by": "walk-forward arms 36724805099 vs 36724818447 (branch_walkforward.yml)",
+      "reviewed_at": "2026-09-30T20:00:00+00:00"
+    }
+  ]
+}

@@ -244,6 +244,7 @@ def main() -> None:
         ts_model_version=ts_model_version, mm_model_version=mm_model_version,
         scoring_params_version=1, bps_params_version=1, tau_params_version=1,
         rate_shrinkage_params_version=ACTIVE["rate_shrinkage_params_version"],
+        assist_calibration_params_version=ACTIVE["assist_calibration_params_version"],
     )
     n_ep_rows = con.execute(
         "SELECT count(*) FROM ep_outputs WHERE model_version = ?", [ep_model_version]

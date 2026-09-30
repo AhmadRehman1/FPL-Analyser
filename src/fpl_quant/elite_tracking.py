@@ -118,6 +118,7 @@ def build_elite_divergence(
         con, calibration_asof_date, target_season, current_event, ts_mv, mm_mv, 1,
         run_kwargs["scoring_params_version"], run_kwargs["bps_params_version"], run_kwargs["tau_params_version"],
         run_kwargs["rho_residual_params_version"], run_kwargs["corr_params_version"],
+        assist_calibration_params_version=run_kwargs.get("assist_calibration_params_version"),
     )
     if current_event not in horizon_versions:
         raise MissingModelVersionError(f"no fixtures for {target_season} GW{current_event} -- cannot track elite divergence")

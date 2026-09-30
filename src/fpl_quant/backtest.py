@@ -13,6 +13,7 @@ trivially predate data_asof; this is the first real exercise of the guarantee, s
 enforcement mechanism below (asof_scope) has to actually work, not just be plausible.
 """
 
+import functools
 import json
 import math
 from collections import Counter
@@ -1298,6 +1299,7 @@ def run_season_simulation(
     captain_risk_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
     chip_wait_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1406,6 +1408,7 @@ def run_season_simulation(
         ep_mv = ep.run(
             con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
             scoring_params_version, bps_params_version, tau_params_version,
+            assist_calibration_params_version=assist_calibration_params_version,
         )
         un_mv = uncertainty.run(
             con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
@@ -1476,6 +1479,7 @@ def run_season_simulation(
                     triple_captain_timing_params_version=triple_captain_timing_params_version,
                     bench_boost_timing_params_version=bench_boost_timing_params_version,
                     captain_risk_params_version=captain_risk_params_version,
+                    assist_calibration_params_version=assist_calibration_params_version,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
@@ -1706,6 +1710,7 @@ def beats_baseline(
     guardrail_cap: float = 3.0,
     recent_points_lookback_gameweeks: int = 3,
     minutes_bounds_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -1756,6 +1761,7 @@ def beats_baseline(
             ep_mv = ep.run(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
                 scoring_params_version, bps_params_version, tau_params_version,
+                assist_calibration_params_version=assist_calibration_params_version,
             )
 
             recent_pool = _naive_candidate_pool(con, season, "recent_points", recent_points_lookback_gameweeks)
@@ -2086,6 +2092,8 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     # run_walkforward.py passed them (docs/reports/2026-10_live_path_diagnosis.md, finding 4).
     "captain_risk_params_version": ("captain_risk_params", "captain_variance_multiplier"),
     "minutes_bounds_params_version": ("minutes_bounds_params", "p_floor"),
+    # FPL/xA assist calibration (Fix C, prior_xa 30), switched on 2026-09-30 after its walk-forward arm.
+    "assist_calibration_params_version": ("fpl_assist_calibration_params", "prior_xa"),
 }
 
 
@@ -2371,6 +2379,7 @@ DECISION_WEIGHT_OWNERSHIP_FLOOR_PCT = 0.5
 def _ep_calibration_mae_for_step(
     con: duckdb.DuckDBPyConnection, season: str, gameweek: int, original_ep_model_version: int,
     rate_shrinkage_params_version: int, *, decision_weighted: bool = False,
+    assist_calibration_params_version: int | None = None,
 ) -> float | None:
     """Re-runs only expected_points.run() (no SCIP/MIQP -- a per-fixture Python/SQL loop, same
     cost class as minutes_model.run()) inside a fresh asof_scope for this one step, with a
@@ -2399,6 +2408,7 @@ def _ep_calibration_mae_for_step(
         candidate_ep_mv = ep.run(
             con, gameweek_deadline(con, season, gameweek).date(), season, gameweek, ts_mv, mm_mv,
             scoring_pv, bps_pv, tau_pv, rate_shrinkage_params_version=rate_shrinkage_params_version,
+            assist_calibration_params_version=assist_calibration_params_version,
         )
     rows = con.execute(
         "SELECT player_uid, event_points, selected_by_percent FROM fact_player_season_stats "
@@ -2432,9 +2442,13 @@ def calibration_mae(
     return total / weight_sum if weight_sum else None
 
 
-def _decision_weighted_ep_mae_for_step(con, season, gameweek, original_ep_model_version, rate_shrinkage_params_version):
+def _decision_weighted_ep_mae_for_step(
+    con, season, gameweek, original_ep_model_version, rate_shrinkage_params_version, *,
+    assist_calibration_params_version=None,
+):
     return _ep_calibration_mae_for_step(
         con, season, gameweek, original_ep_model_version, rate_shrinkage_params_version, decision_weighted=True,
+        assist_calibration_params_version=assist_calibration_params_version,
     )
 
 
@@ -3184,6 +3198,7 @@ def recalibrate(
     rate_shrinkage_k_grid: tuple[float, ...] = (100.0, 250.0, 450.0, 900.0, 1350.0, 1800.0, 2400.0, 3000.0, 4000.0),
     refit_rate_shrinkage_flag: bool = False,
     seed_dir: Path | str | None = None,
+    current_assist_calibration_version: int | None = None,
 ) -> list[int]:
     """Runs whichever refit techniques are enabled against this backtest_run_id's results and
     writes one propose_recalibration() row per changed parameter -- never activates anything
@@ -3342,7 +3357,12 @@ def recalibrate(
         # Optimise the decision-weighted loss (Finding 1). The unweighted MAE stays a reported
         # diagnostic via score_gameweek()'s ep_total_calibration_mae.
         result = refit_rate_shrinkage(
-            con, eval_steps, ep_by_step, k_minutes_grid=grid, score_fn=_decision_weighted_ep_mae_for_step,
+            con, eval_steps, ep_by_step, k_minutes_grid=grid,
+            # Re-score each candidate k with the same assist calibration the walk-forward ran.
+            score_fn=functools.partial(
+                _decision_weighted_ep_mae_for_step,
+                assist_calibration_params_version=current_assist_calibration_version,
+            ),
         )
         if result["best_k_minutes"] != current_k:
             holdout = None
