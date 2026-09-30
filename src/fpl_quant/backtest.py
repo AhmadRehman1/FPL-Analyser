@@ -1131,6 +1131,32 @@ CHIP_TIMING_FIELD_SEASON = {
 }
 
 
+# "Wait for a better week" (docs/reports/2026-10_live_path_diagnosis.md, step 8): the chip's
+# value per gameweek, the wider season window first when run() computed one.
+CHIP_WAIT_FIELDS = {
+    "triple_captain": ("season_best_captain_value_per_gw", "best_captain_value_per_gw"),
+    "bench_boost": ("season_all_gameweeks", "all_gameweeks"),
+}
+LAST_GAMEWEEK = 38
+
+
+def _worth_waiting(per_gw: dict, target_gameweek: int, last_gameweek: int, decay: float, margin: float) -> bool:
+    """True when a later week before the chip's deadline is expected to beat playing it now.
+
+    A projection further out is less reliable, so each later week keeps only decay**distance of
+    its edge over the window's mean; wait only if the best of those beats now by more than
+    margin. Missing data never holds a chip (same fallback as the visible-horizon check)."""
+    per_gw = {int(k): v for k, v in (per_gw or {}).items() if int(k) <= last_gameweek}
+    if target_gameweek not in per_gw:
+        return False
+    later = {gw: v for gw, v in per_gw.items() if gw > target_gameweek}
+    if not later:
+        return False
+    mean = sum(per_gw.values()) / len(per_gw)
+    best_later = max(mean + (v - mean) * decay ** (gw - target_gameweek) for gw, v in later.items())
+    return best_later > per_gw[target_gameweek] + margin
+
+
 def _is_best_gameweek_in_visible_horizon(per_gw: dict, target_gameweek: int, prefer: str) -> bool:
     """A real, if myopic, "is now better than waiting" signal built entirely from the model's
     own already-computed forward EP for the gameweeks currently visible in the planning
@@ -1160,6 +1186,7 @@ def _is_best_gameweek_in_visible_horizon(per_gw: dict, target_gameweek: int, pre
 def _decide_gameweek_action(
     con: duckdb.DuckDBPyConnection, plan_run_id: int, chips_used_set1: set, chips_used_set2: set,
     target_gameweek: int, accept_transfer_if_net_value_above: float,
+    chip_wait_params_version: int | None = None,
 ) -> tuple[int | None, str | None]:
     """The harness's own explicit decision rule, deliberately simple and auditable rather than
     a second optimization layer: accept the #1 ranked transfer iff its net_value clears
@@ -1179,7 +1206,17 @@ def _decide_gameweek_action(
     currently-visible horizon) the best week to play it is held, not taken -- the loop tries
     the next-priority chip instead, then falls through to a transfer, exactly as when nothing
     was recommended at all. Set-2 gameweeks (GW19+) keep the original threshold-only check --
-    deliberately out of scope for this round, named here rather than silently extended."""
+    deliberately out of scope for this round, named here rather than silently extended.
+
+    chip_wait_params_version (opt-in, None keeps all of the above): Triple Captain and Bench
+    Boost use _worth_waiting() instead, in both chip sets -- judged on the best captain the XI
+    offers each week, not just this week's candidate, with far-off weeks discounted."""
+    chip_wait = None
+    if chip_wait_params_version is not None:
+        chip_wait = (
+            params_mod.resolve_param(con, "chip_wait_params", "decay_per_gameweek", chip_wait_params_version)[0],
+            params_mod.resolve_param(con, "chip_wait_params", "margin_points", chip_wait_params_version)[0],
+        )
     is_set1 = target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK
     used_this_set = chips_used_set1 if is_set1 else chips_used_set2
     rows = con.execute(
@@ -1190,6 +1227,13 @@ def _decide_gameweek_action(
     for candidate in CHIP_PRIORITY:
         if candidate not in recommended or candidate in used_this_set:
             continue
+        if chip_wait is not None and candidate in CHIP_WAIT_FIELDS:
+            detail = recommended[candidate]
+            per_gw: dict = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
+            last_gameweek = transfer_planner.GW19_DEADLINE_GAMEWEEK - 1 if is_set1 else LAST_GAMEWEEK
+            if _worth_waiting(per_gw, target_gameweek, last_gameweek, *chip_wait):
+                continue
+            return None, candidate
         if is_set1:
             field, prefer = CHIP_TIMING_FIELD[candidate]
             per_gw = recommended[candidate].get(field, {})
@@ -1249,6 +1293,7 @@ def run_season_simulation(
     bench_boost_timing_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
+    chip_wait_params_version: int | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1430,6 +1475,7 @@ def run_season_simulation(
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
+                    chip_wait_params_version=chip_wait_params_version,
                 )
 
                 if accept_chip == "free_hit":

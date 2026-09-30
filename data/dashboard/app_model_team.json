@@ -4,8 +4,8 @@
   "current_gameweek": 5,
   "n_gameweeks_scored": 5,
   "n_gameweeks_simulated": 1,
-  "total_realized_points": 230.0,
-  "total_vs_field": -69.0,
+  "total_realized_points": 302.0,
+  "total_vs_field": 3.0,
   "chips_used": [
     "free_hit",
     "triple_captain"
@@ -17,12 +17,12 @@
       "action": "seed",
       "action_detail": "from-scratch GW1 optimal squad",
       "projected_points": null,
-      "realized_points": 42.0,
+      "realized_points": 54.0,
       "provisional": false,
       "field_average": 50,
-      "delta_vs_field": -8.0,
-      "cumulative_points": 42.0,
-      "cumulative_vs_field": -8.0
+      "delta_vs_field": 4.0,
+      "cumulative_points": 54.0,
+      "cumulative_vs_field": 4.0
     },
     {
       "gameweek": 2,
@@ -30,12 +30,12 @@
       "action": "transfer",
       "action_detail": "player_maxence_lacroix -> player_pascal_struijk (net +3.72)",
       "projected_points": 43.55,
-      "realized_points": 51.0,
+      "realized_points": 62.0,
       "provisional": false,
       "field_average": 81,
-      "delta_vs_field": -30.0,
-      "cumulative_points": 93.0,
-      "cumulative_vs_field": -38.0
+      "delta_vs_field": -19.0,
+      "cumulative_points": 116.0,
+      "cumulative_vs_field": -15.0
     },
     {
       "gameweek": 3,
@@ -43,12 +43,12 @@
       "action": "free_hit",
       "action_detail": "",
       "projected_points": 78.23,
-      "realized_points": 60.0,
+      "realized_points": 67.0,
       "provisional": false,
       "field_average": 51,
-      "delta_vs_field": 9.0,
-      "cumulative_points": 153.0,
-      "cumulative_vs_field": -29.0
+      "delta_vs_field": 16.0,
+      "cumulative_points": 183.0,
+      "cumulative_vs_field": 1.0
     },
     {
       "gameweek": 4,
@@ -56,12 +56,12 @@
       "action": "triple_captain",
       "action_detail": "triple captain",
       "projected_points": 62.15,
-      "realized_points": 39.0,
+      "realized_points": 73.0,
       "provisional": false,
       "field_average": 69,
-      "delta_vs_field": -30.0,
-      "cumulative_points": 192.0,
-      "cumulative_vs_field": -59.0
+      "delta_vs_field": 4.0,
+      "cumulative_points": 256.0,
+      "cumulative_vs_field": 5.0
     },
     {
       "gameweek": 5,
@@ -69,12 +69,12 @@
       "action": "transfer",
       "action_detail": "player_nathan_collins -> player_marc_guehi (net +26.90)",
       "projected_points": 50.63,
-      "realized_points": 38.0,
+      "realized_points": 46.0,
       "provisional": false,
       "field_average": 48,
-      "delta_vs_field": -10.0,
-      "cumulative_points": 230.0,
-      "cumulative_vs_field": -69.0
+      "delta_vs_field": -2.0,
+      "cumulative_points": 302.0,
+      "cumulative_vs_field": 3.0
     }
   ],
   "free_hit_audit": {
@@ -83,9 +83,9 @@
     "gain_threshold": null,
     "recommended": true,
     "projected_points": 78.23,
-    "realized_points": 60.0,
-    "counterfactual_hold_realized_points": 21.0,
-    "realized_minus_hold": 39.0,
+    "realized_points": 67.0,
+    "counterfactual_hold_realized_points": 38.0,
+    "realized_minus_hold": 29.0,
     "gameweek_final": true,
     "note": "gameweek final"
   },
@@ -172,5 +172,5 @@
     "detail": "player_nathan_collins -> player_marc_guehi (net +26.90)"
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-09-29T13:49:11.317440+00:00"
+  "generated_at": "2026-09-29T22:56:34.864456+00:00"
 }

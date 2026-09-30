@@ -169,6 +169,11 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     #   recalibration extension as every other invented threshold in this project.
     params_mod.write_param(con, "triple_captain_timing_params", 1, "2026-09-14", "timing_window_gameweeks", value_numeric=10)
     params_mod.write_param(con, "bench_boost_timing_params", 1, "2026-09-14", "timing_window_gameweeks", value_numeric=10)
+    # "Wait for a better week" for Triple Captain and Bench Boost (backtest._worth_waiting()).
+    # Placeholders, not fitted: a week's projection keeps 85% of its edge over the window mean
+    # per gameweek of distance, and a later week must beat now by half a point to hold.
+    params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "decay_per_gameweek", value_numeric=0.85)
+    params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "margin_points", value_numeric=0.5)
     # Priority 4 -- price-change-timing: FPL's own price-change algorithm (how large a net-
     # transfer swing at a given ownership level actually triggers a real change) is not
     # public, and this project has not verified what scale transfers_in_event/
@@ -1021,6 +1026,15 @@ def ensure_squad_simulation(
     )
 
 
+def _best_value_per_gw(horizon_ep_map: dict | None, uids: set[str]) -> dict[int, float]:
+    """{gw: highest projected EP among `uids` that gameweek}, from a _horizon_ep_by_player() map."""
+    out: dict[int, float] = {}
+    for uid in uids:
+        for gw, mu in (horizon_ep_map or {}).get(uid, {}).get("per_gw", {}).items():
+            out[gw] = max(out.get(gw, mu), mu)
+    return out
+
+
 def evaluate_triple_captain(
     con: duckdb.DuckDBPyConnection, mc_model_version: int, xi_uids: set[str], kappa_tc_params_version: int,
     horizon_ep_map: dict | None = None, threshold_params_version: int | None = None,
@@ -1094,9 +1108,14 @@ def evaluate_triple_captain(
     result = {
         "recommended": recommended, "captain_candidate": best["player_uid"], "tc_score": best["tc_score"],
         "all_candidates": scored, "captain_value_per_gw": captain_value_per_gw,
+        # The best captain the XI offers each week, whoever it is -- what the chip is worth if
+        # played that week. The winner's own trajectory above misses a different player's
+        # better week later on.
+        "best_captain_value_per_gw": _best_value_per_gw(horizon_ep_map, xi_uids),
     }
     if season_horizon_ep_map is not None:
         result["season_captain_value_per_gw"] = season_horizon_ep_map.get(best["player_uid"], {}).get("per_gw", {})
+        result["season_best_captain_value_per_gw"] = _best_value_per_gw(season_horizon_ep_map, xi_uids)
     if reason is not None:
         result["reason"] = reason
     return result

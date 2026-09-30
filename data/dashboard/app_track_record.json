@@ -474,13 +474,116 @@
       }
     ]
   },
-  "generated_at": "2026-09-29T13:49:07.260260",
+  "generated_at": "2026-09-29T22:56:30.712805",
   "transparency_log": {
     "backtest": {
-      "n_gameweek_steps": null,
-      "seasons_covered": [],
-      "headline": null,
-      "metrics": [],
+      "n_gameweek_steps": 71,
+      "seasons_covered": [
+        "2024-2025",
+        "2025-2026"
+      ],
+      "headline": {
+        "beats_avg_manager_by_points_per_gw": -0.7052,
+        "n_scored_gameweeks": 70,
+        "model_squad_points_per_gw": 49.1571,
+        "avg_manager_points_per_gw": 49.8623,
+        "minutes_brier": 0.3709,
+        "minutes_log_score": -1.256,
+        "ep_points_bias_per_player": -0.0134,
+        "ep_points_mae_per_player": 1.1589
+      },
+      "metrics": [
+        {
+          "metric_name": "avg_manager_benchmark_points",
+          "mean_value": 49.8623,
+          "n_observations": 70
+        },
+        {
+          "metric_name": "beats_crowd_points_delta",
+          "mean_value": -0.7052,
+          "n_observations": 70
+        },
+        {
+          "metric_name": "brier_clean_sheet_mean",
+          "mean_value": 0.0584,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "brier_minutes_mean",
+          "mean_value": 0.3709,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "ep_appearance_calibration_mean_resid",
+          "mean_value": 0.0492,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "ep_assists_calibration_mean_resid",
+          "mean_value": 0.0195,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "ep_cleansheet_calibration_mean_resid",
+          "mean_value": -0.0235,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "ep_goals_calibration_mean_resid",
+          "mean_value": -0.0075,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "ep_other_calibration_mean_resid",
+          "mean_value": -0.0511,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "ep_total_calibration_mae",
+          "mean_value": 1.1589,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "ep_total_calibration_mean_resid",
+          "mean_value": -0.0134,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "log_score_assists_mean",
+          "mean_value": -0.1556,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "log_score_clean_sheet_mean",
+          "mean_value": -0.3126,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "log_score_goals_mean",
+          "mean_value": -0.1677,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "log_score_minutes_mean",
+          "mean_value": -1.256,
+          "n_observations": 71
+        },
+        {
+          "metric_name": "model_squad_realized_points",
+          "mean_value": 49.1571,
+          "n_observations": 70
+        },
+        {
+          "metric_name": "poisson_calibration_degenerate_count",
+          "mean_value": 3.0,
+          "n_observations": 1
+        },
+        {
+          "metric_name": "poisson_calibration_mean_resid",
+          "mean_value": 0.062,
+          "n_observations": 71
+        }
+      ],
       "parameters_total": 62,
       "parameters_backtested": 8
     },
@@ -512,41 +615,20 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 47.230527453357745,
+        "total_projected_ep": 47.0040448050629,
         "captain_name": "Erling Haaland",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
     "latest_diff": {
-      "has_previous": true,
-      "previous_gameweek": 3,
-      "current_gameweek": 4,
-      "squad_changes": {
-        "in": [
-          "Yoane Wissa",
-          "David Raya Martin",
-          "James Tarkowski",
-          "Ben Davies",
-          "Callum Olusesi",
-          "Granit Xhaka",
-          "C\u00e9dric Kipr\u00e9"
-        ],
-        "out": [
-          "Declan Rice",
-          "James Garner",
-          "Bernd Leno",
-          "Marcos Senesi Bar\u00f3n",
-          "Adam Aznou",
-          "Chido Obi",
-          "Abdoul Ouattara"
-        ]
-      },
-      "captain_changed": true,
-      "previous_captain": "Ethan Ampadu",
-      "current_captain": "Erling Haaland",
-      "total_projected_ep_delta": -1.7164293294478483,
-      "newly_doubtful_flags": []
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 1,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
     },
     "provenance": {
       "data_asof": "2026-09-29",
@@ -554,8 +636,8 @@
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "6eb122a87818a3b3e45a2bcf9c40f822d8402cce",
-      "fpl_core_insights_commit_sha": "6fd332ca58401edfbbec0b4359e8468d8502b31b",
+      "fpl_analyser_commit_sha": "dae01da02a640df0fb20b506454f08876ace4523",
+      "fpl_core_insights_commit_sha": "4af8d4e22fb31c7fb60b004b956ccce39bbbd6ed",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -567,7 +649,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-09-29T12:09:20.218949+00:00",
+      "recorded_at": "2026-09-29T21:35:01.418477+00:00",
       "research_pull_workbook": {
         "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
         "size_bytes": 26007

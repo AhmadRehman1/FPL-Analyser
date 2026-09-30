@@ -13,6 +13,9 @@ historical season, scored on REALIZED FPL points, at one of two fixed arms:
            season-horizon timing check -- CHIP_TIMING_FIELD_SEASON never fires.
   "on"  -- same, plus triple_captain_timing_params_version=1, bench_boost_timing_params_version=1.
            Adds the wider-window timing check on top.
+  "wait" -- "on", plus chip_wait_params_version=1: TC/BB use backtest._worth_waiting() (the
+           discounted "is a later week better" rule, both chip sets) instead of the
+           best-week-in-window check.
 
 Both arms hold every OTHER param version fixed (the same active_recalibratable_versions() +
 threshold=1 base every other season-sim caller uses), so the only thing that differs between
@@ -25,7 +28,7 @@ This writes NOTHING to any committed param file and activates NO version -- same
 versioning, promotion stays a human gate" property as every other sensitivity script here.
 
 Env:
-  CTS_ARM          "off" | "on"               (required)
+  CTS_ARM          "off" | "on" | "wait"      (required)
   CTS_SEASON       "2024-2025" | "2025-2026"  (default "2025-2026")
   CTS_START_GW     first gameweek to walk     (default 2 -- GW1 is not bootstrappable)
   CTS_END_GW       last gameweek to walk      (default 38)
@@ -49,8 +52,8 @@ RECALIBRATION_SEED_DIR = REPO_ROOT / "data" / "recalibration"
 
 def main() -> None:
     arm = os.environ["CTS_ARM"].strip().lower()
-    if arm not in ("off", "on"):
-        raise SystemExit(f"CTS_ARM must be 'off' or 'on', got {arm!r}")
+    if arm not in ("off", "on", "wait"):
+        raise SystemExit(f"CTS_ARM must be 'off', 'on' or 'wait', got {arm!r}")
     season = os.environ.get("CTS_SEASON", "2025-2026").strip()
     start_gw = int(os.environ.get("CTS_START_GW", "2"))
     end_gw = int(os.environ.get("CTS_END_GW", "38"))
@@ -64,9 +67,11 @@ def main() -> None:
     base_versions = _param_versions(active)
     base_versions["triple_captain_threshold_params_version"] = 1
     base_versions["bench_boost_threshold_params_version"] = 1
-    if arm == "on":
+    if arm in ("on", "wait"):
         base_versions["triple_captain_timing_params_version"] = 1
         base_versions["bench_boost_timing_params_version"] = 1
+    if arm == "wait":
+        base_versions["chip_wait_params_version"] = 1
 
     t0 = time.time()
     result = backtest.run_season_simulation(con, season, start_gw, end_gw, **base_versions)
