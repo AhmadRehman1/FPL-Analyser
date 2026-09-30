@@ -3822,3 +3822,15 @@ def test_materialize_confirmed_seeds_writes_the_active_version_idempotently(con)
     active = bt.active_recalibratable_versions(real_seed_dir)
     lam, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", active["lambda_params_version"])
     assert lam == 0.1
+
+
+def test_refit_lambda_picks_on_points_with_sharpe_as_tie_break():
+    """A steadier but lower-scoring lambda must not beat a higher-scoring one."""
+    grid = {
+        0.0: {"realized_sharpe": 3.3, "mean_points": 50.0, "n_gameweeks": 4},   # higher points, noisier
+        0.15: {"realized_sharpe": 70.0, "mean_points": 49.5, "n_gameweeks": 4},  # steadier, fewer points
+        0.3: {"realized_sharpe": float("-inf"), "mean_points": None, "n_gameweeks": 0},
+    }
+    assert bt._pick_best_lambda(grid) == 0.0
+    grid[0.15]["mean_points"] = 50.0  # a points tie goes to the higher Sharpe
+    assert bt._pick_best_lambda(grid) == 0.15

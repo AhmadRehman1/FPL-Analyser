@@ -30,6 +30,7 @@ METRIC_DIRECTION = {
     "log_score_minutes_mean": "higher_is_better",
     "log_score_minutes_mean_holdout": "higher_is_better",
     "realized_sharpe": "higher_is_better",
+    "mean_realized_points": "higher_is_better",
     "ep_total_calibration_mae": "lower_is_better",
     "ep_total_calibration_mae_decision_weighted": "lower_is_better",
 }

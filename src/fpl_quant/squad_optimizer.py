@@ -722,8 +722,11 @@ def run(
         result_zero["xi"] != result_real["xi"] or result_zero["captain"] != result_real["captain"]
     )
 
-    divergence_passed = baseline_reliable and meaningfully_different
-    note = None
+    # lambda = 0 is a legal setting (no risk aversion): the "real" solve IS the baseline, so
+    # there is nothing to diverge from and only the baseline's own optimality is checked.
+    risk_term_off = lam == 0
+    divergence_passed = baseline_reliable and (meaningfully_different or risk_term_off)
+    note = "lambda=0: risk term off, divergence check not applicable." if risk_term_off and divergence_passed else None
     if not divergence_passed:
         if not baseline_reliable:
             note = (
