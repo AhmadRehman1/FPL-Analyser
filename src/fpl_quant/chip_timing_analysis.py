@@ -637,6 +637,7 @@ def wildcard_followups(
             con, asof, target_season, gw, ctx["ts_model_version"], ctx["mm_model_version"], window,
             v["scoring_params_version"], v["bps_params_version"], v["tau_params_version"],
             v["rho_residual_params_version"], v["corr_params_version"],
+            rate_shrinkage_params_version=v.get("rate_shrinkage_params_version"),
         )
         bb_window = bench_boost_window(
             con,

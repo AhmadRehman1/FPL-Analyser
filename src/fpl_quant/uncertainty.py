@@ -460,6 +460,8 @@ def run(
     target_season = con.execute(
         "SELECT target_season FROM ep_model_versions WHERE model_version = ?", [ep_model_version],
     ).fetchone()[0]
+    # the k_minutes the EP was built with (recorded on ep_model_versions), not the 450 default
+    rate_shrinkage_params_version = (ep.recipe_of(con, ep_model_version) or {}).get("rate_shrinkage_params_version")
 
     model_version = con.execute(
         """
@@ -532,8 +534,10 @@ def run(
                 "ep_saves": ep_saves, "p_0": p0, "p_1_59": p1, "p_60plus": p2,
                 "lambda_against": lambda_against, "p_rank1": p_r1, "p_rank2": p_r2, "p_rank3": p_r3,
             }
-            rates = ep.player_rates_shrunk(con, player_uid, position, list(season_priority))
-            def_rates = ep._defensive_action_rates_per_90(con, player_uid, position, list(season_priority))
+            rates = ep.player_rates_shrunk(con, player_uid, position, list(season_priority), rate_shrinkage_params_version)
+            def_rates = ep._defensive_action_rates_per_90(
+                con, player_uid, position, list(season_priority), rate_shrinkage_params_version,
+            )
 
             variances, var_total = total_variance(
                 con, ep_row, position, rates, def_rates, mean_minutes, scoring_params_version, rho_residual
