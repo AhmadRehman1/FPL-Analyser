@@ -2954,6 +2954,18 @@ def season_cumulative_metrics(weekly_points: list[float]) -> dict:
     }
 
 
+def _pick_best_lambda(grid_results: dict[float, dict]) -> float:
+    """Highest mean realized points (what FPL scores); Sharpe only breaks ties and stays in
+    the grid as a risk diagnostic. A lambda with no scored gameweeks ranks last."""
+    return max(
+        grid_results,
+        key=lambda lam: (
+            grid_results[lam]["mean_points"] if grid_results[lam]["mean_points"] is not None else float("-inf"),
+            grid_results[lam]["realized_sharpe"],
+        ),
+    )
+
+
 def refit_lambda(
     con: duckdb.DuckDBPyConnection,
     eval_steps: list[tuple[str, int]],
@@ -2962,8 +2974,9 @@ def refit_lambda(
     guardrail_cap: float,
     lambda_grid: tuple[float, ...] = (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50),
 ) -> dict:
-    """Out-of-sample grid search on realized_sharpe = mean(realized XI points)/std(same)
-    across eval_steps, maximized over lambda_grid -- per the M7 spec's own self-critique
+    """Out-of-sample grid search over lambda_grid, picking the highest mean realized XI
+    points across eval_steps (Sharpe = mean/std breaks ties). It used to maximize Sharpe alone,
+    which is not what FPL scores -- per the M7 spec's original self-critique
     ("out-of-sample grid search on risk-adjusted return, since lambda is a preference
     parameter rather than a data-fit one"). Re-solves squad_optimizer.solve() per gameweek per
     candidate (the expensive part, ~19s per solve per README's own live-run numbers) but never
@@ -3014,7 +3027,7 @@ def refit_lambda(
         else:
             grid_results[lam] = {"realized_sharpe": float("-inf"), "mean_points": None, "n_gameweeks": len(gameweek_points)}
 
-    best_lambda = max(grid_results, key=lambda lam_val: grid_results[lam_val]["realized_sharpe"])
+    best_lambda = _pick_best_lambda(grid_results)
     return {"best_lambda": best_lambda, "grid": grid_results}
 
 
@@ -3326,7 +3339,7 @@ def recalibrate(
         if result["best_lambda"] != current_lambda:
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, "risk_aversion_params", "lambda_value", result["best_lambda"],
-                "realized_sharpe", result["grid"][current_lambda]["realized_sharpe"], result["grid"][result["best_lambda"]]["realized_sharpe"],
+                "mean_realized_points", result["grid"][current_lambda]["mean_points"], result["grid"][result["best_lambda"]]["mean_points"],
                 old_params_version=current_lambda_version, effective_date=effective_date, grid_values=grid,
             ))
 
