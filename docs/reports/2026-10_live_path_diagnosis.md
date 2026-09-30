@@ -199,7 +199,7 @@ is taken with that scorer. Then 5, which unblocks 6 and 7. Each is its own small
 | 3 | Done, #204. `tests/test_live_switch_wiring.py` fails if a call site omits the switches. |
 | 4 | Done with this status note: transfer-now can make the 2-for-2 when 2+ free transfers are banked, and holding at the 5-transfer cap is charged one hit. |
 | 5 | Done for 2025-26: the walk-forward also scores the model squad against FPL's real `average_entry_score` (`beats_real_avg_points_delta`), read from FPL-Core-Insights' `gameweek_summaries.csv`. 2024-25 has no such file, so those weeks keep only the synthetic benchmark. |
-| 6 | Measuring. `lambda_sensitivity.yml` (0.10 vs 0.15, both seasons) dispatched 2026-09-30, plus a walk-forward arm (`--lambda 0.10`). |
+| 6 | Done. lambda 0.15 -> 0.10 (`seeds_lambda_2026-09-30.json`, v10): walk-forward arms 36724805099 vs 36724809697, model 53.14 -> 56.91 pts/GW, paired +1.47 ± 1.04/GW vs FPL's real average. |
 | 7 | Measuring. Walk-forward arms `--role-matches-threshold 4` and `--assist-prior-xa 30` run from master through `branch_walkforward.yml`'s `args` input and are judged on `beats_real_avg_points_delta`. |
 | 8 | Built, #207, opt-in. `chip_timing_sensitivity.yml` (off / on / wait, both seasons) dispatched 2026-09-30. |
 | 9 | Open. |

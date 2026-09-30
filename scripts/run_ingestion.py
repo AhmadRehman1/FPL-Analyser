@@ -140,11 +140,7 @@ def main() -> None:
     # load_confirmed_recalibration_seeds()'s own docstring) -- a 'pending' proposal never
     # silently becomes a live default just by sitting in this file. write_param() is idempotent
     # for an identical value, so this is a safe no-op on every run after the first.
-    for seed in backtest.load_confirmed_recalibration_seeds(RECALIBRATION_SEED_DIR):
-        params.write_param(
-            con, seed["param_family"], seed["new_params_version"], "2026-08-12",
-            seed["param_key"], value_numeric=seed["new_value"], dimensions=seed["dimensions"],
-        )
+    backtest.materialize_confirmed_seeds(con, RECALIBRATION_SEED_DIR)
     print("[params] source_tier_weights, fact_type_multiplier_params, model_decay_params, "
           "minutes_adjustment_params, minutes_model_decay_params, minutes_model_shrinkage_params, "
           "base_scoring_matrix, bps_formula_params, correlation_params, "

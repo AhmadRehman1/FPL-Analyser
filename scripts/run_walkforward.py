@@ -79,6 +79,8 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     con = db.connect()
+    # The cached DB can predate a newly committed seed; make sure every active version exists.
+    backtest.materialize_confirmed_seeds(con, RECALIBRATION_SEED_DIR)
     active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
     param_versions = _param_versions(active)
     experiment = _experiment_versions(con, args)

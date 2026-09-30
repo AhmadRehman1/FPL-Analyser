@@ -1,0 +1,23 @@
+{
+  "backtest_run_id": null,
+  "note": "Hand-authored, same shape as backtest.write_recalibration_seed_file()'s output. Step 6 of docs/reports/2026-10_live_path_diagnosis.md: risk_aversion_params.lambda_value 0.15 -> 0.10. Evidence: two walk-forward arms on the same cached DB and code (master 935f3c8, 2026-09-30, branch_walkforward.yml runs 36724805099 control and 36724809697 --lambda 0.10), 70 scored gameweeks over 2024-25 + 2025-26 on the fixed scorer (auto-subs, vice): model squad 53.14 -> 56.91 pts/GW; vs FPL's real average_entry_score (2025-26, 34 GWs) +4.26 -> +5.74, a paired per-GW gain of +1.47 (SE 1.04). The EP model is untouched, so the synthetic benchmark is a clean read too: +3.06 -> +6.82. Version 10, not 2: risk_posture.resolve_versions() mints the 'attack' posture's lambda (0.05) as the family's next free version in pipeline DBs, so a low number could collide with a cached DB's existing row.",
+  "written_at": "2026-09-30T00:00:00+00:00",
+  "proposals": [
+    {
+      "proposal_id": null,
+      "param_family": "risk_aversion_params",
+      "param_key": "lambda_value",
+      "dimensions": null,
+      "old_params_version": 1,
+      "new_params_version": 10,
+      "old_value": 0.15,
+      "new_value": 0.1,
+      "metric_name": "model_squad_realized_points",
+      "metric_before": 53.14,
+      "metric_after": 56.91,
+      "status": "confirmed",
+      "reviewed_by": "walk-forward arms 36724805099 vs 36724809697 (branch_walkforward.yml)",
+      "reviewed_at": "2026-09-30T19:00:00+00:00"
+    }
+  ]
+}
