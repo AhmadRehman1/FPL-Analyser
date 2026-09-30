@@ -63,7 +63,8 @@ def captain_stats(con, run_id) -> dict:
 
 def summarize(con, run_id: int) -> dict:
     out = {"backtest_run_id": run_id, "headline": {}, "price_band": {}, "position": {}}
-    for name in ("beats_crowd_points_delta", "model_squad_realized_points", "avg_manager_benchmark_points",
+    for name in ("beats_crowd_points_delta", "beats_real_avg_points_delta", "real_avg_manager_points",
+                 "model_squad_realized_points", "avg_manager_benchmark_points",
                  "log_score_minutes_mean", "brier_minutes_mean", "ep_total_calibration_mean_resid",
                  "ep_total_calibration_mae"):
         out["headline"][name], out["headline"][f"n_{name}"] = _mean_metric(con, run_id, name)
@@ -78,10 +79,13 @@ def summarize(con, run_id: int) -> dict:
     # per-gameweek rows so two arms can be compared on the SAME scored steps (an arm can lose
     # steps, e.g. to the optimizer's divergence check at very low lambda)
     out["per_gameweek"] = [
-        {"season": s, "gw": g, "beats_crowd": round(v, 3)}
-        for s, g, v in con.execute(
-            "SELECT season, gameweek, metric_value FROM backtest_metrics WHERE backtest_run_id = ? "
-            "AND metric_name = 'beats_crowd_points_delta' ORDER BY season, gameweek", [run_id],
+        {"season": s, "gw": g, "beats_crowd": round(v, 3), "beats_real": None if r is None else round(r, 3)}
+        for s, g, v, r in con.execute(
+            "SELECT c.season, c.gameweek, c.metric_value, r.metric_value FROM backtest_metrics c "
+            "LEFT JOIN backtest_metrics r ON r.backtest_run_id = c.backtest_run_id AND r.season = c.season "
+            "AND r.gameweek = c.gameweek AND r.metric_name = 'beats_real_avg_points_delta' "
+            "WHERE c.backtest_run_id = ? AND c.metric_name = 'beats_crowd_points_delta' "
+            "ORDER BY c.season, c.gameweek", [run_id],
         ).fetchall()
     ]
     return out

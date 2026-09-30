@@ -670,3 +670,34 @@ def test_position_average_rates_includes_snapshot_only_players(con):
     assert avg["expected_goals_per_90"] == pytest.approx(expected, rel=1e-4)
     # dropping the snapshot player (old behaviour) would give 0.40 exactly
     assert avg["expected_goals_per_90"] > 0.45
+
+
+# ---- Finding 2: FPL assists vs xA ------------------------------------------------
+
+def _season_row(con, uid, season, gw, assists, xa, minutes=900):
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, minutes, assists, expected_assists, _ingested_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, current_timestamp)",
+        [uid, season, gw, minutes, assists, xa],
+    )
+
+
+def test_fpl_assist_ratio_uses_latest_cumulative_row_and_shrinks_to_one(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES "
+                "('m1','M1','Midfielder'),('m2','M2','Midfielder'),('f1','F1','Forward')")
+    _season_row(con, "m1", "2025-2026", 10, 2, 5.0)
+    _season_row(con, "m1", "2025-2026", 38, 14, 10.0)   # latest row wins
+    _season_row(con, "m2", "2025-2026", 38, 6, 5.0)
+    _season_row(con, "f1", "2025-2026", 38, 8, 4.0)
+    no_prior = ep.fpl_assist_ratio_by_position(con, ["2025-2026"], prior_xa=0.0)
+    assert no_prior["Midfielder"] == pytest.approx(20 / 15)
+    assert no_prior["Forward"] == pytest.approx(2.0)
+    shrunk = ep.fpl_assist_ratio_by_position(con, ["2025-2026"], prior_xa=30.0)
+    assert shrunk["Forward"] == pytest.approx(38 / 34)
+    assert "Defender" not in shrunk   # no data -> caller defaults to 1.0
+
+
+def test_seed_assist_calibration_params(con):
+    ep.seed_assist_calibration_params(con)
+    from fpl_quant import params
+    assert params.resolve_param(con, "fpl_assist_calibration_params", "prior_xa", 1)[0] == 30.0
