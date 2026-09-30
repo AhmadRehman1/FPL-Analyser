@@ -1303,7 +1303,7 @@ def test_active_recalibratable_versions_matches_known_confirmed_state():
     assert versions["fact_multiplier_params_version"] == 8
     assert versions["shrinkage_params_version"] == 11
     assert versions["adjustment_params_version"] == 18
-    assert versions["lambda_params_version"] == 1
+    assert versions["lambda_params_version"] == 10  # seeds_lambda_2026-09-30.json, 0.15 -> 0.10
     assert versions["kappa_tc_params_version"] == 3
     assert versions["rate_shrinkage_params_version"] == 8
 
@@ -3780,3 +3780,13 @@ def test_recalibrate_rate_shrinkage_grid_brackets_the_old_winner():
     import inspect
     grid = inspect.signature(bt.recalibrate).parameters["rate_shrinkage_k_grid"].default
     assert min(grid) < 900.0 < max(grid) and min(grid) < 3000.0 < max(grid)
+
+
+def test_materialize_confirmed_seeds_writes_the_active_version_idempotently(con):
+    real_seed_dir = Path(__file__).resolve().parents[1] / "data" / "recalibration"
+    n = bt.materialize_confirmed_seeds(con, real_seed_dir)
+    assert n > 0
+    assert bt.materialize_confirmed_seeds(con, real_seed_dir) == n  # second call is a no-op
+    active = bt.active_recalibratable_versions(real_seed_dir)
+    lam, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", active["lambda_params_version"])
+    assert lam == 0.1

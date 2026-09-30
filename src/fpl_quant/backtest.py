@@ -2178,6 +2178,21 @@ def auto_promote_pending_proposals(
     ]
 
 
+def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path | str) -> int:
+    """Writes every confirmed seed's value at its new_params_version, so the versions
+    active_recalibratable_versions() returns exist in this DB. Idempotent (write_param() is a
+    no-op for an identical row) and loud on a real collision. run_ingestion.py calls it on
+    every fresh DB; run_walkforward.py calls it too, since it runs on a cached DB that may
+    predate a newly committed seed. Returns the number of seeds written or confirmed."""
+    seeds = load_confirmed_recalibration_seeds(seed_dir)
+    for seed in seeds:
+        params_mod.write_param(
+            con, seed["param_family"], seed["new_params_version"], "2026-08-12",
+            seed["param_key"], value_numeric=seed["new_value"], dimensions=seed["dimensions"],
+        )
+    return len(seeds)
+
+
 def load_confirmed_recalibration_seeds(seed_dir: Path | str) -> list[dict]:
     """Reads every seeds_*.json file in seed_dir and returns only 'confirmed' proposals -- the
     set safe to auto-write into a fresh/empty DB (see run_ingestion.py's own use of this). A
