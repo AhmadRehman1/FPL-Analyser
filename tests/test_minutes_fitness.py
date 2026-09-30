@@ -83,6 +83,32 @@ def test_injured_stretch_does_not_depress_start_rate(con):
     assert comp.loc["wood", "weighted_starts"] / comp.loc["wood", "weighted_total"] > 0.99
 
 
+def test_matches_before_a_mid_season_signing_arrived_are_dropped(con):
+    _seed_league_with_gameweeks(con)
+    _seed_team_and_player(con, "signing", "Signing", "Forward")
+    # Not in the game until 2025-26 GW6 (first FPL row), then started every match.
+    for gw in range(6, 11):
+        _season_stat(con, "signing", "2025-2026", gw, status="a")
+        _played(con, "signing", "2025-2026", gw)
+
+    comp = mm.compute_player_historical_components(con, ("2025-2026",), date(2026, 8, 1), 0.0).set_index("player_uid")
+    assert comp.loc["signing", "raw_team_matches"] == 5   # not 10
+    assert comp.loc["signing", "weighted_starts"] / comp.loc["signing", "weighted_total"] > 0.99
+
+
+def test_unavailable_or_ineligible_matches_are_dropped(con):
+    _seed_league_with_gameweeks(con)
+    _seed_team_and_player(con, "loanee", "Loanee", "Midfielder")
+    # 2025-26: started GW1-4, out on loan ('u') GW5-8, ineligible ('n') GW9-10.
+    for gw in range(1, 11):
+        _season_stat(con, "loanee", "2025-2026", gw, status="a" if gw <= 4 else ("u" if gw <= 8 else "n"))
+        if gw <= 4:
+            _played(con, "loanee", "2025-2026", gw)
+
+    comp = mm.compute_player_historical_components(con, ("2025-2026",), date(2026, 8, 1), 0.0).set_index("player_uid")
+    assert comp.loc["loanee", "raw_team_matches"] == 4
+
+
 def test_benched_while_fit_still_counts_as_a_non_start(con):
     _seed_league_with_gameweeks(con)
     _seed_team_and_player(con, "sub", "Sub", "Midfielder")
@@ -117,6 +143,18 @@ def test_live_availability_maps_chance_and_status(con):
     assert avail["pct"] == 0.75
     assert "fit" not in avail       # chance 100 -> no gate
     assert "unknown" not in avail   # status 'u' with null chance -> no guess
+
+
+def test_live_availability_ignores_zero_chance_on_available_status(con):
+    # FPL-Core-Insights 2025-26 GW2-10 rows: status 'a' with chance_of_playing_next_round = 0.
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES "
+                "('fit0','F','F'),('gone','G','F')")
+    _season_stat(con, "fit0", "2025-2026", 5, status="a", chance=0)
+    _season_stat(con, "gone", "2025-2026", 5, status="u", chance=0)
+
+    avail = mm.live_availability_by_player(con, "2025-2026")
+    assert "fit0" not in avail
+    assert avail["gone"] == 0.0
 
 
 def test_run_gates_a_flagged_players_p_start_final(con):
