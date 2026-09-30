@@ -102,6 +102,12 @@ def compute_player_historical_components(
     stretch injured -- e.g. Chris Wood at ~0.43 despite being a nailed starter whenever fit.
     p_start_historical_own is now a clean "starts-when-available" role signal; forward-looking
     fitness is applied separately in run() from the live chance_of_playing_next_round flag.
+
+    The same goes for a zero-minute match the player couldn't have been picked for: status
+    'u' (left the club, out on loan) or 'n' (ineligible), or a gameweek before the player's
+    first FPL row that season (not registered yet -- a mid-season signing's club matches
+    before he arrived). Every historical gameweek has a playerstats snapshot, so the first row
+    is when he entered the game, not a gap in the data.
     """
     _build_player_season_team_map(con, seasons)
     for player_uid, season in exclude_player_seasons or ():
@@ -127,7 +133,13 @@ def compute_player_historical_components(
                 ON pmst.player_uid = pst.player_uid AND pmst.match_id = tmw.match_id
             LEFT JOIN fact_player_season_stats fpss
                 ON fpss.player_uid = pst.player_uid AND fpss.season = pst.season AND fpss.gw = tmw.gameweek
-            WHERE NOT (coalesce(pmst.minutes_played, 0) = 0 AND coalesce(fpss.status, '') IN ('i', 's'))
+            LEFT JOIN (
+                SELECT player_uid, season, min(gw) AS first_gw FROM fact_player_season_stats GROUP BY player_uid, season
+            ) reg ON reg.player_uid = pst.player_uid AND reg.season = pst.season
+            WHERE NOT (
+                coalesce(pmst.minutes_played, 0) = 0
+                AND (coalesce(fpss.status, '') IN ('i', 's', 'u', 'n') OR coalesce(tmw.gameweek < reg.first_gw, FALSE))
+            )
             GROUP BY pst.player_uid
             """
         ).fetchdf()
@@ -718,7 +730,7 @@ def live_availability_by_player(con: duckdb.DuckDBPyConnection, target_season: s
     """{player_uid: 0.0-1.0} forward-looking availability, from the FPL bootstrap's own
     chance_of_playing_next_round / status, taken from each player's latest ingested gameweek
     row. Only ever < 1.0 -- an explicit "doubtful / out" flag. A player absent from the dict
-    has no flag, and run() applies no gate (availability assumed 1.0).
+    has no flag, and run() applies no gate (availability assumed 1.0). Status 'a' never gates.
 
     chance_of_playing_next_round is the exact percentage the FPL API publishes (0/25/50/75).
     A null chance with status 'i'/'s' (injured / suspended, no percentage given) -> 0.0; status
@@ -741,6 +753,11 @@ def live_availability_by_player(con: duckdb.DuckDBPyConnection, target_season: s
     ).fetchall()
     out: dict[str, float] = {}
     for player_uid, chance, status in rows:
+        # Status 'a' means available, whatever the chance column says. FPL-Core-Insights'
+        # 2025-26 playerstats.csv carries chance = 0 on about 3,900 status-'a' rows (GW2-10,
+        # Salah and Semenyo among them), which gated nailed starters to p_start 0.
+        if status == "a":
+            continue
         if chance is not None:
             if chance < 100:
                 out[player_uid] = max(0.0, min(1.0, chance / 100.0))
