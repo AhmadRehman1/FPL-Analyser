@@ -75,6 +75,13 @@ def tier_for(season: str, gameweek: int) -> str:
     raise ValueError(f"no tier definition for season {season!r} -- backtest only covers 2024-25/2025-26/2026-27")
 
 
+def lookback_seasons_for(season: str) -> tuple[str, ...]:
+    """expected_points.run()'s lookback for a backtest of `season`: that season and the ones
+    before it, newest first. Its live default names all three seasons; asof_scope() already
+    drops later seasons' rows, this keeps the lookback itself honest too."""
+    return tuple(reversed(fit_seasons_for(season)))
+
+
 def fit_seasons_for(season: str) -> tuple[str, ...]:
     """team_strength.calibrate()'s Elo-regression eligibility threshold is
     min(seasons_threshold, len(fit_seasons)) -- its own hardcoded live default,
@@ -172,8 +179,9 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
     fact_player_season_stats has PRIMARY KEY (player_uid, season, gw) -- already a per-gameweek
     cumulative snapshot, not a single season-aggregate row -- so truncating the in-progress
     season to `gw < gameweek` is exact, no on-the-fly re-aggregation needed. Prior, fully
-    completed seasons pass through whole (season <> the one being backtested is never
-    date-sensitive relative to this gameweek's cutoff).
+    completed seasons pass through whole; LATER seasons are dropped entirely. (This used to be
+    `season <> target`, which let a 2024-25 step read 2025-26 and 2026-27 season stats --
+    expected_points' rate pool, position anchors and assist ratio all read them.)
 
     fact_match gets one deliberate exception, not a strict kickoff_time cutoff: the target
     gameweek's own fixture *schedule* (match_id/home_team_uid/away_team_uid/kickoff_time) stays
@@ -224,8 +232,10 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
         [deadline],
     )
     con.execute(
+        # Only chronologically earlier seasons pass whole; later seasons are the future.
+        # (Season labels are "YYYY-YYYY", so string order is chronological order.)
         "CREATE OR REPLACE TEMP TABLE fact_player_season_stats AS "
-        "SELECT * FROM main.fact_player_season_stats WHERE (season = ? AND gw < ?) OR season <> ?",
+        "SELECT * FROM main.fact_player_season_stats WHERE (season = ? AND gw < ?) OR season < ?",
         [season, gameweek, season],
     )
     try:
@@ -331,6 +341,7 @@ def run_gameweek_step(
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
+            lookback_seasons=lookback_seasons_for(season),
             set_piece_params_version=set_piece_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             assist_calibration_params_version=assist_calibration_params_version,
