@@ -198,17 +198,19 @@ def _projected_xi_points(
     counts `captain_multiplier**2` times."""
     ep_rows = dict(con.execute(
         """
-        SELECT o.player_uid, o.ep_total
+        SELECT o.player_uid, sum(o.ep_total)
         FROM ep_outputs o JOIN fact_match m ON m.match_id = o.fixture_match_id
         WHERE o.model_version = ? AND m.season = ? AND m.gameweek = ? AND m.competition = ?
+        GROUP BY o.player_uid
         """,
         [ep_mv, season, gameweek, bt.PL],
     ).fetchall())
     var_rows = dict(con.execute(
         """
-        SELECT u.player_uid, u.var_total
+        SELECT u.player_uid, sum(u.var_total)
         FROM uncertainty_outputs u JOIN fact_match m ON m.match_id = u.fixture_match_id
         WHERE u.model_version = ? AND m.season = ? AND m.gameweek = ? AND m.competition = ?
+        GROUP BY u.player_uid
         """,
         [un_mv, season, gameweek, bt.PL],
     ).fetchall())
@@ -382,9 +384,6 @@ def run_forward_season_sim(
     rows: list[GameweekResult] = []
     wildcard_context: dict | None = None
     for gw in range(start_gameweek, end_gameweek + 1):
-        if bt.has_double_gameweek(con, target_season, gw):
-            continue  # v1 scope: DGW planning skipped (same boundary as backtest.run_season_simulation)
-
         with bt.asof_scope(con, target_season, gw, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
             asof = deadline.date()
             ts_mv = team_strength.calibrate(con, asof, versions["xi_params_version"], versions["rho_params_version"],

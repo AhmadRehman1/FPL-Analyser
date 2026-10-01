@@ -108,10 +108,10 @@ def _squad_downside_ci(con: duckdb.DuckDBPyConnection, ep_mv: int, un_mv: int, x
         return (0.0, 0.0)
     placeholders = ",".join(["?"] * len(xi_uids))
     rows = con.execute(
-        f"SELECT u.player_uid, u.quantile_05, u.quantile_95 FROM uncertainty_outputs u "
-        f"JOIN ep_outputs o ON o.model_version = ? AND o.player_uid = u.player_uid AND o.fixture_match_id = u.fixture_match_id "
+        # per-gameweek view: a double gameweek's two fixtures in one band (ep_mv is implied by un_mv)
+        f"SELECT u.player_uid, u.quantile_05, u.quantile_95 FROM uncertainty_gameweek_outputs u "
         f"WHERE u.model_version = ? AND u.player_uid IN ({placeholders})",
-        [ep_mv, un_mv, *xi_uids],
+        [un_mv, *xi_uids],
     ).fetchall()
     low = sum((q05 * 2 if uid == captain_uid else q05) for uid, q05, q95 in rows)
     high = sum((q95 * 2 if uid == captain_uid else q95) for uid, q05, q95 in rows)
@@ -140,7 +140,7 @@ def _injury_sensitivity(
         return []
     placeholders = ",".join(["?"] * len(xi_uids))
     star = con.execute(
-        f"SELECT player_uid FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders}) "
+        f"SELECT player_uid FROM ep_gameweek_outputs WHERE model_version = ? AND player_uid IN ({placeholders}) "
         f"ORDER BY ep_total DESC LIMIT 1",
         [target_ep_mv, *xi_uids],
     ).fetchone()
