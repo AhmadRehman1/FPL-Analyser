@@ -1424,9 +1424,12 @@ def run_season_simulation(
     holdings for it, so the following gameweek's scoring reads it like any other transfer.
 
     Returns {"weekly_points": [...], "gameweeks": [...], "final_state_version": int,
-    "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...]}
+    "actions": [{"gameweek", "action", "detail"} ...], "skipped_dgw_gameweeks": [...],
+    "weekly_hits", "weekly_net_points", "weekly_real_avg", "real_benchmark"}
     -- actions is the real per-gameweek decision log, for auditing what the simulated manager
-    actually did, not just the final score.
+    actually did, not just the final score. weekly_points stay gross (XI + captain + auto-subs);
+    weekly_hits is each accepted transfer's own transfer_cost, and real_benchmark scores the
+    net points against FPL's real average (season_real_benchmark()).
 
     simulate_auto_subs (2026-09-14 fix; default True since 2026-10, real FPL rules -- False is
     the old XI-only scoring): the real gap docs/reports/2025-26_retrospective_validation.md's
@@ -1537,6 +1540,8 @@ def run_season_simulation(
         state_version = transfer_planner.bootstrap_from_squad_optimizer_run(con, bootstrap_run_id)
 
     weekly_points: list[float] = []
+    weekly_hits: list[float] = []
+    weekly_real_avg: list[float | None] = []
     gameweeks_scored: list[int] = []
     actions: list[dict] = []
     skipped_dgw: list[int] = []
@@ -1544,6 +1549,7 @@ def run_season_simulation(
     for gw in range(start_gameweek, end_gameweek + 1):
         accept_chip = None
         free_hit_squad = None
+        hit_cost = 0.0
 
         if gw > start_gameweek:
             state_row = con.execute(
@@ -1592,6 +1598,12 @@ def run_season_simulation(
                 # accepted while walking through gameweek gw prices the fresh squad off gw's own
                 # asof-safe price snapshot (gw' < gw), never a later gameweek's price. No effect on
                 # the non-Wildcard paths (they never call _compute_bank_for_squad() at all).
+                if accept_transfer_rank is not None:
+                    cost_row = con.execute(
+                        "SELECT transfer_cost FROM transfer_recommendations WHERE run_id = ? AND rank = ?",
+                        [plan_run_id, accept_transfer_rank],
+                    ).fetchone()
+                    hit_cost = float(cost_row[0] or 0.0) if cost_row else 0.0
                 state_version = transfer_planner.apply_recommendation(
                     con, plan_run_id, accept_transfer_rank=accept_transfer_rank, accept_chip=accept_chip,
                 )
@@ -1639,11 +1651,39 @@ def run_season_simulation(
             squad_uids=squad_uids if simulate_auto_subs else None, bench_order=bench_order,
         )
         weekly_points.append(points)
+        weekly_hits.append(hit_cost)
+        weekly_real_avg.append(_real_average_entry_score(con, season, gw))
         gameweeks_scored.append(gw)
 
     return {
         "weekly_points": weekly_points, "gameweeks": gameweeks_scored, "final_state_version": state_version,
         "actions": actions, "skipped_dgw_gameweeks": skipped_dgw, "bootstrap_run_id": bootstrap_run_id,
+        # FPL's real average is net of managers' hits, so the comparison is on net points.
+        "weekly_hits": weekly_hits,
+        "weekly_net_points": [p - h for p, h in zip(weekly_points, weekly_hits)],
+        "weekly_real_avg": weekly_real_avg,
+        "real_benchmark": season_real_benchmark(weekly_points, weekly_hits, weekly_real_avg),
+    }
+
+
+def season_real_benchmark(
+    weekly_points: list[float], weekly_hits: list[float], weekly_real_avg: list[float | None],
+) -> dict:
+    """The evolving season manager against FPL's real average_entry_score, on net points (the
+    real average already includes managers' hits). Only gameweeks with a published average
+    count (2025-26 on); n_gameweeks 0 and None deltas when the season has none."""
+    pairs = [(p - h, r) for p, h, r in zip(weekly_points, weekly_hits, weekly_real_avg) if r is not None]
+    if not pairs:
+        return {"n_gameweeks": 0, "net_points_per_gw": None, "real_avg_per_gw": None,
+                "beats_real_avg_per_gw": None, "total_hits": float(sum(weekly_hits))}
+    net = [n for n, _ in pairs]
+    real = [r for _, r in pairs]
+    return {
+        "n_gameweeks": len(pairs),
+        "net_points_per_gw": sum(net) / len(net),
+        "real_avg_per_gw": sum(real) / len(real),
+        "beats_real_avg_per_gw": (sum(net) - sum(real)) / len(pairs),
+        "total_hits": float(sum(weekly_hits)),
     }
 
 

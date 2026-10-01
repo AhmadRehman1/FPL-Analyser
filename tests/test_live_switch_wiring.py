@@ -63,6 +63,7 @@ REVIEWED_SPLATS = {
     ("scripts/run_retrospective_engine_simulation.py", "backtest.run_season_simulation"),
     ("src/fpl_quant/squad_optimizer.py", "squad_optimizer.solve"),  # run()'s own solve_kwargs
     ("scripts/export_projections.py", "projections.build_projections"),  # its param_versions dict
+    ("scripts/run_season_sim_arm.py", "backtest.run_season_simulation"),  # forward_season_sim._resolve_versions()
     ("scripts/grade_squad.py", "transfer_planner.compute_horizon_ep"),  # grade_squad._param_versions()
     ("scripts/print_chip_timing_roadmap.py", "transfer_planner.compute_horizon_ep"),  # its PARAM_VERSIONS
 }
