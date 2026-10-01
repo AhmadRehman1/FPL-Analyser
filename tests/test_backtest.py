@@ -345,6 +345,41 @@ def test_asof_scope_keeps_the_root_roster_when_the_season_has_no_snapshot(con):
     assert _clubs(con) == {"p1": "2"}
 
 
+def _seed_claims(con):
+    """Deadline of 2025-2026 GW10 is 2025-11-01 15:00. Claims ingested long after (as the
+    real workbook's are), observed before, on, and after the deadline day, and undated."""
+    _seed_two_gameweek_league(con)
+    con.execute(
+        "INSERT INTO sources (source_id, source_name, source_type, base_reliability_score) "
+        "VALUES ('s', 's', 'community', 0.5)"
+    )
+    for claim_id, observed in (("before", "2025-10-31"), ("same_day", "2025-11-01"), ("after", "2025-11-05"), ("undated", None)):
+        con.execute(
+            "INSERT INTO evidence_claims (claim_id, subject_entity_type, subject_entity_id, claim_type, "
+            "information_type, source_id, source_reliability_score, observed_date, ingested_date) "
+            "VALUES (?, 'player', 'p1', 'injury_status', 'FACT', 's', 0.5, ?, '2026-09-30 03:00')",
+            [claim_id, observed],
+        )
+
+
+def test_backtest_evidence_off_keeps_the_prior_no_evidence_behavior(con):
+    from fpl_quant import snapshot
+
+    _seed_claims(con)
+    with bt.asof_scope(con, "2025-2026", 10) as deadline:
+        assert snapshot.get_claims_asof(con, deadline.date()).empty
+
+
+def test_backtest_evidence_shows_only_claims_observed_before_the_deadline_day(con):
+    from fpl_quant import snapshot
+
+    _seed_claims(con)
+    with bt.asof_scope(con, "2025-2026", 10, backtest_evidence=True) as deadline:
+        seen = set(snapshot.get_claims_asof(con, deadline.date())["claim_id"])
+    assert seen == {"before"}
+    assert con.execute("SELECT count(*) FROM evidence_claims").fetchone()[0] == 4  # main untouched
+
+
 def test_asof_scope_drops_temp_tables_on_exception():
     """finally-block cleanup must run even if the caller's code inside the scope raises --
     otherwise a crashed walk-forward step would leave a stale shadow poisoning the next one."""

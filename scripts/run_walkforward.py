@@ -53,6 +53,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="turn on the current-season role blend with this matches threshold")
     parser.add_argument("--assist-prior-xa", type=float, default=None,
                         help="turn on the FPL/xA assist calibration with this prior pseudo-count")
+    parser.add_argument("--backtest-evidence", action="store_true",
+                        help="let each step see evidence claims observed before its deadline (default: none, as before)")
     return parser.parse_args(argv)
 
 
@@ -73,6 +75,8 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         out["assist_calibration_params_version"] = params_mod.get_or_create_version(
             con, "fpl_assist_calibration_params", "prior_xa", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.assist_prior_xa,
         )
+    if getattr(args, "backtest_evidence", False):
+        out["backtest_evidence"] = True
     return out
 
 

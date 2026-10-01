@@ -162,7 +162,10 @@ def has_fittable_history(con: duckdb.DuckDBPyConnection, season: str, gameweek: 
 
 
 @contextmanager
-def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, schedule_horizon_gameweeks: int = 1):
+def asof_scope(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, schedule_horizon_gameweeks: int = 1,
+    backtest_evidence: bool = False,
+):
     """Connection-scoped TEMP TABLE shadowing of the three fact tables, truncated to what was
     knowable strictly before this gameweek's deadline. DuckDB resolves an unqualified table
     name against `temp` before `main`, so every existing M1-M5 query -- all of which read
@@ -201,6 +204,15 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
     per player comes from the latest per-gameweek roster snapshot at or before this gameweek,
     not the retroactively rewritten season root.
 
+    backtest_evidence (default False, the prior behavior): evidence_claims.ingested_date is the
+    wall-clock day the workbook was last ingested, so snapshot.get_claims_asof() hides every
+    claim from every historical step -- the backtest has scored a model with no evidence at all,
+    while live runs see all of it. True shadows evidence_claims with only the claims observed
+    strictly before the deadline's calendar day (observed_date is a DATE, so a same-day claim
+    may postdate the deadline and is excluded), with ingested_date set to observed_date so the
+    unmodified callers see exactly those. Claims with no observed_date can't be placed in time
+    and are dropped.
+
     Yields the deadline timestamp used for the shadow, for callers that also need it (e.g. to
     stamp the calibration_asof_date passed into M1-M6).
     """
@@ -237,6 +249,13 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
         [season, gameweek, season],
     )
     shadowed_roster = _shadow_point_in_time_roster(con, season, gameweek)
+    if backtest_evidence:
+        con.execute(
+            "CREATE OR REPLACE TEMP TABLE evidence_claims AS "
+            "SELECT * REPLACE (CAST(observed_date AS TIMESTAMP) AS ingested_date) "
+            "FROM main.evidence_claims WHERE observed_date < CAST(? AS DATE)",
+            [deadline],
+        )
     try:
         yield deadline
     finally:
@@ -245,6 +264,8 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
         con.execute("DROP TABLE IF EXISTS fact_player_season_stats")
         if shadowed_roster:
             con.execute("DROP TABLE IF EXISTS temp.player_alias")
+        if backtest_evidence:
+            con.execute("DROP TABLE IF EXISTS temp.evidence_claims")
 
 
 def _shadow_point_in_time_roster(con: duckdb.DuckDBPyConnection, season: str, gameweek: int) -> bool:
@@ -323,6 +344,7 @@ def run_gameweek_step(
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
     assist_calibration_params_version: int | None = None,
+    backtest_evidence: bool = False,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -368,7 +390,7 @@ def run_gameweek_step(
     so_run_id = mc_model_version = None
     divergence_passed = None
 
-    with asof_scope(con, season, gameweek):
+    with asof_scope(con, season, gameweek, backtest_evidence=backtest_evidence):
         ts_model_version = team_strength.calibrate(
             con, calibration_asof_date, xi_params_version, rho_params_version,
             target_season=season, fit_seasons=fit_seasons_for(season),
@@ -1083,6 +1105,7 @@ def run(
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
     assist_calibration_params_version: int | None = None,
+    backtest_evidence: bool = False,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) --
@@ -1138,6 +1161,7 @@ def run(
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             captain_risk_params_version=captain_risk_params_version,
             assist_calibration_params_version=assist_calibration_params_version,
+            backtest_evidence=backtest_evidence,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
