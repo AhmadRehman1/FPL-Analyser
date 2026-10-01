@@ -346,6 +346,7 @@ def run_gameweek_step(
     assist_calibration_params_version: int | None = None,
     backtest_evidence: bool = False,
     finishing_skill_params_version: int | None = None,
+    minutes_price_prior_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -401,6 +402,7 @@ def run_gameweek_step(
             shrinkage_params_version, fact_multiplier_params_version,
             current_season_role_params_version=current_season_role_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
+            price_prior_params_version=minutes_price_prior_params_version,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
@@ -1109,6 +1111,7 @@ def run(
     assist_calibration_params_version: int | None = None,
     backtest_evidence: bool = False,
     finishing_skill_params_version: int | None = None,
+    minutes_price_prior_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) --
@@ -1166,6 +1169,7 @@ def run(
             assist_calibration_params_version=assist_calibration_params_version,
             backtest_evidence=backtest_evidence,
             finishing_skill_params_version=finishing_skill_params_version,
+            minutes_price_prior_params_version=minutes_price_prior_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "

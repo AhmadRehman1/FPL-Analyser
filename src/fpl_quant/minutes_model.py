@@ -164,6 +164,53 @@ def compute_position_rates(con: duckdb.DuckDBPyConnection, per_player: pd.DataFr
     return pos
 
 
+def price_band(now_cost: float | None) -> str | None:
+    """The walk-forward's own four price bands (backtest._price_band)."""
+    if now_cost is None or pd.isna(now_cost):
+        return None
+    if now_cost < 5.0:
+        return "<5.0"
+    if now_cost < 7.0:
+        return "5.0-7.0"
+    if now_cost < 9.0:
+        return "7.0-9.0"
+    return "9.0+"
+
+
+def latest_price_by_player(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
+    """Each player's most recent now_cost, newest season first. Reads
+    fact_player_season_stats by bare name, so inside backtest.asof_scope() it is the price as
+    of the deadline."""
+    rows = con.execute(
+        """
+        SELECT player_uid, now_cost FROM fact_player_season_stats WHERE now_cost IS NOT NULL
+        QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY season DESC, gw DESC) = 1
+        """
+    ).fetchall()
+    return {uid: float(cost) for uid, cost in rows}
+
+
+def compute_price_band_start_priors(
+    con: duckdb.DuckDBPyConnection, per_player: pd.DataFrame, prices: dict[str, float], min_band_weight: float,
+) -> dict[tuple[str, str], float]:
+    """{(position, price band): recency-weighted start rate} over the same history the position
+    average uses. The position average is dominated by regulars, so a fringe or brand-new
+    cheap player shrunk toward it is projected to start far too often -- the walk-forward's
+    <5.0 band over-predicts appearance points. FPL price is a point-in-time prior on squad role.
+    Bands with less than min_band_weight total weight are left out (callers fall back to the
+    position average)."""
+    positions = con.execute("SELECT player_uid, position FROM dim_player").fetchdf()
+    df = per_player.merge(positions, on="player_uid", how="left")
+    df["band"] = df["player_uid"].map(lambda uid: price_band(prices.get(uid)))
+    df = df[df["band"].notna()]
+    out: dict[tuple[str, str], float] = {}
+    for (position, band), grp in df.groupby(["position", "band"]):
+        total = float(grp["weighted_total"].sum())
+        if total >= min_band_weight and total > 0:
+            out[(position, band)] = float(grp["weighted_starts"].sum()) / total
+    return out
+
+
 def compute_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Empirical P(60+ | started) and P(60+ | subbed on), per position. P(1-59 | .) is the
     complement in both cases -- a featuring player (started or subbed on) always has >0
@@ -781,6 +828,7 @@ def run(
     lookback_seasons: tuple[str, ...] = ("2024-2025", "2025-2026", "2026-2027"),
     current_season_role_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
+    price_prior_params_version: int | None = None,
 ) -> int:
     """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
@@ -820,7 +868,11 @@ def run(
     unlike the lookback_seasons default above, this is NOT backtest-neutral (a role change
     within a backtested 2024-25/2025-26 season would also trip it), so it stays opt-in pending
     a real walk-forward comparison (see scripts/run_minutes_model_current_season_sensitivity_
-    arm.py) rather than defaulting on."""
+    arm.py) rather than defaulting on.
+
+    price_prior_params_version (opt-in, None is the prior behavior): the start prior a thin
+    history shrinks toward becomes the (position, price band) start rate instead of the
+    position average -- see compute_price_band_start_priors()."""
     xi, _ = params_mod.resolve_param(con, "minutes_model_decay_params", "xi", decay_params_version)
     # minutes_bounds_params_version=None keeps the old unbounded probabilities.
     p_floor = 0.0
@@ -843,6 +895,14 @@ def run(
     conditional_rates = compute_conditional_minutes_rates(con)
     player_conditional = compute_player_conditional_minutes_rates(con)
     availability = live_availability_by_player(con, target_season)
+    price_priors: dict[tuple[str, str], float] = {}
+    prices: dict[str, float] = {}
+    if price_prior_params_version is not None:
+        min_band_weight, _ = params_mod.resolve_param(
+            con, "minutes_price_prior_params", "min_band_weight", price_prior_params_version,
+        )
+        prices = latest_price_by_player(con)
+        price_priors = compute_price_band_start_priors(con, per_player, prices, min_band_weight)
 
     # current_season_role_params_version (opt-in, see this function's own docstring): a
     # SEPARATE, target_season-only call to the exact same compute_player_historical_components()
@@ -888,6 +948,9 @@ def run(
         player_uid, position = row["player_uid"], row["position"]
         pos_row = position_rates.loc[position] if position in position_rates.index else None
         p_start_pos_avg = float(pos_row["p_start_historical_position_avg"]) if pos_row is not None else 0.5
+        band = price_band(prices.get(player_uid)) if price_priors else None
+        if band is not None:
+            p_start_pos_avg = price_priors.get((position, band), p_start_pos_avg)
         p_sub_used = float(pos_row["p_used_as_sub_given_not_started"]) if pos_row is not None else 0.0
 
         if player_uid in per_player_idx.index:

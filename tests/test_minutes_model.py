@@ -824,3 +824,69 @@ def test_seed_current_season_role_params_is_idempotent(con):
     mm.seed_current_season_role_params(con)  # must not raise on a byte-identical re-write
     value, _ = params.resolve_param(con, "current_season_role_params", "current_season_matches_threshold", 1)
     assert value == 4
+
+
+def _seed_prices(con, prices, season="2025-2026"):
+    now = datetime.now(timezone.utc)
+    for uid, cost in prices.items():
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) VALUES (?, ?, 30, ?, ?)",
+            [uid, season, cost, now],
+        )
+
+
+def test_price_band_matches_the_walk_forward_bands():
+    assert [mm.price_band(c) for c in (4.5, 5.0, 6.9, 7.0, 9.0, None)] == [
+        "<5.0", "5.0-7.0", "5.0-7.0", "7.0-9.0", "9.0+", None,
+    ]
+
+
+def test_latest_price_by_player_takes_the_newest_row(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p1', 'P1', 'Midfielder')")
+    _seed_prices(con, {"p1": 9.0}, season="2024-2025")
+    _seed_prices(con, {"p1": 9.5})
+    assert mm.latest_price_by_player(con) == {"p1": 9.5}
+
+
+def test_price_prior_pulls_a_new_cheap_player_toward_his_band_not_the_position(con):
+    """p1 (9.5m) starts every match, p2 (4.5m) never features. A brand-new 4.5m midfielder
+    with no history used to inherit the position average (p1's and p2's pooled,
+    recency-weighted start rate); with the price prior he inherits the <5.0 band's rate instead."""
+    _seed_league(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'New Kid', 'Midfielder')")
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+        "VALUES ('New Kid', 'new kid', '1', '2025-2026', 'p3')"
+    )
+    _seed_prices(con, {"p1": 9.5, "p2": 4.5, "p3": 4.5})
+    params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+    params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
+    params.write_param(con, "minutes_price_prior_params", 1, "2026-08-10", "min_band_weight", value_numeric=0.0)
+
+    def p_start_hist(**kw):
+        mv = mm.run(
+            con, date(2026, 8, 10), "2025-2026", decay_params_version=1, adjustment_params_version=1,
+            shrinkage_params_version=1, fact_multiplier_params_version=1,
+            lookback_seasons=("2024-2025", "2025-2026"), **kw,
+        )
+        return dict(con.execute(
+            "SELECT player_uid, p_start_historical_final FROM minutes_model_outputs WHERE model_version = ?", [mv],
+        ).fetchall())
+
+    off = p_start_hist()
+    on = p_start_hist(price_prior_params_version=1)
+    assert off["p3"] > 0.3  # the recency-weighted midfielder average
+    assert on["p3"] == pytest.approx(0.0, abs=1e-9)
+    assert on["p1"] == pytest.approx(off["p1"])  # a full own history is unaffected
+
+
+def test_price_band_priors_skip_thin_bands(con):
+    _seed_league(con)
+    _seed_prices(con, {"p1": 9.5, "p2": 4.5})
+    per_player = mm.compute_player_historical_components(con, ("2024-2025", "2025-2026"), date(2026, 8, 10), 0.0018)
+    prices = mm.latest_price_by_player(con)
+    assert set(mm.compute_price_band_start_priors(con, per_player, prices, 0.0)) == {
+        ("Midfielder", "9.0+"), ("Midfielder", "<5.0"),
+    }
+    assert mm.compute_price_band_start_priors(con, per_player, prices, 1e9) == {}
