@@ -474,6 +474,7 @@ def main() -> None:
         kappa_tc_params_version=kappa_tc_params_version,
         # Fix D: the Wildcard/Free Hit rebuilds captain their top-EP player.
         captain_risk_params_version=active["captain_risk_params_version"],
+        rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
         # 2026-09 fix (docs/reports/2026-09_chip_policy_and_scoring_diagnosis.md, Workstream B):
         # activates the new triple-captain/bench-boost gain thresholds for the two real
         # tracked accounts' own recommendations, same as forward_season_sim.py's live walk.

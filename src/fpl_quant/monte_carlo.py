@@ -334,6 +334,7 @@ def simulate_fixture(
     season_priority: list[str], squad_uids: set, ep_model_version: int, mm_model_version: int, ts_model_version: int,
     scoring_params_version: int, tau_val: float, sigma_z_sq: float, mean_minutes: dict,
     rng: np.random.Generator, n_pairs: int, fixture_params_version: int | None = 1,
+    rate_shrinkage_params_version: int | None = None, assist_ratio_by_position: dict[str, float] | None = None,
 ) -> dict:
     """Returns {player_uid: {category: array of shape (2*n_pairs,)}} for every squad player
     present in this fixture (empty dict if none). One call = one fixture's contribution to
@@ -433,8 +434,8 @@ def simulate_fixture(
         played = state != "0"
         mean_min = np.where(state == "1_59", mean_minutes["mean_1_59"], np.where(state == "60plus", mean_minutes["mean_60plus"], 0.0))
 
-        rates = ep.player_rates_shrunk(con, player_uid, position, season_priority)
-        def_rates = ep._defensive_action_rates_per_90(con, player_uid, position, season_priority)
+        rates = ep.player_rates_shrunk(con, player_uid, position, season_priority, rate_shrinkage_params_version)
+        def_rates = ep._defensive_action_rates_per_90(con, player_uid, position, season_priority, rate_shrinkage_params_version)
 
         # M3-parity fixture-strength multipliers for this player's side (see module docstring):
         # attack scales goals+assists, the two defensive channels scale DefCon and GK saves.
@@ -451,6 +452,7 @@ def simulate_fixture(
         lam_goals = rates["expected_goals_per_90"] * mean_min / 90.0 * z_fixture * atk_mult
         lam_goals_by_uid[player_uid] = lam_goals
         lam_assists = rates["expected_assists_per_90"] * mean_min / 90.0 * z_fixture * atk_mult
+        lam_assists = lam_assists * (assist_ratio_by_position or {}).get(position, 1.0)
         assists = sample_poisson_vec(lam_assists, _u_pair())
 
         clean_sheet = (own_goals_against == 0) & (state == "60plus")
@@ -566,11 +568,9 @@ def run(
     fixture_params_version: int | None = 1,
 ) -> int:
     # fixture_params_version: the fixture_strength_params version M3 scaled e_goals/e_assists/
-    # DefCon/saves with -- v1 by default, matching expected_points.run()'s own default, so M6
-    # stays at parity with M3 out of the box. ep_model_versions does not persist which version
-    # M3 used, so if M3 is ever run with a non-default fixture_strength_params version this must
-    # be passed the matching value. Pass None to opt out entirely (flat season rates, the
-    # pre-#131/#134 behaviour).
+    # DefCon/saves with. ep_model_versions now records it (schema/0022_ep_recipe.sql) and that
+    # recorded value wins; this argument only applies to EP rows written before recipes were
+    # recorded (v1 by default, matching expected_points.run()'s own default).
     squad_run = con.execute(
         "SELECT target_season, target_gameweek FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id]
     ).fetchone()
@@ -589,6 +589,21 @@ def run(
     tau_val, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
     rho_residual, _ = params_mod.resolve_param(con, "correlation_params", "rho_residual", rho_residual_params_version)
     mean_minutes = ep._mean_minutes_by_bucket(con)
+    # Simulate with the recipe the EP was built with (recorded on ep_model_versions): same
+    # k_minutes, fixture scaling and assist calibration, so Triple Captain / Free Hit / kappa_tc
+    # read simulated points that agree with the EP that picked the squad. A pre-recipe EP row
+    # keeps this function's own fixture_params_version argument and the unshrunk defaults.
+    recipe = ep.recipe_of(con, ep_model_version)
+    rate_shrinkage_params_version = None
+    assist_ratio_by_position: dict[str, float] = {}
+    if recipe is not None:
+        fixture_params_version = recipe["fixture_params_version"]
+        rate_shrinkage_params_version = recipe["rate_shrinkage_params_version"]
+        if recipe["assist_calibration_params_version"] is not None:
+            prior_xa, _ = params_mod.resolve_param(
+                con, "fpl_assist_calibration_params", "prior_xa", recipe["assist_calibration_params_version"],
+            )
+            assist_ratio_by_position = ep.fpl_assist_ratio_by_position(con, list(season_priority), prior_xa)
 
     lambda_representative = compute_lambda_representative(con, list(squad_uids), ep_model_version, scoring_params_version)
     sigma_z_sq = z_fixture_variance(rho_residual, lambda_representative)
@@ -629,6 +644,8 @@ def run(
             ep_model_version, mm_model_version, ts_model_version, scoring_params_version,
             tau_val, sigma_z_sq, mean_minutes, rng, n_antithetic_pairs,
             fixture_params_version=fixture_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
+            assist_ratio_by_position=assist_ratio_by_position,
         )
         if not fixture_result:
             continue

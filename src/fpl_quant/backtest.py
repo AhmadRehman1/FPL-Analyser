@@ -1310,6 +1310,7 @@ def run_season_simulation(
     captain_risk_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
     chip_wait_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1418,6 +1419,8 @@ def run_season_simulation(
         ep_mv = ep.run(
             con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
             scoring_params_version, bps_params_version, tau_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
+            lookback_seasons=lookback_seasons_for(season),
         )
         un_mv = uncertainty.run(
             con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
@@ -1488,6 +1491,7 @@ def run_season_simulation(
                     triple_captain_timing_params_version=triple_captain_timing_params_version,
                     bench_boost_timing_params_version=bench_boost_timing_params_version,
                     captain_risk_params_version=captain_risk_params_version,
+                    rate_shrinkage_params_version=rate_shrinkage_params_version,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
@@ -1718,6 +1722,7 @@ def beats_baseline(
     guardrail_cap: float = 3.0,
     recent_points_lookback_gameweeks: int = 3,
     minutes_bounds_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -1768,6 +1773,8 @@ def beats_baseline(
             ep_mv = ep.run(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
                 scoring_params_version, bps_params_version, tau_params_version,
+                rate_shrinkage_params_version=rate_shrinkage_params_version,
+                lookback_seasons=lookback_seasons_for(season),
             )
 
             recent_pool = _naive_candidate_pool(con, season, "recent_points", recent_points_lookback_gameweeks)

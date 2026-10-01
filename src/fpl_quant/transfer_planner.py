@@ -1569,6 +1569,7 @@ def run(
     triple_captain_timing_params_version: int | None = None,
     bench_boost_timing_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1659,6 +1660,7 @@ def run(
             con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
             int(horizon_gameweeks), scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
         )
 
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
@@ -1697,6 +1699,7 @@ def run(
                 con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
                 timing_window_gameweeks, scoring_params_version, bps_params_version, tau_params_version,
                 rho_residual_params_version, corr_params_version,
+                rate_shrinkage_params_version=rate_shrinkage_params_version,
             )
             if triple_captain_timing_params_version is not None:
                 season_horizon_ep_map = _horizon_ep_by_player(con, target_season, season_horizon_ep_versions)
