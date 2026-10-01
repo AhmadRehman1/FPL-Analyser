@@ -171,17 +171,18 @@ def fetch_candidate_pool(
     # get their own alias row (see reconcile.build_dim_player) -- so this dedupes to one
     # team_code per player first, rather than joining directly and fanning out to one row
     # per alias (a real bug this hit: candidate pool came back at ~2x the true player count).
+    # The *_gameweek_outputs views sum a double-gameweek player's two fixtures into one row
+    # (schema/0023_gameweek_views.sql); per-fixture rows would duplicate the player.
     rows = con.execute(
         """
         WITH team_of AS (
             SELECT DISTINCT player_uid, team_code FROM player_alias WHERE season = ?
         )
         SELECT o.player_uid, dp.position, dp.canonical_name, o.ep_total, u.var_total, t.team_code
-        FROM ep_outputs o
+        FROM ep_gameweek_outputs o
         JOIN dim_player dp ON dp.player_uid = o.player_uid
-        JOIN uncertainty_outputs u
-            ON u.player_uid = o.player_uid AND u.fixture_match_id = o.fixture_match_id
-            AND u.model_version = ?
+        JOIN uncertainty_gameweek_outputs u
+            ON u.player_uid = o.player_uid AND u.model_version = ?
         JOIN team_of t ON t.player_uid = o.player_uid
         WHERE o.model_version = ?
         ORDER BY o.player_uid

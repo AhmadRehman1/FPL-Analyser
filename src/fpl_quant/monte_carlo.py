@@ -548,6 +548,26 @@ def _assemble_points(con, position: str, draws: dict, scoring_params_version: in
     }
 
 
+_POINT_COLUMNS = [
+    "pts_appearance", "pts_goals", "pts_assists", "pts_clean_sheet", "pts_goals_conceded",
+    "pts_defcon", "pts_bonus", "pts_saves", "total_points",
+]
+_MINUTES_STATE_RANK = {"0": 0, "1_59": 1, "60plus": 2}
+
+
+def _sum_double_gameweek_fixtures(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per (player, realization): a double-gameweek player's two fixture frames are
+    summed within each realization (their gameweek score), keeping the higher minutes state.
+    A no-op for single-fixture gameweeks."""
+    if df.empty or not df.duplicated(["player_uid", "realization_index"]).any():
+        return df
+    ranked = df.assign(_state_rank=df["minutes_state"].map(_MINUTES_STATE_RANK).fillna(-1))
+    keys = ["model_version", "player_uid", "realization_index"]
+    points = ranked.groupby(keys, as_index=False)[_POINT_COLUMNS].sum()
+    states = ranked.sort_values("_state_rank").groupby(keys, as_index=False).last()[keys + ["minutes_state"]]
+    return points.merge(states, on=keys)[df.columns.tolist()]
+
+
 # ============================================================
 # orchestrator
 # ============================================================
@@ -674,6 +694,7 @@ def run(
         "pts_bonus", "pts_saves", "total_points",
     ]
     df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=cols)
+    df = _sum_double_gameweek_fixtures(df)
     con.register("_mc_totals_df", df)
     con.execute("INSERT INTO monte_carlo_player_totals SELECT * FROM _mc_totals_df")
     con.unregister("_mc_totals_df")

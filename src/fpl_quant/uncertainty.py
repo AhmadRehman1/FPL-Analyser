@@ -574,7 +574,10 @@ def run(
             con.execute(
                 "INSERT INTO cross_player_covariance (model_version, player_uid_a, player_uid_b, "
                 "fixture_match_id, relationship, covariance) VALUES (?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT (model_version, player_uid_a, player_uid_b) DO NOTHING",
+                # A double gameweek puts two teammates in two fixtures: the gameweek covariance
+                # is the sum over the (independent) fixtures, not the first one's alone.
+                "ON CONFLICT (model_version, player_uid_a, player_uid_b) "
+                "DO UPDATE SET covariance = cross_player_covariance.covariance + excluded.covariance",
                 [model_version, lo, hi, match_id, relationship, cov],
             )
 

@@ -339,7 +339,7 @@ def attribute_rank_gap(
     if ep_model_version is not None and diffs:
         placeholders = ",".join("?" * len(diffs))
         ep_of = dict(con.execute(
-            f"SELECT player_uid, ep_total FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+            f"SELECT player_uid, ep_total FROM ep_gameweek_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
             [ep_model_version, *diffs],
         ).fetchall())
     differentials = {

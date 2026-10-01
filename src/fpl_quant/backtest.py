@@ -126,17 +126,10 @@ def gameweek_deadline(con: duckdb.DuckDBPyConnection, season: str, gameweek: int
 def has_double_gameweek(con: duckdb.DuckDBPyConnection, season: str, gameweek: int) -> bool:
     """True iff any team has more than one fixture under this gameweek's own label -- a real,
     if infrequent, historical occurrence (rearranged fixtures squeezed into the same FPL
-    gameweek slot: confirmed via the actual ingested data at 2024-25 GW25 and 2025-26 GW26/33/36,
-    4 of the 76 backtest gameweeks). expected_points.run() emits one ep_outputs row per player
-    per fixture by its own explicit v1 design ("DGW/multi-fixture handling is out of scope for
-    v1, per M8's own research finding that 2026-27 currently has no scheduled doubles/blanks" --
-    expected_points.py's own module docstring) -- that finding was scoped to the live target
-    gameweek specifically, not a guarantee about the historical seasons M7 walks through, and a
-    DGW player's duplicate ep_outputs rows crash squad_optimizer_selections' primary key
-    (player_uid, run_id) with no aggregation semantics defined for what a DGW player's combined
-    squad value should even mean. Extending that same existing v1 scope boundary into the
-    backtest loop (skip, don't invent DGW-aggregation modeling here) is the consistent fix, not
-    a new decision improvised mid-M7."""
+    gameweek slot: 2024-25 GW25 and 2025-26 GW26/33/36 in the ingested data). ep_outputs keeps
+    one row per player per fixture; the *_gameweek_outputs views (schema/0023_gameweek_views.sql)
+    sum a double into one row per player, so the walk-forward and season simulations no longer
+    skip these weeks. Kept as a helper for reporting and tests."""
     row = con.execute(
         """
         SELECT count(*) FROM (
@@ -641,7 +634,7 @@ def _avg_manager_benchmark_points(
     )
     rows = con.execute(
         "SELECT o.player_uid, dp.position, o.ep_total, o.ep_appearance, fps.selected_by_percent "
-        "FROM ep_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid "
+        "FROM ep_gameweek_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid "
         "LEFT JOIN fact_player_season_stats fps ON fps.player_uid = o.player_uid AND fps.season = ? AND fps.gw = ? "
         "WHERE o.model_version = ?",
         [season, gameweek, ep_model_version],
@@ -911,6 +904,18 @@ def score_gameweek(
     # bonus + DefCon + goals-conceded + saves + cards; for a premium attacker it is almost all bonus.
     comp_resid: dict[str, list[float]] = {k: [] for k in ("goals", "assists", "appearance", "cleansheet", "other")}
     comp_resid_bp: dict[str, list[tuple[str, float]]] = {k: [] for k in comp_resid}
+    # event_points is the player's whole gameweek, so the ep_total residual (and its component
+    # split) is taken once per player against the gameweek sums -- a double gameweek's two
+    # fixtures summed on both sides. The per-fixture Bernoulli/Poisson scores below stay per
+    # fixture, each against its own match outcome.
+    fixtures_of_player: dict[str, list[str]] = {}
+    for row in ep_rows:
+        fixtures_of_player.setdefault(row[0], []).append(row[2])
+    gw_pred = {r[0]: r[1:] for r in con.execute(
+        "SELECT player_uid, ep_total, ep_appearance, ep_goals, ep_assists, ep_clean_sheet "
+        "FROM ep_gameweek_outputs WHERE model_version = ?", [ep_model_version],
+    ).fetchall()}
+    residual_done: set[str] = set()
     for player_uid, position, match_id, ep_cs, ep_g, ep_a, ep_total, ep_app in ep_rows:
         outcome = _realized_player_match_outcome(con, player_uid, match_id)
 
@@ -919,23 +924,28 @@ def score_gameweek(
         assist_pts = ep._sm(con, "assist_points", scoring_params_version)
 
         realized_pts = event_points_of.get(player_uid)
-        if realized_pts is not None and ep_total is not None:
-            resid = realized_pts - ep_total
+        gw_ep_total, gw_ep_app, gw_ep_g, gw_ep_a, gw_ep_cs = gw_pred.get(player_uid, (None,) * 5)
+        if realized_pts is not None and gw_ep_total is not None and player_uid not in residual_done:
+            residual_done.add(player_uid)
+            resid = realized_pts - gw_ep_total
             ep_resid.append(resid)
             ep_abs.append(abs(resid))
             ep_resid_bp.append((player_uid, resid))
             ep_abs_bp.append((player_uid, abs(resid)))
 
-            mins = outcome["minutes_played"]
-            r_app = 2.0 if mins >= 60 else (1.0 if mins >= 1 else 0.0)
-            r_goals = outcome["goals"] * (goal_pts or 0.0)
-            r_assists = outcome["assists"] * (assist_pts or 0.0)
-            r_cs = (cs_pts or 0.0) if (outcome["team_goals_conceded"] == 0 and mins >= 60) else 0.0
+            r_app = r_goals = r_assists = r_cs = 0.0
+            for fixture_id in fixtures_of_player[player_uid]:
+                fixture_outcome = outcome if fixture_id == match_id else _realized_player_match_outcome(con, player_uid, fixture_id)
+                mins = fixture_outcome["minutes_played"]
+                r_app += 2.0 if mins >= 60 else (1.0 if mins >= 1 else 0.0)
+                r_goals += fixture_outcome["goals"] * (goal_pts or 0.0)
+                r_assists += fixture_outcome["assists"] * (assist_pts or 0.0)
+                r_cs += (cs_pts or 0.0) if (fixture_outcome["team_goals_conceded"] == 0 and mins >= 60) else 0.0
             r_other = realized_pts - r_app - r_goals - r_assists - r_cs
-            ep_other = ep_total - ep_app - ep_g - ep_a - ep_cs
+            ep_other = gw_ep_total - gw_ep_app - gw_ep_g - gw_ep_a - gw_ep_cs
             for key, rv, pv in (
-                ("goals", r_goals, ep_g), ("assists", r_assists, ep_a),
-                ("appearance", r_app, ep_app), ("cleansheet", r_cs, ep_cs), ("other", r_other, ep_other),
+                ("goals", r_goals, gw_ep_g), ("assists", r_assists, gw_ep_a),
+                ("appearance", r_app, gw_ep_app), ("cleansheet", r_cs, gw_ep_cs), ("other", r_other, ep_other),
             ):
                 comp_resid[key].append(rv - pv)
                 comp_resid_bp[key].append((player_uid, rv - pv))
@@ -1075,11 +1085,10 @@ def run(
     assist_calibration_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
-    fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
-    has_double_gameweek() (4 real historical gameweeks -- see that function's docstring for why
-    DGWs are out of scope here, same as expected_points.py's own existing v1 scope boundary)
-    rather than attempting and crashing -- warm_up_gameweeks records the total skipped, of
-    either kind.
+    fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) --
+    warm_up_gameweeks records how many. Double gameweeks are walked like any other: every
+    per-player reader sums a player's fixtures through the *_gameweek_outputs views
+    (schema/0023_gameweek_views.sql).
 
     compute_segments/set_piece_params_version/ownership_params_version: Priority 9b/9c
     opt-in, passed straight through to score_gameweek() -- see its own docstring. Default off,
@@ -1099,7 +1108,7 @@ def run(
     behavior."""
     steps = [
         (s, gw) for s, gw in ALL_SEASON_GAMEWEEKS
-        if has_fittable_history(con, s, gw) and not has_double_gameweek(con, s, gw)
+        if has_fittable_history(con, s, gw)
     ]
     warm_up_gameweeks = len(ALL_SEASON_GAMEWEEKS) - len(steps)
 
@@ -1370,11 +1379,9 @@ def run_season_simulation(
     schedule_horizon_gameweeks=horizon_gameweeks) -- pinned to G+1's OWN deadline, after G's
     results are known, with G+1's own horizon of fixture schedules (not results) visible, the
     same asof-safety guarantee every M7 walk-forward step already carries, extended (not
-    bypassed) to cover a multi-gameweek horizon. Real historical Double Gameweeks are skipped
-    for planning (same has_double_gameweek() v1 scope boundary M7's own walk-forward loop
-    already applies -- squad_optimizer_selections' primary key cannot represent a DGW player's
-    duplicate ep_outputs rows) but NOT for scoring: that gameweek's real, already-aggregated
-    event_points total is still read and counted, holdings just don't change that week.
+    bypassed) to cover a multi-gameweek horizon. Double gameweeks are planned and scored like
+    any other week (a player's two fixtures summed via the *_gameweek_outputs views);
+    skipped_dgw_gameweeks is kept in the result for callers and is now always empty.
 
     Chip scoring effects that don't touch persisted holdings are applied for exactly the one
     gameweek they're accepted: Free Hit scores off its own fresh one-off squad (never
@@ -1506,9 +1513,7 @@ def run_season_simulation(
         accept_chip = None
         free_hit_squad = None
 
-        if has_double_gameweek(con, season, gw):
-            skipped_dgw.append(gw)
-        elif gw > start_gameweek:
+        if gw > start_gameweek:
             state_row = con.execute(
                 "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank FROM manager_state_versions WHERE state_version = ?",
                 [state_version],
@@ -1586,11 +1591,9 @@ def run_season_simulation(
         # simulate_auto_subs=True (the default, see this function's own docstring): the bootstrap
         # gameweek's real, solve-time bench_order is read directly; every later gameweek (whose
         # squad evolved via transfers, not a fresh solve) uses the EP-projected proxy, keyed off
-        # plan_run_id -- which, on a DOUBLE gameweek other than start_gameweek, is deliberately
-        # stale (has_double_gameweek() skips planning that week, per this function's own
-        # existing v1 scope boundary above) -- _bench_order_by_projected_ep() degrades safely to
-        # {} for a plan_run_id/gameweek pair it has no real ep_model_version for, meaning simply
-        # no outfield auto-sub that specific week, not a crash.
+        # plan_run_id. _bench_order_by_projected_ep() degrades safely to {} for a
+        # plan_run_id/gameweek pair it has no real ep_model_version for, meaning simply no
+        # outfield auto-sub that specific week, not a crash.
         bench_order = None
         if simulate_auto_subs:
             bench_order = (
@@ -2473,7 +2476,7 @@ def _ep_calibration_mae_for_step(
         [season, gameweek],
     ).fetchall()
     predicted = dict(con.execute(
-        "SELECT player_uid, ep_total FROM ep_outputs WHERE model_version = ?", [candidate_ep_mv],
+        "SELECT player_uid, ep_total FROM ep_gameweek_outputs WHERE model_version = ?", [candidate_ep_mv],
     ).fetchall())
     return calibration_mae(
         predicted, {uid: pts for uid, pts, _ in rows}, {uid: own for uid, _, own in rows},
@@ -2791,7 +2794,7 @@ def _bench_order_by_projected_ep(
         return {}
     placeholders = ",".join("?" * len(bench_uids))
     rows = con.execute(
-        f"SELECT player_uid, ep_total FROM ep_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
+        f"SELECT player_uid, ep_total FROM ep_gameweek_outputs WHERE model_version = ? AND player_uid IN ({placeholders})",
         [ep_mv, *bench_uids],
     ).fetchall()
     ep_by_uid = dict(rows)

@@ -111,8 +111,8 @@ def build_projections(
         ep_mv, un_mv = horizon_versions[gw]
         rows = con.execute(
             "SELECT o.player_uid, o.ep_total, u.quantile_05, u.quantile_95 "
-            "FROM ep_outputs o JOIN uncertainty_outputs u "
-            "ON u.model_version = ? AND u.player_uid = o.player_uid AND u.fixture_match_id = o.fixture_match_id "
+            "FROM ep_gameweek_outputs o JOIN uncertainty_gameweek_outputs u "
+            "ON u.model_version = ? AND u.player_uid = o.player_uid "
             "WHERE o.model_version = ?",
             [un_mv, ep_mv],
         ).fetchall()

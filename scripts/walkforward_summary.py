@@ -34,13 +34,13 @@ def captain_stats(con, run_id) -> dict:
         SELECT s.season, s.gameweek, sel.player_uid, dp.position, f.event_points,
                eo.ep_total,
                (SELECT max(eo2.ep_total) FROM squad_optimizer_selections x
-                  JOIN ep_outputs eo2 ON eo2.player_uid = x.player_uid AND eo2.model_version = s.ep_model_version
+                  JOIN ep_gameweek_outputs eo2 ON eo2.player_uid = x.player_uid AND eo2.model_version = s.ep_model_version
                  WHERE x.run_id = s.so_run_id AND x.in_xi) AS best_xi_ep
         FROM backtest_gameweek_steps s
         JOIN squad_optimizer_selections sel ON sel.run_id = s.so_run_id AND sel.is_captain
         JOIN dim_player dp ON dp.player_uid = sel.player_uid
         LEFT JOIN fact_player_season_stats f ON f.player_uid = sel.player_uid AND f.season = s.season AND f.gw = s.gameweek
-        LEFT JOIN ep_outputs eo ON eo.player_uid = sel.player_uid AND eo.model_version = s.ep_model_version
+        LEFT JOIN ep_gameweek_outputs eo ON eo.player_uid = sel.player_uid AND eo.model_version = s.ep_model_version
         WHERE s.backtest_run_id = ? AND s.so_run_id IS NOT NULL
         """,
         [run_id],
