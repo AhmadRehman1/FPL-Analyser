@@ -31,6 +31,7 @@ from . import monte_carlo
 from . import ownership as ownership_mod
 from . import params as params_mod
 from . import recalibration_gate
+from . import reconcile
 from . import squad_optimizer
 from . import team_strength
 from . import transfer_planner
@@ -203,6 +204,10 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
     Every gameweek beyond that window stays fully invisible, schedule included, exactly as
     before.
 
+    player_alias is shadowed too (see _shadow_point_in_time_roster): the target season's club
+    per player comes from the latest per-gameweek roster snapshot at or before this gameweek,
+    not the retroactively rewritten season root.
+
     Yields the deadline timestamp used for the shadow, for callers that also need it (e.g. to
     stamp the calibration_asof_date passed into M1-M6).
     """
@@ -238,12 +243,55 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
         "SELECT * FROM main.fact_player_season_stats WHERE (season = ? AND gw < ?) OR season < ?",
         [season, gameweek, season],
     )
+    shadowed_roster = _shadow_point_in_time_roster(con, season, gameweek)
     try:
         yield deadline
     finally:
         con.execute("DROP TABLE IF EXISTS fact_match")
         con.execute("DROP TABLE IF EXISTS fact_player_match_stats")
         con.execute("DROP TABLE IF EXISTS fact_player_season_stats")
+        if shadowed_roster:
+            con.execute("DROP TABLE IF EXISTS temp.player_alias")
+
+
+def _shadow_point_in_time_roster(con: duckdb.DuckDBPyConnection, season: str, gameweek: int) -> bool:
+    """TEMP TABLE shadow of player_alias whose target-season club is the one the player was at
+    in this gameweek, not the season-root players.csv club. The root is regenerated from a
+    current FPL bootstrap, so a player who moved mid-season (or later) is listed at his new club
+    for the whole season, and every fixture-joined reader (expected_points, minutes_model,
+    monte_carlo, uncertainty, squad_optimizer's club cap) priced him against the wrong fixtures.
+    The latest `By Gameweek/GW{n}/players.csv` with n <= gameweek is what was true at the
+    deadline. Other seasons, and players missing from the snapshot, keep their root row. A
+    remapped club takes the string form the season's own rows already use for that club, so
+    joins on `t.code = pa.team_code` keep matching. Returns False (no shadow) when the season
+    has no snapshot that early -- 2024-2025 has none."""
+    roster_table = reconcile.gameweek_roster_table(con, season, gameweek)
+    if roster_table is None:
+        return False
+    reconcile._ensure_id_macro(con)
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE player_alias AS
+        WITH snap AS (
+            SELECT norm_id(CAST(player_code AS VARCHAR)) AS player_code, any_value(norm_id(CAST(team_code AS VARCHAR))) AS club
+            FROM "{roster_table}"
+            WHERE norm_id(CAST(player_code AS VARCHAR)) IS NOT NULL AND norm_id(CAST(team_code AS VARCHAR)) IS NOT NULL
+            GROUP BY 1
+        ),
+        club_form AS (
+            SELECT norm_id(team_code) AS club, any_value(team_code) AS team_code
+            FROM main.player_alias WHERE season = ? GROUP BY 1
+        )
+        SELECT pa.alias_name, pa.normalized_alias_name,
+               coalesce(cf.team_code, pa.team_code) AS team_code,
+               pa.season, pa.player_uid, pa.source_player_id
+        FROM main.player_alias pa
+        LEFT JOIN snap ON pa.season = ? AND snap.player_code = norm_id(pa.source_player_id)
+        LEFT JOIN club_form cf ON cf.club = snap.club
+        """,
+        [season, season],
+    )
+    return True
 
 
 # ============================================================
