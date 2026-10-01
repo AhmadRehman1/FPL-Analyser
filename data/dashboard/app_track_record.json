@@ -505,7 +505,7 @@
       }
     ]
   },
-  "generated_at": "2026-09-30T22:48:30.159352",
+  "generated_at": "2026-10-01T14:51:22.018759",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 71,
@@ -653,7 +653,7 @@
       {
         "season": "2026-2027",
         "gameweek": 4,
-        "total_projected_ep": 51.14767260885372,
+        "total_projected_ep": 51.4563510640369,
         "captain_name": "Erling Haaland",
         "squad_size": 15,
         "in_xi_count": 11
@@ -684,22 +684,47 @@
       }
     ],
     "latest_diff": {
-      "has_previous": false,
-      "previous_gameweek": null,
-      "current_gameweek": 1,
-      "squad_changes": null,
-      "captain_changed": null,
-      "total_projected_ep_delta": null,
-      "newly_doubtful_flags": null
+      "has_previous": true,
+      "previous_gameweek": 3,
+      "current_gameweek": 4,
+      "squad_changes": {
+        "in": [
+          "Bryan Mbeumo",
+          "Marcus Tavernier",
+          "Bart Verbruggen",
+          "Marc Gu\u00e9hi",
+          "Maxence Lacroix",
+          "James Tarkowski",
+          "Alex Palmer",
+          "Charlie Hughes",
+          "Darnell Furlong"
+        ],
+        "out": [
+          "Declan Rice",
+          "James Garner",
+          "Bernd Leno",
+          "Virgil van Dijk",
+          "Marcos Senesi Bar\u00f3n",
+          "Adrien Truffert",
+          "Adam Aznou",
+          "Alex Cairns",
+          "Abdoul Ouattara"
+        ]
+      },
+      "captain_changed": true,
+      "previous_captain": "Ethan Ampadu",
+      "current_captain": "Erling Haaland",
+      "total_projected_ep_delta": -1.8692916064477245,
+      "newly_doubtful_flags": []
     },
     "provenance": {
-      "data_asof": "2026-09-30",
+      "data_asof": "2026-10-01",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "1f47bee9bf5c385208bb2ca6ea142129b806ef52",
-      "fpl_core_insights_commit_sha": "d83d9d4789a349b1f060f86de9618d0bee2cadde",
+      "fpl_analyser_commit_sha": "66f49ad99487a7e17ccd0e39c7307a3148ac999e",
+      "fpl_core_insights_commit_sha": "ad1d46d342d9e082098d5aae1d5995a0ebc74f9c",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -711,7 +736,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-09-30T21:35:15.334358+00:00",
+      "recorded_at": "2026-10-01T12:27:53.590623+00:00",
       "research_pull_workbook": {
         "sha256": "6c8a334eabe7ebc8b1a216b832aaca5903f780be2ecc2cb9e82fe73170caf82f",
         "size_bytes": 26007
