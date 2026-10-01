@@ -33,3 +33,9 @@ def test_finishing_prior_flag_maps_to_a_param_version(con):
     out = rw._experiment_versions(con, rw._parse_args(["--finishing-prior-xg", "10"]))
     prior, _ = params_mod.resolve_param(con, "finishing_skill_params", "prior_xg", out["finishing_skill_params_version"])
     assert prior == 10.0
+
+
+def test_minutes_price_prior_flag_maps_to_a_param_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--minutes-price-prior", "50"]))
+    weight, _ = params_mod.resolve_param(con, "minutes_price_prior_params", "min_band_weight", out["minutes_price_prior_params_version"])
+    assert weight == 50.0
