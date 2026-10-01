@@ -34,6 +34,7 @@ import math
 from datetime import date
 
 import duckdb
+import pandas as pd
 from scipy.stats import norm, poisson
 
 from . import expected_points as ep
@@ -480,6 +481,8 @@ def run(
         "SELECT DISTINCT fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]
     ).fetchall()
 
+    # (player_uid_a, player_uid_b) -> [first fixture_match_id, relationship, covariance summed over fixtures]
+    covariances: dict[tuple[str, str], list] = {}
     for (match_id,) in fixtures:
         home_uid, away_uid = con.execute(
             "SELECT home_team_uid, away_team_uid FROM fact_match WHERE match_id = ?", [match_id]
@@ -577,15 +580,31 @@ def run(
         pairs = cross_player_covariance_for_fixture(con, fixture_rows, home_uid, away_uid, corr_params_version)
         for player_a, player_b, relationship, cov in pairs:
             lo, hi = sorted([player_a, player_b])
-            con.execute(
-                "INSERT INTO cross_player_covariance (model_version, player_uid_a, player_uid_b, "
-                "fixture_match_id, relationship, covariance) VALUES (?, ?, ?, ?, ?, ?) "
+            key = (lo, hi)
+            if key in covariances:
                 # A double gameweek puts two teammates in two fixtures: the gameweek covariance
                 # is the sum over the (independent) fixtures, not the first one's alone.
-                "ON CONFLICT (model_version, player_uid_a, player_uid_b) "
-                "DO UPDATE SET covariance = cross_player_covariance.covariance + excluded.covariance",
-                [model_version, lo, hi, match_id, relationship, cov],
+                covariances[key][2] += cov
+            else:
+                covariances[key] = [match_id, relationship, cov]
+
+    # one bulk insert: a row-at-a-time INSERT per pair was ~200k statements per call and most
+    # of a season-simulation gameweek's wall time
+    if covariances:
+        cov_df = pd.DataFrame(
+            [(model_version, a, b, m, rel, cov) for (a, b), (m, rel, cov) in covariances.items()],
+            columns=["model_version", "player_uid_a", "player_uid_b", "fixture_match_id", "relationship", "covariance"],
+        )
+        con.register("_cross_player_covariance_new", cov_df)
+        try:
+            con.execute(
+                "INSERT INTO cross_player_covariance (model_version, player_uid_a, player_uid_b, "
+                "fixture_match_id, relationship, covariance) "
+                "SELECT model_version, player_uid_a, player_uid_b, fixture_match_id, relationship, covariance "
+                "FROM _cross_player_covariance_new"
             )
+        finally:
+            con.unregister("_cross_player_covariance_new")
 
     return model_version
 
