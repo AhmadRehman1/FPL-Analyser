@@ -20,7 +20,7 @@ Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py
     PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
 
-The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa) each swap one
+The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa, --finishing-prior-xg) each swap one
 setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 """
@@ -53,6 +53,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="turn on the current-season role blend with this matches threshold")
     parser.add_argument("--assist-prior-xa", type=float, default=None,
                         help="turn on the FPL/xA assist calibration with this prior pseudo-count")
+    parser.add_argument("--finishing-prior-xg", type=float, default=None,
+                        help="turn on per-player finishing skill: (goals + p) / (xG + p), same for assists/xA")
     parser.add_argument("--backtest-evidence", action="store_true",
                         help="let each step see evidence claims observed before its deadline (default: none, as before)")
     return parser.parse_args(argv)
@@ -74,6 +76,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
     if args.assist_prior_xa is not None:
         out["assist_calibration_params_version"] = params_mod.get_or_create_version(
             con, "fpl_assist_calibration_params", "prior_xa", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.assist_prior_xa,
+        )
+    if getattr(args, "finishing_prior_xg", None) is not None:
+        out["finishing_skill_params_version"] = params_mod.get_or_create_version(
+            con, "finishing_skill_params", "prior_xg", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.finishing_prior_xg,
         )
     if getattr(args, "backtest_evidence", False):
         out["backtest_evidence"] = True
