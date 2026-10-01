@@ -23,3 +23,7 @@ def test_flags_map_to_param_versions(con):
     assert prior == 30.0
     # the same flags again reuse the same versions rather than minting new ones
     assert rw._experiment_versions(con, args) == out
+
+
+def test_backtest_evidence_flag_passes_through_as_a_run_kwarg(con):
+    assert rw._experiment_versions(con, rw._parse_args(["--backtest-evidence"])) == {"backtest_evidence": True}
