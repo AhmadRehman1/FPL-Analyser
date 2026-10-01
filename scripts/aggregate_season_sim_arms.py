@@ -5,6 +5,10 @@ Per arm: net points per GW (hits deducted), FPL's real average over the same gam
 margin over it, and the paired per-GW difference from control with its standard error. Arms are
 compared on net points because FPL's real average already includes managers' hits.
 
+An arm may arrive as several gameweek chunks (season_sim_arms.yml runs each chunk as its own job,
+from a fresh squad); chunks of the same (label, season) are stitched into one arm first. A chunk
+cut off by the job time limit still counts the gameweeks it checkpointed, and is flagged.
+
 Usage (from repo root):
     python scripts/aggregate_season_sim_arms.py [arms_dir]
 """
@@ -16,6 +20,41 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DIR = REPO_ROOT / "data" / "season_sim_arms"
+
+
+def real_benchmark(weekly_points: list[float], weekly_hits: list[float], weekly_real_avg: list) -> dict:
+    """Same figures as backtest.season_real_benchmark() (kept dependency-free for the aggregate job)."""
+    pairs = [(p - h, r) for p, h, r in zip(weekly_points, weekly_hits, weekly_real_avg) if r is not None]
+    if not pairs:
+        return {"n_gameweeks": 0, "net_points_per_gw": None, "real_avg_per_gw": None,
+                "beats_real_avg_per_gw": None, "total_hits": float(sum(weekly_hits))}
+    net = sum(n for n, _ in pairs)
+    real = sum(r for _, r in pairs)
+    return {"n_gameweeks": len(pairs), "net_points_per_gw": net / len(pairs), "real_avg_per_gw": real / len(pairs),
+            "beats_real_avg_per_gw": (net - real) / len(pairs), "total_hits": float(sum(weekly_hits))}
+
+
+def merge_chunks(files: list[dict]) -> list[dict]:
+    """One arm per (label, season): its chunks' gameweeks concatenated in order."""
+    groups: dict[tuple, list[dict]] = {}
+    for f in files:
+        groups.setdefault((f["label"], f["season"]), []).append(f)
+    arms = []
+    for (label, season), chunks in sorted(groups.items()):
+        chunks.sort(key=lambda c: c.get("start_gameweek", c["gameweeks"][0] if c["gameweeks"] else 0))
+        arm = {"label": label, "season": season, "changed": chunks[0]["changed"],
+               "gameweeks": [], "weekly_points": [], "weekly_hits": [], "weekly_real_avg": [],
+               "n_transfers": 0, "chips_played": [], "chunks": []}
+        for c in chunks:
+            for key in ("gameweeks", "weekly_points", "weekly_hits", "weekly_real_avg", "chips_played"):
+                arm[key] += c[key]
+            arm["n_transfers"] += c["n_transfers"]
+            arm["chunks"].append({"start": c.get("start_gameweek"), "end": c.get("end_gameweek"),
+                                  "scored": len(c["gameweeks"]), "complete": c.get("complete", True)})
+        arm["complete"] = all(ch["complete"] for ch in arm["chunks"])
+        arm["real_benchmark"] = real_benchmark(arm["weekly_points"], arm["weekly_hits"], arm["weekly_real_avg"])
+        arms.append(arm)
+    return arms
 
 
 def _net_by_gw(arm: dict) -> dict[int, float]:
@@ -42,7 +81,8 @@ def paired_difference(arm: dict, control: dict) -> dict:
 def summarize(arms: list[dict]) -> str:
     lines = ["# Season-simulation arms", "",
              "Evolving manager (transfers, hits, chips) over a real season with the live model team's",
-             "settings; each arm changes one. Net = gross XI points minus transfer hits.", ""]
+             "settings; each arm changes one. Net = gross XI points minus transfer hits.",
+             "Each gameweek chunk starts from a fresh squad with that chunk's chip set.", ""]
     for season in sorted({a["season"] for a in arms}):
         rows = [a for a in arms if a["season"] == season]
         control = next((a for a in rows if a["label"] == "control"), None)
@@ -62,6 +102,9 @@ def summarize(arms: list[dict]) -> str:
                     f"{d['mean']:+.2f}" + (f" ± {d['se']:.2f}" if d["se"] is not None else "") + f" (n={d['n']})"
                 )
             changed = ", ".join(f"{k}={v}" for k, v in arm["changed"].items()) or "live settings"
+            if not arm.get("complete", True):
+                cut = [f"GW{c['start']}-{c['end']} stopped after {c['scored']}" for c in arm["chunks"] if not c["complete"]]
+                changed += f" (incomplete: {'; '.join(cut)})"
             chips = ", ".join(f"GW{gw} {chip}" for gw, chip in arm["chips_played"]) or "none"
             lines.append(
                 f"| {arm['label']} | {changed} | {_fmt(net)} | {_fmt(real)} | "
@@ -77,7 +120,7 @@ def summarize(arms: list[dict]) -> str:
 
 def main() -> None:
     arms_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DIR
-    arms = [json.loads(p.read_text()) for p in sorted(arms_dir.glob("*.json"))]
+    arms = merge_chunks([json.loads(p.read_text()) for p in sorted(arms_dir.glob("*.json"))])
     if not arms:
         raise SystemExit(f"no arm files in {arms_dir}")
     summary = summarize(arms)

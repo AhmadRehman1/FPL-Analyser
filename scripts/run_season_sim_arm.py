@@ -78,25 +78,15 @@ def arm_versions(con, args: argparse.Namespace) -> tuple[dict, dict]:
     return versions, changed
 
 
-def main(argv: list[str] | None = None) -> None:
-    args = _parse_args(argv)
-    out_path = Path(args.out or REPO_ROOT / "data" / "season_sim_arms" / f"{args.label}_{args.season}.json")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    con = db.connect()
-    backtest.materialize_confirmed_seeds(con, RECALIBRATION_SEED_DIR)
-    versions, changed = arm_versions(con, args)
-
-    t0 = time.time()
-    result = backtest.run_season_simulation(con, args.season, args.start_gw, args.end_gw, **versions)
-    wall = time.time() - t0
-
+def arm_payload(args: argparse.Namespace, changed: dict, versions: dict, result: dict,
+                complete: bool, wall_seconds: float) -> dict:
     actions = result["actions"]
-    payload = {
+    return {
         "label": args.label,
         "season": args.season,
         "start_gameweek": args.start_gw,
         "end_gameweek": args.end_gw,
+        "complete": complete,
         "changed": changed,
         "versions": versions,
         "gross_metrics": backtest.season_cumulative_metrics(result["weekly_points"]),
@@ -108,9 +98,36 @@ def main(argv: list[str] | None = None) -> None:
         "n_transfers": sum(1 for a in actions if a.get("accepted_transfer_rank") is not None),
         "chips_played": [(a["gameweek"], a["accepted_chip"]) for a in actions if a.get("accepted_chip")],
         "skipped_dgw_gameweeks": result["skipped_dgw_gameweeks"],
-        "wall_seconds": round(wall, 1),
+        "wall_seconds": round(wall_seconds, 1),
     }
-    out_path.write_text(json.dumps(payload, indent=2, default=str))
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
+    out_path = Path(args.out or REPO_ROOT / "data" / "season_sim_arms" / f"{args.label}_{args.season}.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    con = db.connect()
+    backtest.materialize_confirmed_seeds(con, RECALIBRATION_SEED_DIR)
+    versions, changed = arm_versions(con, args)
+
+    t0 = time.time()
+
+    def write(result: dict, complete: bool) -> dict:
+        payload = arm_payload(args, changed, versions, result, complete, time.time() - t0)
+        out_path.write_text(json.dumps(payload, indent=2, default=str))
+        if not complete:
+            print(f"[season-sim-arm] {args.label} GW{payload['gameweeks'][-1]} scored "
+                  f"({payload['wall_seconds']:.0f}s)", flush=True)
+        return payload
+
+    # checkpoint after every gameweek: a chunk cut off by the job time limit keeps what it scored
+    result = backtest.run_season_simulation(
+        con, args.season, args.start_gw, args.end_gw, **versions,
+        on_gameweek=lambda partial: write(partial, complete=False),
+    )
+    payload = write(result, complete=True)
+    wall = payload["wall_seconds"]
     rb = result["real_benchmark"]
     print(
         f"[season-sim-arm] {args.label} {args.season} GW{args.start_gw}-{args.end_gw}: "

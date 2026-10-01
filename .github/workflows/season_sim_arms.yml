@@ -2,7 +2,7 @@ name: Season-simulation arms (vs FPL's real average)
 
 # The walk-forward (branch_walkforward.yml) scores a fresh, hit-free squad every gameweek. This
 # scores the evolving manager the live model team actually is -- transfers, hits, chips -- over
-# a real season, against FPL's real average_entry_score, one matrix job per (arm, season).
+# a real season, against FPL's real average_entry_score, one matrix job per (arm, season, chunk).
 # Each arm is "label: flags" for scripts/run_season_sim_arm.py; the arm labelled "control" is
 # the one every other arm is paired against. Commits nothing: the table lands in the job
 # summary and the season-sim-summary artifact.
@@ -19,15 +19,13 @@ on:
         required: false
         default: "2025-2026"
         type: string
-      start_gameweek:
-        description: "First gameweek (2 -- GW1 is not bootstrappable)."
+      chunks:
+        description: >-
+          Comma-separated gameweek ranges, each its own job from a fresh squad (a whole season is
+          longer than one job may run). The default splits at the chip sets (set 1 is GW2-18,
+          set 2 is GW19-38), so every chunk gets exactly its own half's chips.
         required: false
-        default: "2"
-        type: string
-      end_gameweek:
-        description: "Last gameweek."
-        required: false
-        default: "38"
+        default: "2-18,19-38"
         type: string
 
 permissions:
@@ -83,10 +81,15 @@ jobs:
         env:
           ARMS: ${{ inputs.arms }}
           SEASONS: ${{ inputs.seasons }}
+          CHUNKS: ${{ inputs.chunks }}
         run: |
           python - <<'EOF'
           import json, os, re
           seasons = [s.strip() for s in (os.environ["SEASONS"] or "2025-2026").split(",") if s.strip()]
+          chunks = []
+          for c in (os.environ["CHUNKS"] or "2-18,19-38").split(","):
+              start, _, end = c.strip().partition("-")
+              chunks.append((int(start), int(end or start)))
           arms = []
           for spec in os.environ["ARMS"].split(";"):
               if not spec.strip():
@@ -94,7 +97,9 @@ jobs:
               label, _, flags = spec.partition(":")
               label = re.sub(r"[^A-Za-z0-9_-]", "_", label.strip())
               for season in seasons:
-                  arms.append({"label": label, "flags": flags.strip(), "season": season, "tag": f"{label}_{season}"})
+                  for start, end in chunks:
+                      arms.append({"label": label, "flags": flags.strip(), "season": season, "start": start,
+                                   "end": end, "tag": f"{label}_{season}_gw{start}-{end}"})
           if not any(a["label"] == "control" for a in arms):
               print("::warning::no arm labelled 'control' -- the summary will have no paired comparison")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
@@ -105,7 +110,7 @@ jobs:
   sweep:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 358
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -125,23 +130,27 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Run arm ${{ matrix.tag }}
+        # below the job limit, so a chunk cut off here still uploads the gameweeks it checkpointed
+        timeout-minutes: 345
         env:
           LABEL: ${{ matrix.label }}
           FLAGS: ${{ matrix.flags }}
           SEASON: ${{ matrix.season }}
-          START_GW: ${{ inputs.start_gameweek }}
-          END_GW: ${{ inputs.end_gameweek }}
+          START_GW: ${{ matrix.start }}
+          END_GW: ${{ matrix.end }}
+          TAG: ${{ matrix.tag }}
         run: |
           # word-splitting of FLAGS is intended: it carries the arm's flags
           PYTHONPATH=src python scripts/run_season_sim_arm.py --label "$LABEL" --season "$SEASON" \
-            --start-gw "${START_GW:-2}" --end-gw "${END_GW:-38}" \
-            --out "data/season_sim_arms/${LABEL}_${SEASON}.json" ${FLAGS}
+            --start-gw "$START_GW" --end-gw "$END_GW" \
+            --out "data/season_sim_arms/${TAG}.json" ${FLAGS}
 
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
           name: season-sim-arm-${{ matrix.tag }}
           path: data/season_sim_arms/${{ matrix.tag }}.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
   aggregate:

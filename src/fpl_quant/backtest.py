@@ -16,6 +16,7 @@ enforcement mechanism below (asof_scope) has to actually work, not just be plaus
 import json
 import math
 from collections import Counter
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -1400,6 +1401,7 @@ def run_season_simulation(
     minutes_bounds_params_version: int | None = None,
     chip_wait_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
+    on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1489,7 +1491,10 @@ def run_season_simulation(
 
     captain_risk_params_version/minutes_bounds_params_version: threaded to every
     squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call this walk makes
-    (None keeps each one's old behavior). Callers pass active_recalibratable_versions()'s."""
+    (None keeps each one's old behavior). Callers pass active_recalibratable_versions()'s.
+
+    on_gameweek, if given, is called after every scored gameweek with the result so far (same
+    shape as the return value), so a long run that is cut off still leaves what it scored."""
     if not has_fittable_history(con, season, start_gameweek):
         raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
@@ -1654,7 +1659,23 @@ def run_season_simulation(
         weekly_hits.append(hit_cost)
         weekly_real_avg.append(_real_average_entry_score(con, season, gw))
         gameweeks_scored.append(gw)
+        if on_gameweek is not None:
+            # checkpoint: the result so far, so a caller cut off mid-season keeps what it scored
+            on_gameweek(_season_simulation_result(
+                weekly_points, gameweeks_scored, state_version, actions, skipped_dgw, bootstrap_run_id,
+                weekly_hits, weekly_real_avg,
+            ))
 
+    return _season_simulation_result(
+        weekly_points, gameweeks_scored, state_version, actions, skipped_dgw, bootstrap_run_id,
+        weekly_hits, weekly_real_avg,
+    )
+
+
+def _season_simulation_result(
+    weekly_points: list[float], gameweeks_scored: list[int], state_version: int, actions: list[dict],
+    skipped_dgw: list[int], bootstrap_run_id: int, weekly_hits: list[float], weekly_real_avg: list[float | None],
+) -> dict:
     return {
         "weekly_points": weekly_points, "gameweeks": gameweeks_scored, "final_state_version": state_version,
         "actions": actions, "skipped_dgw_gameweeks": skipped_dgw, "bootstrap_run_id": bootstrap_run_id,

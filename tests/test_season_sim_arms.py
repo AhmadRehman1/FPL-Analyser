@@ -52,3 +52,30 @@ def test_summary_lists_every_arm_against_control():
     text = agg.summarize([_arm("control", [50.0, 60.0], [0.0, 0.0]), _arm("x", [52.0, 61.0], [0.0, 0.0])])
     assert "| control | live settings |" in text
     assert "+1.50" in text
+
+
+def _chunk(label, start, points, complete=True):
+    c = _arm(label, points, [0.0] * len(points))
+    c["gameweeks"] = list(range(start, start + len(points)))
+    c.update(start_gameweek=start, end_gameweek=start + len(points) - 1, complete=complete, n_transfers=1,
+             chips_played=[(start, "bench_boost")])
+    return c
+
+
+def test_chunks_of_one_arm_are_stitched_in_gameweek_order():
+    late, early = _chunk("control", 19, [60.0, 40.0]), _chunk("control", 2, [50.0])
+    (arm,) = agg.merge_chunks([late, early])
+    assert arm["gameweeks"] == [2, 19, 20]
+    assert arm["weekly_points"] == [50.0, 60.0, 40.0]
+    assert arm["n_transfers"] == 2
+    assert arm["chips_played"] == [(2, "bench_boost"), (19, "bench_boost")]
+    assert arm["real_benchmark"] == bt.season_real_benchmark([50.0, 60.0, 40.0], [0.0] * 3, [50.0] * 3)
+    assert arm["complete"]
+
+
+def test_a_cut_off_chunk_counts_what_it_scored_and_is_flagged():
+    arms = agg.merge_chunks([_chunk("control", 2, [50.0]), _chunk("x", 2, [55.0], complete=False)])
+    assert [a["complete"] for a in arms] == [True, False]
+    text = agg.summarize(arms)
+    assert "incomplete: GW2-2 stopped after 1" in text
+    assert "+5.00" in text
