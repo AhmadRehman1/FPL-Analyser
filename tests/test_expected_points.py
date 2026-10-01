@@ -790,3 +790,31 @@ def test_resolve_finishing_prior_is_none_when_off(con):
     assert ep.resolve_finishing_prior(con, None) is None
     ep.params_mod.write_param(con, "finishing_skill_params", 1, "2026-08-12", "prior_xg", value_numeric=10.0)
     assert ep.resolve_finishing_prior(con, 1) == 10.0
+
+
+def test_finishing_ratios_rebuild_a_snapshot_season_from_match_grain(con):
+    """2024-25 has per-90 xG/xA but no season totals: goals/assists come from the match grain
+    and xG/xA from per-90 x match minutes."""
+    from datetime import datetime
+
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('snap', 'Snap', 'Forward')")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('ta', 'A') ON CONFLICT DO NOTHING")
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('tb', 'B') ON CONFLICT DO NOTHING")
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals_per_90, expected_assists_per_90, "
+        "_ingested_at) VALUES ('snap', '2024-2025', 38, 0.5, 0.25, current_timestamp)"
+    )
+    for i in range(10):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, competition, "
+            "kickoff_time, _ingested_at) VALUES (?, '2024-2025', ?, 'ta', 'tb', TRUE, 'Premier League', ?, current_timestamp)",
+            [f"s{i}", i + 1, datetime(2025, 1, i + 1)],
+        )
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, minutes_played, goals, assists, _ingested_at) "
+            "VALUES ('snap', ?, '2024-2025', 90, 1, 0, current_timestamp)",
+            [f"s{i}"],
+        )
+    g, a = ep.finishing_ratios(con, "snap", ["2024-2025"], prior_xg=5.0)
+    assert g == pytest.approx((10 + 5) / (5.0 + 5))   # 10 goals from 0.5 xG/90 x 900 min = 5 xG
+    assert a == pytest.approx((0 + 5) / (2.5 + 5))    # 0 assists from 2.5 xA
