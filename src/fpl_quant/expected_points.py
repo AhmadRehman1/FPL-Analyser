@@ -304,6 +304,18 @@ def player_rates_shrunk(
     return rates
 
 
+# FPL scoring rules that changed between seasons. Defensive contributions (DefCon: 2 points for
+# reaching a CBIT / CBIRT threshold) only exist from 2025-26; a 2024-25 walk-forward step that
+# predicted them was scoring players on points that season could not award.
+DEFCON_FIRST_SEASON = "2025-2026"
+
+
+def defcon_in_force(season: str | None) -> bool:
+    """True when `season`'s scoring awards DefCon points. "YYYY-YYYY" labels sort
+    chronologically; None (no season known) keeps the current rules."""
+    return season is None or season >= DEFCON_FIRST_SEASON
+
+
 MAX_FINISHING_RATIO = 2.0
 
 
@@ -843,7 +855,7 @@ def compute_player_fixture_components(
         )
 
     ep_defcon = 0.0
-    if position in ("Defender", "Midfielder", "Forward"):
+    if position in ("Defender", "Midfielder", "Forward") and defcon_in_force(target_season or season_priority[0]):
         defcon_actions_per_90 = def_rates["cbi_per_90"]
         if position in ("Midfielder", "Forward"):
             defcon_actions_per_90 += def_rates["recoveries_per_90"]
