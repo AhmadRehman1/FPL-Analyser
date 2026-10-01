@@ -2,13 +2,16 @@
 
 Headline beats-avg-manager, price-band / position ep_total residuals, minutes log score, and
 captain stats (the walk-forward XI's own captain: points per GW before doubling, how often
-that captain was a defender or goalkeeper, and how often it was the XI's top-EP player).
+that captain was a defender or goalkeeper, and how often it was the XI's top-EP player), and
+captain counterfactuals: what the same XI's captain would have scored under other picking rules
+(highest P95, mean + half a standard deviation) and with hindsight.
 
 Usage (from repo root, after scripts/run_walkforward.py):
     PYTHONPATH=src python scripts/walkforward_summary.py [backtest_run_id]
 """
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -61,6 +64,67 @@ def captain_stats(con, run_id) -> dict:
     }
 
 
+# Captain rules scored on the same XI. Each takes one XI player's (ep, var, p95) and returns the
+# value the rule maximises.
+CAPTAIN_RULES = {
+    "top_ep": lambda ep, var, p95: ep,
+    "top_p95": lambda ep, var, p95: p95,
+    "ep_plus_half_sd": lambda ep, var, p95: ep + 0.5 * math.sqrt(max(var, 0.0)),
+}
+
+
+def captain_rule_points(steps: list[list[tuple]]) -> dict:
+    """steps: one list per scored gameweek of (ep, var, p95, realized) per XI player. Returns,
+    per rule, the captain's mean realized points per gameweek and the paired difference from
+    top_ep (mean, standard error), plus the hindsight ceiling (best realized in the XI). The
+    captain's points count twice, so +1 here is +1 squad point per gameweek."""
+    usable = [xi for xi in steps if xi and all(r[0] is not None and r[3] is not None for r in xi)]
+    if not usable:
+        return {"n": 0}
+    picks: dict[str, list[float]] = {name: [] for name in CAPTAIN_RULES}
+    hindsight = []
+    for xi in usable:
+        for name, rule in CAPTAIN_RULES.items():
+            best = max(xi, key=lambda r: rule(r[0], r[1] or 0.0, r[2] if r[2] is not None else r[0]))
+            picks[name].append(float(best[3]))
+        hindsight.append(float(max(r[3] for r in xi)))
+
+    def paired(a: list[float], b: list[float]) -> dict:
+        d = [x - y for x, y in zip(a, b)]
+        m = sum(d) / len(d)
+        se = math.sqrt(sum((x - m) ** 2 for x in d) / (len(d) - 1) / len(d)) if len(d) > 1 else None
+        return {"mean": round(m, 3), "se": None if se is None else round(se, 3)}
+
+    base = picks["top_ep"]
+    return {
+        "n": len(usable),
+        "points_per_gw": {name: round(sum(v) / len(v), 3) for name, v in picks.items()},
+        "vs_top_ep": {name: paired(v, base) for name, v in picks.items() if name != "top_ep"},
+        "hindsight_points_per_gw": round(sum(hindsight) / len(hindsight), 3),
+        "hindsight_vs_top_ep": paired(hindsight, base),
+    }
+
+
+def captain_counterfactuals(con, run_id) -> dict:
+    rows = con.execute(
+        """
+        SELECT s.season, s.gameweek, eo.ep_total, uo.var_total, uo.quantile_95, f.event_points
+        FROM backtest_gameweek_steps s
+        JOIN squad_optimizer_selections sel ON sel.run_id = s.so_run_id AND sel.in_xi
+        LEFT JOIN ep_gameweek_outputs eo ON eo.player_uid = sel.player_uid AND eo.model_version = s.ep_model_version
+        LEFT JOIN uncertainty_gameweek_outputs uo ON uo.player_uid = sel.player_uid AND uo.model_version = s.un_model_version
+        LEFT JOIN fact_player_season_stats f ON f.player_uid = sel.player_uid AND f.season = s.season AND f.gw = s.gameweek
+        WHERE s.backtest_run_id = ? AND s.so_run_id IS NOT NULL
+        ORDER BY s.season, s.gameweek
+        """,
+        [run_id],
+    ).fetchall()
+    steps: dict[tuple, list[tuple]] = {}
+    for season, gw, ep, var, p95, pts in rows:
+        steps.setdefault((season, gw), []).append((ep, var, p95, pts))
+    return captain_rule_points(list(steps.values()))
+
+
 def summarize(con, run_id: int) -> dict:
     out = {"backtest_run_id": run_id, "headline": {}, "price_band": {}, "position": {}}
     for name in ("beats_crowd_points_delta", "beats_real_avg_points_delta", "real_avg_manager_points",
@@ -76,6 +140,7 @@ def summarize(con, run_id: int) -> dict:
     for pos in ("Goalkeeper", "Defender", "Midfielder", "Forward"):
         out["position"][pos] = _mean_metric(con, run_id, f"ep_total_calibration_mean_resid:position={pos}")[0]
     out["captain"] = captain_stats(con, run_id)
+    out["captain_counterfactuals"] = captain_counterfactuals(con, run_id)
     # per-gameweek rows so two arms can be compared on the SAME scored steps (an arm can lose
     # steps, e.g. to the optimizer's divergence check at very low lambda)
     out["per_gameweek"] = [
