@@ -51,6 +51,7 @@ def _param_versions(active: dict) -> dict:
         rho_residual_params_version=active["rho_residual_params_version"], corr_params_version=1,
         lambda_params_version=active["lambda_params_version"], guardrail_params_version=1,
         captain_risk_params_version=active["captain_risk_params_version"],
+        rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
         minutes_bounds_params_version=active["minutes_bounds_params_version"],
     )
 

@@ -201,6 +201,22 @@ def _earliest_gameweek_roster_table(con: duckdb.DuckDBPyConnection, season: str)
     return best[1] if best else None
 
 
+def gameweek_roster_table(con: duckdb.DuckDBPyConnection, season: str, at_or_before_gameweek: int) -> str | None:
+    """The raw table for the highest-numbered `By Gameweek/GW{n}/players.csv` with n <=
+    at_or_before_gameweek -- the roster as it stood at that gameweek, rather than the
+    season-root players.csv, which lists everyone at their end-of-season (or later) club.
+    None when the season has no such snapshot at or before that gameweek (2024-2025 has none)."""
+    best: tuple[int, str] | None = None
+    for relpath, table in _tables_matching(con, season, "By Gameweek/GW%/players.csv"):
+        m = _GAMEWEEK_IN_RELPATH_RE.search(relpath)
+        if not m:
+            continue
+        gw = int(m.group(1))
+        if gw <= at_or_before_gameweek and (best is None or gw > best[0]):
+            best = (gw, table)
+    return best[1] if best else None
+
+
 def suspect_transfer_player_seasons(
     con: duckdb.DuckDBPyConnection, target_season: str
 ) -> set[tuple[str, str]]:

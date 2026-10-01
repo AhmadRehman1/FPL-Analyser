@@ -822,6 +822,26 @@ def compute_player_fixture_components(
 # orchestrator
 # ============================================================
 
+RECIPE_KEYS = (
+    "set_piece_params_version", "fixture_params_version",
+    "rate_shrinkage_params_version", "assist_calibration_params_version",
+)
+
+
+def recipe_of(con: duckdb.DuckDBPyConnection, ep_model_version: int) -> dict | None:
+    """The EP recipe run() recorded for this model version ({key: version or None}), or None
+    for a row written before recipes were recorded -- the caller then keeps its own
+    arguments. M4 (uncertainty) and M6 (Monte Carlo) read this so they describe the same
+    k_minutes / fixture scaling / assist calibration the EP they sit on was built with."""
+    row = con.execute(
+        f"SELECT recipe_recorded, {', '.join(RECIPE_KEYS)} FROM ep_model_versions WHERE model_version = ?",
+        [ep_model_version],
+    ).fetchone()
+    if row is None or not row[0]:
+        return None
+    return dict(zip(RECIPE_KEYS, row[1:]))
+
+
 def run(
     con: duckdb.DuckDBPyConnection,
     calibration_asof_date: date,
@@ -867,12 +887,16 @@ def run(
         """
         INSERT INTO ep_model_versions
             (calibration_asof_date, target_season, team_strength_model_version, minutes_model_version,
-             scoring_matrix_params_version, bps_params_version, bps_tau_params_version)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
+             set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
+             assist_calibration_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
-         scoring_params_version, bps_params_version, tau_params_version],
+         scoring_params_version, bps_params_version, tau_params_version,
+         set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
+         assist_calibration_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:

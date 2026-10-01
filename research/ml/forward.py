@@ -126,6 +126,13 @@ def predict_forward(
     return out
 
 
+# Scaling components by ep_total_ml / quant is only meaningful when quant is comfortably
+# positive; below this the difference is added instead. The clip keeps one noisy prediction
+# from multiplying a player's components by an absurd factor.
+MIN_QUANT_FOR_SCALING = 0.05
+MAX_ML_SCALE = 5.0
+
+
 def write_ml_horizon_ep_versions(
     con: duckdb.DuckDBPyConnection, target_season: str,
     horizon_ep_versions: dict[int, tuple[int, int]], mm_model_version: int | None,
@@ -158,48 +165,67 @@ def write_ml_horizon_ep_versions(
             INSERT INTO ep_model_versions
                 (calibration_asof_date, target_season, team_strength_model_version,
                  minutes_model_version, scoring_matrix_params_version, bps_params_version,
-                 bps_tau_params_version)
+                 bps_tau_params_version, set_piece_params_version, fixture_params_version,
+                 rate_shrinkage_params_version, assist_calibration_params_version, recipe_recorded)
             SELECT calibration_asof_date, target_season, team_strength_model_version,
                    minutes_model_version, scoring_matrix_params_version, bps_params_version,
-                   bps_tau_params_version
+                   bps_tau_params_version, set_piece_params_version, fixture_params_version,
+                   rate_shrinkage_params_version, assist_calibration_params_version, recipe_recorded
             FROM ep_model_versions WHERE model_version = ?
             RETURNING model_version
             """,
             [quant_ep_mv],
         ).fetchone()[0]
 
-        scale = gw_pred[["player_uid", "ep_quant", "ep_total_ml"]].copy()
-        scale["s"] = scale["ep_total_ml"] / scale["ep_quant"].where(scale["ep_quant"].abs() > 1e-9, other=pd.NA)
-        con.register("_ml_scale_df", scale[["player_uid", "s", "ep_total_ml"]])
+        con.register("_ml_pred_df", gw_pred[["player_uid", "ep_total_ml"]])
         try:
-            # scale the point-contributing components so explain_player_ep stays internally
-            # consistent; ep_total is set to the ML value directly (the planner reads only this).
-            # A player the ML model didn't cover (no scale row) keeps the quant row unchanged.
+            # Per player: when the quant gameweek total is comfortably positive, every
+            # point-contributing component (and each fixture's total) is scaled by
+            # ep_total_ml / quant, clipped to [0, MAX_ML_SCALE], so explain_player_ep stays
+            # consistent. When quant is ~0 or negative that ratio is meaningless (it flips or
+            # explodes the components), so the components stay as they are and the ML-minus-quant
+            # difference is spread evenly over the player's fixture rows instead. Totals are
+            # per FIXTURE row, so a double gameweek's two rows sum to ep_total_ml, not twice it.
+            # A player the ML model didn't cover keeps the quant row unchanged.
             con.execute(
-                """
+                f"""
                 INSERT INTO ep_outputs
-                SELECT ?, o.player_uid, o.fixture_match_id,
-                       o.ep_appearance * coalesce(sc.s, 1.0),
-                       o.ep_goals * coalesce(sc.s, 1.0),
-                       o.ep_assists * coalesce(sc.s, 1.0),
-                       o.ep_clean_sheet * coalesce(sc.s, 1.0),
-                       o.ep_goals_conceded,
-                       o.ep_defcon * coalesce(sc.s, 1.0),
-                       o.ep_bonus * coalesce(sc.s, 1.0),
-                       o.ep_saves * coalesce(sc.s, 1.0),
-                       o.ep_penalty_save,
-                       o.ep_cards,
-                       o.ep_own_goal,
-                       coalesce(sc.ep_total_ml, o.ep_total),
-                       o.expected_bps
-                FROM ep_outputs o
-                LEFT JOIN _ml_scale_df sc ON sc.player_uid = o.player_uid
-                WHERE o.model_version = ?
+                WITH base AS (
+                    SELECT o.*, p.ep_total_ml,
+                           sum(o.ep_total) OVER (PARTITION BY o.player_uid) AS quant_gw,
+                           count(*) OVER (PARTITION BY o.player_uid) AS n_rows
+                    FROM ep_outputs o
+                    LEFT JOIN _ml_pred_df p ON p.player_uid = o.player_uid
+                    WHERE o.model_version = ?
+                ),
+                scaled AS (
+                    SELECT *,
+                           CASE WHEN ep_total_ml IS NOT NULL AND quant_gw > {MIN_QUANT_FOR_SCALING} AND ep_total_ml >= 0
+                                THEN least(ep_total_ml / quant_gw, {MAX_ML_SCALE}) END AS s
+                    FROM base
+                )
+                SELECT ?, player_uid, fixture_match_id,
+                       ep_appearance * coalesce(s, 1.0),
+                       ep_goals * coalesce(s, 1.0),
+                       ep_assists * coalesce(s, 1.0),
+                       ep_clean_sheet * coalesce(s, 1.0),
+                       ep_goals_conceded,
+                       ep_defcon * coalesce(s, 1.0),
+                       ep_bonus * coalesce(s, 1.0),
+                       ep_saves * coalesce(s, 1.0),
+                       ep_penalty_save,
+                       ep_cards,
+                       ep_own_goal,
+                       CASE WHEN ep_total_ml IS NULL THEN ep_total
+                            WHEN s IS NOT NULL THEN ep_total * s
+                            ELSE ep_total + (ep_total_ml - quant_gw) / n_rows END,
+                       expected_bps
+                FROM scaled
                 """,
-                [ml_ep_mv, quant_ep_mv],
+                [quant_ep_mv, ml_ep_mv],
             )
         finally:
-            con.unregister("_ml_scale_df")
+            con.unregister("_ml_pred_df")
         ml_versions[gw] = (ml_ep_mv, un_mv)
 
     return ml_versions or None
