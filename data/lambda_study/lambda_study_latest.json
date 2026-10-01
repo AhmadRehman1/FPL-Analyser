@@ -1,5 +1,5 @@
 {
-  "n_arms": 5,
+  "n_arms": 2,
   "live_pins": {
     "lambda_value": 0.15,
     "xi_club_concentration_cap": 3
@@ -7,21 +7,275 @@
   "lambda_arms": [
     {
       "axis": "lambda",
+      "value": 0.1,
+      "season": "2024-2025",
+      "start_gameweek": 2,
+      "end_gameweek": 38,
+      "base_param_versions": {
+        "xi_params_version": 2,
+        "rho_params_version": 1,
+        "decay_params_version": 1,
+        "adjustment_params_version": 18,
+        "shrinkage_params_version": 11,
+        "fact_multiplier_params_version": 8,
+        "scoring_params_version": 1,
+        "bps_params_version": 1,
+        "tau_params_version": 1,
+        "rho_residual_params_version": 4,
+        "corr_params_version": 1,
+        "lambda_params_version": 1,
+        "guardrail_params_version": 1,
+        "horizon_params_version": 1,
+        "transfer_cost_params_version": 1,
+        "wildcard_threshold_params_version": 1,
+        "free_hit_threshold_params_version": 1,
+        "kappa_tc_params_version": 3,
+        "captain_risk_params_version": 2,
+        "minutes_bounds_params_version": 1
+      },
+      "metrics": {
+        "total_points": 2069.0,
+        "mean_points": 55.91891891891892,
+        "n_gameweeks": 37,
+        "realized_sharpe": 3.29741319034387,
+        "max_drawdown": 79.78378378378379
+      },
+      "n_gameweeks_scored": 37,
+      "action_counts": {
+        "transfers": 29,
+        "chips_played": 6
+      },
+      "actions": [
+        {
+          "gameweek": 3,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 1
+        },
+        {
+          "gameweek": 4,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 2
+        },
+        {
+          "gameweek": 5,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "free_hit",
+          "plan_run_id": 3
+        },
+        {
+          "gameweek": 6,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "triple_captain",
+          "plan_run_id": 4
+        },
+        {
+          "gameweek": 7,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 5
+        },
+        {
+          "gameweek": 8,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 6
+        },
+        {
+          "gameweek": 9,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 7
+        },
+        {
+          "gameweek": 10,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 8
+        },
+        {
+          "gameweek": 11,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 9
+        },
+        {
+          "gameweek": 12,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 10
+        },
+        {
+          "gameweek": 13,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "bench_boost",
+          "plan_run_id": 11
+        },
+        {
+          "gameweek": 14,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 12
+        },
+        {
+          "gameweek": 15,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 13
+        },
+        {
+          "gameweek": 16,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 14
+        },
+        {
+          "gameweek": 17,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 15
+        },
+        {
+          "gameweek": 18,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 16
+        },
+        {
+          "gameweek": 19,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "free_hit",
+          "plan_run_id": 17
+        },
+        {
+          "gameweek": 20,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "bench_boost",
+          "plan_run_id": 18
+        },
+        {
+          "gameweek": 21,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "triple_captain",
+          "plan_run_id": 19
+        },
+        {
+          "gameweek": 22,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 20
+        },
+        {
+          "gameweek": 23,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 21
+        },
+        {
+          "gameweek": 24,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 22
+        },
+        {
+          "gameweek": 26,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 23
+        },
+        {
+          "gameweek": 27,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 24
+        },
+        {
+          "gameweek": 28,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 25
+        },
+        {
+          "gameweek": 29,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 26
+        },
+        {
+          "gameweek": 30,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 27
+        },
+        {
+          "gameweek": 31,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 28
+        },
+        {
+          "gameweek": 32,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 29
+        },
+        {
+          "gameweek": 33,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 30
+        },
+        {
+          "gameweek": 34,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 31
+        },
+        {
+          "gameweek": 35,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 32
+        },
+        {
+          "gameweek": 36,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 33
+        },
+        {
+          "gameweek": 37,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 34
+        },
+        {
+          "gameweek": 38,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 35
+        }
+      ],
+      "wall_seconds": 17935.2
+    },
+    {
+      "axis": "lambda",
       "value": 0.15,
       "season": "2025-2026",
       "start_gameweek": 2,
-      "end_gameweek": 6,
+      "end_gameweek": 38,
       "base_param_versions": {
         "xi_params_version": 2,
         "rho_params_version": 1,
         "decay_params_version": 1,
-        "adjustment_params_version": 1,
-        "shrinkage_params_version": 1,
-        "fact_multiplier_params_version": 1,
+        "adjustment_params_version": 18,
+        "shrinkage_params_version": 11,
+        "fact_multiplier_params_version": 8,
         "scoring_params_version": 1,
         "bps_params_version": 1,
         "tau_params_version": 1,
-        "rho_residual_params_version": 2,
+        "rho_residual_params_version": 4,
         "corr_params_version": 1,
         "lambda_params_version": 1,
         "guardrail_params_version": 1,
@@ -29,31 +283,33 @@
         "transfer_cost_params_version": 1,
         "wildcard_threshold_params_version": 1,
         "free_hit_threshold_params_version": 1,
-        "kappa_tc_params_version": 1
+        "kappa_tc_params_version": 3,
+        "captain_risk_params_version": 2,
+        "minutes_bounds_params_version": 1
       },
       "metrics": {
-        "total_points": 223.0,
-        "mean_points": 44.6,
-        "n_gameweeks": 5,
-        "realized_sharpe": 9.54351898299336,
-        "max_drawdown": 8.200000000000003
+        "total_points": 2123.0,
+        "mean_points": 57.37837837837838,
+        "n_gameweeks": 37,
+        "realized_sharpe": 3.6870421108013973,
+        "max_drawdown": 83.94594594594597
       },
-      "n_gameweeks_scored": 5,
+      "n_gameweeks_scored": 37,
       "action_counts": {
-        "transfers": 2,
-        "chips_played": 2
+        "transfers": 26,
+        "chips_played": 7
       },
       "actions": [
         {
           "gameweek": 3,
-          "accepted_transfer_rank": null,
-          "accepted_chip": "bench_boost",
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
           "plan_run_id": 1
         },
         {
           "gameweek": 4,
-          "accepted_transfer_rank": 1,
-          "accepted_chip": null,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "bench_boost",
           "plan_run_id": 2
         },
         {
@@ -64,278 +320,187 @@
         },
         {
           "gameweek": 6,
-          "accepted_transfer_rank": null,
-          "accepted_chip": "wildcard",
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
           "plan_run_id": 4
-        }
-      ],
-      "wall_seconds": 975.4
-    }
-  ],
-  "cap_arms": [
-    {
-      "axis": "cap",
-      "value": 2.0,
-      "season": "2025-2026",
-      "start_gameweek": 2,
-      "end_gameweek": 6,
-      "base_param_versions": {
-        "xi_params_version": 2,
-        "rho_params_version": 1,
-        "decay_params_version": 1,
-        "adjustment_params_version": 1,
-        "shrinkage_params_version": 1,
-        "fact_multiplier_params_version": 1,
-        "scoring_params_version": 1,
-        "bps_params_version": 1,
-        "tau_params_version": 1,
-        "rho_residual_params_version": 2,
-        "corr_params_version": 1,
-        "lambda_params_version": 1,
-        "guardrail_params_version": 1,
-        "horizon_params_version": 1,
-        "transfer_cost_params_version": 1,
-        "wildcard_threshold_params_version": 1,
-        "free_hit_threshold_params_version": 1,
-        "kappa_tc_params_version": 1
-      },
-      "metrics": {
-        "total_points": 213.0,
-        "mean_points": 42.6,
-        "n_gameweeks": 5,
-        "realized_sharpe": 6.433900293966385,
-        "max_drawdown": 13.200000000000003
-      },
-      "n_gameweeks_scored": 5,
-      "action_counts": {
-        "transfers": 2,
-        "chips_played": 2
-      },
-      "actions": [
-        {
-          "gameweek": 3,
-          "accepted_transfer_rank": null,
-          "accepted_chip": "bench_boost",
-          "plan_run_id": 1
         },
         {
-          "gameweek": 4,
-          "accepted_transfer_rank": 1,
-          "accepted_chip": null,
-          "plan_run_id": 2
-        },
-        {
-          "gameweek": 5,
-          "accepted_transfer_rank": 1,
-          "accepted_chip": null,
-          "plan_run_id": 3
-        },
-        {
-          "gameweek": 6,
-          "accepted_transfer_rank": null,
-          "accepted_chip": "wildcard",
-          "plan_run_id": 4
-        }
-      ],
-      "wall_seconds": 982.3
-    },
-    {
-      "axis": "cap",
-      "value": 3.0,
-      "season": "2025-2026",
-      "start_gameweek": 2,
-      "end_gameweek": 6,
-      "base_param_versions": {
-        "xi_params_version": 2,
-        "rho_params_version": 1,
-        "decay_params_version": 1,
-        "adjustment_params_version": 1,
-        "shrinkage_params_version": 1,
-        "fact_multiplier_params_version": 1,
-        "scoring_params_version": 1,
-        "bps_params_version": 1,
-        "tau_params_version": 1,
-        "rho_residual_params_version": 2,
-        "corr_params_version": 1,
-        "lambda_params_version": 1,
-        "guardrail_params_version": 1,
-        "horizon_params_version": 1,
-        "transfer_cost_params_version": 1,
-        "wildcard_threshold_params_version": 1,
-        "free_hit_threshold_params_version": 1,
-        "kappa_tc_params_version": 1
-      },
-      "metrics": {
-        "total_points": 222.0,
-        "mean_points": 44.4,
-        "n_gameweeks": 5,
-        "realized_sharpe": 16.733879624065878,
-        "max_drawdown": 4.399999999999999
-      },
-      "n_gameweeks_scored": 5,
-      "action_counts": {
-        "transfers": 1,
-        "chips_played": 3
-      },
-      "actions": [
-        {
-          "gameweek": 3,
-          "accepted_transfer_rank": null,
-          "accepted_chip": "bench_boost",
-          "plan_run_id": 1
-        },
-        {
-          "gameweek": 4,
-          "accepted_transfer_rank": 1,
-          "accepted_chip": null,
-          "plan_run_id": 2
-        },
-        {
-          "gameweek": 5,
+          "gameweek": 7,
           "accepted_transfer_rank": null,
           "accepted_chip": "triple_captain",
-          "plan_run_id": 3
+          "plan_run_id": 5
         },
         {
-          "gameweek": 6,
+          "gameweek": 8,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 6
+        },
+        {
+          "gameweek": 9,
           "accepted_transfer_rank": null,
           "accepted_chip": "wildcard",
-          "plan_run_id": 4
-        }
-      ],
-      "wall_seconds": 929.5
-    },
-    {
-      "axis": "cap",
-      "value": 4.0,
-      "season": "2025-2026",
-      "start_gameweek": 2,
-      "end_gameweek": 6,
-      "base_param_versions": {
-        "xi_params_version": 2,
-        "rho_params_version": 1,
-        "decay_params_version": 1,
-        "adjustment_params_version": 1,
-        "shrinkage_params_version": 1,
-        "fact_multiplier_params_version": 1,
-        "scoring_params_version": 1,
-        "bps_params_version": 1,
-        "tau_params_version": 1,
-        "rho_residual_params_version": 2,
-        "corr_params_version": 1,
-        "lambda_params_version": 1,
-        "guardrail_params_version": 1,
-        "horizon_params_version": 1,
-        "transfer_cost_params_version": 1,
-        "wildcard_threshold_params_version": 1,
-        "free_hit_threshold_params_version": 1,
-        "kappa_tc_params_version": 1
-      },
-      "metrics": {
-        "total_points": 187.0,
-        "mean_points": 37.4,
-        "n_gameweeks": 5,
-        "realized_sharpe": 3.3339742973491284,
-        "max_drawdown": 24.799999999999997
-      },
-      "n_gameweeks_scored": 5,
-      "action_counts": {
-        "transfers": 4,
-        "chips_played": 0
-      },
-      "actions": [
-        {
-          "gameweek": 3,
-          "accepted_transfer_rank": 1,
-          "accepted_chip": null,
-          "plan_run_id": 1
+          "plan_run_id": 7
         },
         {
-          "gameweek": 4,
+          "gameweek": 10,
           "accepted_transfer_rank": 1,
           "accepted_chip": null,
-          "plan_run_id": 2
+          "plan_run_id": 8
         },
         {
-          "gameweek": 5,
+          "gameweek": 11,
           "accepted_transfer_rank": 1,
           "accepted_chip": null,
-          "plan_run_id": 3
+          "plan_run_id": 9
         },
         {
-          "gameweek": 6,
+          "gameweek": 12,
           "accepted_transfer_rank": 1,
           "accepted_chip": null,
-          "plan_run_id": 4
-        }
-      ],
-      "wall_seconds": 1029.0
-    },
-    {
-      "axis": "cap",
-      "value": 5.0,
-      "season": "2025-2026",
-      "start_gameweek": 2,
-      "end_gameweek": 6,
-      "base_param_versions": {
-        "xi_params_version": 2,
-        "rho_params_version": 1,
-        "decay_params_version": 1,
-        "adjustment_params_version": 1,
-        "shrinkage_params_version": 1,
-        "fact_multiplier_params_version": 1,
-        "scoring_params_version": 1,
-        "bps_params_version": 1,
-        "tau_params_version": 1,
-        "rho_residual_params_version": 2,
-        "corr_params_version": 1,
-        "lambda_params_version": 1,
-        "guardrail_params_version": 1,
-        "horizon_params_version": 1,
-        "transfer_cost_params_version": 1,
-        "wildcard_threshold_params_version": 1,
-        "free_hit_threshold_params_version": 1,
-        "kappa_tc_params_version": 1
-      },
-      "metrics": {
-        "total_points": 223.0,
-        "mean_points": 44.6,
-        "n_gameweeks": 5,
-        "realized_sharpe": 9.54351898299336,
-        "max_drawdown": 8.200000000000003
-      },
-      "n_gameweeks_scored": 5,
-      "action_counts": {
-        "transfers": 2,
-        "chips_played": 2
-      },
-      "actions": [
+          "plan_run_id": 10
+        },
         {
-          "gameweek": 3,
+          "gameweek": 13,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 11
+        },
+        {
+          "gameweek": 14,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 12
+        },
+        {
+          "gameweek": 15,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 13
+        },
+        {
+          "gameweek": 16,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "free_hit",
+          "plan_run_id": 14
+        },
+        {
+          "gameweek": 17,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 15
+        },
+        {
+          "gameweek": 18,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 16
+        },
+        {
+          "gameweek": 19,
+          "accepted_transfer_rank": null,
+          "accepted_chip": "free_hit",
+          "plan_run_id": 17
+        },
+        {
+          "gameweek": 20,
           "accepted_transfer_rank": null,
           "accepted_chip": "bench_boost",
-          "plan_run_id": 1
+          "plan_run_id": 18
         },
         {
-          "gameweek": 4,
-          "accepted_transfer_rank": 1,
-          "accepted_chip": null,
-          "plan_run_id": 2
-        },
-        {
-          "gameweek": 5,
-          "accepted_transfer_rank": 1,
-          "accepted_chip": null,
-          "plan_run_id": 3
-        },
-        {
-          "gameweek": 6,
+          "gameweek": 21,
           "accepted_transfer_rank": null,
-          "accepted_chip": "wildcard",
-          "plan_run_id": 4
+          "accepted_chip": "triple_captain",
+          "plan_run_id": 19
+        },
+        {
+          "gameweek": 22,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 20
+        },
+        {
+          "gameweek": 23,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 21
+        },
+        {
+          "gameweek": 24,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 22
+        },
+        {
+          "gameweek": 25,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 23
+        },
+        {
+          "gameweek": 27,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 24
+        },
+        {
+          "gameweek": 28,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 25
+        },
+        {
+          "gameweek": 29,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 26
+        },
+        {
+          "gameweek": 30,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 27
+        },
+        {
+          "gameweek": 31,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 28
+        },
+        {
+          "gameweek": 32,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 29
+        },
+        {
+          "gameweek": 34,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 30
+        },
+        {
+          "gameweek": 35,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 31
+        },
+        {
+          "gameweek": 37,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 32
+        },
+        {
+          "gameweek": 38,
+          "accepted_transfer_rank": 1,
+          "accepted_chip": null,
+          "plan_run_id": 33
         }
       ],
-      "wall_seconds": 960.3
+      "wall_seconds": 19250.0
     }
-  ]
+  ],
+  "cap_arms": []
 }
