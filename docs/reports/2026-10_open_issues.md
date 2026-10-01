@@ -4,6 +4,25 @@ These are the clear problems left after the review-fix work (#215–#228). Each 
 
 Walk-forward numbers are 74 gameweeks (2024-25 + 2025-26) unless noted. "Real-GW paired" means the paired per-gameweek difference against FPL's real average, which only exists for 2025-26 (n ≈ 37).
 
+## 0. The evolving manager can make only one transfer a week, and never a hit (season sim / live model team)
+
+This is the most obvious structural gap the season-sim arms turned up. Every arm took **0 hits over 37 gameweeks**, with 25–28 transfers in total.
+- **Single transfers only:** `transfer_planner.apply_recommendation()` applies one row from `transfer_recommendations`.
+  - `run()` computes two-transfer moves when 2+ free transfers are banked (`evaluate_multi_transfers` → `multi_transfer_recommendations`).
+  - But no path applies them: `backtest._decide_gameweek_action` only ever returns a single `accept_transfer_rank`.
+- **Hits are impossible:** after a free transfer, free transfers become `FT − 1 + 1 = FT`, so the count never drops to 0.
+  - A single transfer is therefore always free.
+  - The two-transfer move is only evaluated when FT ≥ 2, so `n_hits = max(0, 2 − FT)` is always 0.
+  - Free transfers bank up to 5 but are never spent more than one at a time.
+- **Consequence:** the live model team can't react to a double gameweek, a run of injuries, or a price-rise wave beyond one move a week. The 2.0 vs 0.5 transfer-threshold arms are nearly identical (thr2 − thr05 = +0.14 ± 0.09/GW over 37 GWs) because the threshold only ever gates that one move.
+
+## 0b. Chips are burned at the first chance in each half
+
+Control 2025-26 played Bench Boost in GW3, Free Hit in GW5 and Triple Captain in GW6. Then, from a fresh squad at GW19: Free Hit GW20, Bench Boost GW21, Triple Captain GW22, Wildcard GW23. The first-half Wildcard was never played.
+- **The `--chip-timing` arm played the same GW3/5/6 chips.** The season-horizon timing gate did not move any first-half chip.
+  - Its paired difference from control (−0.53 ± 1.41, n = 17) comes from later transfer choices, not from chip timing.
+- **To check:** whether the TC/BB thresholds (`triple_captain_threshold_params`, `bench_boost_threshold_params`) are low enough that almost any week clears them; and why the timing gate's "a later week in the window is better" check never fires in GW3–6.
+
 ## 1. 2024-25 is scored under 2025-26 rules in more places than DefCon
 
 #227 fixed DefCon: no defensive contribution points before 2025-26. Other rule differences between the seasons are still not modelled:
