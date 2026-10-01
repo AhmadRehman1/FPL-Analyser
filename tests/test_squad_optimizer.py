@@ -953,6 +953,21 @@ def test_run_rejects_field_covariance_without_ownership(con):
         )
 
 
+def test_run_accepts_lambda_zero(con):
+    """lambda = 0 (no risk aversion) is a legal production value: the baseline and the real
+    solve are the same, so the divergence check must not reject it."""
+    ep_mv, un_mv = _seed_run_candidate_pool(con)
+    so.seed_v1_params(con)
+    so.params_mod.write_param(con, "risk_aversion_params", 99, "2026-09-30", "lambda_value", value_numeric=0.0)
+    run_id = so.run(con, date(2026, 8, 10), "2026-2027", 2, ep_mv, un_mv, 99, 1)
+    passed, note, n_squad = con.execute(
+        "SELECT r.divergence_check_passed, r.divergence_check_note, "
+        "(SELECT count(*) FROM squad_optimizer_selections s WHERE s.run_id = r.run_id AND s.in_squad) "
+        "FROM squad_optimizer_runs r WHERE r.run_id = ?", [run_id],
+    ).fetchone()
+    assert passed and "lambda=0" in note and n_squad == 15
+
+
 def test_run_without_any_priority1_2_features_is_unchanged(con):
     """The original eight-positional-argument call shape must still work exactly as before --
     backward compatibility for every existing caller (scripts, other tests)."""

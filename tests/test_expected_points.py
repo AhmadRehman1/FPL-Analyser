@@ -670,3 +670,79 @@ def test_position_average_rates_includes_snapshot_only_players(con):
     assert avg["expected_goals_per_90"] == pytest.approx(expected, rel=1e-4)
     # dropping the snapshot player (old behaviour) would give 0.40 exactly
     assert avg["expected_goals_per_90"] > 0.45
+
+
+# ---- Finding 2: FPL assists vs xA ------------------------------------------------
+
+def _season_row(con, uid, season, gw, assists, xa, minutes=900):
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, minutes, assists, expected_assists, _ingested_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, current_timestamp)",
+        [uid, season, gw, minutes, assists, xa],
+    )
+
+
+def test_fpl_assist_ratio_uses_latest_cumulative_row_and_shrinks_to_one(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES "
+                "('m1','M1','Midfielder'),('m2','M2','Midfielder'),('f1','F1','Forward')")
+    _season_row(con, "m1", "2025-2026", 10, 2, 5.0)
+    _season_row(con, "m1", "2025-2026", 38, 14, 10.0)   # latest row wins
+    _season_row(con, "m2", "2025-2026", 38, 6, 5.0)
+    _season_row(con, "f1", "2025-2026", 38, 8, 4.0)
+    no_prior = ep.fpl_assist_ratio_by_position(con, ["2025-2026"], prior_xa=0.0)
+    assert no_prior["Midfielder"] == pytest.approx(20 / 15)
+    assert no_prior["Forward"] == pytest.approx(2.0)
+    shrunk = ep.fpl_assist_ratio_by_position(con, ["2025-2026"], prior_xa=30.0)
+    assert shrunk["Forward"] == pytest.approx(38 / 34)
+    assert "Defender" not in shrunk   # no data -> caller defaults to 1.0
+
+
+def test_seed_assist_calibration_params(con):
+    ep.seed_assist_calibration_params(con)
+    from fpl_quant import params
+    assert params.resolve_param(con, "fpl_assist_calibration_params", "prior_xa", 1)[0] == 30.0
+
+
+def _ep_version_row(con, recipe_recorded, **recipe):
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('t', 'T') ON CONFLICT DO NOTHING")
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2026-08-10', 0.2, 1, 1, 't')"
+    )
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2026-08-10', '2026-2027', 1, 1, 1, 1, '[]')"
+    )
+    cols = ", ".join(recipe) + (", " if recipe else "")
+    vals = ", ".join("?" for _ in recipe) + (", " if recipe else "")
+    return con.execute(
+        f"INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        f"minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version, "
+        f"{cols}recipe_recorded) VALUES ('2026-08-10', '2026-2027', "
+        f"(SELECT max(model_version) FROM team_strength_model_versions), "
+        f"(SELECT max(model_version) FROM minutes_model_versions), 1, 1, 1, {vals}?) RETURNING model_version",
+        [*recipe.values(), recipe_recorded],
+    ).fetchone()[0]
+
+
+def test_recipe_of_reads_back_what_run_recorded(con):
+    mv = _ep_version_row(con, True, set_piece_params_version=1, fixture_params_version=None,
+                         rate_shrinkage_params_version=8, assist_calibration_params_version=None)
+    assert ep.recipe_of(con, mv) == {
+        "set_piece_params_version": 1, "fixture_params_version": None,
+        "rate_shrinkage_params_version": 8, "assist_calibration_params_version": None,
+    }
+
+
+def test_recipe_of_is_none_for_a_row_written_before_recipes(con):
+    mv = _ep_version_row(con, False)
+    assert ep.recipe_of(con, mv) is None
+
+
+def test_run_records_every_recipe_column():
+    import inspect
+
+    src = inspect.getsource(ep.run)
+    for key in ep.RECIPE_KEYS:
+        assert key in src.split("INSERT INTO ep_model_versions", 1)[1].split("RETURNING", 1)[0]

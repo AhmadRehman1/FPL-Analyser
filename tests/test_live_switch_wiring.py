@@ -26,17 +26,21 @@ from fpl_quant import squad_optimizer as so  # noqa: E402
 SEED_DIR = REPO_ROOT / "data" / "recalibration"
 CAPTAIN = "captain_risk_params_version"
 MINUTES = "minutes_bounds_params_version"
+RATE = "rate_shrinkage_params_version"
 
 # (module, function) -> keyword every call must pass explicitly (a None is allowed: it's visible).
 REQUIRED = {
     ("squad_optimizer", "run"): [CAPTAIN],
     ("squad_optimizer", "solve"): ["captain_variance_multiplier"],
     ("minutes_model", "run"): [MINUTES],
-    ("transfer_planner", "run"): [CAPTAIN],
-    ("decision_engine", "recommend_best_move"): [CAPTAIN],
+    ("expected_points", "run"): [RATE],
+    ("transfer_planner", "compute_horizon_ep"): [RATE],
+    ("projections", "build_projections"): [RATE],
+    ("transfer_planner", "run"): [CAPTAIN, RATE],
+    ("decision_engine", "recommend_best_move"): [CAPTAIN, RATE],
     ("squad_grade", "grade_squad"): [CAPTAIN],
-    ("backtest", "run"): [CAPTAIN, MINUTES],
-    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES],
+    ("backtest", "run"): [CAPTAIN, MINUTES, RATE],
+    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE],
 }
 
 # Calls that pass their versions through a ** dict. Each one's dict builder is checked below, or it
@@ -58,6 +62,9 @@ REVIEWED_SPLATS = {
     # Deliberately "blind": every version at its pre-recalibration default.
     ("scripts/run_retrospective_engine_simulation.py", "backtest.run_season_simulation"),
     ("src/fpl_quant/squad_optimizer.py", "squad_optimizer.solve"),  # run()'s own solve_kwargs
+    ("scripts/export_projections.py", "projections.build_projections"),  # its param_versions dict
+    ("scripts/grade_squad.py", "transfer_planner.compute_horizon_ep"),  # grade_squad._param_versions()
+    ("scripts/print_chip_timing_roadmap.py", "transfer_planner.compute_horizon_ep"),  # its PARAM_VERSIONS
 }
 
 
@@ -115,12 +122,13 @@ def test_every_splat_call_is_reviewed():
 
 
 @pytest.mark.parametrize("script, keys", [
-    ("run_backtest", [CAPTAIN, MINUTES]),
-    ("run_season_simulation", [CAPTAIN, MINUTES]),
-    ("export_leaderboard", [CAPTAIN, MINUTES]),
-    ("explain_my_move", [CAPTAIN]),
-    ("run_scenarios", [CAPTAIN]),
-    ("track_elite", [CAPTAIN]),
+    ("run_backtest", [CAPTAIN, MINUTES, RATE]),
+    ("run_season_simulation", [CAPTAIN, MINUTES, RATE]),
+    ("export_leaderboard", [CAPTAIN, MINUTES, RATE]),
+    ("explain_my_move", [CAPTAIN, RATE]),
+    ("run_scenarios", [CAPTAIN, RATE]),
+    ("track_elite", [CAPTAIN, RATE]),
+    ("grade_squad", [RATE]),
 ])
 def test_script_param_dicts_carry_the_live_switches(script, keys):
     module = __import__(script)
@@ -135,6 +143,7 @@ def test_forward_sim_resolves_the_live_switches():
     versions = fss._resolve_versions(None, active)
     assert versions[CAPTAIN] == active[CAPTAIN]
     assert versions[MINUTES] == active[MINUTES]
+    assert versions[RATE] == active[RATE]
 
 
 def test_active_versions_resolve_to_the_live_values(con):

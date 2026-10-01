@@ -21,7 +21,8 @@ def test_real_wildcard_gain_uses_the_real_planning_horizon_not_a_hardcoded_one(c
     but the wc_horizon call must now request the real seeded planning horizon (5), not 1."""
     horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
     so.seed_v1_params(con)
-    pctr.tp.seed_v1_params(con)  # seeds planning_horizon_params=5 among others
+    pctr.tp.seed_v1_params(con)
+    pctr.backtest.materialize_confirmed_seeds(con, pctr.RECALIBRATION_SEED_DIR)  # the active versions _ACTIVE names  # seeds planning_horizon_params=5 among others
 
     element_names = {i: uid for i, uid in enumerate(h["player_uid"] for h in holdings)}
     picks = [
@@ -69,6 +70,7 @@ def test_real_free_hit_gain_uses_a_single_gameweek_horizon_not_wildcards_multi_g
     horizon_ep_versions, holdings = _seed_real_squad_optimizer_candidate_pool(con)
     so.seed_v1_params(con)
     pctr.tp.seed_v1_params(con)
+    pctr.backtest.materialize_confirmed_seeds(con, pctr.RECALIBRATION_SEED_DIR)  # the active versions _ACTIVE names
 
     element_names = {i: uid for i, uid in enumerate(h["player_uid"] for h in holdings)}
     picks = [

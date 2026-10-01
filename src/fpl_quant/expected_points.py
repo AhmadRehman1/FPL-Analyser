@@ -662,6 +662,43 @@ def _set_piece_assist_uplift_multiplier(
     return 1.0
 
 
+# FPL awards assists more generously than Opta's xA counts them (second assists on won
+# penalties, deflections, rebounds). Over 2024-26, outfield FPL assists ran at ~1.38x xA while
+# goals ran at ~0.99x xG, so an xA-based rate under-predicts FPL assist points, most for the
+# attackers who create the most (Finding 2). The ratio is fitted per position from whatever
+# season stats are visible as of the run (point-in-time inside the walk-forward), shrunk toward
+# 1.0 by a pseudo-count of prior_xa expected assists.
+PLACEHOLDER_ASSIST_PRIOR_XA = 30.0
+
+
+def seed_assist_calibration_params(con: duckdb.DuckDBPyConnection) -> None:
+    params_mod.write_param(
+        con, "fpl_assist_calibration_params", 1, "2026-09-29", "prior_xa", value_numeric=PLACEHOLDER_ASSIST_PRIOR_XA,
+    )
+
+
+def fpl_assist_ratio_by_position(con: duckdb.DuckDBPyConnection, seasons: list[str], prior_xa: float) -> dict[str, float]:
+    """{position: (FPL assists + prior_xa) / (expected assists + prior_xa)} from each player's
+    latest cumulative season row. Positions with no data get 1.0."""
+    placeholders = ",".join(["?"] * len(seasons))
+    rows = con.execute(
+        f"""
+        WITH latest AS (
+            SELECT dp.position, fps.assists, fps.expected_assists
+            FROM fact_player_season_stats fps JOIN dim_player dp ON dp.player_uid = fps.player_uid
+            WHERE fps.season IN ({placeholders}) AND fps.assists IS NOT NULL AND fps.expected_assists IS NOT NULL
+            QUALIFY row_number() OVER (PARTITION BY fps.player_uid, fps.season ORDER BY fps.gw DESC) = 1
+        )
+        SELECT position, sum(assists), sum(expected_assists) FROM latest GROUP BY position
+        """,
+        list(seasons),
+    ).fetchall()
+    out = {}
+    for position, a, xa in rows:
+        out[position] = ((a or 0) + prior_xa) / ((xa or 0.0) + prior_xa)
+    return out
+
+
 def compute_player_fixture_components(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, team_uid: str, match_id: str,
     p_0: float, p_1_59: float, p_60plus: float,
@@ -670,6 +707,7 @@ def compute_player_fixture_components(
     *, asof: datetime | None = None, set_piece_params_version: int | None = None,
     fixture_params_version: int | None = 1, target_season: str | None = None,
     rate_shrinkage_params_version: int | None = None,
+    assist_ratio: float = 1.0,
 ) -> dict:
     rates = player_rates_shrunk(con, player_uid, position, season_priority, rate_shrinkage_params_version)
     def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority, rate_shrinkage_params_version)
@@ -686,7 +724,7 @@ def compute_player_fixture_components(
 
     # ---- goals / assists ----
     e_goals = rates["expected_goals_per_90"] * e_min_played / 90.0 * p_played
-    e_assists = rates["expected_assists_per_90"] * e_min_played / 90.0 * p_played
+    e_assists = rates["expected_assists_per_90"] * e_min_played / 90.0 * p_played * assist_ratio
     # fixture-strength scaling: a player's flat season per-90 rate, adjusted for how favourable
     # THIS opponent is vs the team's average fixture (see _fixture_attack_multiplier). Was the
     # single biggest gap -- e_goals/e_assists were opponent-blind while clean sheets weren't.
@@ -784,6 +822,26 @@ def compute_player_fixture_components(
 # orchestrator
 # ============================================================
 
+RECIPE_KEYS = (
+    "set_piece_params_version", "fixture_params_version",
+    "rate_shrinkage_params_version", "assist_calibration_params_version",
+)
+
+
+def recipe_of(con: duckdb.DuckDBPyConnection, ep_model_version: int) -> dict | None:
+    """The EP recipe run() recorded for this model version ({key: version or None}), or None
+    for a row written before recipes were recorded -- the caller then keeps its own
+    arguments. M4 (uncertainty) and M6 (Monte Carlo) read this so they describe the same
+    k_minutes / fixture scaling / assist calibration the EP they sit on was built with."""
+    row = con.execute(
+        f"SELECT recipe_recorded, {', '.join(RECIPE_KEYS)} FROM ep_model_versions WHERE model_version = ?",
+        [ep_model_version],
+    ).fetchone()
+    if row is None or not row[0]:
+        return None
+    return dict(zip(RECIPE_KEYS, row[1:]))
+
+
 def run(
     con: duckdb.DuckDBPyConnection,
     calibration_asof_date: date,
@@ -798,6 +856,7 @@ def run(
     set_piece_params_version: int | None = 1,
     fixture_params_version: int | None = 1,
     rate_shrinkage_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> int:
     # set_piece_params_version defaults to 1 (was None): the confirmed-primary penalty/free-kick
     # taker e_goals/e_assists uplift (_set_piece_goal_uplift_multiplier, built as Priority 7b but
@@ -806,6 +865,11 @@ def run(
     # such claims are unaffected. Pass None to opt out.
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
     mean_minutes = _mean_minutes_by_bucket(con)
+    # None keeps xA-based assists unchanged; a version applies the fitted FPL/xA ratio.
+    assist_ratio_by_position: dict[str, float] = {}
+    if assist_calibration_params_version is not None:
+        prior_xa, _ = params_mod.resolve_param(con, "fpl_assist_calibration_params", "prior_xa", assist_calibration_params_version)
+        assist_ratio_by_position = fpl_assist_ratio_by_position(con, list(lookback_seasons), prior_xa)
     # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()
     # already established -- a claim ingested at 09:34 on the asof date itself is legitimately
     # knowable "as of" that date. Only used when set_piece_params_version opts the uplift in.
@@ -823,12 +887,16 @@ def run(
         """
         INSERT INTO ep_model_versions
             (calibration_asof_date, target_season, team_strength_model_version, minutes_model_version,
-             scoring_matrix_params_version, bps_params_version, bps_tau_params_version)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+             scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
+             set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
+             assist_calibration_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
-         scoring_params_version, bps_params_version, tau_params_version],
+         scoring_params_version, bps_params_version, tau_params_version,
+         set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
+         assist_calibration_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -865,6 +933,7 @@ def run(
                     asof=asof, set_piece_params_version=set_piece_params_version,
                     fixture_params_version=fixture_params_version, target_season=target_season,
                     rate_shrinkage_params_version=rate_shrinkage_params_version,
+                    assist_ratio=assist_ratio_by_position.get(position, 1.0),
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

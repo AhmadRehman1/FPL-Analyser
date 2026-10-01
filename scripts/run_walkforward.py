@@ -18,8 +18,14 @@ on a runner without the 6h limit, when you actually want new `recalibration_prop
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py
+    PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
+
+The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa) each swap one
+setting for a fresh or existing param version, so an arm runs from master via
+branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 """
 
+import argparse
 import sys
 import time
 from pathlib import Path
@@ -28,6 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest, db  # noqa: E402
+from fpl_quant import params as params_mod  # noqa: E402
 
 # Reuse run_backtest.py's own version-resolution verbatim -- the walk-forward must measure the
 # model against the same git-committed confirmed-seed versions every other script uses, not a
@@ -35,10 +42,52 @@ from fpl_quant import backtest, db  # noqa: E402
 from run_backtest import _param_versions, RECALIBRATION_SEED_DIR  # noqa: E402
 
 
-def main() -> None:
+EXPERIMENT_EFFECTIVE_DATE = "2026-09-30"
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--lambda", dest="lambda_value", type=float, default=None,
+                        help="risk_aversion_params lambda_value for this arm (default: the live version)")
+    parser.add_argument("--role-matches-threshold", type=float, default=None,
+                        help="turn on the current-season role blend with this matches threshold")
+    parser.add_argument("--assist-prior-xa", type=float, default=None,
+                        help="turn on the FPL/xA assist calibration with this prior pseudo-count")
+    return parser.parse_args(argv)
+
+
+def _experiment_versions(con, args: argparse.Namespace) -> dict:
+    """backtest.run() kwargs for the experiment flags that were given. Each maps to an
+    immutable param version (get_or_create_version), never an activation."""
+    out: dict = {}
+    if args.lambda_value is not None:
+        out["lambda_params_version"] = params_mod.get_or_create_version(
+            con, "risk_aversion_params", "lambda_value", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.lambda_value,
+        )
+    if args.role_matches_threshold is not None:
+        out["current_season_role_params_version"] = params_mod.get_or_create_version(
+            con, "current_season_role_params", "current_season_matches_threshold", EXPERIMENT_EFFECTIVE_DATE,
+            value_numeric=args.role_matches_threshold,
+        )
+    if args.assist_prior_xa is not None:
+        out["assist_calibration_params_version"] = params_mod.get_or_create_version(
+            con, "fpl_assist_calibration_params", "prior_xa", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.assist_prior_xa,
+        )
+    return out
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = _parse_args(argv)
     con = db.connect()
+    # The cached DB can predate a newly committed seed; make sure every active version exists.
+    backtest.materialize_confirmed_seeds(con, RECALIBRATION_SEED_DIR)
     active = backtest.active_recalibratable_versions(RECALIBRATION_SEED_DIR)
     param_versions = _param_versions(active)
+    experiment = _experiment_versions(con, args)
+    param_versions.update({k: v for k, v in experiment.items() if k in param_versions})
+    extra = {k: v for k, v in experiment.items() if k not in param_versions}
+    if experiment:
+        print(f"[experiment] {vars(args)} -> {experiment}")
 
     t0 = time.time()
     backtest_run_id = backtest.run(
@@ -52,9 +101,7 @@ def main() -> None:
         # the Track Record headline (BUSINESS_PLAN.md P0) sat null between weekly runs.
         compute_segments=True,
         ownership_params_version=1,
-        # Score the same k_minutes live runs use. Before this the walk-forward always ran the
-        # hardcoded default (450), so the confirmed 450 -> 900 change was never measured here.
-        rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
+        **extra,
         # Fix D (captain weight 0) and Fix F (minutes floor 0.005) come in via _param_versions().
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
     )

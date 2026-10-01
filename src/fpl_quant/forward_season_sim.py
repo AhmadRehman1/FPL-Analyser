@@ -183,6 +183,7 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         # Fix D / Fix F, live since 2026-09-29 (None when `active` doesn't carry them).
         "captain_risk_params_version": active.get("captain_risk_params_version"),
         "minutes_bounds_params_version": active.get("minutes_bounds_params_version"),
+        "rate_shrinkage_params_version": active.get("rate_shrinkage_params_version"),
         # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
         "chip_wait_params_version": active.get("chip_wait_params_version"),
     }
@@ -359,7 +360,8 @@ def run_forward_season_sim(
                                 minutes_bounds_params_version=versions["minutes_bounds_params_version"])
         ep0 = expected_points.run(con, asof, target_season, start_gameweek, ts0, mm0,
                                   versions["scoring_params_version"], versions["bps_params_version"],
-                                  versions["tau_params_version"])
+                                  versions["tau_params_version"],
+                                  rate_shrinkage_params_version=versions["rate_shrinkage_params_version"])
         un0 = uncertainty.run(con, asof, ep0, mm0, ts0, versions["scoring_params_version"],
                               versions["bps_params_version"], versions["tau_params_version"],
                               versions["rho_residual_params_version"], versions["corr_params_version"])
@@ -403,6 +405,7 @@ def run_forward_season_sim(
                 triple_captain_timing_params_version=versions["triple_captain_timing_params_version"],
                 bench_boost_timing_params_version=versions["bench_boost_timing_params_version"],
                 captain_risk_params_version=versions["captain_risk_params_version"],
+                rate_shrinkage_params_version=versions["rate_shrinkage_params_version"],
             )
 
             state_row = con.execute(
@@ -471,6 +474,7 @@ def run_forward_season_sim(
                 con, asof, target_season, gw, ts_mv, mm_mv, 1,
                 versions["scoring_params_version"], versions["bps_params_version"], versions["tau_params_version"],
                 versions["rho_residual_params_version"], versions["corr_params_version"],
+                rate_shrinkage_params_version=versions["rate_shrinkage_params_version"],
             )
             ep_mv_gw, un_mv_gw = horizon_versions.get(gw, (None, None))
             holdings = transfer_planner._read_holdings(con, state_version)

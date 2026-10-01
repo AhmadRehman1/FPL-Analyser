@@ -75,6 +75,13 @@ def tier_for(season: str, gameweek: int) -> str:
     raise ValueError(f"no tier definition for season {season!r} -- backtest only covers 2024-25/2025-26/2026-27")
 
 
+def lookback_seasons_for(season: str) -> tuple[str, ...]:
+    """expected_points.run()'s lookback for a backtest of `season`: that season and the ones
+    before it, newest first. Its live default names all three seasons; asof_scope() already
+    drops later seasons' rows, this keeps the lookback itself honest too."""
+    return tuple(reversed(fit_seasons_for(season)))
+
+
 def fit_seasons_for(season: str) -> tuple[str, ...]:
     """team_strength.calibrate()'s Elo-regression eligibility threshold is
     min(seasons_threshold, len(fit_seasons)) -- its own hardcoded live default,
@@ -172,8 +179,9 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
     fact_player_season_stats has PRIMARY KEY (player_uid, season, gw) -- already a per-gameweek
     cumulative snapshot, not a single season-aggregate row -- so truncating the in-progress
     season to `gw < gameweek` is exact, no on-the-fly re-aggregation needed. Prior, fully
-    completed seasons pass through whole (season <> the one being backtested is never
-    date-sensitive relative to this gameweek's cutoff).
+    completed seasons pass through whole; LATER seasons are dropped entirely. (This used to be
+    `season <> target`, which let a 2024-25 step read 2025-26 and 2026-27 season stats --
+    expected_points' rate pool, position anchors and assist ratio all read them.)
 
     fact_match gets one deliberate exception, not a strict kickoff_time cutoff: the target
     gameweek's own fixture *schedule* (match_id/home_team_uid/away_team_uid/kickoff_time) stays
@@ -224,8 +232,10 @@ def asof_scope(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, *, sc
         [deadline],
     )
     con.execute(
+        # Only chronologically earlier seasons pass whole; later seasons are the future.
+        # (Season labels are "YYYY-YYYY", so string order is chronological order.)
         "CREATE OR REPLACE TEMP TABLE fact_player_season_stats AS "
-        "SELECT * FROM main.fact_player_season_stats WHERE (season = ? AND gw < ?) OR season <> ?",
+        "SELECT * FROM main.fact_player_season_stats WHERE (season = ? AND gw < ?) OR season < ?",
         [season, gameweek, season],
     )
     try:
@@ -271,6 +281,7 @@ def run_gameweek_step(
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -330,8 +341,10 @@ def run_gameweek_step(
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
+            lookback_seasons=lookback_seasons_for(season),
             set_piece_params_version=set_piece_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
+            assist_calibration_params_version=assist_calibration_params_version,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
@@ -352,7 +365,8 @@ def run_gameweek_step(
             divergence_passed = True
         except squad_optimizer.DivergenceCheckFailedError:
             divergence_passed = False
-        except ValueError:
+        except squad_optimizer.CandidatePoolTooSmallError:
+            # the one expected "can't solve this step" case; any other ValueError is a real bug
             divergence_passed = None
 
         if so_run_id is not None and run_monte_carlo:
@@ -1010,6 +1024,7 @@ def run(
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
+    assist_calibration_params_version: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) or that
@@ -1065,6 +1080,7 @@ def run(
             minutes_bounds_params_version=minutes_bounds_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             captain_risk_params_version=captain_risk_params_version,
+            assist_calibration_params_version=assist_calibration_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -1294,6 +1310,7 @@ def run_season_simulation(
     captain_risk_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
     chip_wait_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
     one real M8 transfer_planner.run()-informed decision per gameweek (see
@@ -1402,6 +1419,8 @@ def run_season_simulation(
         ep_mv = ep.run(
             con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
             scoring_params_version, bps_params_version, tau_params_version,
+            rate_shrinkage_params_version=rate_shrinkage_params_version,
+            lookback_seasons=lookback_seasons_for(season),
         )
         un_mv = uncertainty.run(
             con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
@@ -1472,6 +1491,7 @@ def run_season_simulation(
                     triple_captain_timing_params_version=triple_captain_timing_params_version,
                     bench_boost_timing_params_version=bench_boost_timing_params_version,
                     captain_risk_params_version=captain_risk_params_version,
+                    rate_shrinkage_params_version=rate_shrinkage_params_version,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
@@ -1702,6 +1722,7 @@ def beats_baseline(
     guardrail_cap: float = 3.0,
     recent_points_lookback_gameweeks: int = 3,
     minutes_bounds_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -1752,6 +1773,8 @@ def beats_baseline(
             ep_mv = ep.run(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
                 scoring_params_version, bps_params_version, tau_params_version,
+                rate_shrinkage_params_version=rate_shrinkage_params_version,
+                lookback_seasons=lookback_seasons_for(season),
             )
 
             recent_pool = _naive_candidate_pool(con, season, "recent_points", recent_points_lookback_gameweeks)
@@ -2172,6 +2195,21 @@ def auto_promote_pending_proposals(
         evaluate_and_promote_proposal(con, pid, seed_dir, min_relative_improvement, reviewed_by)
         for pid in proposal_ids
     ]
+
+
+def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path | str) -> int:
+    """Writes every confirmed seed's value at its new_params_version, so the versions
+    active_recalibratable_versions() returns exist in this DB. Idempotent (write_param() is a
+    no-op for an identical row) and loud on a real collision. run_ingestion.py calls it on
+    every fresh DB; run_walkforward.py calls it too, since it runs on a cached DB that may
+    predate a newly committed seed. Returns the number of seeds written or confirmed."""
+    seeds = load_confirmed_recalibration_seeds(seed_dir)
+    for seed in seeds:
+        params_mod.write_param(
+            con, seed["param_family"], seed["new_params_version"], "2026-08-12",
+            seed["param_key"], value_numeric=seed["new_value"], dimensions=seed["dimensions"],
+        )
+    return len(seeds)
 
 
 def load_confirmed_recalibration_seeds(seed_dir: Path | str) -> list[dict]:
@@ -2924,6 +2962,18 @@ def season_cumulative_metrics(weekly_points: list[float]) -> dict:
     }
 
 
+def _pick_best_lambda(grid_results: dict[float, dict]) -> float:
+    """Highest mean realized points (what FPL scores); Sharpe only breaks ties and stays in
+    the grid as a risk diagnostic. A lambda with no scored gameweeks ranks last."""
+    return max(
+        grid_results,
+        key=lambda lam: (
+            grid_results[lam]["mean_points"] if grid_results[lam]["mean_points"] is not None else float("-inf"),
+            grid_results[lam]["realized_sharpe"],
+        ),
+    )
+
+
 def refit_lambda(
     con: duckdb.DuckDBPyConnection,
     eval_steps: list[tuple[str, int]],
@@ -2932,8 +2982,9 @@ def refit_lambda(
     guardrail_cap: float,
     lambda_grid: tuple[float, ...] = (0.0, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50),
 ) -> dict:
-    """Out-of-sample grid search on realized_sharpe = mean(realized XI points)/std(same)
-    across eval_steps, maximized over lambda_grid -- per the M7 spec's own self-critique
+    """Out-of-sample grid search over lambda_grid, picking the highest mean realized XI
+    points across eval_steps (Sharpe = mean/std breaks ties). It used to maximize Sharpe alone,
+    which is not what FPL scores -- per the M7 spec's original self-critique
     ("out-of-sample grid search on risk-adjusted return, since lambda is a preference
     parameter rather than a data-fit one"). Re-solves squad_optimizer.solve() per gameweek per
     candidate (the expensive part, ~19s per solve per README's own live-run numbers) but never
@@ -2984,7 +3035,7 @@ def refit_lambda(
         else:
             grid_results[lam] = {"realized_sharpe": float("-inf"), "mean_points": None, "n_gameweeks": len(gameweek_points)}
 
-    best_lambda = max(grid_results, key=lambda lam_val: grid_results[lam_val]["realized_sharpe"])
+    best_lambda = _pick_best_lambda(grid_results)
     return {"best_lambda": best_lambda, "grid": grid_results}
 
 
@@ -3296,7 +3347,7 @@ def recalibrate(
         if result["best_lambda"] != current_lambda:
             proposal_ids.append(propose_recalibration(
                 con, backtest_run_id, "risk_aversion_params", "lambda_value", result["best_lambda"],
-                "realized_sharpe", result["grid"][current_lambda]["realized_sharpe"], result["grid"][result["best_lambda"]]["realized_sharpe"],
+                "mean_realized_points", result["grid"][current_lambda]["mean_points"], result["grid"][result["best_lambda"]]["mean_points"],
                 old_params_version=current_lambda_version, effective_date=effective_date, grid_values=grid,
             ))
 

@@ -227,3 +227,38 @@ def test_build_ml_shadow_payload_ok_and_placeholder(seeded_db, monkeypatch):
     assert set(p0) == {"player_uid", "name", "fpl_element_id", "ep_quant", "ep_ml", "ml_residual"}
     assert payload["players"] == sorted(payload["players"], key=lambda x: x["ep_ml"], reverse=True)
     assert len(payload["ml_boosts"]) <= 5 and len(payload["ml_fades"]) <= 5
+
+
+def test_write_ml_horizon_never_flips_components_when_quant_is_not_positive(seeded_db, monkeypatch):
+    """quant ep_total -0.2 with an ML total of +0.1 used to give scale -0.5, flipping every
+    positive component negative. Now the components stay put and the difference is added."""
+    import pandas as pd
+
+    horizon, mm_mv = _seed_live_horizon(seeded_db, gws=(1,))
+    quant_ep_mv, _ = horizon[1]
+    rows = seeded_db.execute(
+        "SELECT player_uid, ep_total, ep_appearance FROM ep_outputs WHERE model_version = ? ORDER BY player_uid",
+        [quant_ep_mv],
+    ).fetchall()
+    low_uid, high_uid = rows[0][0], rows[1][0]
+    seeded_db.execute(
+        "UPDATE ep_outputs SET ep_total = -0.2, ep_appearance = 0.5 WHERE model_version = ? AND player_uid = ?",
+        [quant_ep_mv, low_uid],
+    )
+    high_total, high_app = rows[1][1], rows[1][2]
+    preds = pd.DataFrame({
+        "player_uid": [low_uid, high_uid], "gameweek": [1, 1],
+        "ep_quant": [-0.2, high_total], "predicted_residual": [0.3, high_total],
+        "ep_total_ml": [0.1, 2 * high_total],
+    })
+    monkeypatch.setattr(forward, "predict_forward_horizon", lambda *a, **k: preds)
+
+    ml_ep_mv, _ = forward.write_ml_horizon_ep_versions(seeded_db, LIVE_SEASON, horizon, mm_mv)[1]
+    out = {uid: (tot, app) for uid, tot, app in seeded_db.execute(
+        "SELECT player_uid, ep_total, ep_appearance FROM ep_outputs WHERE model_version = ?", [ml_ep_mv],
+    ).fetchall()}
+    assert out[low_uid][0] == pytest.approx(0.1)
+    assert out[low_uid][1] == pytest.approx(0.5)            # not flipped to -0.25
+    if high_total > forward.MIN_QUANT_FOR_SCALING:
+        assert out[high_uid][0] == pytest.approx(2 * high_total)
+        assert out[high_uid][1] == pytest.approx(2 * high_app)

@@ -252,6 +252,38 @@ def test_asof_scope_passes_prior_completed_season_through_whole(con):
         assert [r[0] for r in rows] == [30]  # unaffected by the 2025-2026 gw cutoff
 
 
+def test_asof_scope_drops_later_seasons_entirely(con):
+    """A 2024-25 step must not see 2025-26 (or 2026-27) season stats: expected_points' rate
+    pool, position anchors and assist ratio all read the latest row of every visible season."""
+    _seed_two_gameweek_league(con)
+    with bt.asof_scope(con, "2024-2025", 30):
+        seasons = {r[0] for r in con.execute("SELECT DISTINCT season FROM fact_player_season_stats").fetchall()}
+    assert seasons <= {"2024-2025"}
+
+
+def test_future_season_rows_do_not_change_the_rate_pool(con):
+    """Invariance: an absurd future-season row is invisible to a 2024-25 target's rate pool."""
+    from fpl_quant import expected_points as ep
+
+    _seed_two_gameweek_league(con)
+    uid = con.execute("SELECT player_uid FROM fact_player_season_stats LIMIT 1").fetchone()[0]
+    with bt.asof_scope(con, "2024-2025", 30):
+        before = ep._player_rate_pool(con, uid, ["2026-2027", "2025-2026", "2024-2025"])
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, minutes, expected_goals, _ingested_at) "
+        "VALUES (?, '2026-2027', 3, 270, 99.0, current_timestamp)", [uid],
+    )
+    with bt.asof_scope(con, "2024-2025", 30):
+        after = ep._player_rate_pool(con, uid, ["2026-2027", "2025-2026", "2024-2025"])
+    assert after == before
+
+
+def test_lookback_seasons_for_never_names_a_later_season():
+    assert bt.lookback_seasons_for("2024-2025") == ("2024-2025",)
+    assert bt.lookback_seasons_for("2025-2026") == ("2025-2026", "2024-2025")
+    assert bt.lookback_seasons_for("2026-2027") == ("2026-2027", "2025-2026", "2024-2025")
+
+
 def test_asof_scope_drops_temp_tables_on_exception():
     """finally-block cleanup must run even if the caller's code inside the scope raises --
     otherwise a crashed walk-forward step would leave a stale shadow poisoning the next one."""
@@ -1303,7 +1335,7 @@ def test_active_recalibratable_versions_matches_known_confirmed_state():
     assert versions["fact_multiplier_params_version"] == 8
     assert versions["shrinkage_params_version"] == 11
     assert versions["adjustment_params_version"] == 18
-    assert versions["lambda_params_version"] == 1
+    assert versions["lambda_params_version"] == 10  # seeds_lambda_2026-09-30.json, 0.15 -> 0.10
     assert versions["kappa_tc_params_version"] == 3
     assert versions["rate_shrinkage_params_version"] == 8
 
@@ -3780,3 +3812,25 @@ def test_recalibrate_rate_shrinkage_grid_brackets_the_old_winner():
     import inspect
     grid = inspect.signature(bt.recalibrate).parameters["rate_shrinkage_k_grid"].default
     assert min(grid) < 900.0 < max(grid) and min(grid) < 3000.0 < max(grid)
+
+
+def test_materialize_confirmed_seeds_writes_the_active_version_idempotently(con):
+    real_seed_dir = Path(__file__).resolve().parents[1] / "data" / "recalibration"
+    n = bt.materialize_confirmed_seeds(con, real_seed_dir)
+    assert n > 0
+    assert bt.materialize_confirmed_seeds(con, real_seed_dir) == n  # second call is a no-op
+    active = bt.active_recalibratable_versions(real_seed_dir)
+    lam, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", active["lambda_params_version"])
+    assert lam == 0.1
+
+
+def test_refit_lambda_picks_on_points_with_sharpe_as_tie_break():
+    """A steadier but lower-scoring lambda must not beat a higher-scoring one."""
+    grid = {
+        0.0: {"realized_sharpe": 3.3, "mean_points": 50.0, "n_gameweeks": 4},   # higher points, noisier
+        0.15: {"realized_sharpe": 70.0, "mean_points": 49.5, "n_gameweeks": 4},  # steadier, fewer points
+        0.3: {"realized_sharpe": float("-inf"), "mean_points": None, "n_gameweeks": 0},
+    }
+    assert bt._pick_best_lambda(grid) == 0.0
+    grid[0.15]["mean_points"] = 50.0  # a points tie goes to the higher Sharpe
+    assert bt._pick_best_lambda(grid) == 0.15

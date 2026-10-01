@@ -77,6 +77,11 @@ def _warn_if_sigma_not_psd(candidates: list[dict], sigma_pairs: dict, *, tol: fl
         )
 
 
+class CandidatePoolTooSmallError(ValueError):
+    """Fewer than 15 priced candidates: a real early-season / thin-data outcome, not a bug.
+    A ValueError subclass so existing callers that catch ValueError keep working."""
+
+
 class DivergenceCheckFailedError(Exception):
     """The lambda=0 vs lambda=0.15 sanity check failed: both solves produced the identical
     squad, proving the quadratic risk term is not affecting the solve at all. Per M5's own
@@ -626,7 +631,7 @@ def run(
     else:
         candidates = fetch_candidate_pool(con, ep_model_version, uncertainty_model_version, target_season)
     if len(candidates) < 15:
-        raise ValueError(f"candidate pool has only {len(candidates)} priced players -- cannot fill a 15-player squad")
+        raise CandidatePoolTooSmallError(f"candidate pool has only {len(candidates)} priced players -- cannot fill a 15-player squad")
     player_uids = {c["player_uid"] for c in candidates}
     if horizon_ep_versions:
         sigma_pairs = fetch_horizon_sigma_pairs(con, horizon_ep_versions, player_uids)
@@ -722,8 +727,11 @@ def run(
         result_zero["xi"] != result_real["xi"] or result_zero["captain"] != result_real["captain"]
     )
 
-    divergence_passed = baseline_reliable and meaningfully_different
-    note = None
+    # lambda = 0 is a legal setting (no risk aversion): the "real" solve IS the baseline, so
+    # there is nothing to diverge from and only the baseline's own optimality is checked.
+    risk_term_off = lam == 0
+    divergence_passed = baseline_reliable and (meaningfully_different or risk_term_off)
+    note = "lambda=0: risk term off, divergence check not applicable." if risk_term_off and divergence_passed else None
     if not divergence_passed:
         if not baseline_reliable:
             note = (

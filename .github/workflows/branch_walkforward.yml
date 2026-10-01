@@ -4,17 +4,26 @@ name: Branch walk-forward (experiment)
 # as nightly_backtest.yml on an experiment branch (bt/**), against the most recent cached
 # ingested DB, then prints scripts/walkforward_summary.py's scoreboard to the log and uploads
 # it as an artifact. Commits nothing.
+#
+# A dispatch can also pass `args` (scripts/run_walkforward.py's experiment flags, e.g.
+# "--lambda 0.10" or "--assist-prior-xa 30"), so several arms run from one ref in parallel.
 
 on:
   push:
     branches: ["bt/**"]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      args:
+        description: 'Experiment flags for scripts/run_walkforward.py (empty = the live control).'
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: branch-walkforward-${{ github.ref }}
+  group: branch-walkforward-${{ github.ref }}-${{ inputs.args }}
   cancel-in-progress: true
 
 jobs:
@@ -45,7 +54,12 @@ jobs:
           test -f db/fpl_quant_v2.duckdb || { echo "::error::no cached DB to run against"; exit 1; }
 
       - name: Run walk-forward
-        run: PYTHONPATH=src python scripts/run_walkforward.py
+        env:
+          ARGS: ${{ inputs.args }}
+        run: |
+          echo "arm args: '${ARGS}'" >> "$GITHUB_STEP_SUMMARY"
+          # word-splitting of ARGS is intended: it carries the flags
+          PYTHONPATH=src python scripts/run_walkforward.py ${ARGS}
 
       - name: Scoreboard
         run: |

@@ -199,7 +199,14 @@ is taken with that scorer. Then 5, which unblocks 6 and 7. Each is its own small
 | 3 | Done, #204. `tests/test_live_switch_wiring.py` fails if a call site omits the switches. |
 | 4 | Done with this status note: transfer-now can make the 2-for-2 when 2+ free transfers are banked, and holding at the 5-transfer cap is charged one hit. |
 | 5 | Done for 2025-26: the walk-forward also scores the model squad against FPL's real `average_entry_score` (`beats_real_avg_points_delta`), read from FPL-Core-Insights' `gameweek_summaries.csv`. 2024-25 has no such file, so those weeks keep only the synthetic benchmark. |
-| 6-9 | Open. Each is judged on walk-forward runs against the pipeline's DB, using step 5's benchmark. |
+| 6 | Done. lambda 0.15 -> 0.10 (`seeds_lambda_2026-09-30.json`, v10): walk-forward arms 36724805099 vs 36724809697, model 53.14 -> 56.91 pts/GW, paired +1.47 ± 1.04/GW vs FPL's real average. |
+| 7 | Measuring. Walk-forward arms `--role-matches-threshold 4` and `--assist-prior-xa 30` run from master through `branch_walkforward.yml`'s `args` input and are judged on `beats_real_avg_points_delta`. |
+| 8 | Built, #207, opt-in. `chip_timing_sensitivity.yml` (off / on / wait, both seasons) dispatched 2026-09-30. |
+| 9 | Open. |
+
+First walk-forward on the fixed scorer (nightly 2026-09-30, 70 GWs): model 53.49 pts/GW (was 49.16),
++3.40 vs the synthetic average (was -0.71), and +4.15 vs FPL's real average over 2025-26's 34 GWs.
+Most of the move is measurement (auto-subs and the vice now count); the arms above split it.
 
 Walk-forward numbers from before #202 were scored without the vice rule or auto-subs, and before
 #204 most paths ran without the live captain and minutes settings. Re-run the baseline and the
