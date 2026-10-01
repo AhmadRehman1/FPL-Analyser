@@ -365,7 +365,8 @@ def run_gameweek_step(
             divergence_passed = True
         except squad_optimizer.DivergenceCheckFailedError:
             divergence_passed = False
-        except ValueError:
+        except squad_optimizer.CandidatePoolTooSmallError:
+            # the one expected "can't solve this step" case; any other ValueError is a real bug
             divergence_passed = None
 
         if so_run_id is not None and run_monte_carlo:
