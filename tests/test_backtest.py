@@ -284,6 +284,67 @@ def test_lookback_seasons_for_never_names_a_later_season():
     assert bt.lookback_seasons_for("2026-2027") == ("2026-2027", "2025-2026", "2024-2025")
 
 
+def _seed_mid_season_mover(con):
+    """p1 (player_code 101) was at club 1 through GW14 and moved to club 2 from GW15; the
+    regenerated season root lists him at club 2 all season. p2 (102) never moved."""
+    _seed_two_gameweek_league(con)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p2', 'Player Two', 'Defender')")
+    for alias, uid, code, club, season in (
+        ("Player One", "p1", "101", "2", "2025-2026"), ("P1", "p1", "101", "2", "2025-2026"),
+        ("Player Two", "p2", "102", "1", "2025-2026"),
+        ("Player One", "p1", "101", "1", "2024-2025"),
+    ):
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid, "
+            "source_player_id) VALUES (?, ?, ?, ?, ?, ?)", [alias, alias.lower(), club, season, uid, code],
+        )
+    for gw, p1_club in ((1, 1), (10, 1), (15, 2)):
+        table = f"raw_2025_2026_gw{gw}_players"
+        con.execute(f'CREATE TABLE "{table}" (player_code BIGINT, team_code DOUBLE)')
+        con.execute(f'INSERT INTO "{table}" VALUES (101, {p1_club}), (102, 1)')
+        con.execute(
+            "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+            "VALUES (?, '2025-2026', ?, 'h', 2)", [table, f"By Gameweek/GW{gw}/players.csv"],
+        )
+
+
+def _clubs(con, season="2025-2026"):
+    return dict(con.execute(
+        "SELECT DISTINCT player_uid, team_code FROM player_alias WHERE season = ?", [season],
+    ).fetchall())
+
+
+def test_asof_scope_puts_a_mid_season_mover_at_his_club_on_the_day(con):
+    _seed_mid_season_mover(con)
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "finished, competition, _ingested_at) VALUES ('gw12m', '2025-2026', 12, '2025-11-22 15:00', "
+        "'team_a', 'team_b', TRUE, 'Premier League', current_timestamp)"
+    )
+    with bt.asof_scope(con, "2025-2026", 12):
+        # GW10 is the latest snapshot at or before GW12; the root's club 2 is the future.
+        assert _clubs(con) == {"p1": "1", "p2": "1"}
+        assert _clubs(con, "2024-2025") == {"p1": "1"}  # other seasons untouched
+        assert con.execute("SELECT count(*) FROM player_alias").fetchone()[0] == 4  # every alias row kept
+    with bt.asof_scope(con, "2025-2026", 20):
+        assert _clubs(con) == {"p1": "2", "p2": "1"}  # GW15 snapshot: he has moved
+    assert _clubs(con) == {"p1": "2", "p2": "1"}  # main.player_alias never touched
+
+
+def test_asof_scope_keeps_the_root_roster_when_the_season_has_no_snapshot(con):
+    _seed_two_gameweek_league(con)
+    con.execute(
+        "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid, "
+        "source_player_id) VALUES ('Player One', 'player one', '2', '2025-2026', 'p1', '101')"
+    )
+    with bt.asof_scope(con, "2025-2026", 10):
+        assert _clubs(con) == {"p1": "2"}
+        assert con.execute(
+            "SELECT count(*) FROM duckdb_tables() WHERE temporary AND table_name = 'player_alias'"
+        ).fetchone()[0] == 0
+    assert _clubs(con) == {"p1": "2"}
+
+
 def test_asof_scope_drops_temp_tables_on_exception():
     """finally-block cleanup must run even if the caller's code inside the scope raises --
     otherwise a crashed walk-forward step would leave a stale shadow poisoning the next one."""
@@ -301,6 +362,15 @@ def test_asof_scope_drops_temp_tables_on_exception():
     visible_ids = {r[0] for r in con.execute("SELECT match_id FROM fact_match").fetchall()}
     assert visible_ids == {"prior24", "gw10m", "gw20m"}
     con.close()
+
+
+def test_asof_scope_drops_the_roster_shadow_on_exception(con):
+    _seed_mid_season_mover(con)
+    with pytest.raises(RuntimeError):
+        with bt.asof_scope(con, "2025-2026", 10):
+            assert _clubs(con)["p1"] == "1"
+            raise RuntimeError("simulated failure mid-step")
+    assert _clubs(con)["p1"] == "2"
 
 
 # ============================================================
