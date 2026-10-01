@@ -732,6 +732,7 @@ def test_recipe_of_reads_back_what_run_recorded(con):
     assert ep.recipe_of(con, mv) == {
         "set_piece_params_version": 1, "fixture_params_version": None,
         "rate_shrinkage_params_version": 8, "assist_calibration_params_version": None,
+        "finishing_skill_params_version": None,
     }
 
 
@@ -746,3 +747,46 @@ def test_run_records_every_recipe_column():
     src = inspect.getsource(ep.run)
     for key in ep.RECIPE_KEYS:
         assert key in src.split("INSERT INTO ep_model_versions", 1)[1].split("RETURNING", 1)[0]
+
+
+def _seed_finisher(con, uid, goals, xg, assists, xa, season="2025-2026"):
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward') ON CONFLICT DO NOTHING",
+        [uid, uid],
+    )
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, goals_scored, expected_goals, assists, "
+        "expected_assists, minutes, _ingested_at) VALUES (?, ?, 38, ?, ?, ?, ?, 3000, current_timestamp)",
+        [uid, season, goals, xg, assists, xa],
+    )
+
+
+def test_finishing_ratios_lift_an_overperformer_and_shrink_small_samples(con):
+    _seed_finisher(con, "elite", goals=27, xg=21.0, assists=12, xa=8.0)
+    _seed_finisher(con, "fluke", goals=3, xg=1.0, assists=0, xa=0.5)
+    g, a = ep.finishing_ratios(con, "elite", ["2026-2027", "2025-2026"], prior_xg=10.0)
+    assert g == pytest.approx(37 / 31) and a == pytest.approx(22 / 18)
+    g_fluke, _ = ep.finishing_ratios(con, "fluke", ["2025-2026"], prior_xg=10.0)
+    assert g_fluke == pytest.approx(13 / 11)  # 3 goals from 1 xG barely moves it
+    assert ep.finishing_ratios(con, "nobody", ["2025-2026"], prior_xg=10.0) == (1.0, 1.0)
+
+
+def test_finishing_ratios_are_capped(con):
+    _seed_finisher(con, "wild", goals=30, xg=1.0, assists=0, xa=20.0)
+    g, a = ep.finishing_ratios(con, "wild", ["2025-2026"], prior_xg=1.0)
+    assert g == ep.MAX_FINISHING_RATIO and a == 1 / ep.MAX_FINISHING_RATIO
+
+
+def test_player_rates_shrunk_applies_finishing_only_when_asked(con):
+    _seed_finisher(con, "elite", goals=27, xg=21.0, assists=12, xa=8.0)
+    off = ep.player_rates_shrunk(con, "elite", "Forward", ["2025-2026"])
+    on = ep.player_rates_shrunk(con, "elite", "Forward", ["2025-2026"], finishing_prior_xg=10.0)
+    assert on["expected_goals_per_90"] == pytest.approx(off["expected_goals_per_90"] * 37 / 31)
+    assert on["expected_assists_per_90"] == pytest.approx(off["expected_assists_per_90"] * 22 / 18)
+    assert on["saves_per_90"] == off["saves_per_90"]
+
+
+def test_resolve_finishing_prior_is_none_when_off(con):
+    assert ep.resolve_finishing_prior(con, None) is None
+    ep.params_mod.write_param(con, "finishing_skill_params", 1, "2026-08-12", "prior_xg", value_numeric=10.0)
+    assert ep.resolve_finishing_prior(con, 1) == 10.0

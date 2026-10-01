@@ -27,3 +27,9 @@ def test_flags_map_to_param_versions(con):
 
 def test_backtest_evidence_flag_passes_through_as_a_run_kwarg(con):
     assert rw._experiment_versions(con, rw._parse_args(["--backtest-evidence"])) == {"backtest_evidence": True}
+
+
+def test_finishing_prior_flag_maps_to_a_param_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--finishing-prior-xg", "10"]))
+    prior, _ = params_mod.resolve_param(con, "finishing_skill_params", "prior_xg", out["finishing_skill_params_version"])
+    assert prior == 10.0

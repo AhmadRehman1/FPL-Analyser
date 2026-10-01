@@ -288,15 +288,65 @@ def _position_average_rates(con: duckdb.DuckDBPyConnection, position: str, seaso
 
 def player_rates_shrunk(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, season_priority: list[str],
-    rate_shrinkage_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None, finishing_prior_xg: float | None = None,
 ) -> dict:
     own = _player_rate_pool(con, player_uid, season_priority)
     pos_avg = _position_average_rates(con, position, season_priority)
     k = _resolve_shrinkage_k(con, rate_shrinkage_params_version)
-    return {
+    rates = {
         key: _shrink_rate(own[key], own["sample_minutes"], pos_avg[key], k=k)
         for key in ("expected_goals_per_90", "expected_assists_per_90", "saves_per_90")
     }
+    if finishing_prior_xg is not None:
+        goal_ratio, assist_ratio = finishing_ratios(con, player_uid, season_priority, finishing_prior_xg)
+        rates["expected_goals_per_90"] *= goal_ratio
+        rates["expected_assists_per_90"] *= assist_ratio
+    return rates
+
+
+MAX_FINISHING_RATIO = 2.0
+
+
+def finishing_ratios(
+    con: duckdb.DuckDBPyConnection, player_uid: str, season_priority: list[str], prior_xg: float,
+) -> tuple[float, float]:
+    """(goals ratio, assists ratio) for one player: (goals + prior) / (xG + prior) and
+    (FPL assists + prior) / (xA + prior), pooled over each lookback season's latest cumulative
+    row. The walk-forward's clean baseline under-predicts 9.0+ players by ~0.8 pts/GW (goals,
+    assists and bonus all short) and over-predicts <5.0 players: xG/xA rates miss persistent
+    finishing and FPL-assist skill. prior_xg pulls a small sample back to 1; the ratio is
+    capped to [1/MAX_FINISHING_RATIO, MAX_FINISHING_RATIO]. Seasons without season-total
+    goals/xG (2024-25's snapshot) contribute nothing."""
+    placeholders = ",".join(["?"] * len(season_priority))
+    row = con.execute(
+        f"""
+        WITH latest AS (
+            SELECT goals_scored, expected_goals, assists, expected_assists
+            FROM fact_player_season_stats
+            WHERE player_uid = ? AND season IN ({placeholders})
+              AND goals_scored IS NOT NULL AND expected_goals IS NOT NULL
+            QUALIFY row_number() OVER (PARTITION BY season ORDER BY gw DESC) = 1
+        )
+        SELECT sum(goals_scored), sum(expected_goals), sum(coalesce(assists, 0)), sum(coalesce(expected_assists, 0))
+        FROM latest
+        """,
+        [player_uid, *season_priority],
+    ).fetchone()
+    goals, xg, assists, xa = (v or 0.0 for v in row) if row else (0.0, 0.0, 0.0, 0.0)
+
+    def ratio(actual: float, expected: float) -> float:
+        r = (actual + prior_xg) / (expected + prior_xg)
+        return min(max(r, 1.0 / MAX_FINISHING_RATIO), MAX_FINISHING_RATIO)
+
+    return ratio(goals, xg), ratio(assists, xa)
+
+
+def resolve_finishing_prior(con: duckdb.DuckDBPyConnection, finishing_skill_params_version: int | None) -> float | None:
+    """None (the default everywhere) keeps xG/xA rates as they are."""
+    if finishing_skill_params_version is None:
+        return None
+    value, _ = params_mod.resolve_param(con, "finishing_skill_params", "prior_xg", finishing_skill_params_version)
+    return value
 
 
 def _defensive_action_rates_per_90(
@@ -708,8 +758,11 @@ def compute_player_fixture_components(
     fixture_params_version: int | None = 1, target_season: str | None = None,
     rate_shrinkage_params_version: int | None = None,
     assist_ratio: float = 1.0,
+    finishing_prior_xg: float | None = None,
 ) -> dict:
-    rates = player_rates_shrunk(con, player_uid, position, season_priority, rate_shrinkage_params_version)
+    rates = player_rates_shrunk(
+        con, player_uid, position, season_priority, rate_shrinkage_params_version, finishing_prior_xg=finishing_prior_xg,
+    )
     def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority, rate_shrinkage_params_version)
     e_min_played = expected_minutes_given_played(p_1_59, p_60plus, mean_minutes)
     p_played = p_1_59 + p_60plus
@@ -825,6 +878,7 @@ def compute_player_fixture_components(
 RECIPE_KEYS = (
     "set_piece_params_version", "fixture_params_version",
     "rate_shrinkage_params_version", "assist_calibration_params_version",
+    "finishing_skill_params_version",
 )
 
 
@@ -857,6 +911,7 @@ def run(
     fixture_params_version: int | None = 1,
     rate_shrinkage_params_version: int | None = None,
     assist_calibration_params_version: int | None = None,
+    finishing_skill_params_version: int | None = None,
 ) -> int:
     # set_piece_params_version defaults to 1 (was None): the confirmed-primary penalty/free-kick
     # taker e_goals/e_assists uplift (_set_piece_goal_uplift_multiplier, built as Priority 7b but
@@ -870,6 +925,7 @@ def run(
     if assist_calibration_params_version is not None:
         prior_xa, _ = params_mod.resolve_param(con, "fpl_assist_calibration_params", "prior_xa", assist_calibration_params_version)
         assist_ratio_by_position = fpl_assist_ratio_by_position(con, list(lookback_seasons), prior_xa)
+    finishing_prior_xg = resolve_finishing_prior(con, finishing_skill_params_version)
     # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()
     # already established -- a claim ingested at 09:34 on the asof date itself is legitimately
     # knowable "as of" that date. Only used when set_piece_params_version opts the uplift in.
@@ -889,14 +945,14 @@ def run(
             (calibration_asof_date, target_season, team_strength_model_version, minutes_model_version,
              scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
-             assist_calibration_params_version, recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             assist_calibration_params_version, finishing_skill_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version,
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
-         assist_calibration_params_version],
+         assist_calibration_params_version, finishing_skill_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -934,6 +990,7 @@ def run(
                     fixture_params_version=fixture_params_version, target_season=target_season,
                     rate_shrinkage_params_version=rate_shrinkage_params_version,
                     assist_ratio=assist_ratio_by_position.get(position, 1.0),
+                    finishing_prior_xg=finishing_prior_xg,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)
