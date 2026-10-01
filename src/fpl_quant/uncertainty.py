@@ -151,7 +151,8 @@ def category_state_means(con, ep_row: dict, position: str, rates: dict, def_rate
     else:
         means["goals_conceded"] = (0.0, 0.0, 0.0)
 
-    if defcon_pts:
+    # ep_defcon is 0 where DefCon isn't in that season's rules (ep.defcon_in_force); follow it.
+    if defcon_pts and ep_row.get("ep_defcon"):
         thr = ep._sm(con, "defcon_threshold", scoring_params_version, position)
         rate90 = def_rates["cbi_per_90"] + def_rates["recoveries_per_90"]
         p1_over = 1 - poisson.cdf(thr - 1, max(rate90 * m1 / 90, 1e-9))

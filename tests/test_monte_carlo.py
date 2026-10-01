@@ -599,3 +599,32 @@ def test_m6_fixture_scaling_preserves_core_invariants(con):
         p1 = np.mean(state == "1_59")
         p2 = np.mean(state == "60plus")
         assert p0 + p1 + p2 == pytest.approx(1.0)
+
+
+def test_defcon_only_exists_from_2025_26():
+    assert not ep.defcon_in_force("2024-2025")
+    assert ep.defcon_in_force("2025-2026") and ep.defcon_in_force("2026-2027")
+    assert ep.defcon_in_force(None)
+
+
+def test_no_defcon_points_under_2024_25_rules(con, monkeypatch):
+    """Same defender, same fixture: 2024-25 scoring had no DefCon, so neither M3's EP nor M6's
+    simulation may award it; 2025-26+ rules do."""
+    ts_mv, mm_mv, ep_mv, squad = _seed_asymmetric_fixture(con)
+    mean_minutes = ep._mean_minutes_by_bucket(con)
+    seasons = ["2026-2027", "2025-2026"]
+
+    def ep_defcon(season):
+        return ep.compute_player_fixture_components(
+            con, "dfn", "Defender", "dog", "m1", 0.05, 0.10, 0.85, ts_mv, 1, 1, seasons, mean_minutes,
+            target_season=season,
+        )["ep_defcon"]
+
+    assert ep_defcon("2026-2027") > 0.4
+    assert ep_defcon("2024-2025") == 0.0
+
+    # M6: this fixture is seeded as 2026-27; treating that season as pre-DefCon exercises the same
+    # gate without seeding a 2024-25 teams table.
+    assert _simulate(con, ts_mv, mm_mv, ep_mv, squad, n_pairs=500)["dfn"]["defcon_hit"].any()
+    monkeypatch.setattr(ep, "DEFCON_FIRST_SEASON", "2027-2028")
+    assert not _simulate(con, ts_mv, mm_mv, ep_mv, squad, n_pairs=500)["dfn"]["defcon_hit"].any()

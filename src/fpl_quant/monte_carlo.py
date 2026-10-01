@@ -463,7 +463,7 @@ def simulate_fixture(
         goals_conceded_floor = own_goals_against // 2
 
         defcon_hit = np.zeros(state.shape, dtype=bool)
-        if position != "Goalkeeper":
+        if position != "Goalkeeper" and ep.defcon_in_force(target_season):
             defcon_rate90 = def_rates["cbi_per_90"] + def_rates["recoveries_per_90"]
             threshold = ep._sm(con, "defcon_threshold", scoring_params_version, position)
             lam_defcon = defcon_rate90 * mean_min / 90.0 * dfc_mult
