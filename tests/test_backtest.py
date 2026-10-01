@@ -1440,7 +1440,7 @@ def test_active_recalibratable_versions_matches_known_confirmed_state():
     assert versions["fact_multiplier_params_version"] == 8
     assert versions["shrinkage_params_version"] == 11
     assert versions["adjustment_params_version"] == 18
-    assert versions["lambda_params_version"] == 10  # seeds_lambda_2026-09-30.json, 0.15 -> 0.10
+    assert versions["lambda_params_version"] == 20  # seeds_lambda_2026-10-01.json, 0.10 -> 0.0
     assert versions["kappa_tc_params_version"] == 3
     assert versions["rate_shrinkage_params_version"] == 8
 
@@ -3926,7 +3926,7 @@ def test_materialize_confirmed_seeds_writes_the_active_version_idempotently(con)
     assert bt.materialize_confirmed_seeds(con, real_seed_dir) == n  # second call is a no-op
     active = bt.active_recalibratable_versions(real_seed_dir)
     lam, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", active["lambda_params_version"])
-    assert lam == 0.1
+    assert lam == 0.0
 
 
 def test_refit_lambda_picks_on_points_with_sharpe_as_tie_break():
