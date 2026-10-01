@@ -3939,3 +3939,17 @@ def test_refit_lambda_picks_on_points_with_sharpe_as_tie_break():
     assert bt._pick_best_lambda(grid) == 0.0
     grid[0.15]["mean_points"] = 50.0  # a points tie goes to the higher Sharpe
     assert bt._pick_best_lambda(grid) == 0.15
+
+
+def test_season_real_benchmark_scores_net_points_on_gameweeks_with_a_real_average():
+    out = bt.season_real_benchmark([60.0, 50.0, 70.0], [0.0, 4.0, 0.0], [None, 48.0, 62.0])
+    assert out["n_gameweeks"] == 2
+    assert out["net_points_per_gw"] == 58.0            # (46 + 70) / 2
+    assert out["real_avg_per_gw"] == 55.0
+    assert out["beats_real_avg_per_gw"] == 3.0
+    assert out["total_hits"] == 4.0
+
+
+def test_season_real_benchmark_without_a_real_average():
+    out = bt.season_real_benchmark([60.0], [0.0], [None])
+    assert out["n_gameweeks"] == 0 and out["beats_real_avg_per_gw"] is None

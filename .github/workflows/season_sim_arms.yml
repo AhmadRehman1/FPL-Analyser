@@ -1,0 +1,173 @@
+name: Season-simulation arms (vs FPL's real average)
+
+# The walk-forward (branch_walkforward.yml) scores a fresh, hit-free squad every gameweek. This
+# scores the evolving manager the live model team actually is -- transfers, hits, chips -- over
+# a real season, against FPL's real average_entry_score, one matrix job per (arm, season).
+# Each arm is "label: flags" for scripts/run_season_sim_arm.py; the arm labelled "control" is
+# the one every other arm is paired against. Commits nothing: the table lands in the job
+# summary and the season-sim-summary artifact.
+
+on:
+  workflow_dispatch:
+    inputs:
+      arms:
+        description: 'Semicolon-separated "label: flags" (e.g. "control: ; lam005: --lambda 0.05; wait: --chip-wait").'
+        required: true
+        type: string
+      seasons:
+        description: 'Comma-separated seasons. Only 2025-2026 has FPL real averages; 2024-2025 scores gross points only.'
+        required: false
+        default: "2025-2026"
+        type: string
+      start_gameweek:
+        description: "First gameweek (2 -- GW1 is not bootstrappable)."
+        required: false
+        default: "2"
+        type: string
+      end_gameweek:
+        description: "Last gameweek."
+        required: false
+        default: "38"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: season-sim-arms-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      arms: ${{ steps.gen.outputs.arms }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      # Full ingestion, same as lambda_sensitivity.yml: the scheduled pipeline's cache lacks the
+      # multi-season data a historical-season fit needs.
+      - name: Fetch FPL-Core-Insights (public dataset)
+        run: git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git data/external/FPL-Core-Insights-main
+
+      - name: Materialize evidence workbooks
+        run: |
+          mkdir -p data/external
+          fetch_drive_file() {
+            local file_id="$1" out_path="$2"
+            curl -sSL --fail --retry 5 --retry-delay 10 --retry-all-errors \
+              "https://drive.google.com/uc?export=download&id=${file_id}" -o "${out_path}"
+            local size; size=$(stat -c%s "${out_path}")
+            if [ "${size}" -lt 1024 ]; then echo "::error::${out_path} too small (${size}b)"; exit 1; fi
+            if head -c 256 "${out_path}" | grep -qi "<html"; then echo "::error::${out_path} is HTML not xlsx"; exit 1; fi
+          }
+          [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
+          fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
+
+      - name: Run ingestion (M0-M6)
+        run: PYTHONPATH=src python scripts/run_ingestion.py
+
+      - name: Save one shared DB cache for every arm
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: season-sim-arms-db-${{ github.run_id }}
+
+      - name: Generate the arm matrix
+        id: gen
+        env:
+          ARMS: ${{ inputs.arms }}
+          SEASONS: ${{ inputs.seasons }}
+        run: |
+          python - <<'EOF'
+          import json, os, re
+          seasons = [s.strip() for s in (os.environ["SEASONS"] or "2025-2026").split(",") if s.strip()]
+          arms = []
+          for spec in os.environ["ARMS"].split(";"):
+              if not spec.strip():
+                  continue
+              label, _, flags = spec.partition(":")
+              label = re.sub(r"[^A-Za-z0-9_-]", "_", label.strip())
+              for season in seasons:
+                  arms.append({"label": label, "flags": flags.strip(), "season": season, "tag": f"{label}_{season}"})
+          if not any(a["label"] == "control" for a in arms):
+              print("::warning::no arm labelled 'control' -- the summary will have no paired comparison")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("arms=" + json.dumps({"include": arms}) + "\n")
+          print(json.dumps(arms, indent=2))
+          EOF
+
+  sweep:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.prepare.outputs.arms) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.lock
+
+      - name: Restore the shared DB
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: season-sim-arms-db-${{ github.run_id }}
+          fail-on-cache-miss: true
+
+      - name: Run arm ${{ matrix.tag }}
+        env:
+          LABEL: ${{ matrix.label }}
+          FLAGS: ${{ matrix.flags }}
+          SEASON: ${{ matrix.season }}
+          START_GW: ${{ inputs.start_gameweek }}
+          END_GW: ${{ inputs.end_gameweek }}
+        run: |
+          # word-splitting of FLAGS is intended: it carries the arm's flags
+          PYTHONPATH=src python scripts/run_season_sim_arm.py --label "$LABEL" --season "$SEASON" \
+            --start-gw "${START_GW:-2}" --end-gw "${END_GW:-38}" \
+            --out "data/season_sim_arms/${LABEL}_${SEASON}.json" ${FLAGS}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: season-sim-arm-${{ matrix.tag }}
+          path: data/season_sim_arms/${{ matrix.tag }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  aggregate:
+    needs: [prepare, sweep]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: season-sim-arm-*
+          path: data/season_sim_arms
+          merge-multiple: true
+
+      - name: Aggregate
+        run: |
+          python scripts/aggregate_season_sim_arms.py data/season_sim_arms
+          cat data/season_sim_arms/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: season-sim-summary
+          path: data/season_sim_arms/
+          retention-days: 90
