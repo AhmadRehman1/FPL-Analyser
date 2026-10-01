@@ -311,28 +311,45 @@ def finishing_ratios(
     con: duckdb.DuckDBPyConnection, player_uid: str, season_priority: list[str], prior_xg: float,
 ) -> tuple[float, float]:
     """(goals ratio, assists ratio) for one player: (goals + prior) / (xG + prior) and
-    (FPL assists + prior) / (xA + prior), pooled over each lookback season's latest cumulative
-    row. The walk-forward's clean baseline under-predicts 9.0+ players by ~0.8 pts/GW (goals,
-    assists and bonus all short) and over-predicts <5.0 players: xG/xA rates miss persistent
-    finishing and FPL-assist skill. prior_xg pulls a small sample back to 1; the ratio is
-    capped to [1/MAX_FINISHING_RATIO, MAX_FINISHING_RATIO]. Seasons without season-total
-    goals/xG (2024-25's snapshot) contribute nothing."""
-    placeholders = ",".join(["?"] * len(season_priority))
-    row = con.execute(
-        f"""
-        WITH latest AS (
-            SELECT goals_scored, expected_goals, assists, expected_assists
-            FROM fact_player_season_stats
-            WHERE player_uid = ? AND season IN ({placeholders})
-              AND goals_scored IS NOT NULL AND expected_goals IS NOT NULL
-            QUALIFY row_number() OVER (PARTITION BY season ORDER BY gw DESC) = 1
-        )
-        SELECT sum(goals_scored), sum(expected_goals), sum(coalesce(assists, 0)), sum(coalesce(expected_assists, 0))
-        FROM latest
-        """,
-        [player_uid, *season_priority],
-    ).fetchone()
-    goals, xg, assists, xa = (v or 0.0 for v in row) if row else (0.0, 0.0, 0.0, 0.0)
+    (assists + prior) / (xA + prior), pooled over the lookback seasons. The walk-forward's
+    clean baseline under-predicts 9.0+ players by ~0.8 pts/GW (goals, assists and bonus all
+    short) and over-predicts <5.0 players: xG/xA rates miss persistent finishing and
+    assist skill. prior_xg pulls a small sample back to 1; the ratio is capped to
+    [1/MAX_FINISHING_RATIO, MAX_FINISHING_RATIO].
+
+    Same two source schemas as _player_rate_pool(): 2025-26+ rows carry season-total goals,
+    xG, assists and xA; 2024-2025's snapshot carries only per-90 xG/xA, so that season's
+    totals are rebuilt from the per-90 rates x match-grain minutes, with goals and assists
+    summed from fact_player_match_stats (match-feed assists, close to FPL's)."""
+    goals = xg = assists = xa = 0.0
+    for season in season_priority:
+        row = con.execute(
+            "SELECT goals_scored, expected_goals, assists, expected_assists, "
+            "expected_goals_per_90, expected_assists_per_90 "
+            "FROM fact_player_season_stats WHERE player_uid = ? AND season = ? ORDER BY gw DESC LIMIT 1",
+            [player_uid, season],
+        ).fetchone()
+        if not row:
+            continue
+        g, season_xg, a, season_xa, xg90, xa90 = row
+        if g is not None and season_xg is not None:
+            goals += g
+            xg += season_xg
+            assists += a or 0
+            xa += season_xa or 0.0
+        elif xg90 is not None or xa90 is not None:
+            match = con.execute(
+                "SELECT sum(minutes_played), sum(coalesce(goals, 0)), sum(coalesce(assists, 0)) "
+                "FROM fact_player_match_stats WHERE player_uid = ? AND season = ?",
+                [player_uid, season],
+            ).fetchone()
+            mins = float(match[0] or 0.0) if match else 0.0
+            if mins <= 0:
+                continue
+            goals += float(match[1] or 0)
+            assists += float(match[2] or 0)
+            xg += (xg90 or 0.0) / 90.0 * mins
+            xa += (xa90 or 0.0) / 90.0 * mins
 
     def ratio(actual: float, expected: float) -> float:
         r = (actual + prior_xg) / (expected + prior_xg)
