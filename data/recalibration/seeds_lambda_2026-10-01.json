@@ -1,0 +1,23 @@
+{
+  "backtest_run_id": null,
+  "note": "Hand-authored, same shape as backtest.write_recalibration_seed_file()'s output. risk_aversion_params.lambda_value 0.10 -> 0.0 (no risk term; legal since #215). Evidence: walk-forward arms after the point-in-time leak fix (#214), 70 scored gameweeks over 2024-25 + 2025-26, the EP model untouched so every arm's EP is identical (MAE 1.238, bias -0.239) and the synthetic benchmark pairs cleanly. Model squad pts/GW by lambda: 0.15 -> 54.69 (run 36780923620), 0.10 -> 57.10 (control, run 36780920751), 0.05 -> 57.59 (run 36793854247), 0.0 -> 60.01 (run 36793852189). lambda 0 vs 0.10 paired per GW: +2.91 +/- 1.21 (n=70); on the 34 2025-26 gameweeks with FPL's real average_entry_score, +2.24 +/- 1.36. Version 20, not 11: run_walkforward's experiment flag and risk_posture.resolve_versions() both mint the family's next free version in cached DBs, so 11-12 may already hold other values there.",
+  "written_at": "2026-10-01T00:00:00+00:00",
+  "proposals": [
+    {
+      "proposal_id": null,
+      "param_family": "risk_aversion_params",
+      "param_key": "lambda_value",
+      "dimensions": null,
+      "old_params_version": 10,
+      "new_params_version": 20,
+      "old_value": 0.1,
+      "new_value": 0.0,
+      "metric_name": "model_squad_realized_points",
+      "metric_before": 57.1,
+      "metric_after": 60.01,
+      "status": "confirmed",
+      "reviewed_by": "walk-forward arms 36780920751 vs 36793852189 (branch_walkforward.yml)",
+      "reviewed_at": "2026-10-01T05:00:00+00:00"
+    }
+  ]
+}
