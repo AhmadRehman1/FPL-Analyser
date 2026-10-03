@@ -495,7 +495,7 @@ def run(
         "SELECT DISTINCT fixture_match_id FROM ep_outputs WHERE model_version = ? ORDER BY fixture_match_id",
         [ep_model_version],
     ).fetchall()
-    teams_table = ep.reconcile_mod._season_root_table(con, target_season, "teams.csv")[1]
+    teams_table = None  # the season's teams.csv table, looked up once on the first fixture
 
     # (player_uid_a, player_uid_b) -> [first fixture_match_id, relationship, covariance summed over fixtures]
     covariances: dict[tuple[str, str], list] = {}
@@ -522,6 +522,8 @@ def run(
 
         # team_uid per player, for the fixture-block covariance structure
         team_of = {}
+        if teams_table is None:
+            teams_table = ep.reconcile_mod._season_root_table(con, target_season, "teams.csv")[1]
         for team_uid in (home_uid, away_uid):
             roster = con.execute(
                 """
