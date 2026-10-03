@@ -728,11 +728,12 @@ def _ep_version_row(con, recipe_recorded, **recipe):
 
 def test_recipe_of_reads_back_what_run_recorded(con):
     mv = _ep_version_row(con, True, set_piece_params_version=1, fixture_params_version=None,
-                         rate_shrinkage_params_version=8, assist_calibration_params_version=None)
+                         rate_shrinkage_params_version=8, assist_calibration_params_version=None,
+                         bps_calibration_params_version=3)
     assert ep.recipe_of(con, mv) == {
         "set_piece_params_version": 1, "fixture_params_version": None,
         "rate_shrinkage_params_version": 8, "assist_calibration_params_version": None,
-        "finishing_skill_params_version": None,
+        "finishing_skill_params_version": None, "bps_calibration_params_version": 3,
     }
 
 
