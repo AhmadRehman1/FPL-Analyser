@@ -15,6 +15,7 @@ version (nothing is activated):
     --chip-timing            season-horizon TC/BB timing gate
     --chip-wait              ... plus the "is a later week better" wait rule
     --transfer-threshold 1.0 accept the top transfer only above this net value
+    --multi-transfers        two-transfer moves, taking a hit when only one is free
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/run_season_sim_arm.py --label control --season 2025-2026
@@ -50,6 +51,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--chip-timing", action="store_true")
     parser.add_argument("--chip-wait", action="store_true", help="implies --chip-timing")
     parser.add_argument("--transfer-threshold", type=float, default=None)
+    parser.add_argument("--multi-transfers", action="store_true",
+                        help="multi_transfer_params v1: two-transfer moves and hits")
     return parser.parse_args(argv)
 
 
@@ -75,6 +78,8 @@ def arm_versions(con, args: argparse.Namespace) -> tuple[dict, dict]:
         versions["chip_wait_params_version"] = changed["chip_wait_params_version"] = 1
     if args.transfer_threshold is not None:
         versions["accept_transfer_if_net_value_above"] = changed["accept_transfer_if_net_value_above"] = args.transfer_threshold
+    if args.multi_transfers:
+        versions["multi_transfer_params_version"] = changed["multi_transfer_params_version"] = 1
     return versions, changed
 
 
@@ -95,7 +100,10 @@ def arm_payload(args: argparse.Namespace, changed: dict, versions: dict, result:
         "weekly_points": result["weekly_points"],
         "weekly_hits": result["weekly_hits"],
         "weekly_real_avg": result["weekly_real_avg"],
-        "n_transfers": sum(1 for a in actions if a.get("accepted_transfer_rank") is not None),
+        # a two-transfer move counts as two
+        "n_transfers": sum(
+            a.get("n_transfers", 1 if a.get("accepted_transfer_rank") is not None else 0) for a in actions
+        ),
         "chips_played": [(a["gameweek"], a["accepted_chip"]) for a in actions if a.get("accepted_chip")],
         "skipped_dgw_gameweeks": result["skipped_dgw_gameweeks"],
         "wall_seconds": round(wall_seconds, 1),

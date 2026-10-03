@@ -2413,3 +2413,69 @@ def test_apply_recommendation_accepting_a_chip_records_it_in_the_right_set(con):
 def test_best_value_per_gw_takes_the_best_player_each_week():
     horizon = {"a": {"per_gw": {3: 7.0, 4: 4.0}}, "b": {"per_gw": {3: 5.0, 4: 9.0}}, "bench": {"per_gw": {3: 20.0}}}
     assert tp._best_value_per_gw(horizon, {"a", "b"}) == {3: 7.0, 4: 9.0}
+
+
+# ============================================================
+# Two transfers in one gameweek (docs/reports/2026-10_open_issues.md, issue 0): the evolving
+# manager could only ever make one free transfer a week, so it never took a hit.
+# ============================================================
+
+def _seed_multi_transfer_plan_run(con, state_version, free_transfers, *, transfer_cost, price_out=11.0, price_in=12.5):
+    con.execute("UPDATE manager_state_versions SET free_transfers_available = ? WHERE state_version = ?",
+                [free_transfers, state_version])
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p_new1', 'New1', 'Midfielder'), "
+        "('p_new2', 'New2', 'Midfielder') ON CONFLICT DO NOTHING"
+    )
+    run_id = con.execute(
+        "INSERT INTO transfer_plan_runs (calibration_asof_date, target_season, target_gameweek, "
+        "input_state_version, horizon_params_version, transfer_cost_params_version, ep_model_versions, "
+        "uncertainty_model_versions) VALUES ('2026-08-17', '2026-2027', 2, ?, 1, 1, '{}', '{}') RETURNING run_id",
+        [state_version],
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO multi_transfer_recommendations (run_id, rank, players_out, players_in, combined_price_out, "
+        "combined_price_in, horizon_value_gain, transfer_cost, net_value) VALUES (?, 1, ?, ?, ?, ?, 9.0, ?, ?)",
+        [run_id, json.dumps(["p1", "p3"]), json.dumps(["p_new1", "p_new2"]), price_out, price_in,
+         transfer_cost, 9.0 - transfer_cost],
+    )
+    return run_id
+
+
+@pytest.mark.parametrize("free_transfers, transfer_cost, free_next_week", [
+    (1, 4.0, 1),   # one free + one hit: none left, plus next week's -> 1
+    (2, 0.0, 1),   # both free: none left, plus next week's -> 1
+    (3, 0.0, 2),   # two of three used -> 1 left, plus next week's -> 2
+])
+def test_apply_recommendation_multi_transfer_swaps_both_and_spends_free_transfers_first(
+    con, free_transfers, transfer_cost, free_next_week,
+):
+    so_run, _, _ = _seed_minimal_squad_optimizer_run(con)
+    state_version = tp.bootstrap_from_squad_optimizer_run(con, so_run)
+    con.execute("UPDATE manager_state_versions SET bank = 2.0 WHERE state_version = ?", [state_version])
+    run_id = _seed_multi_transfer_plan_run(con, state_version, free_transfers, transfer_cost=transfer_cost)
+
+    new_state = tp.apply_recommendation(con, run_id, accept_multi_transfer_rank=1)
+
+    assert {h["player_uid"] for h in tp._read_holdings(con, new_state)} == {"p2", "p_new1", "p_new2"}
+    fts, bank = con.execute(
+        "SELECT free_transfers_available, bank FROM manager_state_versions WHERE state_version = ?", [new_state]
+    ).fetchone()
+    assert fts == free_next_week
+    assert bank == pytest.approx(2.0 + 11.0 - 12.5)
+
+
+def test_apply_recommendation_rejects_a_single_and_a_multi_transfer_together(con):
+    so_run, _, _ = _seed_minimal_squad_optimizer_run(con)
+    state_version = tp.bootstrap_from_squad_optimizer_run(con, so_run)
+    run_id = _seed_multi_transfer_plan_run(con, state_version, 1, transfer_cost=4.0)
+    with pytest.raises(ValueError):
+        tp.apply_recommendation(con, run_id, accept_transfer_rank=1, accept_multi_transfer_rank=1)
+    with pytest.raises(ValueError):
+        tp.apply_recommendation(con, run_id, accept_chip="wildcard", accept_multi_transfer_rank=1)
+
+
+def test_multi_transfer_pool_limit_is_off_without_a_version(con):
+    tp.seed_v1_params(con)
+    assert tp.multi_transfer_pool_limit(con, None) is None
+    assert tp.multi_transfer_pool_limit(con, 1) == 20

@@ -170,3 +170,32 @@ def test_to_dict_is_json_shaped(league):
     }
     import json
     json.dumps(d)  # must be serialisable
+
+
+def test_forward_sim_with_multi_transfers_records_each_swap_and_its_hit(league, monkeypatch):
+    """Two-transfer moves are opt-in (multi_transfer_params_version); when a week makes one,
+    each swap is listed and the hit is on the row (docs/reports/2026-10_open_issues.md, issue 0)."""
+    con = league
+    from fpl_quant import backtest as bt
+
+    def _always_double(con_, plan_run_id, threshold, *, include_multi):
+        row = con_.execute(
+            "SELECT rank, net_value, transfer_cost FROM multi_transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1",
+            [plan_run_id],
+        ).fetchone()
+        return {"kind": "multi", "rank": row[0], "net_value": row[1], "transfer_cost": row[2]} if row else None
+
+    monkeypatch.setattr(bt, "_choose_transfer_move", _always_double)
+    result = fss.run_forward_season_sim(
+        con, entry_label="test", target_season="2025-2026",
+        start_gameweek=2, end_gameweek=3, bootstrap_squad=_bootstrap_squad(con),
+        active_versions={"multi_transfer_params_version": 1},
+        real_chips_used_set1=["wildcard", "free_hit", "bench_boost", "triple_captain"],  # transfers only
+    )
+    doubles = [r for r in result.rows if r.action == "transfer" and len(r.transfers) == 2]
+    assert doubles, "the walk made a two-transfer move"
+    for r in doubles:
+        assert r.hit_cost == 4.0  # one free transfer a week here, so the second costs a hit
+        assert len(set(r.carryforward_squad_uids)) == 15
+        assert {t["in_uid"] for t in r.transfers} <= set(r.carryforward_squad_uids)
+        assert r.to_dict()["hit_cost"] == 4.0

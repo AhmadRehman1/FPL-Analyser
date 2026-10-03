@@ -3953,3 +3953,54 @@ def test_season_real_benchmark_scores_net_points_on_gameweeks_with_a_real_averag
 def test_season_real_benchmark_without_a_real_average():
     out = bt.season_real_benchmark([60.0], [0.0], [None])
     assert out["n_gameweeks"] == 0 and out["beats_real_avg_per_gw"] is None
+
+
+# ============================================================
+# _choose_transfer_move -- two transfers in a week, and the hit that comes with them
+# (docs/reports/2026-10_open_issues.md, issue 0)
+# ============================================================
+
+def _add_multi_recommendation(con, run_id, net_value, transfer_cost):
+    con.execute(
+        "INSERT INTO multi_transfer_recommendations (run_id, rank, players_out, players_in, combined_price_out, "
+        "combined_price_in, horizon_value_gain, transfer_cost, net_value) "
+        "VALUES (?, 1, '[\"o1\", \"o2\"]', '[\"i1\", \"i2\"]', 10.0, 10.0, ?, ?, ?)",
+        [run_id, net_value + transfer_cost, transfer_cost, net_value],
+    )
+
+
+def test_choose_transfer_move_takes_the_double_only_when_it_beats_the_single_net_of_its_hit(con):
+    run_id = _seed_plan_run_with_recommendations(con, top_transfer_net_value=4.0)
+    _add_multi_recommendation(con, run_id, net_value=6.5, transfer_cost=4.0)   # gain 10.5 - 4 hit
+    move = bt._choose_transfer_move(con, run_id, 0.0, include_multi=True)
+    assert (move["kind"], move["rank"], move["transfer_cost"]) == ("multi", 1, 4.0)
+
+    run_id = _seed_plan_run_with_recommendations(con, top_transfer_net_value=4.0)
+    _add_multi_recommendation(con, run_id, net_value=3.5, transfer_cost=4.0)   # the second move isn't worth the -4
+    assert bt._choose_transfer_move(con, run_id, 0.0, include_multi=True)["kind"] == "single"
+
+
+def test_choose_transfer_move_ignores_doubles_unless_asked_and_respects_the_threshold(con):
+    run_id = _seed_plan_run_with_recommendations(con, top_transfer_net_value=4.0)
+    _add_multi_recommendation(con, run_id, net_value=9.0, transfer_cost=0.0)
+    assert bt._choose_transfer_move(con, run_id, 0.0, include_multi=False)["kind"] == "single"
+    assert bt._choose_transfer_move(con, run_id, 9.5, include_multi=True) is None
+
+
+def test_run_season_simulation_multi_transfers_are_opt_in_and_reach_the_planner(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen = []
+    real_run = bt.transfer_planner.run
+
+    def _spy(*args, **kwargs):
+        seen.append(kwargs.get("multi_transfer_pool_limit_per_position"))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(bt.transfer_planner, "run", _spy)
+    result = bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=4, n_antithetic_pairs=200,
+        multi_transfer_params_version=1, **_SEASON_SIM_VERSIONS,
+    )
+    assert seen == [20, 20]
+    assert all("n_transfers" in a and "hit_cost" in a for a in result["actions"])
+    assert result["weekly_hits"] == [0.0] + [a["hit_cost"] for a in result["actions"]]

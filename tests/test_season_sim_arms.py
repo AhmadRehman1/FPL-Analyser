@@ -79,3 +79,10 @@ def test_a_cut_off_chunk_counts_what_it_scored_and_is_flagged():
     text = agg.summarize(arms)
     assert "incomplete: GW2-2 stopped after 1" in text
     assert "+5.00" in text
+
+
+def test_multi_transfers_flag_switches_on_two_transfer_moves(con):
+    versions, changed = arm.arm_versions(con, arm._parse_args(["--label", "x", "--multi-transfers"]))
+    assert versions["multi_transfer_params_version"] == changed["multi_transfer_params_version"] == 1
+    control, _ = arm.arm_versions(con, arm._parse_args(["--label", "control"]))
+    assert control["multi_transfer_params_version"] is None

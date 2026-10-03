@@ -1368,6 +1368,40 @@ def _decide_gameweek_action(
     return None, None
 
 
+def _choose_transfer_move(
+    con: duckdb.DuckDBPyConnection, plan_run_id: int, accept_transfer_if_net_value_above: float,
+    *, include_multi: bool,
+) -> dict | None:
+    """The transfer move for a gameweek no chip is played in: the best single transfer, or --
+    include_multi -- the best two-transfer combination when it is worth more net of its hit.
+
+    Both net values are already after transfer costs (evaluate_transfers()/
+    evaluate_multi_transfers()), so taking the combination over the single means its second
+    transfer earns more than the -4 it costs when only one transfer is free; with two or more
+    free it costs nothing. A tie goes to the single (fewer transfers). The move is made only
+    when its net value clears accept_transfer_if_net_value_above, as before.
+
+    Returns {"kind": "single" | "multi", "rank", "net_value", "transfer_cost"} or None."""
+    moves = []
+    top = con.execute(
+        "SELECT rank, net_value, transfer_cost FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1",
+        [plan_run_id],
+    ).fetchone()
+    if top:
+        moves.append({"kind": "single", "rank": top[0], "net_value": top[1], "transfer_cost": float(top[2] or 0.0)})
+    if include_multi:
+        top_multi = con.execute(
+            "SELECT rank, net_value, transfer_cost FROM multi_transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1",
+            [plan_run_id],
+        ).fetchone()
+        if top_multi:
+            moves.append({"kind": "multi", "rank": top_multi[0], "net_value": top_multi[1], "transfer_cost": float(top_multi[2] or 0.0)})
+    if not moves:
+        return None
+    best = max(moves, key=lambda m: (m["net_value"], m["kind"] == "single"))
+    return best if best["net_value"] > accept_transfer_if_net_value_above else None
+
+
 def run_season_simulation(
     con: duckdb.DuckDBPyConnection,
     season: str,
@@ -1408,6 +1442,7 @@ def run_season_simulation(
     minutes_bounds_params_version: int | None = None,
     chip_wait_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
+    multi_transfer_params_version: int | None = None,
     on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -1500,12 +1535,20 @@ def run_season_simulation(
     squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call this walk makes
     (None keeps each one's old behavior). Callers pass active_recalibratable_versions()'s.
 
+    multi_transfer_params_version (opt-in, None keeps one transfer a week at most): the planner
+    also searches two-transfer combinations, and a week with no chip makes the best of them
+    instead of the best single transfer when it is worth more net of its hit (see
+    _choose_transfer_move()). That is the only way the manager can make two moves in a week or
+    take a hit at all: one transfer a week is always free, since a free transfer is granted
+    every week (docs/reports/2026-10_open_issues.md, issue 0).
+
     on_gameweek, if given, is called after every scored gameweek with the result so far (same
     shape as the return value), so a long run that is cut off still leaves what it scored."""
     if not has_fittable_history(con, season, start_gameweek):
         raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
     horizon_gameweeks = int(horizon_gameweeks)
+    multi_transfer_pool = transfer_planner.multi_transfer_pool_limit(con, multi_transfer_params_version)
 
     with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
         calibration_asof_date = deadline.date()
@@ -1563,6 +1606,8 @@ def run_season_simulation(
 
     for gw in range(start_gameweek, end_gameweek + 1):
         accept_chip = None
+        accept_multi_rank = None
+        n_transfers = 0
         free_hit_squad = None
         hit_cost = 0.0
 
@@ -1598,11 +1643,16 @@ def run_season_simulation(
                     bench_boost_timing_params_version=bench_boost_timing_params_version,
                     captain_risk_params_version=captain_risk_params_version,
                     rate_shrinkage_params_version=rate_shrinkage_params_version,
+                    multi_transfer_pool_limit_per_position=multi_transfer_pool,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
                     chip_wait_params_version=chip_wait_params_version,
                 )
+                if accept_chip is None and multi_transfer_pool is not None:
+                    move = _choose_transfer_move(con, plan_run_id, accept_transfer_if_net_value_above, include_multi=True)
+                    accept_transfer_rank = move["rank"] if move and move["kind"] == "single" else None
+                    accept_multi_rank = move["rank"] if move and move["kind"] == "multi" else None
 
                 if accept_chip == "free_hit":
                     free_hit_squad = transfer_planner.read_fresh_chip_squad(con, plan_run_id, "free_hit")
@@ -1619,11 +1669,21 @@ def run_season_simulation(
                         [plan_run_id, accept_transfer_rank],
                     ).fetchone()
                     hit_cost = float(cost_row[0] or 0.0) if cost_row else 0.0
+                    n_transfers = 1
+                elif accept_multi_rank is not None:
+                    multi_row = con.execute(
+                        "SELECT transfer_cost, players_out FROM multi_transfer_recommendations WHERE run_id = ? AND rank = ?",
+                        [plan_run_id, accept_multi_rank],
+                    ).fetchone()
+                    hit_cost = float(multi_row[0] or 0.0)
+                    n_transfers = len(json.loads(multi_row[1]))
                 state_version = transfer_planner.apply_recommendation(
                     con, plan_run_id, accept_transfer_rank=accept_transfer_rank, accept_chip=accept_chip,
+                    accept_multi_transfer_rank=accept_multi_rank,
                 )
             actions.append({
                 "gameweek": gw, "accepted_transfer_rank": accept_transfer_rank, "accepted_chip": accept_chip,
+                "accepted_multi_transfer_rank": accept_multi_rank, "n_transfers": n_transfers, "hit_cost": hit_cost,
                 "plan_run_id": plan_run_id,
             })
 

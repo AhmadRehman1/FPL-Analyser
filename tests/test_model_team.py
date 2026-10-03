@@ -364,3 +364,19 @@ def test_realize_does_not_freeze_a_partial_score_for_an_unfinished_gameweek(con,
 
     # locked: a later run does not touch it
     assert model_team.realize(con, tmp_path, finished_gameweeks={3}) == {"realized": 0}
+
+
+def test_build_summary_takes_hits_off_before_comparing_with_the_field(con, tmp_path):
+    """FPL's average is net of managers' hits, so a two-transfer week with a -4 counts net."""
+    xi = [f"player_s{i}" for i in range(11)]
+    _seed_players(con, xi + [f"player_bench{i}" for i in range(4)])
+    gw2 = _ledger_row(2, xi, "player_s0", realized=60.0, simulated=True, action="transfer")
+    gw2["hit_cost"] = 4.0
+    _write_state(tmp_path, [_ledger_row(1, xi, "player_s0", realized=50.0, simulated=True), gw2], gw=2)
+
+    summary = model_team.build_summary(con, tmp_path, {1: 50.0, 2: 50.0})
+    week2 = next(w for w in summary["weeks"] if w["gameweek"] == 2)
+    assert week2["realized_points"] == 60.0 and week2["hit_cost"] == 4.0
+    assert week2["delta_vs_field"] == 6.0
+    assert summary["total_realized_points"] == 106.0
+    assert summary["total_vs_field"] == 6.0

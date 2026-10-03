@@ -174,6 +174,10 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # per gameweek of distance, and a later week must beat now by half a point to hold.
     params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "decay_per_gameweek", value_numeric=0.85)
     params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "margin_points", value_numeric=0.5)
+    # Two transfers in one gameweek, paying a hit when only one is free
+    # (docs/reports/2026-10_open_issues.md, issue 0). The bound is evaluate_multi_transfers()'s
+    # own default: the top 20 incoming candidates per position by horizon EP.
+    params_mod.write_param(con, "multi_transfer_params", 1, "2026-10-03", "candidate_pool_limit_per_position", value_numeric=20)
     # Priority 4 -- price-change-timing: FPL's own price-change algorithm (how large a net-
     # transfer swing at a given ownership level actually triggers a real change) is not
     # public, and this project has not verified what scale transfers_in_event/
@@ -2007,8 +2011,20 @@ def _gameweek_lineup(
     return pick_lineup(squad_uids, positions, ep_by_uid, var_by_uid, captain_uid=tc_candidate)
 
 
+def multi_transfer_pool_limit(con: duckdb.DuckDBPyConnection, multi_transfer_params_version: int | None) -> int | None:
+    """run()'s multi_transfer_pool_limit_per_position for a multi_transfer_params version, or
+    None (the single-transfer-only behaviour) when no version is given."""
+    if multi_transfer_params_version is None:
+        return None
+    limit, _ = params_mod.resolve_param(
+        con, "multi_transfer_params", "candidate_pool_limit_per_position", multi_transfer_params_version,
+    )
+    return int(limit)
+
+
 def apply_recommendation(
     con: duckdb.DuckDBPyConnection, run_id: int, *, accept_transfer_rank: int | None = None, accept_chip: str | None = None,
+    accept_multi_transfer_rank: int | None = None,
 ) -> int:
     """Writes a new manager_state_versions row reflecting an accepted recommendation, with
     produced_by_run_id set at INSERT time (not an UPDATE to transfer_plan_runs afterward --
@@ -2028,8 +2044,18 @@ def apply_recommendation(
     see backtest.run_season_simulation() and read_fresh_chip_squad() above.) accept_chip
     and accept_transfer_rank are mutually exclusive when the chip is "wildcard": a real M5
     solve already replaces every holding, so layering a single-player transfer on top of it
-    isn't a coherent action, not a case to silently pick one of two winners for."""
-    if accept_chip == "wildcard" and accept_transfer_rank is not None:
+    isn't a coherent action, not a case to silently pick one of two winners for.
+
+    accept_multi_transfer_rank applies a row of multi_transfer_recommendations instead of a
+    single transfer: every player out sold, every player in bought, the bank moved by the
+    combined prices. Each transfer uses a free one while any are left; the rest were the hits
+    already charged in that row's transfer_cost. So two transfers on one free transfer leave
+    one free transfer for next week (0 left + the weekly 1), and on two leave one as well.
+    Before this the evolving manager could only ever make one free transfer a week
+    (docs/reports/2026-10_open_issues.md, issue 0)."""
+    if accept_transfer_rank is not None and accept_multi_transfer_rank is not None:
+        raise ValueError("accept one transfer move per call: a single transfer or a multi-transfer combination, not both")
+    if accept_chip == "wildcard" and (accept_transfer_rank is not None or accept_multi_transfer_rank is not None):
         raise ValueError("cannot accept both a transfer and Wildcard in the same call -- Wildcard already replaces the whole squad")
 
     run_row = con.execute(
@@ -2086,6 +2112,34 @@ def apply_recommendation(
         # a real bug: it made the planner progressively undercount how many free transfers
         # it had available, biasing it toward pricing genuinely-free transfers as -4 hits.
         new_free_transfers = min(5, max(0, free_transfers_available - (1 if transfer_cost == 0.0 else 0)) + 1)
+    elif accept_multi_transfer_rank is not None:
+        rec = con.execute(
+            "SELECT players_out, players_in, combined_price_out, combined_price_in FROM multi_transfer_recommendations "
+            "WHERE run_id = ? AND rank = ?",
+            [run_id, accept_multi_transfer_rank],
+        ).fetchone()
+        if not rec:
+            raise ValueError(f"no multi_transfer_recommendations row for run_id={run_id} rank={accept_multi_transfer_rank}")
+        players_out, players_in = json.loads(rec[0]), json.loads(rec[1])
+        missing = [uid for uid in players_out if uid not in holdings_by_uid]
+        if missing:
+            raise ValueError(f"multi-transfer rank {accept_multi_transfer_rank} sells players not held: {missing}")
+        positions = dict(con.execute(
+            f"SELECT player_uid, position FROM dim_player WHERE player_uid IN ({','.join('?' * (len(players_out) + len(players_in)))})",
+            [*players_out, *players_in],
+        ).fetchall())
+        # an incoming player takes the XI slot of an outgoing one in the same position (the
+        # gameweek's lineup is re-picked below whenever the plan has EP for it)
+        outgoing_xi_by_position: dict[str | None, list[bool]] = {}
+        for out_uid in sorted(players_out):
+            outgoing = holdings_by_uid.pop(out_uid)
+            outgoing_xi_by_position.setdefault(positions.get(out_uid), []).append(bool(outgoing["in_xi"]))
+        for in_uid in sorted(players_in):
+            slots = outgoing_xi_by_position.get(positions.get(in_uid)) or [False]
+            holdings_by_uid[in_uid] = {"player_uid": in_uid, "in_xi": slots.pop(0), "is_captain": False, "is_vice": False}
+        new_bank = new_bank + (rec[2] or 0.0) - (rec[3] or 0.0)
+        free_used = min(free_transfers_available, len(players_out))
+        new_free_transfers = min(5, free_transfers_available - free_used + 1)
     else:
         new_free_transfers = min(5, free_transfers_available + 1)  # banked, unused this gameweek
 

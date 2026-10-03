@@ -355,21 +355,25 @@ def build_summary(con: duckdb.DuckDBPyConnection, state_dir: Path | str, field_a
     n_final_scored = 0
     for r in ordered:
         rp = r.get("realized_points")
+        # Hits come off before comparing with the field: FPL's average is net of managers' hits.
+        hit = float(r.get("hit_cost") or 0.0)
+        net = None if rp is None else rp - hit
         fa = field_average_by_gw.get(r["gameweek"])
         final = _is_final(r, fa)
         provisional = rp is not None and not final
         if rp is not None and final:
             n_final_scored += 1
-            cum_model += rp
+            cum_model += net
             if fa is not None:
                 cum_field += fa
         weeks.append({
             "gameweek": r["gameweek"], "simulated": r.get("simulated", False),
             "action": r["action"], "action_detail": r.get("action_detail", ""),
             "projected_points": r["projected_points"], "realized_points": rp,
+            "hit_cost": hit,
             "provisional": provisional,
             "field_average": fa,
-            "delta_vs_field": None if (rp is None or fa is None) else round(rp - fa, 1),
+            "delta_vs_field": None if (rp is None or fa is None) else round(net - fa, 1),
             "cumulative_points": round(cum_model, 1) if (rp is not None and final) else None,
             "cumulative_vs_field": round(cum_model - cum_field, 1) if (rp is not None and final and cum_field) else None,
         })
