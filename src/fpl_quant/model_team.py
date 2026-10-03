@@ -356,7 +356,7 @@ def build_summary(con: duckdb.DuckDBPyConnection, state_dir: Path | str, field_a
         rp = r.get("realized_points")
         # Hits come off before comparing with the field: FPL's average is net of managers' hits.
         hit = float(r.get("hit_cost") or 0.0)
-        net = None if rp is None else rp - hit
+        net = (rp - hit) if rp is not None else 0.0
         fa = field_average_by_gw.get(r["gameweek"])
         final = _is_final(r, fa)
         provisional = rp is not None and not final

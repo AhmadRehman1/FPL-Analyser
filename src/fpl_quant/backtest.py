@@ -1479,7 +1479,8 @@ def _decide_gameweek_action(
         return season_rules.chip_available(season, chip, target_gameweek, chips_used_set1, chips_used_set2)
 
     def deadline(chip: str) -> int:
-        return season_rules.chip_window(season, chip, target_gameweek)[1]
+        window = season_rules.chip_window(season, chip, target_gameweek)
+        return window[1] if window else target_gameweek
 
     rows = con.execute(
         "SELECT chip_type, recommended, detail FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
@@ -1489,7 +1490,8 @@ def _decide_gameweek_action(
     for candidate in CHIP_PRIORITY:
         if candidate not in recommended or not available(candidate):
             continue
-        if option_value and candidate in OPTION_VALUE_CHIPS:
+        per_gw: dict
+        if option_value and chip_wait is not None and candidate in OPTION_VALUE_CHIPS:
             detail = recommended[candidate]
             if candidate == "free_hit":
                 per_gw = _free_hit_value_per_gw(detail)
@@ -1503,7 +1505,7 @@ def _decide_gameweek_action(
             return None, candidate
         if chip_wait is not None and candidate in CHIP_WAIT_FIELDS:
             detail = recommended[candidate]
-            per_gw: dict = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
+            per_gw = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
             last_gameweek = deadline(candidate)
             if _worth_waiting(per_gw, target_gameweek, last_gameweek, *chip_wait):
                 continue
