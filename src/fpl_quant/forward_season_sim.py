@@ -348,6 +348,10 @@ def run_forward_season_sim(
     horizon_gameweeks = int(params_mod.resolve_param(
         con, "planning_horizon_params", "horizon_gameweeks", versions["horizon_params_version"])[0])
     multi_transfer_pool = transfer_planner.multi_transfer_pool_limit(con, versions["multi_transfer_params_version"])
+    # wide enough for the chip-timing window's fixtures (transfer_planner.chip_timing_window_gameweeks())
+    schedule_gameweeks = max(horizon_gameweeks, transfer_planner.chip_timing_window_gameweeks(
+        con, versions["triple_captain_timing_params_version"], versions["bench_boost_timing_params_version"],
+    ))
 
     mode = (
         "hold_wildcard" if hold_wildcard
@@ -392,7 +396,7 @@ def run_forward_season_sim(
     rows: list[GameweekResult] = []
     wildcard_context: dict | None = None
     for gw in range(start_gameweek, end_gameweek + 1):
-        with bt.asof_scope(con, target_season, gw, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+        with bt.asof_scope(con, target_season, gw, schedule_horizon_gameweeks=schedule_gameweeks) as deadline:
             asof = deadline.date()
             ts_mv = team_strength.calibrate(con, asof, versions["xi_params_version"], versions["rho_params_version"],
                                             target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season))

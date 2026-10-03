@@ -174,6 +174,13 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # per gameweek of distance, and a later week must beat now by half a point to hold.
     params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "decay_per_gameweek", value_numeric=0.85)
     params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "margin_points", value_numeric=0.5)
+    # v2: the same discount and margin, plus every gameweek left in the half beyond the
+    # projected ones (backtest._option_value_says_wait()), for Free Hit as well. A chip played
+    # at the first week that beat the next few went in GW3-6 (docs/reports/2026-10_open_issues.md,
+    # issue 0b). Placeholders like v1's, not fitted.
+    params_mod.write_param(con, "chip_wait_params", 2, "2026-10-03", "decay_per_gameweek", value_numeric=0.85)
+    params_mod.write_param(con, "chip_wait_params", 2, "2026-10-03", "margin_points", value_numeric=0.5)
+    params_mod.write_param(con, "chip_wait_params", 2, "2026-10-03", "unseen_weeks", value_numeric=1)
     # Two transfers in one gameweek, paying a hit when only one is free
     # (docs/reports/2026-10_open_issues.md, issue 0). The bound is evaluate_multi_transfers()'s
     # own default: the top 20 incoming candidates per position by horizon EP.
@@ -1530,6 +1537,28 @@ ALL_CHIP_TYPES = frozenset({"wildcard", "free_hit", "triple_captain", "bench_boo
 GW19_DEADLINE_GAMEWEEK = 19
 
 
+def chip_timing_window_gameweeks(
+    con: duckdb.DuckDBPyConnection, triple_captain_timing_params_version: int | None,
+    bench_boost_timing_params_version: int | None,
+) -> int:
+    """How many gameweeks run()'s season-horizon chip-timing window projects: the wider of the
+    two chips' timing_window_gameweeks, 0 when neither is switched on.
+
+    A caller planning inside backtest.asof_scope() must make the fixture schedule visible that
+    far ahead (schedule_horizon_gameweeks): a gameweek with no visible fixtures is skipped by
+    compute_horizon_ep(), so with the planning horizon's 5-week schedule the 10-week window was
+    silently the same 5 weeks as the narrow check, and the --chip-timing arm played every chip
+    in the same week as control (docs/reports/2026-10_open_issues.md, issue 0b)."""
+    windows = []
+    if triple_captain_timing_params_version is not None:
+        w, _ = params_mod.resolve_param(con, "triple_captain_timing_params", "timing_window_gameweeks", triple_captain_timing_params_version)
+        windows.append(int(w))
+    if bench_boost_timing_params_version is not None:
+        w, _ = params_mod.resolve_param(con, "bench_boost_timing_params", "timing_window_gameweeks", bench_boost_timing_params_version)
+        windows.append(int(w))
+    return max(windows, default=0)
+
+
 def check_gw19_deadline(target_gameweek: int, chips_used_set1: list[str], warning_window: int = 3) -> dict:
     """Chip set 1 is forfeited entirely, not softly discounted, if unused by the GW19
     deadline -- modeled here as an explicit use-it-or-lose-it flag, not a preference that can
@@ -1703,14 +1732,9 @@ def run(
     # a caller passing both pays for one extra horizon computation, not two.
     season_horizon_ep_map, season_horizon_ep_versions = None, None
     if triple_captain_timing_params_version is not None or bench_boost_timing_params_version is not None:
-        window_candidates = []
-        if triple_captain_timing_params_version is not None:
-            w, _ = params_mod.resolve_param(con, "triple_captain_timing_params", "timing_window_gameweeks", triple_captain_timing_params_version)
-            window_candidates.append(int(w))
-        if bench_boost_timing_params_version is not None:
-            w, _ = params_mod.resolve_param(con, "bench_boost_timing_params", "timing_window_gameweeks", bench_boost_timing_params_version)
-            window_candidates.append(int(w))
-        timing_window_gameweeks = max(window_candidates)
+        timing_window_gameweeks = chip_timing_window_gameweeks(
+            con, triple_captain_timing_params_version, bench_boost_timing_params_version,
+        )
         if target_gameweek < GW19_DEADLINE_GAMEWEEK:
             timing_window_gameweeks = min(timing_window_gameweeks, GW19_DEADLINE_GAMEWEEK - target_gameweek)
         if timing_window_gameweeks > 0:

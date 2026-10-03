@@ -4004,3 +4004,78 @@ def test_run_season_simulation_multi_transfers_are_opt_in_and_reach_the_planner(
     assert seen == [20, 20]
     assert all("n_transfers" in a and "hit_cost" in a for a in result["actions"])
     assert result["weekly_hits"] == [0.0] + [a["hit_cost"] for a in result["actions"]]
+
+
+# ============================================================
+# Chips burned at the first chance (docs/reports/2026-10_open_issues.md, issue 0b)
+# ============================================================
+
+def test_option_value_holds_an_ordinary_week_early_and_plays_it_near_the_deadline():
+    # five projected weeks with a captain's usual fixture swing (sd ~1 point); GW3 is good, not special
+    week = {3: 7.5, 4: 5.5, 5: 6.0, 6: 8.5, 7: 7.0}
+    # GW3 of a half that runs to GW18: eleven unseen weeks still to come -> keep it
+    assert bt._option_value_says_wait(week, 3, 18, decay=0.85, margin=0.5)
+    # the v1 rule only sees the five projected weeks and plays GW3 (GW6's 8.5 is discounted)
+    assert not bt._worth_waiting(week, 3, 18, decay=0.85, margin=0.5)
+    # the same week two gameweeks before the deadline: play it
+    late = {16: 7.5, 17: 5.5, 18: 6.0}
+    assert not bt._option_value_says_wait(late, 16, 18, decay=0.85, margin=0.5)
+    # an exceptional week (a double gameweek) is played even early
+    assert not bt._option_value_says_wait({**week, 3: 13.0}, 3, 18, decay=0.85, margin=0.5)
+    # missing data never holds a chip
+    assert not bt._option_value_says_wait({4: 9.0}, 3, 18, decay=0.85, margin=0.5)
+
+
+def test_continuation_value_without_unseen_weeks_is_the_discounted_best_later_week():
+    per_gw = {3: 6.0, 4: 12.0, 5: 6.0}
+    mean = 8.0
+    assert bt._continuation_value(per_gw, 3, 5, decay=0.85) == pytest.approx(mean + (12.0 - mean) * 0.85)
+
+
+def test_free_hit_value_per_gw_is_this_weeks_gain_against_the_current_xi_each_week():
+    detail = {"gain": 6.0, "current_xi_value_per_gw": {"3": 50.0, "4": 44.0, "5": 52.0}}
+    assert bt._free_hit_value_per_gw(detail) == {3: 6.0, 4: 12.0, 5: 4.0}
+
+
+def test_decide_gameweek_action_option_value_holds_early_and_reserves_a_week_per_waiting_chip(con):
+    from fpl_quant import transfer_planner as tp
+
+    tp.seed_v1_params(con)
+    ordinary = {"3": 7.5, "4": 5.5, "5": 6.0, "6": 8.5, "7": 7.0}
+    detail = {"triple_captain": {"best_captain_value_per_gw": ordinary}}
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("triple_captain",), target_gameweek=3, detail_by_chip=detail)
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=2,
+    )
+    assert chip is None  # an ordinary week with fifteen to go: held
+
+    # GW16 with Free Hit and Bench Boost also unused: Triple Captain must go by GW18 - 2 = GW16
+    late = {"16": 7.0, "17": 9.0, "18": 9.0}
+    detail = {"triple_captain": {"best_captain_value_per_gw": late}}
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("triple_captain",), target_gameweek=16, detail_by_chip=detail)
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, set(), set(), target_gameweek=16, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=2,
+    )
+    assert chip == "triple_captain"
+    # with the other two already spent it can wait for GW17's better week
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, {"free_hit", "bench_boost"}, set(), target_gameweek=16, accept_transfer_if_net_value_above=0.0,
+        chip_wait_params_version=2,
+    )
+    assert chip is None
+
+
+def test_season_simulation_shows_the_chip_timing_window_its_fixtures(con):
+    """The 10-week timing window used to see only the planning horizon's 5 weeks of fixtures,
+    so the --chip-timing arm played every chip in the same week as control."""
+    _seed_season_simulation_league(con, n_gameweeks=12)
+    result = bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200,
+        bench_boost_timing_params_version=1, triple_captain_timing_params_version=1, **_SEASON_SIM_VERSIONS,
+    )
+    plan_run_id = result["actions"][0]["plan_run_id"]
+    detail = json.loads(con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'bench_boost'", [plan_run_id],
+    ).fetchone()[0])
+    assert sorted(int(gw) for gw in detail["season_all_gameweeks"]) == list(range(3, 13))
+    assert sorted(int(gw) for gw in detail["all_gameweeks"]) == list(range(3, 8))

@@ -20,6 +20,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
+from statistics import NormalDist, pstdev
 
 import duckdb
 import numpy as np
@@ -1251,6 +1252,9 @@ CHIP_WAIT_FIELDS = {
     "bench_boost": ("season_all_gameweeks", "all_gameweeks"),
 }
 LAST_GAMEWEEK = 38
+# The chips chip_wait_params v2 (_option_value_says_wait()) times; Free Hit's per-week value is
+# derived from its own evaluation (_free_hit_value_per_gw()).
+OPTION_VALUE_CHIPS = ("free_hit", "bench_boost", "triple_captain")
 
 
 def _worth_waiting(per_gw: dict, target_gameweek: int, last_gameweek: int, decay: float, margin: float) -> bool:
@@ -1268,6 +1272,64 @@ def _worth_waiting(per_gw: dict, target_gameweek: int, last_gameweek: int, decay
     mean = sum(per_gw.values()) / len(per_gw)
     best_later = max(mean + (v - mean) * decay ** (gw - target_gameweek) for gw, v in later.items())
     return best_later > per_gw[target_gameweek] + margin
+
+
+def _expected_max_with_normal(mean: float, sd: float, floor: float) -> float:
+    """E[max(X, floor)] for X ~ Normal(mean, sd)."""
+    if sd <= 0:
+        return max(mean, floor)
+    alpha = (mean - floor) / sd
+    unit = NormalDist()
+    return floor + (mean - floor) * unit.cdf(alpha) + sd * unit.pdf(alpha)
+
+
+def _continuation_value(per_gw: dict, target_gameweek: int, last_gameweek: int, decay: float) -> float:
+    """What keeping a chip past target_gameweek is worth: the value of playing it in the best
+    later week, by backward induction from the last gameweek it can be played in.
+
+    A projected later week counts at mean + (value - mean) * decay**distance, the same discount
+    _worth_waiting() applies. A week past the projections is not known yet: its value is a draw
+    from a normal with the projected weeks' mean and spread, and the chip is played there only
+    when the draw beats waiting further (E[max(X, c)]). A chip unused after last_gameweek is
+    lost, worth 0. per_gw must hold target_gameweek."""
+    values = list(per_gw.values())
+    mean = sum(values) / len(values)
+    sd = pstdev(values) if len(values) > 1 else 0.0
+    last_projected = max(per_gw)
+    value_after = 0.0
+    for gw in range(last_gameweek, target_gameweek, -1):
+        if gw in per_gw:
+            value_after = max(mean + (per_gw[gw] - mean) * decay ** (gw - target_gameweek), value_after)
+        elif gw > last_projected:
+            value_after = _expected_max_with_normal(mean, sd, value_after)
+        # a gameweek inside the projections with no value (a blank for this chip) adds nothing
+    return value_after
+
+
+def _option_value_says_wait(per_gw: dict, target_gameweek: int, last_gameweek: int, decay: float, margin: float) -> bool:
+    """chip_wait_params v2: hold a chip when keeping it is worth more than playing it now by
+    more than margin -- counting every gameweek left before its deadline, not only the ones
+    projected. The v1 rule (_worth_waiting()) compares against the projected weeks alone, so
+    like the visible-horizon check it fired at the first week that beat the next few, which
+    comes early in a half with 15 weeks still to go: control played Bench Boost, Free Hit and
+    Triple Captain in GW3-6 and again in GW20-22 (docs/reports/2026-10_open_issues.md, issue
+    0b). Missing data never holds a chip."""
+    per_gw = {int(k): v for k, v in (per_gw or {}).items() if int(k) <= last_gameweek}
+    if target_gameweek not in per_gw or last_gameweek <= target_gameweek:
+        return False
+    return _continuation_value(per_gw, target_gameweek, last_gameweek, decay) > per_gw[target_gameweek] + margin
+
+
+def _free_hit_value_per_gw(detail: dict) -> dict:
+    """Free Hit's value by gameweek, from what evaluate_free_hit() computes: its gain this week,
+    and for a later week the same fresh XI against the current XI as projected then (a weaker
+    current XI that week is a better Free Hit week)."""
+    current = {int(k): v for k, v in (detail.get("current_xi_value_per_gw") or {}).items()}
+    gain = detail.get("gain")
+    if not current or gain is None:
+        return {}
+    now = min(current)
+    return {gw: gain + current[now] - value for gw, value in current.items()}
 
 
 def _is_best_gameweek_in_visible_horizon(per_gw: dict, target_gameweek: int, prefer: str) -> bool:
@@ -1323,23 +1385,46 @@ def _decide_gameweek_action(
 
     chip_wait_params_version (opt-in, None keeps all of the above): Triple Captain and Bench
     Boost use _worth_waiting() instead, in both chip sets -- judged on the best captain the XI
-    offers each week, not just this week's candidate, with far-off weeks discounted."""
+    offers each week, not just this week's candidate, with far-off weeks discounted.
+
+    A version carrying `unseen_weeks` (v2) uses _option_value_says_wait() for Triple Captain,
+    Bench Boost and Free Hit instead: every gameweek left in the half counts, not only the
+    projected ones. Each chip still waiting must be played by the half's last gameweek minus
+    one week per other chip still waiting, so they don't all reach the deadline together with
+    one chip a week to play them in."""
     chip_wait = None
+    option_value = False
     if chip_wait_params_version is not None:
         chip_wait = (
             params_mod.resolve_param(con, "chip_wait_params", "decay_per_gameweek", chip_wait_params_version)[0],
             params_mod.resolve_param(con, "chip_wait_params", "margin_points", chip_wait_params_version)[0],
         )
+        try:
+            option_value = bool(params_mod.resolve_param(con, "chip_wait_params", "unseen_weeks", chip_wait_params_version)[0])
+        except params_mod.ParamNotFoundError:
+            option_value = False
     is_set1 = target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK
     used_this_set = chips_used_set1 if is_set1 else chips_used_set2
     rows = con.execute(
         "SELECT chip_type, recommended, detail FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
     ).fetchall()
     recommended = {chip_type: json.loads(detail or "{}") for chip_type, is_rec, detail in rows if is_rec}
+    set_last_gameweek = transfer_planner.GW19_DEADLINE_GAMEWEEK - 1 if is_set1 else LAST_GAMEWEEK
+    waiting_chips = [c for c in OPTION_VALUE_CHIPS if c not in used_this_set]
 
     for candidate in CHIP_PRIORITY:
         if candidate not in recommended or candidate in used_this_set:
             continue
+        if option_value and candidate in OPTION_VALUE_CHIPS:
+            detail = recommended[candidate]
+            if candidate == "free_hit":
+                per_gw = _free_hit_value_per_gw(detail)
+            else:
+                per_gw = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
+            last_gameweek = set_last_gameweek - (len(waiting_chips) - 1)
+            if _option_value_says_wait(per_gw, target_gameweek, last_gameweek, *chip_wait):
+                continue
+            return None, candidate
         if chip_wait is not None and candidate in CHIP_WAIT_FIELDS:
             detail = recommended[candidate]
             per_gw: dict = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
@@ -1549,6 +1634,12 @@ def run_season_simulation(
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
     horizon_gameweeks = int(horizon_gameweeks)
     multi_transfer_pool = transfer_planner.multi_transfer_pool_limit(con, multi_transfer_params_version)
+    # The planner's chip-timing window must be able to see its fixtures (see
+    # transfer_planner.chip_timing_window_gameweeks()): the whole season's schedule is published
+    # before it starts, so showing it further ahead than the planning horizon leaks no result.
+    schedule_gameweeks = max(horizon_gameweeks, transfer_planner.chip_timing_window_gameweeks(
+        con, triple_captain_timing_params_version, bench_boost_timing_params_version,
+    ))
 
     with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
         calibration_asof_date = deadline.date()
@@ -1620,7 +1711,7 @@ def run_season_simulation(
             chips_used_set1 = set(json.loads(chips_used_set1_json))
             chips_used_set2 = set(json.loads(chips_used_set2_json))
 
-            with asof_scope(con, season, gw, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+            with asof_scope(con, season, gw, schedule_horizon_gameweeks=schedule_gameweeks) as deadline:
                 calibration_asof_date = deadline.date()
                 ts_mv = team_strength.calibrate(
                     con, calibration_asof_date, xi_params_version, rho_params_version,
