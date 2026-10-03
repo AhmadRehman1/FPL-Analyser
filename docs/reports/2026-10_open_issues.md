@@ -140,3 +140,30 @@ _From the runs dispatched after #227/#228 merged._
 - **Transfer threshold:** raising it from 0 to 0.5 or 2.0 costs about 2.6 points per gameweek, and the two arms barely differ from each other (issue 0).
 - **Chip-wait arm:** its chunks were still running when this was written. Results will be in the run's `season-sim-summary` artifact.
 
+
+## Status (2026-10-03)
+
+| # | status | what changed / what's left |
+|---|---|---|
+| 0 | built, opt-in | `multi_transfer_params` v1: a week with no chip makes the best two-transfer combination instead of the best single when it's worth more net of its hit. `apply_recommendation()` applies combinations and spends free transfers first. Season-sim arm: `--multi-transfers`. The live model team is unchanged until an arm justifies it. |
+| 0b | diagnosed, fixed, opt-in rule | The magnitude floors never bind (TC 0.1 vs ~6, BB 0.5 vs ~8, FH 1.5). The `--chip-timing` arm could not differ from control: the simulations showed only the planning horizon's 5 weeks of fixtures, so the 10-week window was the 5-week one (fixed). The gate plays at the first local maximum of a sliding window, and set 2 has none. `chip_wait_params` v2 (`--chip-option-value`) holds a chip unless it beats the value of every week left in the half (backward induction, unseen weeks as draws from the projected ones), for FH too. |
+| 1 | fixed | `season_rules.py`: one table of DefCon, chip allowances and BPS weights by season, read by every scorer and planner. 2024-25 gets one FH/BB/TC for the season and two Wildcards. GW19 is the first half's last week (it was treated as a second-half week). BPS: +1 per 2 CBI until 2025-26 (per 3 since), keeper saves 2 BPS in 2024-25. Not modelled: 2024-25's Assistant Manager chip, 2025-26's relaxed assist definition. |
+| 2 | fixed | DuckDB pinned to one thread (multi-threaded DISTINCT/GROUP BY order and float sums changed every run), ordered query inputs, Monte Carlo seeded on what it simulates instead of DB sequence ids, tie-breaks by player_uid. The synthetic season simulation now repeats bit for bit across processes and DB histories. |
+| 3 | fixed | One memo per asof view shared across the horizon's EP/uncertainty/MC runs, `resolve_param()` cache, one claims query per run, the timing window reuses the horizon. Synthetic 4-GW season sim 28.4s -> 10.6s; the test suite 12m47s -> ~6m. Not yet timed on the real DB. |
+| 4 | **needs your call** | The open question stands. Note 2024-25 has no earlier season in the DB, so "own previous-season minutes" can only help 2025-26 on. The price-prior arm can now be re-dispatched (faster, and `--max-minutes` keeps its summary). |
+| 5 | diagnostic | `scripts/diagnose_finishing_ratios.py` prints clamp counts and ratio quantiles per window; needs a run on the ingested DB. |
+| 6 | two opt-in arms | `--bps-calibration-k 450` adds each player's BPS the estimate misses (real season BPS minus the estimate's own terms on his matches, per 90, shrunk to his position). `--bps-tau 7` sharpens the Plackett-Luce bonus split (live 10). |
+| 7 | follows 5 and 6 | Also: Monte Carlo and uncertainty added ball recoveries to a defender's DefCon (the EP engine doesn't), inflating defenders' simulated points, which Triple Captain picks from. Fixed. |
+| 8 | **needs data** | Not changed. Per `reconcile.suspect_transfer_player_seasons()`, the provider rewrites the later per-gameweek snapshots and the match attribution too, so only the GW1/GW2 snapshots can be trusted; a repair would have to infer each match's club from appearances, which needs the real files to check. |
+| 9 | partly addressed | Walk-forward: `--max-minutes` (branch_walkforward.yml passes 300), `--resume RUN_ID`, `--seasons 2025-2026`, and a `progress` block in the summary. mypy stays at its 75-error baseline. |
+
+**Baselines move.** Re-run control before comparing any arm: outputs are now deterministic but not
+bit-identical to earlier runs (summation order, Monte Carlo seeds), Monte Carlo no longer inflates
+defenders, 2024-25 and 2025-26 use their own BPS weights, 2024-25 plays fewer chips, and GW19 is a
+set-1 week (season-sim chunks default to GW2-19 and GW20-38).
+
+**Runs to dispatch:**
+- Walk-forward control (both seasons), then `--bps-calibration-k 450`, `--bps-tau 7`, and
+  `--minutes-price-prior 50` again.
+- Season-sim control (2025-26), then `--multi-transfers`, `--chip-option-value`, and both together.
+- `scripts/diagnose_finishing_ratios.py` against the ingested DB.
