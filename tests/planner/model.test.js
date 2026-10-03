@@ -138,21 +138,30 @@ test("canAssignChip blocks a chip already used in the same half-season", () => {
 test("canAssignChip allows the same chip type once in each half-season", () => {
   const { baseSquad } = twoPlayerFixture();
   let draft = Model.createDraft({ baseGameweek: 3, baseSquad, baseBank: 0, baseFreeTransfers: 1 });
-  draft = Model.setChip(draft, 3, "wildcard"); // set 1 (before GW19)
-  const checkSet2 = Model.canAssignChip(draft, 25, "wildcard"); // set 2 (after GW19)
+  draft = Model.setChip(draft, 3, "wildcard"); // set 1 (GW1-19)
+  const checkSet2 = Model.canAssignChip(draft, 25, "wildcard"); // set 2 (GW20-38)
   assert.equal(checkSet2.allowed, true);
 });
 
-test("GW19 itself already belongs to chip set 2, independent of set-1 usage", () => {
+test("GW19 is chip set 1's last week and GW20 the first of set 2", () => {
+  const { baseSquad, playersById } = twoPlayerFixture();
+  let draft = Model.createDraft({ baseGameweek: 1, baseSquad, baseBank: 0, baseFreeTransfers: 1 });
+  assert.equal(Model.chipSetFor(19), "set1");
+  assert.equal(Model.chipSetFor(20), "set2");
+  // A chip played in GW19 is activated before the GW19 deadline, so it spends set 1's copy...
+  draft = Model.setChip(draft, 19, "triple_captain");
+  assert.deepEqual(Model.computeStateAtGameweek(draft, 19, playersById).chipsUsedSet1, ["triple_captain"]);
+  // ...and GW20 draws from the fresh set-2 allocation.
+  assert.equal(Model.canAssignChip(draft, 20, "triple_captain").allowed, true);
+});
+
+test("an unused set-1 chip is forfeited, not blocked: GW20 draws from set 2", () => {
   const { baseSquad } = twoPlayerFixture();
   const draft = Model.createDraft({ baseGameweek: 1, baseSquad, baseBank: 0, baseFreeTransfers: 1 });
   // triple_captain was never used in set 1 -- it's simply forfeited (see checkGw19Deadline),
-  // not "still available but blocked." Assigning it at GW19 draws from the fresh set-2
+  // not "still available but blocked." Assigning it at GW20 draws from the fresh set-2
   // allocation and must be allowed.
-  const check = Model.canAssignChip(draft, 19, "triple_captain");
-  assert.equal(check.allowed, true);
-  assert.equal(Model.chipSetFor(19), "set2");
-  assert.equal(Model.chipSetFor(18), "set1");
+  assert.equal(Model.canAssignChip(draft, 20, "triple_captain").allowed, true);
 });
 
 test("setChip throws when assigning an already-used chip (fail fast, don't silently no-op)", () => {
@@ -162,20 +171,24 @@ test("setChip throws when assigning an already-used chip (fail fast, don't silen
   assert.throws(() => Model.setChip(draft, 12, "free_hit"));
 });
 
-test("checkGw19Deadline flags urgency inside the warning window and forfeiture at GW19", () => {
-  const notUrgentYet = Model.checkGw19Deadline(10, []);
+test("checkGw19Deadline flags urgency up to GW19 itself and forfeiture from GW20", () => {
+  const notUrgentYet = Model.checkGw19Deadline(16, []);
   assert.equal(notUrgentYet.urgent, false);
   assert.equal(notUrgentYet.forfeitedNow, false);
 
-  const urgent = Model.checkGw19Deadline(17, ["wildcard"]); // 2 gameweeks left, 3 chips unused
+  const urgent = Model.checkGw19Deadline(17, ["wildcard"]); // GW17-19 left, 3 chips unused
   assert.equal(urgent.urgent, true);
   assert.equal(urgent.unusedSet1Chips.length, 3);
 
-  const forfeited = Model.checkGw19Deadline(19, []);
+  const lastChance = Model.checkGw19Deadline(19, []); // GW19 is still set 1's week
+  assert.equal(lastChance.urgent, true);
+  assert.equal(lastChance.forfeitedNow, false);
+
+  const forfeited = Model.checkGw19Deadline(20, []);
   assert.equal(forfeited.forfeitedNow, true);
   assert.equal(forfeited.urgent, false); // never both at once (real bug this mirrors the fix for)
 
-  const allUsed = Model.checkGw19Deadline(19, Model.ALL_CHIP_TYPES);
+  const allUsed = Model.checkGw19Deadline(20, Model.ALL_CHIP_TYPES);
   assert.equal(allUsed.forfeitedNow, false);
 });
 

@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 import duckdb
 
 from . import backtest as bt
-from . import expected_points, minutes_model, params as params_mod, team_strength, transfer_planner, uncertainty
+from . import expected_points, minutes_model, params as params_mod, season_rules, team_strength, transfer_planner, uncertainty
 
 # 80% projected band: +-1.2816 sigma. A disclosed normal approximation on the XI's summed
 # var_total -- not a full Monte Carlo (which every gameweek of every sweep arm would make this
@@ -107,6 +107,9 @@ class GameweekResult:
     # has been played+ingested. None for a future gameweek -- projected_points still carries the
     # forward estimate either way.
     realized_points: float | None = None
+    # Points the gameweek's transfers cost in hits (4 per transfer beyond the free ones). FPL's
+    # field average is net of hits, so a caller comparing against it deducts this.
+    hit_cost: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -138,6 +141,7 @@ class GameweekResult:
             "carryforward_vice_captain_uid": self.carryforward_vice_captain_uid,
             "transfers": self.transfers,
             "bench_order": self.bench_order,
+            "hit_cost": self.hit_cost,
         }
 
 
@@ -186,6 +190,9 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         "rate_shrinkage_params_version": active.get("rate_shrinkage_params_version"),
         # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
         "chip_wait_params_version": active.get("chip_wait_params_version"),
+        # Opt-in two-transfer moves and hits (docs/reports/2026-10_open_issues.md, issue 0);
+        # None (one transfer a week) until a season-sim arm justifies it.
+        "multi_transfer_params_version": active.get("multi_transfer_params_version"),
     }
 
 
@@ -340,6 +347,11 @@ def run_forward_season_sim(
     versions = _resolve_versions(con, active_versions)
     horizon_gameweeks = int(params_mod.resolve_param(
         con, "planning_horizon_params", "horizon_gameweeks", versions["horizon_params_version"])[0])
+    multi_transfer_pool = transfer_planner.multi_transfer_pool_limit(con, versions["multi_transfer_params_version"])
+    # wide enough for the chip-timing window's fixtures (transfer_planner.chip_timing_window_gameweeks())
+    schedule_gameweeks = max(horizon_gameweeks, transfer_planner.chip_timing_window_gameweeks(
+        con, versions["triple_captain_timing_params_version"], versions["bench_boost_timing_params_version"],
+    ))
 
     mode = (
         "hold_wildcard" if hold_wildcard
@@ -384,7 +396,7 @@ def run_forward_season_sim(
     rows: list[GameweekResult] = []
     wildcard_context: dict | None = None
     for gw in range(start_gameweek, end_gameweek + 1):
-        with bt.asof_scope(con, target_season, gw, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+        with bt.asof_scope(con, target_season, gw, schedule_horizon_gameweeks=schedule_gameweeks) as deadline:
             asof = deadline.date()
             ts_mv = team_strength.calibrate(con, asof, versions["xi_params_version"], versions["rho_params_version"],
                                             target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season))
@@ -405,6 +417,7 @@ def run_forward_season_sim(
                 bench_boost_timing_params_version=versions["bench_boost_timing_params_version"],
                 captain_risk_params_version=versions["captain_risk_params_version"],
                 rate_shrinkage_params_version=versions["rate_shrinkage_params_version"],
+                multi_transfer_pool_limit_per_position=multi_transfer_pool,
             )
 
             state_row = con.execute(
@@ -426,10 +439,11 @@ def run_forward_season_sim(
             fh_threshold = fh.get("threshold")
 
             # ---- decide the action ----
-            forced_wildcard = force_wildcard_at == gw and "wildcard" not in (chips_set1 | chips_set2)
-            forced_free_hit = force_free_hit_at == gw and "free_hit" not in (chips_set1 | chips_set2)
+            forced_wildcard = force_wildcard_at == gw and season_rules.chip_available(target_season, "wildcard", gw, chips_set1, chips_set2)
+            forced_free_hit = force_free_hit_at == gw and season_rules.chip_available(target_season, "free_hit", gw, chips_set1, chips_set2)
             accept_rank: int | None
             accept_chip: str | None
+            accept_multi_rank: int | None = None
             if forced_wildcard:
                 accept_rank, accept_chip = None, "wildcard"
             elif forced_free_hit:
@@ -442,6 +456,10 @@ def run_forward_season_sim(
                 if hold_wildcard and accept_chip == "wildcard":
                     accept_chip = None
                     accept_rank = _best_transfer_rank_if_positive(con, plan_run_id)
+                if accept_chip is None and multi_transfer_pool is not None:
+                    move = bt._choose_transfer_move(con, plan_run_id, 0.0, include_multi=True)
+                    accept_rank = move["rank"] if move and move["kind"] == "single" else None
+                    accept_multi_rank = move["rank"] if move and move["kind"] == "multi" else None
 
             free_hit_squad = None
             if accept_chip == "free_hit":
@@ -453,6 +471,7 @@ def run_forward_season_sim(
 
             state_version = transfer_planner.apply_recommendation(
                 con, plan_run_id, accept_transfer_rank=accept_rank, accept_chip=accept_chip,
+                accept_multi_transfer_rank=accept_multi_rank,
             )
 
             if accept_chip == "wildcard" and wildcard_context is None:
@@ -469,13 +488,10 @@ def run_forward_season_sim(
                 }
 
             # ---- score this gameweek on projected EP ----
-            horizon_versions = transfer_planner.compute_horizon_ep(
-                con, asof, target_season, gw, ts_mv, mm_mv, 1,
-                versions["scoring_params_version"], versions["bps_params_version"], versions["tau_params_version"],
-                versions["rho_residual_params_version"], versions["corr_params_version"],
-                rate_shrinkage_params_version=versions["rate_shrinkage_params_version"],
-            )
-            ep_mv_gw, un_mv_gw = horizon_versions.get(gw, (None, None))
+            # The plan run just projected this gameweek from the same asof, models and params;
+            # re-running ep.run()/uncertainty.run() for it gave the same numbers at the cost of
+            # one more projection per gameweek.
+            ep_mv_gw, un_mv_gw = transfer_planner.plan_gameweek_versions(con, plan_run_id, gw) or (None, None)
             holdings = transfer_planner._read_holdings(con, state_version)
             if accept_chip == "free_hit" and free_hit_squad is not None:
                 xi = frozenset(h["player_uid"] for h in free_hit_squad if h["in_xi"])
@@ -518,9 +534,10 @@ def run_forward_season_sim(
                     squad_uids=scored_squad_uids, bench_order=bench_order,
                 )
 
-        action = accept_chip or ("transfer" if accept_rank is not None else "hold")
+        action = accept_chip or ("transfer" if accept_rank is not None or accept_multi_rank is not None else "hold")
         detail = ""
         transfers: list[dict] = []
+        hit_cost = 0.0
         if accept_chip == "wildcard":
             detail = "forced" if forced_wildcard else "model chose wildcard"
         elif accept_chip == "free_hit":
@@ -537,6 +554,24 @@ def run_forward_season_sim(
             if tr:
                 detail = f"{tr[0]} -> {tr[1]} (net {tr[2]:+.2f})"
                 transfers = [{"out_uid": tr[0], "in_uid": tr[1], "net": round(float(tr[2]), 2)}]
+        elif accept_multi_rank is not None:
+            mr = con.execute(
+                "SELECT players_out, players_in, net_value, transfer_cost FROM multi_transfer_recommendations "
+                "WHERE run_id = ? AND rank = ?",
+                [plan_run_id, accept_multi_rank],
+            ).fetchone()
+            if mr:
+                outs, ins = json.loads(mr[0]), json.loads(mr[1])
+                hit_cost = float(mr[3] or 0.0)
+                # the combination is valued as a whole: its net goes on the first swap's row
+                transfers = [
+                    {"out_uid": o, "in_uid": i, "net": round(float(mr[2]), 2) if k == 0 else None}
+                    for k, (o, i) in enumerate(zip(outs, ins))
+                ]
+                detail = (
+                    " + ".join(f"{o} -> {i}" for o, i in zip(outs, ins))
+                    + f" (net {mr[2]:+.2f}" + (f", hit -{hit_cost:.0f})" if hit_cost else ")")
+                )
 
         # `holdings` is the real persisted post-decision squad (state_version after
         # apply_recommendation) -- the squad that carries forward. On a Free Hit week it is the
@@ -560,6 +595,7 @@ def run_forward_season_sim(
             carryforward_vice_captain_uid=next((h["player_uid"] for h in holdings if h["is_vice"]), None),
             transfers=transfers,
             bench_order=bench_order,
+            hit_cost=hit_cost,
         ))
 
     total = sum(r.projected_points for r in rows)

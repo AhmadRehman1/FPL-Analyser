@@ -22,10 +22,10 @@ on:
       chunks:
         description: >-
           Comma-separated gameweek ranges, each its own job from a fresh squad (a whole season is
-          longer than one job may run). The default splits at the chip sets (set 1 is GW2-18,
-          set 2 is GW19-38), so every chunk gets exactly its own half's chips.
+          longer than one job may run). The default splits at the chip sets (set 1 is GW2-19,
+          set 2 is GW20-38), so every chunk gets exactly its own half's chips.
         required: false
-        default: "2-18,19-38"
+        default: "2-19,20-38"
         type: string
 
 permissions:
@@ -87,7 +87,7 @@ jobs:
           import json, os, re
           seasons = [s.strip() for s in (os.environ["SEASONS"] or "2025-2026").split(",") if s.strip()]
           chunks = []
-          for c in (os.environ["CHUNKS"] or "2-18,19-38").split(","):
+          for c in (os.environ["CHUNKS"] or "2-19,20-38").split(","):
               start, _, end = c.strip().partition("-")
               chunks.append((int(start), int(end or start)))
           arms = []

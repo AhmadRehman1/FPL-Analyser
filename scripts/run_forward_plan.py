@@ -44,7 +44,7 @@ _CHIP_NAME_MAP = {"wildcard": "wildcard", "bboost": "bench_boost", "3xc": "tripl
 
 
 def _real_chip_state(entry_id: int) -> tuple[list[str], list[str]]:
-    """The chips this entry has actually spent, split set-1 (before GW19) / set-2, normalised
+    """The chips this entry has actually spent, split set-1 (GW1-19) / set-2 (GW20+), normalised
     to this project's vocabulary. Mirrors run_chip_timing_arm.real_chip_state."""
     history = ax.fetch_entry_history(entry_id)
     set1, set2 = [], []

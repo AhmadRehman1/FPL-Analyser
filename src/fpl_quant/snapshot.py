@@ -63,4 +63,7 @@ def get_claims_asof(
     if claim_type is not None:
         sql += " AND c.claim_type = ?"
         params.append(claim_type)
+    # A fixed order: callers sum claim weights in row order, and the self-join's output order
+    # otherwise changes from run to run.
+    sql += " ORDER BY c.claim_id"
     return con.execute(sql, params).fetchdf()

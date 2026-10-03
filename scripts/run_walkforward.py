@@ -24,6 +24,20 @@ The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa, --f
 --minutes-price-prior) each swap one
 setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
+
+Bonus model (docs/reports/2026-10_open_issues.md, issue 6: premiums get more bonus than their
+estimated BPS implies):
+    --bps-calibration-k 450    add each player's BPS the estimate's terms miss, from his real
+                               season BPS, shrunk toward his position with this k (minutes)
+    --bps-tau 7                the Plackett-Luce BPS dispersion (live: 10); smaller gives the
+                               top BPS in a match more of the bonus
+
+Long runs (docs/reports/2026-10_open_issues.md: an arm hit the job's 330-minute limit and left
+no summary):
+    --max-minutes 300          stop before a step that would run past this; the summary marks
+                               the run incomplete
+    --resume RUN_ID            carry on that run in this DB, walking only its unscored steps
+    --seasons 2025-2026        walk only these seasons (comma-separated)
 """
 
 import argparse
@@ -60,6 +74,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="shrink thin minutes histories toward the (position, price band) start rate")
     parser.add_argument("--backtest-evidence", action="store_true",
                         help="let each step see evidence claims observed before its deadline (default: none, as before)")
+    parser.add_argument("--bps-calibration-k", type=float, default=None, metavar="K_MINUTES",
+                        help="turn on the per-player BPS calibration with this shrinkage k")
+    parser.add_argument("--bps-tau", type=float, default=None,
+                        help="bps_dispersion_params tau for this arm (live: 10)")
+    parser.add_argument("--max-minutes", type=float, default=None,
+                        help="stop before a step that would likely run past this many minutes")
+    parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
+                        help="carry on this backtest_run_id, walking only its steps not yet scored")
+    parser.add_argument("--seasons", default=None,
+                        help="comma-separated seasons to walk (default: both)")
     return parser.parse_args(argv)
 
 
@@ -91,6 +115,14 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         )
     if getattr(args, "backtest_evidence", False):
         out["backtest_evidence"] = True
+    if getattr(args, "bps_calibration_k", None) is not None:
+        out["bps_calibration_params_version"] = params_mod.get_or_create_version(
+            con, "bps_calibration_params", "k_minutes", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_calibration_k,
+        )
+    if getattr(args, "bps_tau", None) is not None:
+        out["tau_params_version"] = params_mod.get_or_create_version(
+            con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,
+        )
     return out
 
 
@@ -108,8 +140,12 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[experiment] {vars(args)} -> {experiment}")
 
     t0 = time.time()
+    seasons = tuple(s.strip() for s in args.seasons.split(",") if s.strip()) if args.seasons else None
     backtest_run_id = backtest.run(
         con, **param_versions, n_antithetic_pairs=5000, run_monte_carlo=True,
+        seasons=seasons,
+        stop_after_seconds=args.max_minutes * 60 if args.max_minutes is not None else None,
+        resume_backtest_run_id=args.resume,
         # compute_segments: the position / price_band / promoted_team / new_signing /
         # set_piece_taker breakdowns of every scored metric -- the diagnostic axis for "where is
         # the EP model biased" (nightly_backtest.yml -> app_track_record.json's segment_calibration).
@@ -124,6 +160,9 @@ def main(argv: list[str] | None = None) -> None:
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")
+    progress = backtest.walk_forward_progress(con, backtest_run_id)
+    print(f"[walk-forward] {progress['steps_scored']}/{progress['steps_planned']} steps scored"
+          + ("" if progress["complete"] else f" -- INCOMPLETE, resume with --resume {backtest_run_id}"))
 
     steps = con.execute(
         "SELECT tier, count(*), sum(CASE WHEN divergence_check_passed THEN 1 ELSE 0 END) "

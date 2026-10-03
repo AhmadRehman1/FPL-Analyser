@@ -39,3 +39,24 @@ def test_minutes_price_prior_flag_maps_to_a_param_version(con):
     out = rw._experiment_versions(con, rw._parse_args(["--minutes-price-prior", "50"]))
     weight, _ = params_mod.resolve_param(con, "minutes_price_prior_params", "min_band_weight", out["minutes_price_prior_params_version"])
     assert weight == 50.0
+
+
+def test_run_length_flags_are_not_experiment_settings(con):
+    """--max-minutes / --resume / --seasons shape the run, they don't change the model; the
+    workflow puts --max-minutes first so an arm's own value overrides it."""
+    args = rw._parse_args(["--max-minutes", "300", "--resume", "5", "--seasons", "2025-2026", "--max-minutes", "120"])
+    assert (args.max_minutes, args.resume, args.seasons) == (120.0, 5, "2025-2026")
+    assert rw._experiment_versions(con, args) == {}
+
+
+def test_bonus_model_flags_map_to_param_versions(con):
+    from fpl_quant import expected_points as ep
+
+    ep.seed_v1_params(con)  # tau v1 = 10
+    out = rw._experiment_versions(con, rw._parse_args(["--bps-calibration-k", "450", "--bps-tau", "7"]))
+    k, _ = params_mod.resolve_param(con, "bps_calibration_params", "k_minutes", out["bps_calibration_params_version"])
+    tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", out["tau_params_version"])
+    assert (k, tau) == (450.0, 7.0)
+    assert out["tau_params_version"] != 1
+    # the live tau value reuses v1
+    assert rw._experiment_versions(con, rw._parse_args(["--bps-tau", "10"])) == {"tau_params_version": 1}
