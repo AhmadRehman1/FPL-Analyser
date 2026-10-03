@@ -351,6 +351,7 @@ def run_gameweek_step(
     backtest_evidence: bool = False,
     finishing_skill_params_version: int | None = None,
     minutes_price_prior_params_version: int | None = None,
+    bps_calibration_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -422,6 +423,7 @@ def run_gameweek_step(
             assist_calibration_params_version=assist_calibration_params_version,
             finishing_skill_params_version=finishing_skill_params_version,
             memo=memo,
+            bps_calibration_params_version=bps_calibration_params_version,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
@@ -1123,6 +1125,7 @@ def run(
     backtest_evidence: bool = False,
     finishing_skill_params_version: int | None = None,
     minutes_price_prior_params_version: int | None = None,
+    bps_calibration_params_version: int | None = None,
     seasons: tuple[str, ...] | None = None,
     stop_after_seconds: float | None = None,
     resume_backtest_run_id: int | None = None,
@@ -1223,6 +1226,7 @@ def run(
             backtest_evidence=backtest_evidence,
             finishing_skill_params_version=finishing_skill_params_version,
             minutes_price_prior_params_version=minutes_price_prior_params_version,
+            bps_calibration_params_version=bps_calibration_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "

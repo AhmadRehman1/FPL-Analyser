@@ -404,11 +404,181 @@ def finishing_ratios(
     return ratio(goals, xg), ratio(assists, xa)
 
 
+def finishing_ratio_report(
+    con: duckdb.DuckDBPyConnection, season_priority: list[str], prior_xg: float, min_expected: float = 1.0,
+) -> dict:
+    """How finishing_ratios() spreads over the players with at least min_expected xG (or xA)
+    in the window: counts pinned at MAX_FINISHING_RATIO and at its floor, quantiles, and who is
+    at the cap. The finishing-prior arm changed sign when 2024-25 joined the window
+    (docs/reports/2026-10_open_issues.md, issue 5); comparing windows here shows whether the
+    ratios themselves move, and how many players the hard clamp decides."""
+    placeholders = ",".join(["?"] * len(season_priority))
+    uids = [r[0] for r in con.execute(
+        f"SELECT DISTINCT player_uid FROM fact_player_season_stats WHERE season IN ({placeholders}) ORDER BY 1",
+        list(season_priority),
+    ).fetchall()]
+    cap, floor = MAX_FINISHING_RATIO, 1.0 / MAX_FINISHING_RATIO
+    out: dict = {"seasons": list(season_priority), "prior_xg": prior_xg}
+    ratios: dict[str, list[tuple[str, float]]] = {"goals": [], "assists": []}
+    for uid in uids:
+        # finishing_ratios() pools goals/xG over the window; recover xG to apply min_expected
+        xg = xa = 0.0
+        for season in season_priority:
+            row = con.execute(
+                "SELECT expected_goals, expected_assists, expected_goals_per_90, expected_assists_per_90, minutes "
+                "FROM fact_player_season_stats WHERE player_uid = ? AND season = ? ORDER BY gw DESC LIMIT 1",
+                [uid, season],
+            ).fetchone()
+            if not row:
+                continue
+            season_xg, season_xa, xg90, xa90, minutes = row
+            if season_xg is not None and minutes:
+                xg += season_xg
+                xa += season_xa or 0.0
+            elif xg90 is not None or xa90 is not None:
+                mins = _season_match_minutes(con, uid, season)
+                xg += (xg90 or 0.0) / 90.0 * mins
+                xa += (xa90 or 0.0) / 90.0 * mins
+        goal_ratio, assist_ratio = finishing_ratios(con, uid, list(season_priority), prior_xg)
+        if xg >= min_expected:
+            ratios["goals"].append((uid, goal_ratio))
+        if xa >= min_expected:
+            ratios["assists"].append((uid, assist_ratio))
+    for kind, values in ratios.items():
+        vals = sorted(v for _uid, v in values)
+        n = len(vals)
+        out[kind] = {
+            "n": n,
+            "at_cap": sum(1 for v in vals if v >= cap - 1e-12),
+            "at_floor": sum(1 for v in vals if v <= floor + 1e-12),
+            "quantiles": {q: vals[min(n - 1, int(q * n))] for q in (0.05, 0.25, 0.5, 0.75, 0.95)} if n else {},
+            "capped_players": sorted(uid for uid, v in values if v >= cap - 1e-12),
+        }
+    return out
+
+
 def resolve_finishing_prior(con: duckdb.DuckDBPyConnection, finishing_skill_params_version: int | None) -> float | None:
     """None (the default everywhere) keeps xG/xA rates as they are."""
     if finishing_skill_params_version is None:
         return None
     value, _ = params_mod.resolve_param(con, "finishing_skill_params", "prior_xg", finishing_skill_params_version)
+    return value
+
+
+# ============================================================
+# BPS calibration (opt-in): the bonus points a player earns that the estimate below can't see.
+#
+# The estimate scores playing time, goals, assists, CBI, recoveries, saves and goals conceded
+# only -- not the clean-sheet bonus, chances created, dribbles, passing, winning goals or the
+# negatives. Premium attackers earn most of what's missing, so they get more bonus than their
+# estimated BPS implies: the walk-forward under-predicts the 9.0+ band's bonus-and-other points
+# by ~0.27 per player-gameweek (docs/reports/2026-10_open_issues.md, issue 6).
+#
+# fact_player_season_stats carries each player's real season BPS. Taking away what the
+# estimate's own terms would have given for the matches he actually played (at that season's
+# weights) leaves the BPS the estimate misses; per 90 minutes and shrunk toward his position's
+# average, it is added to his expected BPS. Seasons whose match-grain minutes don't match the
+# season total within 10% (missing match rows) are skipped, as are seasons with no BPS total
+# (2024-25's snapshot has none).
+# ============================================================
+
+BPS_CALIBRATION_MINUTES_TOLERANCE = 0.10
+
+
+def _bps_residual_table(
+    con: duckdb.DuckDBPyConnection, season_priority: list[str], bps_params_version: int,
+) -> dict:
+    """{"player": {uid: (residual_bps, minutes)}, "position": {position: residual per 90}} over
+    the lookback seasons: residual = real season BPS - the estimate's terms on the same matches."""
+    placeholders = ",".join(["?"] * len(season_priority))
+    rows = con.execute(
+        f"""
+        WITH season_total AS (
+            SELECT player_uid, season, bps, minutes FROM fact_player_season_stats
+            WHERE season IN ({placeholders}) AND bps IS NOT NULL AND minutes IS NOT NULL
+            QUALIFY row_number() OVER (PARTITION BY player_uid, season ORDER BY gw DESC) = 1
+        ),
+        matches AS (
+            SELECT player_uid, season,
+                   sum(minutes_played) AS mins,
+                   sum(CASE WHEN minutes_played BETWEEN 1 AND 59 THEN 1 ELSE 0 END) AS n_1_59,
+                   sum(CASE WHEN minutes_played >= 60 THEN 1 ELSE 0 END) AS n_60,
+                   sum(coalesce(goals, 0)) AS goals, sum(coalesce(assists, 0)) AS assists,
+                   sum(coalesce(saves, 0)) AS saves,
+                   -- the estimate's own conceded term: 2*floor(X/2) per 60+ minute appearance
+                   sum(CASE WHEN minutes_played >= 60 THEN 2 * (coalesce(goals_conceded, 0) // 2) ELSE 0 END) AS conceded,
+                   sum(coalesce(tackles, 0) + coalesce(clearances, 0) + coalesce(interceptions, 0) + coalesce(blocks, 0)) AS cbi,
+                   sum(coalesce(recoveries, 0)) AS recoveries
+            FROM fact_player_match_stats WHERE season IN ({placeholders})
+            GROUP BY player_uid, season
+        )
+        SELECT t.player_uid, t.season, dp.position, t.bps, t.minutes, m.mins, m.n_1_59, m.n_60,
+               m.goals, m.assists, m.saves, m.conceded, m.cbi, m.recoveries
+        FROM season_total t
+        JOIN matches m ON m.player_uid = t.player_uid AND m.season = t.season
+        JOIN dim_player dp ON dp.player_uid = t.player_uid
+        WHERE m.mins > 0
+        ORDER BY t.player_uid, t.season
+        """,
+        [*season_priority, *season_priority],
+    ).fetchall()
+    player: dict[str, list[float]] = {}
+    position_totals: dict[str, list[float]] = {}
+    for (uid, season, position, bps, minutes, mins, n_1_59, n_60, goals, assists, saves, conceded, cbi,
+         recoveries) in rows:
+        if position not in POSITIONS or abs(mins - minutes) > BPS_CALIBRATION_MINUTES_TOLERANCE * max(minutes, 1):
+            continue
+
+        def weight(key: str, pos: str | None = None) -> float:
+            return _bp(con, key, bps_params_version, pos, season=season)
+
+        modelled = (
+            weight("playing_1_60") * n_1_59 + weight("playing_60plus") * n_60
+            + weight("goal", position) * goals + weight("assist") * assists
+            + cbi / weight("cbi_per_point") + recoveries / weight("recoveries_per_point")
+        )
+        if position in ("Goalkeeper", "Defender"):
+            modelled += weight("goal_conceded_gk_def") * conceded
+        if position == "Goalkeeper":
+            modelled += weight("save_inside_box") * saves
+        residual = bps - modelled
+        acc = player.setdefault(uid, [0.0, 0.0])
+        acc[0] += residual
+        acc[1] += mins
+        pos_acc = position_totals.setdefault(position, [0.0, 0.0])
+        pos_acc[0] += residual
+        pos_acc[1] += mins
+    return {
+        "player": {uid: (r, m) for uid, (r, m) in player.items()},
+        "position": {pos: r / m * 90 for pos, (r, m) in position_totals.items() if m > 0},
+    }
+
+
+def bps_residual_per_90(
+    con: duckdb.DuckDBPyConnection, player_uid: str, position: str, season_priority: list[str],
+    bps_params_version: int, k_minutes: float, *, memo: dict | None = None,
+) -> float:
+    """The BPS per 90 minutes this player earns beyond the estimate's own terms, shrunk toward
+    his position's average by sample size (the same weight _shrink_rate() uses). 0.0 with no
+    calibration data at all for the position."""
+    seasons = list(season_priority)
+    table = _memo_get(
+        memo, ("bps_residuals", tuple(seasons), bps_params_version),
+        lambda: _bps_residual_table(con, seasons, bps_params_version),
+    )
+    position_rate = table["position"].get(position)
+    if position_rate is None:
+        return 0.0
+    residual, minutes = table["player"].get(player_uid, (0.0, 0.0))
+    own_rate = residual / minutes * 90 if minutes > 0 else 0.0
+    return _shrink_rate(own_rate, minutes, position_rate, k=k_minutes)
+
+
+def resolve_bps_calibration(con: duckdb.DuckDBPyConnection, bps_calibration_params_version: int | None) -> float | None:
+    """The calibration's shrinkage k_minutes, or None (off, the default everywhere)."""
+    if bps_calibration_params_version is None:
+        return None
+    value, _ = params_mod.resolve_param(con, "bps_calibration_params", "k_minutes", bps_calibration_params_version)
     return value
 
 
@@ -870,6 +1040,7 @@ def compute_player_fixture_components(
     assist_ratio: float = 1.0,
     finishing_prior_xg: float | None = None,
     memo: dict | None = None,
+    bps_calibration_k: float | None = None,
 ) -> dict:
     rates = player_rates_shrunk(
         con, player_uid, position, season_priority, rate_shrinkage_params_version, finishing_prior_xg=finishing_prior_xg,
@@ -976,6 +1147,11 @@ def compute_player_fixture_components(
     if position == "Goalkeeper":
         e_saves = rates["saves_per_90"] * defence_saves_mult * e_min_played / 90.0 * p_played
         mu += e_saves * _bp(con, "save_inside_box", bps_params_version, season=rules_season)
+    # opt-in: the BPS this player earns that the terms above can't see (see _bps_residual_table())
+    if bps_calibration_k is not None:
+        mu += bps_residual_per_90(
+            con, player_uid, position, season_priority, bps_params_version, bps_calibration_k, memo=memo,
+        ) * e_min_played / 90.0 * p_played
 
     return {
         "position": position, "match_id": match_id,
@@ -994,7 +1170,7 @@ def compute_player_fixture_components(
 RECIPE_KEYS = (
     "set_piece_params_version", "fixture_params_version",
     "rate_shrinkage_params_version", "assist_calibration_params_version",
-    "finishing_skill_params_version",
+    "finishing_skill_params_version", "bps_calibration_params_version",
 )
 
 
@@ -1029,7 +1205,10 @@ def run(
     assist_calibration_params_version: int | None = None,
     finishing_skill_params_version: int | None = None,
     memo: dict | None = None,
+    bps_calibration_params_version: int | None = None,
 ) -> int:
+    # bps_calibration_params_version (opt-in, None = off): add each player's BPS the estimate
+    # can't see -- see _bps_residual_table().
     # memo (see new_memo()): pass one memo to every run() -- and the uncertainty.run() calls --
     # made against the same asof view, so each player's rates are built once for the whole
     # planning horizon rather than once per gameweek. None builds a fresh one for this call.
@@ -1051,6 +1230,7 @@ def run(
             lambda: fpl_assist_ratio_by_position(con, list(lookback_seasons), prior_xa),
         )
     finishing_prior_xg = resolve_finishing_prior(con, finishing_skill_params_version)
+    bps_calibration_k = resolve_bps_calibration(con, bps_calibration_params_version)
     # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()
     # already established -- a claim ingested at 09:34 on the asof date itself is legitimately
     # knowable "as of" that date. Only used when set_piece_params_version opts the uplift in.
@@ -1077,14 +1257,15 @@ def run(
             (calibration_asof_date, target_season, team_strength_model_version, minutes_model_version,
              scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
-             assist_calibration_params_version, finishing_skill_params_version, recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
+             recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version,
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
-         assist_calibration_params_version, finishing_skill_params_version],
+         assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -1124,6 +1305,7 @@ def run(
                     assist_ratio=assist_ratio_by_position.get(position, 1.0),
                     finishing_prior_xg=finishing_prior_xg,
                     memo=memo,
+                    bps_calibration_k=bps_calibration_k,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

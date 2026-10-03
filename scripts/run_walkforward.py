@@ -25,6 +25,13 @@ The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa, --f
 setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
+Bonus model (docs/reports/2026-10_open_issues.md, issue 6: premiums get more bonus than their
+estimated BPS implies):
+    --bps-calibration-k 450    add each player's BPS the estimate's terms miss, from his real
+                               season BPS, shrunk toward his position with this k (minutes)
+    --bps-tau 7                the Plackett-Luce BPS dispersion (live: 10); smaller gives the
+                               top BPS in a match more of the bonus
+
 Long runs (docs/reports/2026-10_open_issues.md: an arm hit the job's 330-minute limit and left
 no summary):
     --max-minutes 300          stop before a step that would run past this; the summary marks
@@ -67,6 +74,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="shrink thin minutes histories toward the (position, price band) start rate")
     parser.add_argument("--backtest-evidence", action="store_true",
                         help="let each step see evidence claims observed before its deadline (default: none, as before)")
+    parser.add_argument("--bps-calibration-k", type=float, default=None, metavar="K_MINUTES",
+                        help="turn on the per-player BPS calibration with this shrinkage k")
+    parser.add_argument("--bps-tau", type=float, default=None,
+                        help="bps_dispersion_params tau for this arm (live: 10)")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="stop before a step that would likely run past this many minutes")
     parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
@@ -104,6 +115,14 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         )
     if getattr(args, "backtest_evidence", False):
         out["backtest_evidence"] = True
+    if getattr(args, "bps_calibration_k", None) is not None:
+        out["bps_calibration_params_version"] = params_mod.get_or_create_version(
+            con, "bps_calibration_params", "k_minutes", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_calibration_k,
+        )
+    if getattr(args, "bps_tau", None) is not None:
+        out["tau_params_version"] = params_mod.get_or_create_version(
+            con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,
+        )
     return out
 
 
