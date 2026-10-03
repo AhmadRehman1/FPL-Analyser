@@ -4080,3 +4080,51 @@ def test_season_simulation_shows_the_chip_timing_window_its_fixtures(con):
     ).fetchone()[0])
     assert sorted(int(gw) for gw in detail["season_all_gameweeks"]) == list(range(3, 13))
     assert sorted(int(gw) for gw in detail["all_gameweeks"]) == list(range(3, 8))
+
+
+# ============================================================
+# Walk-forward time budget and resume (docs/reports/2026-10_open_issues.md: an arm hit the job's
+# 330-minute limit and left no summary at all)
+# ============================================================
+
+_WALK_KWARGS = {
+    k: v for k, v in _SEASON_SIM_VERSIONS.items()
+    if k not in ("horizon_params_version", "transfer_cost_params_version", "wildcard_threshold_params_version",
+                 "free_hit_threshold_params_version", "kappa_tc_params_version")
+}
+
+
+def _walk_metrics(con, run_id):
+    return con.execute(
+        "SELECT season, gameweek, metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ? ORDER BY 1, 2, 3",
+        [run_id],
+    ).fetchall()
+
+
+def test_walk_forward_stops_on_its_budget_and_a_resume_scores_what_one_run_would(tmp_path):
+    from fpl_quant import db
+
+    whole = db.connect(tmp_path / "whole.duckdb")
+    _seed_season_simulation_league(whole)
+    whole_run = bt.run(whole, n_antithetic_pairs=200, run_monte_carlo=False, seasons=("2025-2026",), **_WALK_KWARGS)
+    progress = bt.walk_forward_progress(whole, whole_run)
+    assert progress["complete"] and progress["steps_scored"] == progress["steps_planned"] > 2
+    assert progress["seasons"] == ["2025-2026"]
+
+    split = db.connect(tmp_path / "split.duckdb")
+    _seed_season_simulation_league(split)
+    run_id = bt.run(split, n_antithetic_pairs=200, run_monte_carlo=False, seasons=("2025-2026",),
+                    stop_after_seconds=1e-6, **_WALK_KWARGS)
+    stopped = bt.walk_forward_progress(split, run_id)
+    assert stopped["steps_scored"] == 1 and not stopped["complete"]
+
+    # a step cut off between its prediction and its scoring is walked again
+    con_steps = split.execute("SELECT count(*) FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [run_id]).fetchone()[0]
+    split.execute(
+        "INSERT INTO backtest_gameweek_steps (backtest_run_id, season, gameweek, tier, data_asof) "
+        "VALUES (?, '2025-2026', 7, 'warm', current_timestamp)", [run_id],
+    )
+    assert bt.run(split, n_antithetic_pairs=200, run_monte_carlo=False, resume_backtest_run_id=run_id, **_WALK_KWARGS) == run_id
+    assert bt.walk_forward_progress(split, run_id)["complete"]
+    assert con_steps == 1
+    assert _walk_metrics(split, run_id) == _walk_metrics(whole, whole_run)

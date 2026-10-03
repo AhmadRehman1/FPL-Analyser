@@ -24,6 +24,13 @@ The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa, --f
 --minutes-price-prior) each swap one
 setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
+
+Long runs (docs/reports/2026-10_open_issues.md: an arm hit the job's 330-minute limit and left
+no summary):
+    --max-minutes 300          stop before a step that would run past this; the summary marks
+                               the run incomplete
+    --resume RUN_ID            carry on that run in this DB, walking only its unscored steps
+    --seasons 2025-2026        walk only these seasons (comma-separated)
 """
 
 import argparse
@@ -60,6 +67,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="shrink thin minutes histories toward the (position, price band) start rate")
     parser.add_argument("--backtest-evidence", action="store_true",
                         help="let each step see evidence claims observed before its deadline (default: none, as before)")
+    parser.add_argument("--max-minutes", type=float, default=None,
+                        help="stop before a step that would likely run past this many minutes")
+    parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
+                        help="carry on this backtest_run_id, walking only its steps not yet scored")
+    parser.add_argument("--seasons", default=None,
+                        help="comma-separated seasons to walk (default: both)")
     return parser.parse_args(argv)
 
 
@@ -108,8 +121,12 @@ def main(argv: list[str] | None = None) -> None:
         print(f"[experiment] {vars(args)} -> {experiment}")
 
     t0 = time.time()
+    seasons = tuple(s.strip() for s in args.seasons.split(",") if s.strip()) if args.seasons else None
     backtest_run_id = backtest.run(
         con, **param_versions, n_antithetic_pairs=5000, run_monte_carlo=True,
+        seasons=seasons,
+        stop_after_seconds=args.max_minutes * 60 if args.max_minutes is not None else None,
+        resume_backtest_run_id=args.resume,
         # compute_segments: the position / price_band / promoted_team / new_signing /
         # set_piece_taker breakdowns of every scored metric -- the diagnostic axis for "where is
         # the EP model biased" (nightly_backtest.yml -> app_track_record.json's segment_calibration).
@@ -124,6 +141,9 @@ def main(argv: list[str] | None = None) -> None:
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
     )
     print(f"[backtest.run] {time.time() - t0:.1f}s -> backtest_run_id={backtest_run_id}")
+    progress = backtest.walk_forward_progress(con, backtest_run_id)
+    print(f"[walk-forward] {progress['steps_scored']}/{progress['steps_planned']} steps scored"
+          + ("" if progress["complete"] else f" -- INCOMPLETE, resume with --resume {backtest_run_id}"))
 
     steps = con.execute(
         "SELECT tier, count(*), sum(CASE WHEN divergence_check_passed THEN 1 ELSE 0 END) "

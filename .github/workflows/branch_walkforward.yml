@@ -58,8 +58,11 @@ jobs:
           ARGS: ${{ inputs.args }}
         run: |
           echo "arm args: '${ARGS}'" >> "$GITHUB_STEP_SUMMARY"
-          # word-splitting of ARGS is intended: it carries the flags
-          PYTHONPATH=src python scripts/run_walkforward.py ${ARGS}
+          # word-splitting of ARGS is intended: it carries the flags. --max-minutes stops the walk
+          # before the job's 330-minute limit, so a long arm still reaches the scoreboard below
+          # (its "progress" block then says how many steps it scored); --seasons 2025-2026 walks
+          # the season with FPL's real average alone.
+          PYTHONPATH=src python scripts/run_walkforward.py --max-minutes 300 ${ARGS}
 
       - name: Scoreboard
         run: |

@@ -15,6 +15,7 @@ enforcement mechanism below (asof_scope) has to actually work, not just be plaus
 
 import json
 import math
+import time
 from collections import Counter
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -1122,12 +1123,29 @@ def run(
     backtest_evidence: bool = False,
     finishing_skill_params_version: int | None = None,
     minutes_price_prior_params_version: int | None = None,
+    seasons: tuple[str, ...] | None = None,
+    stop_after_seconds: float | None = None,
+    resume_backtest_run_id: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) --
     warm_up_gameweeks records how many. Double gameweeks are walked like any other: every
     per-player reader sums a player's fixtures through the *_gameweek_outputs views
     (schema/0023_gameweek_views.sql).
+
+    seasons (None = both): walk only these seasons -- e.g. 2025-2026 alone, the season with
+    FPL's real average to pair against, in half the time.
+
+    stop_after_seconds: stop before a step that would likely run past this budget (judged on
+    the slowest step so far), so a job with a hard time limit ends with its scored steps and a
+    summary instead of being killed with nothing. The run records the steps it planned
+    (backtest_runs.steps_planned); walk_forward_progress() says how far it got.
+
+    resume_backtest_run_id: carry on a stopped run in the same DB, walking only its steps not
+    yet scored (a step stopped between its prediction and its scoring is walked again). The
+    run's own seasons are used unless `seasons` is given. Steps are independent -- each one
+    re-fits everything from that deadline's data -- so a resumed run scores what a single
+    uninterrupted one would.
 
     compute_segments/set_piece_params_version/ownership_params_version: Priority 9b/9c
     opt-in, passed straight through to score_gameweek() -- see its own docstring. Default off,
@@ -1145,18 +1163,43 @@ def run(
     run_gameweek_step()'s own same-named param -- see its docstring, and minutes_model.run()'s
     own docstring for the real incident this closes. None (the default) is the exact prior
     behavior."""
-    steps = [
-        (s, gw) for s, gw in ALL_SEASON_GAMEWEEKS
-        if has_fittable_history(con, s, gw)
-    ]
-    warm_up_gameweeks = len(ALL_SEASON_GAMEWEEKS) - len(steps)
+    if resume_backtest_run_id is not None and seasons is None:
+        stored = con.execute("SELECT seasons FROM backtest_runs WHERE backtest_run_id = ?", [resume_backtest_run_id]).fetchone()
+        if stored is None:
+            raise ValueError(f"no backtest_runs row for backtest_run_id={resume_backtest_run_id}")
+        seasons = tuple(json.loads(stored[0])) if stored[0] else None
+    in_scope = [(s, gw) for s, gw in ALL_SEASON_GAMEWEEKS if seasons is None or s in seasons]
+    steps = [(s, gw) for s, gw in in_scope if has_fittable_history(con, s, gw)]
+    warm_up_gameweeks = len(in_scope) - len(steps)
+    run_seasons = sorted({s for s, _gw in in_scope})
 
-    backtest_run_id = con.execute(
-        "INSERT INTO backtest_runs (warm_up_gameweeks, notes) VALUES (?, ?) RETURNING backtest_run_id",
-        [warm_up_gameweeks, notes],
-    ).fetchone()[0]
+    if resume_backtest_run_id is None:
+        backtest_run_id = con.execute(
+            "INSERT INTO backtest_runs (warm_up_gameweeks, notes, steps_planned, seasons) VALUES (?, ?, ?, ?) "
+            "RETURNING backtest_run_id",
+            [warm_up_gameweeks, notes, len(steps), json.dumps(run_seasons)],
+        ).fetchone()[0]
+    else:
+        backtest_run_id = resume_backtest_run_id
+        con.execute(
+            "DELETE FROM backtest_gameweek_steps s WHERE s.backtest_run_id = ? AND NOT EXISTS ("
+            "SELECT 1 FROM backtest_metrics m WHERE m.backtest_run_id = s.backtest_run_id "
+            "AND m.season = s.season AND m.gameweek = s.gameweek)",
+            [backtest_run_id],
+        )
+        done = set(con.execute(
+            "SELECT season, gameweek FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [backtest_run_id],
+        ).fetchall())
+        steps = [step for step in steps if step not in done]
 
+    started = time.monotonic()
+    slowest_step = 0.0
     for season, gameweek in steps:
+        if stop_after_seconds is not None and slowest_step and time.monotonic() - started + slowest_step > stop_after_seconds:
+            print(f"[backtest.run] time budget reached before {season} GW{gameweek}; "
+                  f"resume with resume_backtest_run_id={backtest_run_id}", flush=True)
+            break
+        step_started = time.monotonic()
         run_gameweek_step(
             con, backtest_run_id, season, gameweek,
             xi_params_version=xi_params_version, rho_params_version=rho_params_version,
@@ -1191,8 +1234,29 @@ def run(
             compute_segments=compute_segments, set_piece_params_version=set_piece_params_version,
             ownership_params_version=ownership_params_version,
         )
+        slowest_step = max(slowest_step, time.monotonic() - step_started)
 
     return backtest_run_id
+
+
+def walk_forward_progress(con: duckdb.DuckDBPyConnection, backtest_run_id: int) -> dict:
+    """How far a walk-forward run got: {"steps_planned", "steps_scored", "complete",
+    "seasons"}. steps_planned is None for a run written before it was recorded, and such a run
+    counts as complete."""
+    row = con.execute(
+        "SELECT steps_planned, seasons FROM backtest_runs WHERE backtest_run_id = ?", [backtest_run_id],
+    ).fetchone()
+    planned, seasons = (row[0], json.loads(row[1]) if row[1] else None) if row else (None, None)
+    scored = con.execute(
+        "SELECT count(*) FROM backtest_gameweek_steps s WHERE s.backtest_run_id = ? AND EXISTS ("
+        "SELECT 1 FROM backtest_metrics m WHERE m.backtest_run_id = s.backtest_run_id "
+        "AND m.season = s.season AND m.gameweek = s.gameweek)",
+        [backtest_run_id],
+    ).fetchone()[0]
+    return {
+        "steps_planned": planned, "steps_scored": scored, "seasons": seasons,
+        "complete": planned is None or scored >= planned,
+    }
 
 
 # ============================================================

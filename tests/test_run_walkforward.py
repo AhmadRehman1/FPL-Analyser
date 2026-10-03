@@ -39,3 +39,11 @@ def test_minutes_price_prior_flag_maps_to_a_param_version(con):
     out = rw._experiment_versions(con, rw._parse_args(["--minutes-price-prior", "50"]))
     weight, _ = params_mod.resolve_param(con, "minutes_price_prior_params", "min_band_weight", out["minutes_price_prior_params_version"])
     assert weight == 50.0
+
+
+def test_run_length_flags_are_not_experiment_settings(con):
+    """--max-minutes / --resume / --seasons shape the run, they don't change the model; the
+    workflow puts --max-minutes first so an arm's own value overrides it."""
+    args = rw._parse_args(["--max-minutes", "300", "--resume", "5", "--seasons", "2025-2026", "--max-minutes", "120"])
+    assert (args.max_minutes, args.resume, args.seasons) == (120.0, 5, "2025-2026")
+    assert rw._experiment_versions(con, args) == {}
