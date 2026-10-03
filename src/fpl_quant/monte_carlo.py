@@ -122,6 +122,17 @@ def deterministic_seed(model_version: int, calibration_asof_date: date, query_id
     return int(digest[:15], 16)  # < 2**60 -- np.random.default_rng accepts arbitrarily large ints, this is just a stable truncation
 
 
+def squad_query_id(target_season: str, target_gameweek: int, squad_uids, n_antithetic_pairs: int) -> str:
+    """What a run simulates, as the query_id its seed hashes: season, gameweek, the sorted
+    squad and the draw count. run() used to hash its own model_version and the
+    squad_optimizer_run_id, both DB sequence numbers, so the same squad on the same deadline
+    drew different numbers in a DB with a different history -- one source of the season
+    simulation's run-to-run differences (docs/reports/2026-10_open_issues.md, issue 2). Seeding
+    on content also gives every experiment arm common random numbers for the same squad."""
+    squad_digest = hashlib.sha256(",".join(sorted(squad_uids)).encode("utf-8")).hexdigest()[:16]
+    return f"{target_season}_gw{target_gameweek}_squad_{squad_digest}_n{n_antithetic_pairs}"
+
+
 # ============================================================
 # Z_fixture calibration: Gamma-Poisson mixture, closed-form variance solve
 # ============================================================
@@ -303,6 +314,8 @@ def _team_of_for_fixture(con: duckdb.DuckDBPyConnection, home_uid: str, away_uid
 
 
 def _fixture_roster(con: duckdb.DuckDBPyConnection, ep_model_version: int, mm_model_version: int, match_id: str) -> list[dict]:
+    # ORDER BY: simulate_fixture() hands out the random draws in roster order, so an unordered
+    # join result gave each player different draws from run to run.
     rows = con.execute(
         """
         SELECT o.player_uid, dp.position, o.expected_bps, o.ep_goals,
@@ -311,6 +324,7 @@ def _fixture_roster(con: duckdb.DuckDBPyConnection, ep_model_version: int, mm_mo
         JOIN dim_player dp ON dp.player_uid = o.player_uid
         JOIN minutes_model_outputs m ON m.player_uid = o.player_uid AND m.model_version = ?
         WHERE o.model_version = ? AND o.fixture_match_id = ?
+        ORDER BY o.player_uid
         """,
         [mm_model_version, ep_model_version, match_id],
     ).fetchall()
@@ -335,7 +349,7 @@ def simulate_fixture(
     scoring_params_version: int, tau_val: float, sigma_z_sq: float, mean_minutes: dict,
     rng: np.random.Generator, n_pairs: int, fixture_params_version: int | None = 1,
     rate_shrinkage_params_version: int | None = None, assist_ratio_by_position: dict[str, float] | None = None,
-    finishing_prior_xg: float | None = None,
+    finishing_prior_xg: float | None = None, memo: dict | None = None,
 ) -> dict:
     """Returns {player_uid: {category: array of shape (2*n_pairs,)}} for every squad player
     present in this fixture (empty dict if none). One call = one fixture's contribution to
@@ -346,7 +360,7 @@ def simulate_fixture(
         return {}
 
     team_of = _team_of_for_fixture(con, home_uid, away_uid, target_season)
-    lam_home, lam_away, _is_home = ep._fixture_lambdas(con, home_uid, match_id, ts_model_version)
+    lam_home, lam_away, _is_home = ep._fixture_lambdas(con, home_uid, match_id, ts_model_version, memo=memo)
     ts_rho_params_version = con.execute(
         "SELECT rho_params_version FROM team_strength_model_versions WHERE model_version = ?", [ts_model_version]
     ).fetchone()[0]
@@ -363,13 +377,13 @@ def simulate_fixture(
     if fixture_params_version is not None:
         for _side_uid in (home_uid, away_uid):
             attack_mult[_side_uid] = ep._fixture_attack_multiplier(
-                con, _side_uid, match_id, target_season, ts_model_version, fixture_params_version,
+                con, _side_uid, match_id, target_season, ts_model_version, fixture_params_version, memo=memo,
             )
             defcon_mult[_side_uid] = ep._fixture_defensive_multiplier(
-                con, _side_uid, match_id, ts_model_version, fixture_params_version, "defcon_sensitivity",
+                con, _side_uid, match_id, ts_model_version, fixture_params_version, "defcon_sensitivity", memo=memo,
             )
             saves_mult[_side_uid] = ep._fixture_defensive_multiplier(
-                con, _side_uid, match_id, ts_model_version, fixture_params_version, "save_sensitivity",
+                con, _side_uid, match_id, ts_model_version, fixture_params_version, "save_sensitivity", memo=memo,
             )
 
     def _u_pair():
@@ -437,9 +451,11 @@ def simulate_fixture(
 
         rates = ep.player_rates_shrunk(
             con, player_uid, position, season_priority, rate_shrinkage_params_version,
-            finishing_prior_xg=finishing_prior_xg,
+            finishing_prior_xg=finishing_prior_xg, memo=memo,
         )
-        def_rates = ep._defensive_action_rates_per_90(con, player_uid, position, season_priority, rate_shrinkage_params_version)
+        def_rates = ep._defensive_action_rates_per_90(
+            con, player_uid, position, season_priority, rate_shrinkage_params_version, memo=memo,
+        )
 
         # M3-parity fixture-strength multipliers for this player's side (see module docstring):
         # attack scales goals+assists, the two defensive channels scale DefCon and GK saves.
@@ -590,6 +606,7 @@ def run(
     n_antithetic_pairs: int = 5000,
     season_priority: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
     fixture_params_version: int | None = 1,
+    memo: dict | None = None,
 ) -> int:
     # fixture_params_version: the fixture_strength_params version M3 scaled e_goals/e_assists/
     # DefCon/saves with. ep_model_versions now records it (schema/0022_ep_recipe.sql) and that
@@ -635,8 +652,9 @@ def run(
     sigma_z_sq = z_fixture_variance(rho_residual, lambda_representative)
 
     model_version = con.execute("SELECT nextval('seq_monte_carlo_model_version')").fetchone()[0]
-    query_id = f"squad_run_{squad_optimizer_run_id}_gw{target_gameweek}"
-    seed = deterministic_seed(model_version, calibration_asof_date, query_id)
+    # Seeded on what is simulated, not on model_version (see squad_query_id()).
+    query_id = squad_query_id(target_season, target_gameweek, squad_uids, n_antithetic_pairs)
+    seed = deterministic_seed(0, calibration_asof_date, query_id)
 
     con.execute(
         """
@@ -658,7 +676,7 @@ def run(
 
     fixtures = con.execute(
         "SELECT match_id, home_team_uid, away_team_uid FROM fact_match "
-        "WHERE season = ? AND gameweek = ? AND competition = ?",
+        "WHERE season = ? AND gameweek = ? AND competition = ? ORDER BY kickoff_time, match_id",
         [target_season, target_gameweek, ep.PL],
     ).fetchall()
 
@@ -673,6 +691,7 @@ def run(
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             assist_ratio_by_position=assist_ratio_by_position,
             finishing_prior_xg=finishing_prior_xg,
+            memo=memo,
         )
         if not fixture_result:
             continue

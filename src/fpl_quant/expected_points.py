@@ -16,6 +16,7 @@ precondition) -- see seed_v1_params() for the full source list and the one genui
 unresolved ambiguity (outside-box GK saves in BPS).
 """
 
+import functools
 import json
 import math
 from datetime import date, datetime, timezone
@@ -286,19 +287,50 @@ def _position_average_rates(con: duckdb.DuckDBPyConnection, position: str, seaso
     }
 
 
+def new_memo() -> dict:
+    """A cache for one asof view of the data, shared by every run() / uncertainty.run() /
+    monte_carlo.run() call made against it (docs/reports/2026-10_open_issues.md, issue 3).
+
+    A planner call projects five or more gameweeks from the same asof cutoff, and each one used
+    to rebuild every player's rate pool, the position anchors and the fixture lambdas from
+    scratch: player_rates_shrunk() ran ~10k times for two season-simulation gameweeks. None of
+    those depend on the target gameweek, only on the data visible at the cutoff, so one memo
+    serves the whole horizon.
+
+    Only share a memo between calls that see the same data: the same asof_scope() block, with
+    no TEMP TABLE shadow (scenario.py, decision_engine) switched on or off in between. The memo
+    is deliberately an explicit argument rather than a module-level cache, which once returned
+    another run's values (see _league_defence_and_home_adv())."""
+    return {}
+
+
+def _memo_get(memo: dict | None, key: tuple, compute):
+    """compute() once per key when a memo is given, on every call when it isn't."""
+    if memo is None:
+        return compute()
+    if key not in memo:
+        memo[key] = compute()
+    return memo[key]
+
+
 def player_rates_shrunk(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, season_priority: list[str],
     rate_shrinkage_params_version: int | None = None, finishing_prior_xg: float | None = None,
+    *, memo: dict | None = None,
 ) -> dict:
-    own = _player_rate_pool(con, player_uid, season_priority)
-    pos_avg = _position_average_rates(con, position, season_priority)
+    seasons = list(season_priority)
+    own = _memo_get(memo, ("rate_pool", player_uid, tuple(seasons)), lambda: _player_rate_pool(con, player_uid, seasons))
+    pos_avg = _memo_get(memo, ("position_rates", position, tuple(seasons)), lambda: _position_average_rates(con, position, seasons))
     k = _resolve_shrinkage_k(con, rate_shrinkage_params_version)
     rates = {
         key: _shrink_rate(own[key], own["sample_minutes"], pos_avg[key], k=k)
         for key in ("expected_goals_per_90", "expected_assists_per_90", "saves_per_90")
     }
     if finishing_prior_xg is not None:
-        goal_ratio, assist_ratio = finishing_ratios(con, player_uid, season_priority, finishing_prior_xg)
+        goal_ratio, assist_ratio = _memo_get(
+            memo, ("finishing", player_uid, tuple(seasons), finishing_prior_xg),
+            lambda: finishing_ratios(con, player_uid, seasons, finishing_prior_xg),
+        )
         rates["expected_goals_per_90"] *= goal_ratio
         rates["expected_assists_per_90"] *= assist_ratio
     return rates
@@ -380,40 +412,48 @@ def resolve_finishing_prior(con: duckdb.DuckDBPyConnection, finishing_skill_para
 
 def _defensive_action_rates_per_90(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, seasons: list[str],
-    rate_shrinkage_params_version: int | None = None,
+    rate_shrinkage_params_version: int | None = None, *, memo: dict | None = None,
 ) -> dict:
     """CBI (tackles+clearances+interceptions+blocks) and recoveries, per 90 minutes, from
     fact_player_match_stats -- the only place these are reconciled at per-match grain.
     Shrunk toward the position average the same way and for the same reason as the goals/
     assists/saves rates above."""
+    seasons = list(seasons)
     placeholders = ",".join(["?"] * len(seasons))
-    row = con.execute(
-        f"""
-        SELECT
-            sum(coalesce(tackles,0) + coalesce(clearances,0) + coalesce(interceptions,0) + coalesce(blocks,0)) AS cbi_total,
-            sum(coalesce(recoveries,0)) AS recoveries_total,
-            sum(minutes_played) AS minutes_total
-        FROM fact_player_match_stats
-        WHERE player_uid = ? AND season IN ({placeholders})
-        """,
-        [player_uid, *seasons],
-    ).fetchone()
-    cbi_total, recoveries_total, minutes_total = row
+
+    def own_totals():
+        return con.execute(
+            f"""
+            SELECT
+                sum(coalesce(tackles,0) + coalesce(clearances,0) + coalesce(interceptions,0) + coalesce(blocks,0)) AS cbi_total,
+                sum(coalesce(recoveries,0)) AS recoveries_total,
+                sum(minutes_played) AS minutes_total
+            FROM fact_player_match_stats
+            WHERE player_uid = ? AND season IN ({placeholders})
+            """,
+            [player_uid, *seasons],
+        ).fetchone()
+
+    def position_totals():
+        return con.execute(
+            f"""
+            SELECT
+                sum(coalesce(pmst.tackles,0) + coalesce(pmst.clearances,0) + coalesce(pmst.interceptions,0) + coalesce(pmst.blocks,0)),
+                sum(coalesce(pmst.recoveries,0)), sum(pmst.minutes_played)
+            FROM fact_player_match_stats pmst
+            JOIN dim_player dp ON dp.player_uid = pmst.player_uid
+            WHERE dp.position = ? AND pmst.season IN ({placeholders})
+            """,
+            [position, *seasons],
+        ).fetchone()
+
+    cbi_total, recoveries_total, minutes_total = _memo_get(memo, ("defensive_totals", player_uid, tuple(seasons)), own_totals)
     own_cbi = (cbi_total or 0) / minutes_total * 90 if minutes_total else 0.0
     own_recoveries = (recoveries_total or 0) / minutes_total * 90 if minutes_total else 0.0
 
-    pos_row = con.execute(
-        f"""
-        SELECT
-            sum(coalesce(pmst.tackles,0) + coalesce(pmst.clearances,0) + coalesce(pmst.interceptions,0) + coalesce(pmst.blocks,0)),
-            sum(coalesce(pmst.recoveries,0)), sum(pmst.minutes_played)
-        FROM fact_player_match_stats pmst
-        JOIN dim_player dp ON dp.player_uid = pmst.player_uid
-        WHERE dp.position = ? AND pmst.season IN ({placeholders})
-        """,
-        [position, *seasons],
-    ).fetchone()
-    pos_cbi_total, pos_recoveries_total, pos_minutes_total = pos_row
+    pos_cbi_total, pos_recoveries_total, pos_minutes_total = _memo_get(
+        memo, ("defensive_position_totals", position, tuple(seasons)), position_totals,
+    )
     pos_avg_cbi = (pos_cbi_total or 0) / pos_minutes_total * 90 if pos_minutes_total else 0.0
     pos_avg_recoveries = (pos_recoveries_total or 0) / pos_minutes_total * 90 if pos_minutes_total else 0.0
 
@@ -475,7 +515,9 @@ def expected_minutes_given_played(p_1_59: float, p_60plus: float, mean_minutes: 
 # projected scoreline can't dominate. Backtest-gated -- flagged for M7 recalibration.
 # ============================================================
 
-def _league_defence_and_home_adv(con: duckdb.DuckDBPyConnection, ts_model_version: int) -> tuple[float, float]:
+def _league_defence_and_home_adv(
+    con: duckdb.DuckDBPyConnection, ts_model_version: int, *, memo: dict | None = None,
+) -> tuple[float, float]:
     """(mean final_defence across the league, home_advantage) for this snapshot set. Two
     indexed single-row lookups -- deliberately NOT memoised on a module global (a stale
     per-model_version cache silently returned another run's/test's values; the cost of just
@@ -483,21 +525,24 @@ def _league_defence_and_home_adv(con: duckdb.DuckDBPyConnection, ts_model_versio
 
     Dixon-Coles centres mean ATTACK at 0 but not mean defence (see team_strength's own design
     note), so the 'average opponent' a player's flat rate is measured against has defence =
-    this mean, not 0."""
-    mean_def = con.execute(
-        "SELECT avg(final_defence) FROM team_strength_snapshots WHERE model_version = ?",
-        [ts_model_version],
-    ).fetchone()[0]
-    home_adv = con.execute(
-        "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?",
-        [ts_model_version],
-    ).fetchone()[0]
-    return float(mean_def or 0.0), float(home_adv or 0.0)
+    this mean, not 0. (A per-call `memo`, see new_memo(), is fine: it never outlives the run.)"""
+    def compute():
+        mean_def = con.execute(
+            "SELECT avg(final_defence) FROM team_strength_snapshots WHERE model_version = ?",
+            [ts_model_version],
+        ).fetchone()[0]
+        home_adv = con.execute(
+            "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?",
+            [ts_model_version],
+        ).fetchone()[0]
+        return float(mean_def or 0.0), float(home_adv or 0.0)
+
+    return _memo_get(memo, ("league_defence", ts_model_version), compute)
 
 
 def _fixture_attack_multiplier(
     con: duckdb.DuckDBPyConnection, team_uid: str, match_id: str, target_season: str,
-    ts_model_version: int, fixture_params_version: int,
+    ts_model_version: int, fixture_params_version: int, *, memo: dict | None = None,
 ) -> float:
     """lambda_for(this fixture) / lambda_for(this team vs a league-average opponent, half-home).
 
@@ -511,22 +556,23 @@ def _fixture_attack_multiplier(
     )
     if sensitivity == 0.0:
         return 1.0
-    lambda_for, _lambda_against, is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version)
-    mean_def, home_adv = _league_defence_and_home_adv(con, ts_model_version)
-    own_attack = con.execute(
-        "SELECT final_attack FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
-        [ts_model_version, team_uid],
-    ).fetchone()[0]
-    ref_lambda = math.exp(own_attack - mean_def + home_adv / 2.0)
-    if ref_lambda <= 0:
-        return 1.0
-    mult = (lambda_for / ref_lambda) ** sensitivity
-    return max(0.4, min(2.5, mult))
+
+    def compute():
+        lambda_for, _lambda_against, _is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version, memo=memo)
+        mean_def, home_adv = _league_defence_and_home_adv(con, ts_model_version, memo=memo)
+        own_attack = _team_strength(con, ts_model_version, team_uid, memo)[0]
+        ref_lambda = math.exp(own_attack - mean_def + home_adv / 2.0)
+        if ref_lambda <= 0:
+            return 1.0
+        mult = (lambda_for / ref_lambda) ** sensitivity
+        return max(0.4, min(2.5, mult))
+
+    return _memo_get(memo, ("attack_mult", team_uid, match_id, ts_model_version, sensitivity), compute)
 
 
 def _fixture_defensive_multiplier(
     con: duckdb.DuckDBPyConnection, team_uid: str, match_id: str,
-    ts_model_version: int, fixture_params_version: int, sensitivity_key: str,
+    ts_model_version: int, fixture_params_version: int, sensitivity_key: str, *, memo: dict | None = None,
 ) -> float:
     """lambda_against(this fixture) / lambda_against(this team vs a league-average attack,
     half-away) = exp(opp_attack + adv_opp - home_adv/2) (mean attack is 0 by Dixon-Coles
@@ -542,49 +588,56 @@ def _fixture_defensive_multiplier(
     )
     if sensitivity == 0.0:
         return 1.0
-    _lf, lambda_against, _is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version)
-    _mean_def, home_adv = _league_defence_and_home_adv(con, ts_model_version)
-    own_defence = con.execute(
-        "SELECT final_defence FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
-        [ts_model_version, team_uid],
-    ).fetchone()[0]
-    ref_lambda = math.exp(-own_defence + home_adv / 2.0)
-    if ref_lambda <= 0:
-        return 1.0
-    mult = (lambda_against / ref_lambda) ** sensitivity
-    return max(0.4, min(2.5, mult))
+
+    def compute():
+        _lf, lambda_against, _is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version, memo=memo)
+        _mean_def, home_adv = _league_defence_and_home_adv(con, ts_model_version, memo=memo)
+        own_defence = _team_strength(con, ts_model_version, team_uid, memo)[1]
+        ref_lambda = math.exp(-own_defence + home_adv / 2.0)
+        if ref_lambda <= 0:
+            return 1.0
+        mult = (lambda_against / ref_lambda) ** sensitivity
+        return max(0.4, min(2.5, mult))
+
+    return _memo_get(memo, ("defensive_mult", team_uid, match_id, ts_model_version, sensitivity), compute)
 
 
-def _fixture_lambdas(con: duckdb.DuckDBPyConnection, team_uid: str, match_id: str, ts_model_version: int):
-    match = con.execute(
-        "SELECT home_team_uid, away_team_uid FROM fact_match WHERE match_id = ?", [match_id]
-    ).fetchone()
-    home_uid, away_uid = match
-    is_home = team_uid == home_uid
-    opp_uid = away_uid if is_home else home_uid
-
-    home_adv = con.execute(
-        "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?", [ts_model_version]
-    ).fetchone()[0]
-
-    own = con.execute(
+def _team_strength(con: duckdb.DuckDBPyConnection, ts_model_version: int, team_uid: str, memo: dict | None) -> tuple:
+    """(final_attack, final_defence) of one team in one team-strength snapshot."""
+    return _memo_get(memo, ("team_strength", ts_model_version, team_uid), lambda: con.execute(
         "SELECT final_attack, final_defence FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
         [ts_model_version, team_uid],
-    ).fetchone()
-    opp = con.execute(
-        "SELECT final_attack, final_defence FROM team_strength_snapshots WHERE model_version = ? AND team_uid = ?",
-        [ts_model_version, opp_uid],
-    ).fetchone()
-    own_attack, own_defence = own
-    opp_attack, opp_defence = opp
-
-    adv_own = home_adv if is_home else 0.0
-    adv_opp = home_adv if not is_home else 0.0
-    lambda_for = math.exp(own_attack - opp_defence + adv_own)
-    lambda_against = math.exp(opp_attack - own_defence + adv_opp)
-    return lambda_for, lambda_against, is_home
+    ).fetchone())
 
 
+def _fixture_lambdas(
+    con: duckdb.DuckDBPyConnection, team_uid: str, match_id: str, ts_model_version: int, *, memo: dict | None = None,
+):
+    def compute():
+        match = con.execute(
+            "SELECT home_team_uid, away_team_uid FROM fact_match WHERE match_id = ?", [match_id]
+        ).fetchone()
+        home_uid, away_uid = match
+        is_home = team_uid == home_uid
+        opp_uid = away_uid if is_home else home_uid
+
+        home_adv = _memo_get(memo, ("home_advantage", ts_model_version), lambda: con.execute(
+            "SELECT home_advantage FROM team_strength_model_versions WHERE model_version = ?", [ts_model_version]
+        ).fetchone()[0])
+
+        own_attack, own_defence = _team_strength(con, ts_model_version, team_uid, memo)
+        opp_attack, opp_defence = _team_strength(con, ts_model_version, opp_uid, memo)
+
+        adv_own = home_adv if is_home else 0.0
+        adv_opp = home_adv if not is_home else 0.0
+        lambda_for = math.exp(own_attack - opp_defence + adv_own)
+        lambda_against = math.exp(opp_attack - own_defence + adv_opp)
+        return lambda_for, lambda_against, is_home
+
+    return _memo_get(memo, ("fixture_lambdas", team_uid, match_id, ts_model_version), compute)
+
+
+@functools.lru_cache(maxsize=8192)
 def _expected_floor_half(lam: float, max_k: int = 15) -> float:
     """E[floor(X/2)] for X ~ Poisson(lam) -- the exact expectation under FPL's -1-per-2-
     conceded rule, not a linear approximation."""
@@ -599,9 +652,14 @@ def plackett_luce_rank_distribution(strengths: dict[str, float]) -> dict[str, tu
     """P(rank1=i), P(rank2=i), P(rank3=i) via sequential marginalization (M3 spec's
     formula, applied literally). Exposed separately from plackett_luce_bonus() so M4 can
     reconstruct bonus's full categorical distribution over {0,1,2,3} points, not just its
-    mean -- Var[bonus] needs the whole distribution, not E[bonus] alone."""
-    players = list(strengths.keys())
-    total = sum(strengths.values())
+    mean -- Var[bonus] needs the whole distribution, not E[bonus] alone.
+
+    Players are summed in sorted order, not the caller's dict order: the strengths usually come
+    from a DISTINCT/JOIN query with no fixed row order, and float sums taken in a different
+    order differ in the last bits, which was enough to change the optimizer's squad between
+    otherwise identical runs (docs/reports/2026-10_open_issues.md, issue 2)."""
+    players = sorted(strengths)
+    total = sum(strengths[p] for p in players)
     if total <= 0 or len(players) == 0:
         return {p: (0.0, 0.0, 0.0) for p in players}
 
@@ -670,8 +728,32 @@ def plackett_luce_bonus(strengths: dict[str, float]) -> dict[str, float]:
 # penalty check already did ("penalt" in duty.lower()), not an exact-string enum.
 # ============================================================
 
+def _player_claims(
+    con: duckdb.DuckDBPyConnection, asof: datetime, player_uid: str, claim_type: str, memo: dict | None,
+) -> list[dict]:
+    """The player's claims of one type visible as of `asof`. With a memo, one query fetches
+    every player's claims of that type and later calls read from it -- the per-player query
+    and its DataFrame round trip ran ~17k times in two season-simulation gameweeks."""
+    if memo is None:
+        return snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type=claim_type,
+        ).to_dict("records")
+
+    def by_player():
+        out: dict[str, list[dict]] = {}
+        records = snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", claim_type=claim_type,
+        ).to_dict("records")
+        for c in records:
+            out.setdefault(c["subject_entity_id"], []).append(c)
+        return out
+
+    return _memo_get(memo, ("player_claims", asof, claim_type), by_player).get(player_uid, [])
+
+
 def _set_piece_goal_uplift_multiplier(
     con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
+    *, memo: dict | None = None,
 ) -> float:
     """1.0 (no-op) unless an asof-visible set_piece_order_override claim confirms this player
     as the PRIMARY penalty OR free-kick taker, in which case a small, versioned multiplicative
@@ -683,9 +765,7 @@ def _set_piece_goal_uplift_multiplier(
     unpinned constant here, flagged for M7 recalibration once real per-taker outcome data
     exists to fit them against. Checks penalty duty first (the higher-signal, more-established
     case) so a claim naming both somehow still resolves to the larger, more-defensible number."""
-    claims = snapshot_mod.get_claims_asof(
-        con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="set_piece_order_override",
-    ).to_dict("records")
+    claims = _player_claims(con, asof, player_uid, "set_piece_order_override", memo)
     penalty_claim, free_kick_claim = False, False
     for c in claims:
         if not c["claim_value"]:
@@ -713,6 +793,7 @@ def _set_piece_goal_uplift_multiplier(
 
 def _set_piece_assist_uplift_multiplier(
     con: duckdb.DuckDBPyConnection, player_uid: str, asof: datetime, set_piece_params_version: int,
+    *, memo: dict | None = None,
 ) -> float:
     """1.0 (no-op) unless an asof-visible claim confirms this player as the PRIMARY corner OR
     free-kick DELIVERY taker, in which case a single versioned multiplicative uplift is applied
@@ -723,9 +804,7 @@ def _set_piece_assist_uplift_multiplier(
     duty from out-swinging delivery duty in the source data anyway, so a free-kick claim
     legitimately contributes to BOTH this and the goal uplift above -- both are real possible
     sources of extra value from that role, not double-counting the same one)."""
-    claims = snapshot_mod.get_claims_asof(
-        con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="set_piece_order_override",
-    ).to_dict("records")
+    claims = _player_claims(con, asof, player_uid, "set_piece_order_override", memo)
     for c in claims:
         if not c["claim_value"]:
             continue
@@ -788,15 +867,19 @@ def compute_player_fixture_components(
     rate_shrinkage_params_version: int | None = None,
     assist_ratio: float = 1.0,
     finishing_prior_xg: float | None = None,
+    memo: dict | None = None,
 ) -> dict:
     rates = player_rates_shrunk(
         con, player_uid, position, season_priority, rate_shrinkage_params_version, finishing_prior_xg=finishing_prior_xg,
+        memo=memo,
     )
-    def_rates = _defensive_action_rates_per_90(con, player_uid, position, season_priority, rate_shrinkage_params_version)
+    def_rates = _defensive_action_rates_per_90(
+        con, player_uid, position, season_priority, rate_shrinkage_params_version, memo=memo,
+    )
     e_min_played = expected_minutes_given_played(p_1_59, p_60plus, mean_minutes)
     p_played = p_1_59 + p_60plus
 
-    lambda_for, lambda_against, is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version)
+    lambda_for, lambda_against, is_home = _fixture_lambdas(con, team_uid, match_id, ts_model_version, memo=memo)
 
     # ---- appearance ----
     ep_appearance = (
@@ -813,13 +896,13 @@ def compute_player_fixture_components(
     if fixture_params_version is not None:
         fixture_mult = _fixture_attack_multiplier(
             con, team_uid, match_id, target_season or season_priority[0],
-            ts_model_version, fixture_params_version,
+            ts_model_version, fixture_params_version, memo=memo,
         )
         e_goals *= fixture_mult
         e_assists *= fixture_mult
     if asof is not None and set_piece_params_version is not None:
-        e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
-        e_assists *= _set_piece_assist_uplift_multiplier(con, player_uid, asof, set_piece_params_version)
+        e_goals *= _set_piece_goal_uplift_multiplier(con, player_uid, asof, set_piece_params_version, memo=memo)
+        e_assists *= _set_piece_assist_uplift_multiplier(con, player_uid, asof, set_piece_params_version, memo=memo)
     ep_goals = e_goals * _sm(con, "goal_points", scoring_params_version, position)
     ep_assists = e_assists * _sm(con, "assist_points", scoring_params_version)
 
@@ -848,10 +931,10 @@ def compute_player_fixture_components(
     defence_defcon_mult = defence_saves_mult = 1.0
     if fixture_params_version is not None:
         defence_defcon_mult = _fixture_defensive_multiplier(
-            con, team_uid, match_id, ts_model_version, fixture_params_version, "defcon_sensitivity",
+            con, team_uid, match_id, ts_model_version, fixture_params_version, "defcon_sensitivity", memo=memo,
         )
         defence_saves_mult = _fixture_defensive_multiplier(
-            con, team_uid, match_id, ts_model_version, fixture_params_version, "save_sensitivity",
+            con, team_uid, match_id, ts_model_version, fixture_params_version, "save_sensitivity", memo=memo,
         )
 
     ep_defcon = 0.0
@@ -941,19 +1024,28 @@ def run(
     rate_shrinkage_params_version: int | None = None,
     assist_calibration_params_version: int | None = None,
     finishing_skill_params_version: int | None = None,
+    memo: dict | None = None,
 ) -> int:
+    # memo (see new_memo()): pass one memo to every run() -- and the uncertainty.run() calls --
+    # made against the same asof view, so each player's rates are built once for the whole
+    # planning horizon rather than once per gameweek. None builds a fresh one for this call.
+    if memo is None:
+        memo = new_memo()
     # set_piece_params_version defaults to 1 (was None): the confirmed-primary penalty/free-kick
     # taker e_goals/e_assists uplift (_set_piece_goal_uplift_multiplier, built as Priority 7b but
     # never actually called by any live entrypoint) is now ON. It is a per-player no-op unless an
     # asof-visible set_piece_order_override primary claim exists -- so historical seasons with no
     # such claims are unaffected. Pass None to opt out.
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
-    mean_minutes = _mean_minutes_by_bucket(con)
+    mean_minutes = _memo_get(memo, ("mean_minutes",), lambda: _mean_minutes_by_bucket(con))
     # None keeps xA-based assists unchanged; a version applies the fitted FPL/xA ratio.
     assist_ratio_by_position: dict[str, float] = {}
     if assist_calibration_params_version is not None:
         prior_xa, _ = params_mod.resolve_param(con, "fpl_assist_calibration_params", "prior_xa", assist_calibration_params_version)
-        assist_ratio_by_position = fpl_assist_ratio_by_position(con, list(lookback_seasons), prior_xa)
+        assist_ratio_by_position = _memo_get(
+            memo, ("assist_ratio", tuple(lookback_seasons), prior_xa),
+            lambda: fpl_assist_ratio_by_position(con, list(lookback_seasons), prior_xa),
+        )
     finishing_prior_xg = resolve_finishing_prior(con, finishing_skill_params_version)
     # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()
     # already established -- a claim ingested at 09:34 on the asof date itself is legitimately
@@ -962,11 +1054,18 @@ def run(
 
     fixtures = con.execute(
         "SELECT match_id, home_team_uid, away_team_uid FROM fact_match "
-        "WHERE season = ? AND gameweek = ? AND competition = ?",
+        "WHERE season = ? AND gameweek = ? AND competition = ? ORDER BY kickoff_time, match_id",
         [target_season, target_gameweek, PL],
     ).fetchall()
     if not fixtures:
         raise ValueError(f"no {PL} fixtures found for {target_season} GW{target_gameweek}")
+    teams_table = reconcile_mod._season_root_table(con, target_season, "teams.csv")[1]
+    minutes_by_player = _memo_get(memo, ("minutes", mm_model_version), lambda: {
+        uid: (p_0, p_1_59, p_60plus) for uid, p_0, p_1_59, p_60plus in con.execute(
+            "SELECT player_uid, p_0min, p_1_59min, p_60plus_min FROM minutes_model_outputs WHERE model_version = ?",
+            [mm_model_version],
+        ).fetchall()
+    })
 
     model_version = con.execute(
         """
@@ -987,6 +1086,8 @@ def run(
     for match_id, home_uid, away_uid in fixtures:
         fixture_rows = []
         for team_uid in (home_uid, away_uid):
+            # ORDER BY: DISTINCT returns rows in a different order on every run once DuckDB uses
+            # more than one thread, and the order reaches the bonus model's float sums.
             roster = con.execute(
                 """
                 SELECT DISTINCT dp.player_uid, dp.position
@@ -995,7 +1096,8 @@ def run(
                 JOIN "{}" t ON t.code = pa.team_code
                 JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = pa.season
                 WHERE pa.season = ? AND ta.team_uid = ?
-                """.format(reconcile_mod._season_root_table(con, target_season, "teams.csv")[1]),
+                ORDER BY dp.player_uid
+                """.format(teams_table),
                 [target_season, team_uid],
             ).fetchall()
             for player_uid, position in roster:
@@ -1004,10 +1106,7 @@ def run(
                     # into players.csv -- not a real squad player, skip rather than crash
                     # on an unseeded scoring-matrix lookup.
                     continue
-                mrow = con.execute(
-                    "SELECT p_0min, p_1_59min, p_60plus_min FROM minutes_model_outputs "
-                    "WHERE model_version = ? AND player_uid = ?", [mm_model_version, player_uid],
-                ).fetchone()
+                mrow = minutes_by_player.get(player_uid)
                 if not mrow:
                     continue
                 p_0, p_1_59, p_60plus = mrow
@@ -1020,6 +1119,7 @@ def run(
                     rate_shrinkage_params_version=rate_shrinkage_params_version,
                     assist_ratio=assist_ratio_by_position.get(position, 1.0),
                     finishing_prior_xg=finishing_prior_xg,
+                    memo=memo,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

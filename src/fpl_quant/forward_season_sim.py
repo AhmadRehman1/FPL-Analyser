@@ -469,13 +469,10 @@ def run_forward_season_sim(
                 }
 
             # ---- score this gameweek on projected EP ----
-            horizon_versions = transfer_planner.compute_horizon_ep(
-                con, asof, target_season, gw, ts_mv, mm_mv, 1,
-                versions["scoring_params_version"], versions["bps_params_version"], versions["tau_params_version"],
-                versions["rho_residual_params_version"], versions["corr_params_version"],
-                rate_shrinkage_params_version=versions["rate_shrinkage_params_version"],
-            )
-            ep_mv_gw, un_mv_gw = horizon_versions.get(gw, (None, None))
+            # The plan run just projected this gameweek from the same asof, models and params;
+            # re-running ep.run()/uncertainty.run() for it gave the same numbers at the cost of
+            # one more projection per gameweek.
+            ep_mv_gw, un_mv_gw = transfer_planner.plan_gameweek_versions(con, plan_run_id, gw) or (None, None)
             holdings = transfer_planner._read_holdings(con, state_version)
             if accept_chip == "free_hit" and free_hit_squad is not None:
                 xi = frozenset(h["player_uid"] for h in free_hit_squad if h["in_xi"])

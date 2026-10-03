@@ -131,3 +131,18 @@ def test_get_or_create_version_respects_dimensions(con):
     # same value, different dimensions -- each gets its own version, neither collides
     assert v_official == 1
     assert v_community == 2
+
+
+def test_resolve_param_caches_hits_but_never_misses(con):
+    """resolve_param() memoizes per connection (a season-simulation gameweek made ~90k lookups),
+    which is safe because a written row never changes. A miss must not be cached: the row can
+    be written afterwards."""
+    from fpl_quant import params as params_mod
+
+    with pytest.raises(params_mod.ParamNotFoundError):
+        params_mod.resolve_param(con, "cache_test_params", "k", 1)
+    params_mod.write_param(con, "cache_test_params", 1, "2026-10-01", "k", value_numeric=2.5)
+    assert params_mod.resolve_param(con, "cache_test_params", "k", 1) == (2.5, None)
+    params_mod.write_param(con, "cache_test_params", 2, "2026-10-01", "k", value_numeric=3.5)
+    assert params_mod.resolve_param(con, "cache_test_params", "k", 2) == (3.5, None)
+    assert params_mod.resolve_param(con, "cache_test_params", "k", 1) == (2.5, None)

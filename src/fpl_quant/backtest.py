@@ -394,6 +394,11 @@ def run_gameweek_step(
     divergence_passed = None
 
     with asof_scope(con, season, gameweek, backtest_evidence=backtest_evidence):
+        # One memo for the step's M3/M4/M6 calls (same asof view), and one lookback for all three
+        # so they share it: a later season's rows are already shadowed out, so naming it in
+        # M4/M6's default lookback changed nothing but the memo key.
+        memo = ep.new_memo()
+        lookback = lookback_seasons_for(season)
         ts_model_version = team_strength.calibrate(
             con, calibration_asof_date, xi_params_version, rho_params_version,
             target_season=season, fit_seasons=fit_seasons_for(season),
@@ -408,16 +413,18 @@ def run_gameweek_step(
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
-            lookback_seasons=lookback_seasons_for(season),
+            lookback_seasons=lookback,
             set_piece_params_version=set_piece_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             assist_calibration_params_version=assist_calibration_params_version,
             finishing_skill_params_version=finishing_skill_params_version,
+            memo=memo,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
+            season_priority=lookback, memo=memo,
         )
         try:
             so_run_id = squad_optimizer.run(
@@ -441,7 +448,7 @@ def run_gameweek_step(
             mc_model_version = monte_carlo.run(
                 con, calibration_asof_date, so_run_id, ep_model_version, mm_model_version, ts_model_version,
                 un_model_version, scoring_params_version, tau_params_version, rho_residual_params_version,
-                n_antithetic_pairs=n_antithetic_pairs,
+                n_antithetic_pairs=n_antithetic_pairs, season_priority=lookback, memo=memo,
             )
 
     con.execute(
@@ -1511,15 +1518,18 @@ def run_season_simulation(
             shrinkage_params_version, fact_multiplier_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
         )
+        bootstrap_memo = ep.new_memo()
         ep_mv = ep.run(
             con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
             scoring_params_version, bps_params_version, tau_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             lookback_seasons=lookback_seasons_for(season),
+            memo=bootstrap_memo,
         )
         un_mv = uncertainty.run(
             con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
             tau_params_version, rho_residual_params_version, corr_params_version,
+            season_priority=lookback_seasons_for(season), memo=bootstrap_memo,
         )
         bootstrap_run_id = squad_optimizer.run(
             con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,

@@ -336,6 +336,7 @@ def compute_horizon_ep(
     corr_params_version: int,
     set_piece_params_version: int | None = 1,
     rate_shrinkage_params_version: int | None = None,
+    memo: dict | None = None,
 ) -> dict[int, tuple[int, int]]:
     """One ep.run() + uncertainty.run() pair per gameweek in [start_gameweek,
     start_gameweek+horizon_gameweeks), reusing the same ts_model_version/mm_model_version
@@ -353,7 +354,14 @@ def compute_horizon_ep(
     is confirmed, same as it already does for rho_residual_params_version above -- otherwise
     the multi-gameweek horizon that actually drives transfer/captain recommendations would
     silently keep using the stale default even after a recalibration lands.
+
+    memo (expected_points.new_memo()): every gameweek here is projected from the same asof
+    view, so the players' rates and the fixture lambdas are built once and shared by all of
+    them (docs/reports/2026-10_open_issues.md, issue 3). None builds one for this call; a
+    caller making several calls against the same view can pass its own.
     """
+    if memo is None:
+        memo = ep.new_memo()
     out = {}
     for gw in range(start_gameweek, start_gameweek + horizon_gameweeks):
         try:
@@ -362,6 +370,7 @@ def compute_horizon_ep(
                 scoring_params_version, bps_params_version, tau_params_version,
                 set_piece_params_version=set_piece_params_version,
                 rate_shrinkage_params_version=rate_shrinkage_params_version,
+                memo=memo,
             )
         except ValueError:
             continue
@@ -369,6 +378,7 @@ def compute_horizon_ep(
             con, calibration_asof_date, ep_mv, mm_model_version, ts_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
+            memo=memo,
         )
         out[gw] = (ep_mv, un_mv)
     return out
@@ -642,7 +652,7 @@ def evaluate_transfers(
             club_counts[info["club"]] = club_counts.get(info["club"], 0) + 1
 
     results = []
-    for out_uid in current_uids:
+    for out_uid in sorted(current_uids):
         out_info = horizon_ep.get(out_uid)
         if out_info is None:
             continue
@@ -686,7 +696,9 @@ def evaluate_transfers(
                 result["timing_advice"] = transfer_timing_advice(in_risk, out_risk)
             results.append(result)
 
-    results.sort(key=lambda r: r["net_value"], reverse=True)
+    # Ties (two sales worth exactly the same, e.g. two injured players at 0 EP) go to the
+    # lower player_uid, not to set iteration order, which changes with PYTHONHASHSEED.
+    results.sort(key=lambda r: (-r["net_value"], r["player_out"], r["player_in"]))
     for rank, r in enumerate(results, start=1):
         r["rank"] = rank
     return results
@@ -707,7 +719,7 @@ def _bounded_incoming_pool(horizon_ep: dict, current_uid_set: set, candidate_poo
         by_position.setdefault(info["position"], []).append({"player_uid": uid, **info})
     bounded = []
     for candidates in by_position.values():
-        candidates.sort(key=lambda c: c["total_ep"], reverse=True)
+        candidates.sort(key=lambda c: (-c["total_ep"], c["player_uid"]))
         bounded.extend(candidates[:candidate_pool_limit_per_position])
     return bounded
 
@@ -809,7 +821,7 @@ def evaluate_multi_transfers(
                 "net_value": horizon_value_gain - transfer_cost,
             })
 
-    results.sort(key=lambda r: r["net_value"], reverse=True)
+    results.sort(key=lambda r: (-r["net_value"], r["players_out"], r["players_in"]))
     for rank, r in enumerate(results, start=1):
         r["rank"] = rank
     return results[:top_n]
@@ -1008,7 +1020,7 @@ def ensure_squad_simulation(
     con: duckdb.DuckDBPyConnection, state_version: int, calibration_asof_date: date, target_season: str,
     target_gameweek: int, ep_model_version: int, mm_model_version: int, ts_model_version: int,
     uncertainty_model_version: int, scoring_params_version: int, tau_params_version: int,
-    rho_residual_params_version: int, n_antithetic_pairs: int = 5000,
+    rho_residual_params_version: int, n_antithetic_pairs: int = 5000, memo: dict | None = None,
 ) -> int:
     """Runs M6's real monte_carlo.run() against the manager's *actual* current holdings for
     one gameweek, via a real manager-snapshot squad_optimizer_runs row (see
@@ -1022,7 +1034,7 @@ def ensure_squad_simulation(
     return monte_carlo.run(
         con, calibration_asof_date, snapshot_run_id, ep_model_version, mm_model_version, ts_model_version,
         uncertainty_model_version, scoring_params_version, tau_params_version, rho_residual_params_version,
-        n_antithetic_pairs=n_antithetic_pairs,
+        n_antithetic_pairs=n_antithetic_pairs, memo=memo,
     )
 
 
@@ -1093,7 +1105,7 @@ def evaluate_triple_captain(
     ]
     if not scored:
         return {"recommended": False, "reason": "no simulated XI players found for this model_version"}
-    scored.sort(key=lambda r: r["tc_score"], reverse=True)
+    scored.sort(key=lambda r: (-r["tc_score"], r["player_uid"]))
     best = scored[0]
     captain_value_per_gw = (horizon_ep_map or {}).get(best["player_uid"], {}).get("per_gw", {})
     recommended = True
@@ -1654,6 +1666,8 @@ def run(
     if not current_holdings:
         raise ValueError(f"manager_state_version={input_state_version} has no holdings -- cannot plan")
 
+    # One memo for every projection this call makes: they all read the same asof view.
+    memo = ep.new_memo()
     if horizon_ep_versions is None:
         horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
         horizon_ep_versions = compute_horizon_ep(
@@ -1661,6 +1675,7 @@ def run(
             int(horizon_gameweeks), scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
+            memo=memo,
         )
 
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
@@ -1695,12 +1710,23 @@ def run(
         if target_gameweek < GW19_DEADLINE_GAMEWEEK:
             timing_window_gameweeks = min(timing_window_gameweeks, GW19_DEADLINE_GAMEWEEK - target_gameweek)
         if timing_window_gameweeks > 0:
-            season_horizon_ep_versions = compute_horizon_ep(
-                con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
-                timing_window_gameweeks, scoring_params_version, bps_params_version, tau_params_version,
-                rho_residual_params_version, corr_params_version,
-                rate_shrinkage_params_version=rate_shrinkage_params_version,
-            )
+            # The window starts with the planning horizon's own gameweeks, projected from the
+            # same inputs a moment ago; only the weeks past it need projecting.
+            window = range(target_gameweek, target_gameweek + timing_window_gameweeks)
+            extra: dict[int, tuple[int, int]] = {}
+            for gw in window:
+                if gw not in horizon_ep_versions:
+                    extra.update(compute_horizon_ep(
+                        con, calibration_asof_date, target_season, gw, ts_model_version, mm_model_version,
+                        1, scoring_params_version, bps_params_version, tau_params_version,
+                        rho_residual_params_version, corr_params_version,
+                        rate_shrinkage_params_version=rate_shrinkage_params_version,
+                        memo=memo,
+                    ))
+            season_horizon_ep_versions = {
+                gw: horizon_ep_versions[gw] if gw in horizon_ep_versions else extra[gw]
+                for gw in window if gw in horizon_ep_versions or gw in extra
+            }
             if triple_captain_timing_params_version is not None:
                 season_horizon_ep_map = _horizon_ep_by_player(con, target_season, season_horizon_ep_versions)
 
@@ -1737,7 +1763,7 @@ def run(
         mc_model_version = ensure_squad_simulation(
             con, input_state_version, calibration_asof_date, target_season, target_gameweek, ep_mv,
             mm_model_version, ts_model_version, un_mv, scoring_params_version, tau_params_version,
-            rho_residual_params_version,
+            rho_residual_params_version, memo=memo,
         )
         tc_result = evaluate_triple_captain(
             con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map,
@@ -1932,6 +1958,19 @@ def pick_lineup(
     captain = captain_uid if captain_uid in xi_ep else reporting.rank_captain(xi_ep, var_by_uid)
     vice = reporting.rank_captain({u: v for u, v in xi_ep.items() if u != captain}, var_by_uid)
     return {"xi": frozenset(xi), "captain": captain, "vice": vice}
+
+
+def plan_gameweek_versions(con: duckdb.DuckDBPyConnection, run_id: int, gameweek: int) -> tuple[int, int] | None:
+    """(ep_model_version, uncertainty_model_version) a plan run projected `gameweek` with, or
+    None when its horizon has no projection for that week (a blank, or past the horizon)."""
+    row = con.execute(
+        "SELECT ep_model_versions, uncertainty_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id]
+    ).fetchone()
+    if not row or not row[0] or not row[1]:
+        return None
+    ep_mv = json.loads(row[0]).get(str(gameweek))
+    un_mv = json.loads(row[1]).get(str(gameweek))
+    return None if ep_mv is None or un_mv is None else (ep_mv, un_mv)
 
 
 def _gameweek_lineup(

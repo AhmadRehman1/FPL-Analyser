@@ -818,3 +818,50 @@ def test_finishing_ratios_rebuild_a_snapshot_season_from_match_grain(con):
     g, a = ep.finishing_ratios(con, "snap", ["2024-2025"], prior_xg=5.0)
     assert g == pytest.approx((10 + 5) / (5.0 + 5))   # 10 goals from 0.5 xG/90 x 900 min = 5 xG
     assert a == pytest.approx((0 + 5) / (2.5 + 5))    # 0 assists from 2.5 xA
+
+
+def test_shared_memo_gives_the_same_projection_as_separate_runs(tmp_path):
+    """compute_horizon_ep() shares one memo across its gameweeks (and with uncertainty.run());
+    the projections must be bit-for-bit those of independent runs without one."""
+    from fpl_quant import backtest as bt
+    from fpl_quant import db
+    from fpl_quant import minutes_model, team_strength
+    from fpl_quant import transfer_planner as tp
+    from fpl_quant import uncertainty as un
+    from tests.test_backtest import _seed_season_simulation_league
+
+    outputs = []
+    for shared in (True, False):
+        con = db.connect(tmp_path / f"memo_{shared}.duckdb")
+        _seed_season_simulation_league(con)
+        with bt.asof_scope(con, "2025-2026", 3, schedule_horizon_gameweeks=3) as deadline:
+            asof = deadline.date()
+            ts_mv = team_strength.calibrate(con, asof, 1, 1, target_season="2025-2026", fit_seasons=("2024-2025", "2025-2026"))
+            mm_mv = minutes_model.run(con, asof, "2025-2026", 1, 1, 1, 1)
+            if shared:
+                versions = tp.compute_horizon_ep(con, asof, "2025-2026", 3, ts_mv, mm_mv, 3, 1, 1, 1, 1, 1)
+            else:
+                versions = {}
+                for gw in (3, 4, 5):
+                    ep_mv = ep.run(con, asof, "2025-2026", gw, ts_mv, mm_mv, 1, 1, 1)
+                    versions[gw] = (ep_mv, un.run(con, asof, ep_mv, mm_mv, ts_mv, 1, 1, 1, 1, 1))
+        rows = {}
+        for gw, (ep_mv, un_mv) in versions.items():
+            rows[gw] = (
+                con.execute(
+                    "SELECT player_uid, fixture_match_id, ep_total, ep_bonus, expected_bps FROM ep_outputs "
+                    "WHERE model_version = ? ORDER BY 1, 2", [ep_mv],
+                ).fetchall(),
+                con.execute(
+                    "SELECT player_uid, var_total, quantile_95 FROM uncertainty_outputs WHERE model_version = ? ORDER BY 1",
+                    [un_mv],
+                ).fetchall(),
+                con.execute(
+                    "SELECT player_uid_a, player_uid_b, covariance FROM cross_player_covariance "
+                    "WHERE model_version = ? ORDER BY 1, 2", [un_mv],
+                ).fetchall(),
+            )
+        outputs.append(rows)
+        con.close()
+    assert sorted(outputs[0]) == [3, 4, 5]
+    assert outputs[0] == outputs[1]
