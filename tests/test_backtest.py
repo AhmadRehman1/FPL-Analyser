@@ -3953,3 +3953,178 @@ def test_season_real_benchmark_scores_net_points_on_gameweeks_with_a_real_averag
 def test_season_real_benchmark_without_a_real_average():
     out = bt.season_real_benchmark([60.0], [0.0], [None])
     assert out["n_gameweeks"] == 0 and out["beats_real_avg_per_gw"] is None
+
+
+# ============================================================
+# _choose_transfer_move -- two transfers in a week, and the hit that comes with them
+# (docs/reports/2026-10_open_issues.md, issue 0)
+# ============================================================
+
+def _add_multi_recommendation(con, run_id, net_value, transfer_cost):
+    con.execute(
+        "INSERT INTO multi_transfer_recommendations (run_id, rank, players_out, players_in, combined_price_out, "
+        "combined_price_in, horizon_value_gain, transfer_cost, net_value) "
+        "VALUES (?, 1, '[\"o1\", \"o2\"]', '[\"i1\", \"i2\"]', 10.0, 10.0, ?, ?, ?)",
+        [run_id, net_value + transfer_cost, transfer_cost, net_value],
+    )
+
+
+def test_choose_transfer_move_takes_the_double_only_when_it_beats_the_single_net_of_its_hit(con):
+    run_id = _seed_plan_run_with_recommendations(con, top_transfer_net_value=4.0)
+    _add_multi_recommendation(con, run_id, net_value=6.5, transfer_cost=4.0)   # gain 10.5 - 4 hit
+    move = bt._choose_transfer_move(con, run_id, 0.0, include_multi=True)
+    assert (move["kind"], move["rank"], move["transfer_cost"]) == ("multi", 1, 4.0)
+
+    run_id = _seed_plan_run_with_recommendations(con, top_transfer_net_value=4.0)
+    _add_multi_recommendation(con, run_id, net_value=3.5, transfer_cost=4.0)   # the second move isn't worth the -4
+    assert bt._choose_transfer_move(con, run_id, 0.0, include_multi=True)["kind"] == "single"
+
+
+def test_choose_transfer_move_ignores_doubles_unless_asked_and_respects_the_threshold(con):
+    run_id = _seed_plan_run_with_recommendations(con, top_transfer_net_value=4.0)
+    _add_multi_recommendation(con, run_id, net_value=9.0, transfer_cost=0.0)
+    assert bt._choose_transfer_move(con, run_id, 0.0, include_multi=False)["kind"] == "single"
+    assert bt._choose_transfer_move(con, run_id, 9.5, include_multi=True) is None
+
+
+def test_run_season_simulation_multi_transfers_are_opt_in_and_reach_the_planner(con, monkeypatch):
+    _seed_season_simulation_league(con)
+    seen = []
+    real_run = bt.transfer_planner.run
+
+    def _spy(*args, **kwargs):
+        seen.append(kwargs.get("multi_transfer_pool_limit_per_position"))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(bt.transfer_planner, "run", _spy)
+    result = bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=4, n_antithetic_pairs=200,
+        multi_transfer_params_version=1, **_SEASON_SIM_VERSIONS,
+    )
+    assert seen == [20, 20]
+    assert all("n_transfers" in a and "hit_cost" in a for a in result["actions"])
+    assert result["weekly_hits"] == [0.0] + [a["hit_cost"] for a in result["actions"]]
+
+
+# ============================================================
+# Chips burned at the first chance (docs/reports/2026-10_open_issues.md, issue 0b)
+# ============================================================
+
+def test_option_value_holds_an_ordinary_week_early_and_plays_it_near_the_deadline():
+    # five projected weeks with a captain's usual fixture swing (sd ~1 point); GW3 is good, not special
+    week = {3: 7.5, 4: 5.5, 5: 6.0, 6: 8.5, 7: 7.0}
+    # GW3 of a half that runs to GW18: eleven unseen weeks still to come -> keep it
+    assert bt._option_value_says_wait(week, 3, 18, decay=0.85, margin=0.5)
+    # the v1 rule only sees the five projected weeks and plays GW3 (GW6's 8.5 is discounted)
+    assert not bt._worth_waiting(week, 3, 18, decay=0.85, margin=0.5)
+    # the same week two gameweeks before the deadline: play it
+    late = {16: 7.5, 17: 5.5, 18: 6.0}
+    assert not bt._option_value_says_wait(late, 16, 18, decay=0.85, margin=0.5)
+    # an exceptional week (a double gameweek) is played even early
+    assert not bt._option_value_says_wait({**week, 3: 13.0}, 3, 18, decay=0.85, margin=0.5)
+    # missing data never holds a chip
+    assert not bt._option_value_says_wait({4: 9.0}, 3, 18, decay=0.85, margin=0.5)
+
+
+def test_continuation_value_without_unseen_weeks_is_the_discounted_best_later_week():
+    per_gw = {3: 6.0, 4: 12.0, 5: 6.0}
+    mean = 8.0
+    assert bt._continuation_value(per_gw, 3, 5, decay=0.85) == pytest.approx(mean + (12.0 - mean) * 0.85)
+
+
+def test_free_hit_value_per_gw_is_this_weeks_gain_against_the_current_xi_each_week():
+    detail = {"gain": 6.0, "current_xi_value_per_gw": {"3": 50.0, "4": 44.0, "5": 52.0}}
+    assert bt._free_hit_value_per_gw(detail) == {3: 6.0, 4: 12.0, 5: 4.0}
+
+
+def test_decide_gameweek_action_option_value_holds_early_and_reserves_a_week_per_waiting_chip(con):
+    from fpl_quant import transfer_planner as tp
+
+    tp.seed_v1_params(con)
+    ordinary = {"3": 7.5, "4": 5.5, "5": 6.0, "6": 8.5, "7": 7.0}
+    detail = {"triple_captain": {"best_captain_value_per_gw": ordinary}}
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("triple_captain",), target_gameweek=3, detail_by_chip=detail)
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, set(), set(), target_gameweek=3, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=2,
+    )
+    assert chip is None  # an ordinary week with fifteen to go: held
+
+    # GW17 with Free Hit and Bench Boost also unused: the first set's last week is GW19, so Triple
+    # Captain must go by GW19 - 2 = GW17
+    late = {"17": 7.0, "18": 9.0, "19": 9.0}
+    detail = {"triple_captain": {"best_captain_value_per_gw": late}}
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("triple_captain",), target_gameweek=17, detail_by_chip=detail)
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, set(), set(), target_gameweek=17, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=2,
+    )
+    assert chip == "triple_captain"
+    # with the other two already spent it can wait for GW18's better week
+    _rank, chip = bt._decide_gameweek_action(
+        con, run_id, {"free_hit", "bench_boost"}, set(), target_gameweek=17, accept_transfer_if_net_value_above=0.0,
+        chip_wait_params_version=2,
+    )
+    assert chip is None
+
+
+def test_season_simulation_shows_the_chip_timing_window_its_fixtures(con):
+    """The 10-week timing window used to see only the planning horizon's 5 weeks of fixtures,
+    so the --chip-timing arm played every chip in the same week as control."""
+    _seed_season_simulation_league(con, n_gameweeks=12)
+    result = bt.run_season_simulation(
+        con, "2025-2026", start_gameweek=2, end_gameweek=3, n_antithetic_pairs=200,
+        bench_boost_timing_params_version=1, triple_captain_timing_params_version=1, **_SEASON_SIM_VERSIONS,
+    )
+    plan_run_id = result["actions"][0]["plan_run_id"]
+    detail = json.loads(con.execute(
+        "SELECT detail FROM chip_evaluations WHERE run_id = ? AND chip_type = 'bench_boost'", [plan_run_id],
+    ).fetchone()[0])
+    assert sorted(int(gw) for gw in detail["season_all_gameweeks"]) == list(range(3, 13))
+    assert sorted(int(gw) for gw in detail["all_gameweeks"]) == list(range(3, 8))
+
+
+# ============================================================
+# Walk-forward time budget and resume (docs/reports/2026-10_open_issues.md: an arm hit the job's
+# 330-minute limit and left no summary at all)
+# ============================================================
+
+_WALK_KWARGS = {
+    k: v for k, v in _SEASON_SIM_VERSIONS.items()
+    if k not in ("horizon_params_version", "transfer_cost_params_version", "wildcard_threshold_params_version",
+                 "free_hit_threshold_params_version", "kappa_tc_params_version")
+}
+
+
+def _walk_metrics(con, run_id):
+    return con.execute(
+        "SELECT season, gameweek, metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ? ORDER BY 1, 2, 3",
+        [run_id],
+    ).fetchall()
+
+
+def test_walk_forward_stops_on_its_budget_and_a_resume_scores_what_one_run_would(tmp_path):
+    from fpl_quant import db
+
+    whole = db.connect(tmp_path / "whole.duckdb")
+    _seed_season_simulation_league(whole)
+    whole_run = bt.run(whole, n_antithetic_pairs=200, run_monte_carlo=False, seasons=("2025-2026",), **_WALK_KWARGS)
+    progress = bt.walk_forward_progress(whole, whole_run)
+    assert progress["complete"] and progress["steps_scored"] == progress["steps_planned"] > 2
+    assert progress["seasons"] == ["2025-2026"]
+
+    split = db.connect(tmp_path / "split.duckdb")
+    _seed_season_simulation_league(split)
+    run_id = bt.run(split, n_antithetic_pairs=200, run_monte_carlo=False, seasons=("2025-2026",),
+                    stop_after_seconds=1e-6, **_WALK_KWARGS)
+    stopped = bt.walk_forward_progress(split, run_id)
+    assert stopped["steps_scored"] == 1 and not stopped["complete"]
+
+    # a step cut off between its prediction and its scoring is walked again
+    con_steps = split.execute("SELECT count(*) FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [run_id]).fetchone()[0]
+    split.execute(
+        "INSERT INTO backtest_gameweek_steps (backtest_run_id, season, gameweek, tier, data_asof) "
+        "VALUES (?, '2025-2026', 7, 'warm', current_timestamp)", [run_id],
+    )
+    assert bt.run(split, n_antithetic_pairs=200, run_monte_carlo=False, resume_backtest_run_id=run_id, **_WALK_KWARGS) == run_id
+    assert bt.walk_forward_progress(split, run_id)["complete"]
+    assert con_steps == 1
+    assert _walk_metrics(split, run_id) == _walk_metrics(whole, whole_run)

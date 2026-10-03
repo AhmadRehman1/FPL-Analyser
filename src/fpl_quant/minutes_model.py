@@ -141,6 +141,9 @@ def compute_player_historical_components(
                 AND (coalesce(fpss.status, '') IN ('i', 's', 'u', 'n') OR coalesce(tmw.gameweek < reg.first_gw, FALSE))
             )
             GROUP BY pst.player_uid
+            -- fixed order: compute_position_rates() sums these rows in pandas, and GROUP BY's
+            -- own output order changes between runs
+            ORDER BY pst.player_uid
             """
         ).fetchdf()
     finally:
@@ -276,16 +279,39 @@ def _shrunk_conditional_rate(
 _SHIFT_CLAIM_TYPES = ("injury_status", "manager_tendency", "transfer_likelihood")
 
 
+def player_claims_by_type(
+    con: duckdb.DuckDBPyConnection, asof: datetime, claim_types: tuple[str, ...],
+) -> dict[tuple[str, str], list[dict]]:
+    """{(player_uid, claim_type): claims visible as of asof} for every player at once -- what
+    compute_logit_adjustment() otherwise fetches with four queries per player
+    (docs/reports/2026-10_open_issues.md, issue 3). Same rows, in get_claims_asof()'s order."""
+    out: dict[tuple[str, str], list[dict]] = {}
+    for claim_type in claim_types:
+        for c in snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", claim_type=claim_type,
+        ).to_dict("records"):
+            out.setdefault((c["subject_entity_id"], claim_type), []).append(c)
+    return out
+
+
 def compute_logit_adjustment(
     con: duckdb.DuckDBPyConnection, player_uid: str, p_start_historical_final: float, asof: datetime,
     adjustment_params_version: int, decay_params_version: int, fact_multiplier_params_version: int,
+    claims_by_type: dict[tuple[str, str], list[dict]] | None = None,
 ) -> float:
+    """claims_by_type: player_claims_by_type() for this asof, so a whole run fetches the
+    claims once. None queries this player's claims directly."""
+    def player_claims(claim_type: str) -> list[dict]:
+        if claims_by_type is not None:
+            return claims_by_type.get((player_uid, claim_type), [])
+        return snapshot_mod.get_claims_asof(
+            con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type=claim_type
+        ).to_dict("records")
+
     total = 0.0
 
     for claim_type in _SHIFT_CLAIM_TYPES:
-        claims = snapshot_mod.get_claims_asof(
-            con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type=claim_type
-        ).to_dict("records")
+        claims = player_claims(claim_type)
         for c in claims:
             payload = json.loads(c["claim_value"]) if c["claim_value"] else {}
             if claim_type == "transfer_likelihood" and payload.get("status") == "Complete":
@@ -308,9 +334,7 @@ def compute_logit_adjustment(
             w = eb.effective_weight(con, c, asof, decay_params_version, fact_multiplier_params_version)
             total += magnitude * w
 
-    claims = snapshot_mod.get_claims_asof(
-        con, asof, subject_entity_type="player", subject_entity_id=player_uid, claim_type="predicted_xi"
-    ).to_dict("records")
+    claims = player_claims("predicted_xi")
     if claims:
         try:
             pull_strength, _ = params_mod.resolve_param(
@@ -926,9 +950,11 @@ def run(
         SELECT DISTINCT dp.player_uid, dp.position
         FROM player_alias pa JOIN dim_player dp ON dp.player_uid = pa.player_uid
         WHERE pa.season = ?
+        ORDER BY dp.player_uid
         """,
         [target_season],
     ).fetchdf()
+    claims_by_type = player_claims_by_type(con, asof, (*_SHIFT_CLAIM_TYPES, "predicted_xi"))
 
     per_player_idx = per_player.set_index("player_uid")
 
@@ -976,6 +1002,7 @@ def run(
         adjustment = compute_logit_adjustment(
             con, player_uid, p_start_hist_final, asof,
             adjustment_params_version, decay_params_version, fact_multiplier_params_version,
+            claims_by_type=claims_by_type,
         )
         p_start_final = sigmoid(logit(p_start_hist_final) + adjustment)
 

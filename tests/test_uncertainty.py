@@ -308,3 +308,16 @@ def test_cross_player_covariance_no_signal_no_pair(con):
     un.seed_v1_params(con)
     pairs = un.cross_player_covariance_for_fixture(con, [a, b], "team_1", "team_2", corr_params_version=1)
     assert pairs == []
+
+
+def test_defcon_state_means_count_recoveries_for_midfielders_only(con):
+    """Same DefCon action set as expected_points: a defender's threshold counts CBIT only."""
+    ep.seed_v1_params(con)
+    ep_row = {"ep_defcon": 0.5, "lambda_against": 1.2, "ep_bonus": 0.3, "p_1_59": 0.1, "p_60plus": 0.85}
+    rates = {"expected_goals_per_90": 0.1, "expected_assists_per_90": 0.1, "saves_per_90": 0.0}
+    recoveries_only = {"cbi_per_90": 0.0, "recoveries_per_90": 15.0}
+    mean_minutes = {"mean_1_59": 30.0, "mean_60plus": 88.0}
+    defender = un.category_state_means(con, ep_row, "Defender", rates, recoveries_only, mean_minutes, 1)["defcon"]
+    midfielder = un.category_state_means(con, ep_row, "Midfielder", rates, recoveries_only, mean_minutes, 1)["defcon"]
+    assert defender[2] < 1e-6
+    assert midfielder[2] > 0.5

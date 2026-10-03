@@ -15,11 +15,13 @@ enforcement mechanism below (asof_scope) has to actually work, not just be plaus
 
 import json
 import math
+import time
 from collections import Counter
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
+from statistics import NormalDist, pstdev
 
 import duckdb
 import numpy as np
@@ -33,6 +35,7 @@ from . import ownership as ownership_mod
 from . import params as params_mod
 from . import recalibration_gate
 from . import reconcile
+from . import season_rules
 from . import squad_optimizer
 from . import team_strength
 from . import transfer_planner
@@ -348,6 +351,7 @@ def run_gameweek_step(
     backtest_evidence: bool = False,
     finishing_skill_params_version: int | None = None,
     minutes_price_prior_params_version: int | None = None,
+    bps_calibration_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -394,6 +398,11 @@ def run_gameweek_step(
     divergence_passed = None
 
     with asof_scope(con, season, gameweek, backtest_evidence=backtest_evidence):
+        # One memo for the step's M3/M4/M6 calls (same asof view), and one lookback for all three
+        # so they share it: a later season's rows are already shadowed out, so naming it in
+        # M4/M6's default lookback changed nothing but the memo key.
+        memo = ep.new_memo()
+        lookback = lookback_seasons_for(season)
         ts_model_version = team_strength.calibrate(
             con, calibration_asof_date, xi_params_version, rho_params_version,
             target_season=season, fit_seasons=fit_seasons_for(season),
@@ -408,16 +417,19 @@ def run_gameweek_step(
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
-            lookback_seasons=lookback_seasons_for(season),
+            lookback_seasons=lookback,
             set_piece_params_version=set_piece_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             assist_calibration_params_version=assist_calibration_params_version,
             finishing_skill_params_version=finishing_skill_params_version,
+            memo=memo,
+            bps_calibration_params_version=bps_calibration_params_version,
         )
         un_model_version = uncertainty.run(
             con, calibration_asof_date, ep_model_version, mm_model_version, ts_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
+            season_priority=lookback, memo=memo,
         )
         try:
             so_run_id = squad_optimizer.run(
@@ -441,7 +453,7 @@ def run_gameweek_step(
             mc_model_version = monte_carlo.run(
                 con, calibration_asof_date, so_run_id, ep_model_version, mm_model_version, ts_model_version,
                 un_model_version, scoring_params_version, tau_params_version, rho_residual_params_version,
-                n_antithetic_pairs=n_antithetic_pairs,
+                n_antithetic_pairs=n_antithetic_pairs, season_priority=lookback, memo=memo,
             )
 
     con.execute(
@@ -1113,12 +1125,30 @@ def run(
     backtest_evidence: bool = False,
     finishing_skill_params_version: int | None = None,
     minutes_price_prior_params_version: int | None = None,
+    bps_calibration_params_version: int | None = None,
+    seasons: tuple[str, ...] | None = None,
+    stop_after_seconds: float | None = None,
+    resume_backtest_run_id: int | None = None,
 ) -> int:
     """Full walk-forward pass over both historical seasons. Skips any (season, gameweek) that
     fails has_fittable_history() (2024-2025 GW1 in practice, per the cold-start guard) --
     warm_up_gameweeks records how many. Double gameweeks are walked like any other: every
     per-player reader sums a player's fixtures through the *_gameweek_outputs views
     (schema/0023_gameweek_views.sql).
+
+    seasons (None = both): walk only these seasons -- e.g. 2025-2026 alone, the season with
+    FPL's real average to pair against, in half the time.
+
+    stop_after_seconds: stop before a step that would likely run past this budget (judged on
+    the slowest step so far), so a job with a hard time limit ends with its scored steps and a
+    summary instead of being killed with nothing. The run records the steps it planned
+    (backtest_runs.steps_planned); walk_forward_progress() says how far it got.
+
+    resume_backtest_run_id: carry on a stopped run in the same DB, walking only its steps not
+    yet scored (a step stopped between its prediction and its scoring is walked again). The
+    run's own seasons are used unless `seasons` is given. Steps are independent -- each one
+    re-fits everything from that deadline's data -- so a resumed run scores what a single
+    uninterrupted one would.
 
     compute_segments/set_piece_params_version/ownership_params_version: Priority 9b/9c
     opt-in, passed straight through to score_gameweek() -- see its own docstring. Default off,
@@ -1136,18 +1166,43 @@ def run(
     run_gameweek_step()'s own same-named param -- see its docstring, and minutes_model.run()'s
     own docstring for the real incident this closes. None (the default) is the exact prior
     behavior."""
-    steps = [
-        (s, gw) for s, gw in ALL_SEASON_GAMEWEEKS
-        if has_fittable_history(con, s, gw)
-    ]
-    warm_up_gameweeks = len(ALL_SEASON_GAMEWEEKS) - len(steps)
+    if resume_backtest_run_id is not None and seasons is None:
+        stored = con.execute("SELECT seasons FROM backtest_runs WHERE backtest_run_id = ?", [resume_backtest_run_id]).fetchone()
+        if stored is None:
+            raise ValueError(f"no backtest_runs row for backtest_run_id={resume_backtest_run_id}")
+        seasons = tuple(json.loads(stored[0])) if stored[0] else None
+    in_scope = [(s, gw) for s, gw in ALL_SEASON_GAMEWEEKS if seasons is None or s in seasons]
+    steps = [(s, gw) for s, gw in in_scope if has_fittable_history(con, s, gw)]
+    warm_up_gameweeks = len(in_scope) - len(steps)
+    run_seasons = sorted({s for s, _gw in in_scope})
 
-    backtest_run_id = con.execute(
-        "INSERT INTO backtest_runs (warm_up_gameweeks, notes) VALUES (?, ?) RETURNING backtest_run_id",
-        [warm_up_gameweeks, notes],
-    ).fetchone()[0]
+    if resume_backtest_run_id is None:
+        backtest_run_id = con.execute(
+            "INSERT INTO backtest_runs (warm_up_gameweeks, notes, steps_planned, seasons) VALUES (?, ?, ?, ?) "
+            "RETURNING backtest_run_id",
+            [warm_up_gameweeks, notes, len(steps), json.dumps(run_seasons)],
+        ).fetchone()[0]
+    else:
+        backtest_run_id = resume_backtest_run_id
+        con.execute(
+            "DELETE FROM backtest_gameweek_steps s WHERE s.backtest_run_id = ? AND NOT EXISTS ("
+            "SELECT 1 FROM backtest_metrics m WHERE m.backtest_run_id = s.backtest_run_id "
+            "AND m.season = s.season AND m.gameweek = s.gameweek)",
+            [backtest_run_id],
+        )
+        done = set(con.execute(
+            "SELECT season, gameweek FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [backtest_run_id],
+        ).fetchall())
+        steps = [step for step in steps if step not in done]
 
+    started = time.monotonic()
+    slowest_step = 0.0
     for season, gameweek in steps:
+        if stop_after_seconds is not None and slowest_step and time.monotonic() - started + slowest_step > stop_after_seconds:
+            print(f"[backtest.run] time budget reached before {season} GW{gameweek}; "
+                  f"resume with resume_backtest_run_id={backtest_run_id}", flush=True)
+            break
+        step_started = time.monotonic()
         run_gameweek_step(
             con, backtest_run_id, season, gameweek,
             xi_params_version=xi_params_version, rho_params_version=rho_params_version,
@@ -1171,6 +1226,7 @@ def run(
             backtest_evidence=backtest_evidence,
             finishing_skill_params_version=finishing_skill_params_version,
             minutes_price_prior_params_version=minutes_price_prior_params_version,
+            bps_calibration_params_version=bps_calibration_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -1182,8 +1238,29 @@ def run(
             compute_segments=compute_segments, set_piece_params_version=set_piece_params_version,
             ownership_params_version=ownership_params_version,
         )
+        slowest_step = max(slowest_step, time.monotonic() - step_started)
 
     return backtest_run_id
+
+
+def walk_forward_progress(con: duckdb.DuckDBPyConnection, backtest_run_id: int) -> dict:
+    """How far a walk-forward run got: {"steps_planned", "steps_scored", "complete",
+    "seasons"}. steps_planned is None for a run written before it was recorded, and such a run
+    counts as complete."""
+    row = con.execute(
+        "SELECT steps_planned, seasons FROM backtest_runs WHERE backtest_run_id = ?", [backtest_run_id],
+    ).fetchone()
+    planned, seasons = (row[0], json.loads(row[1]) if row[1] else None) if row else (None, None)
+    scored = con.execute(
+        "SELECT count(*) FROM backtest_gameweek_steps s WHERE s.backtest_run_id = ? AND EXISTS ("
+        "SELECT 1 FROM backtest_metrics m WHERE m.backtest_run_id = s.backtest_run_id "
+        "AND m.season = s.season AND m.gameweek = s.gameweek)",
+        [backtest_run_id],
+    ).fetchone()[0]
+    return {
+        "steps_planned": planned, "steps_scored": scored, "seasons": seasons,
+        "complete": planned is None or scored >= planned,
+    }
 
 
 # ============================================================
@@ -1244,6 +1321,9 @@ CHIP_WAIT_FIELDS = {
     "bench_boost": ("season_all_gameweeks", "all_gameweeks"),
 }
 LAST_GAMEWEEK = 38
+# The chips chip_wait_params v2 (_option_value_says_wait()) times; Free Hit's per-week value is
+# derived from its own evaluation (_free_hit_value_per_gw()).
+OPTION_VALUE_CHIPS = ("free_hit", "bench_boost", "triple_captain")
 
 
 def _worth_waiting(per_gw: dict, target_gameweek: int, last_gameweek: int, decay: float, margin: float) -> bool:
@@ -1261,6 +1341,64 @@ def _worth_waiting(per_gw: dict, target_gameweek: int, last_gameweek: int, decay
     mean = sum(per_gw.values()) / len(per_gw)
     best_later = max(mean + (v - mean) * decay ** (gw - target_gameweek) for gw, v in later.items())
     return best_later > per_gw[target_gameweek] + margin
+
+
+def _expected_max_with_normal(mean: float, sd: float, floor: float) -> float:
+    """E[max(X, floor)] for X ~ Normal(mean, sd)."""
+    if sd <= 0:
+        return max(mean, floor)
+    alpha = (mean - floor) / sd
+    unit = NormalDist()
+    return floor + (mean - floor) * unit.cdf(alpha) + sd * unit.pdf(alpha)
+
+
+def _continuation_value(per_gw: dict, target_gameweek: int, last_gameweek: int, decay: float) -> float:
+    """What keeping a chip past target_gameweek is worth: the value of playing it in the best
+    later week, by backward induction from the last gameweek it can be played in.
+
+    A projected later week counts at mean + (value - mean) * decay**distance, the same discount
+    _worth_waiting() applies. A week past the projections is not known yet: its value is a draw
+    from a normal with the projected weeks' mean and spread, and the chip is played there only
+    when the draw beats waiting further (E[max(X, c)]). A chip unused after last_gameweek is
+    lost, worth 0. per_gw must hold target_gameweek."""
+    values = list(per_gw.values())
+    mean = sum(values) / len(values)
+    sd = pstdev(values) if len(values) > 1 else 0.0
+    last_projected = max(per_gw)
+    value_after = 0.0
+    for gw in range(last_gameweek, target_gameweek, -1):
+        if gw in per_gw:
+            value_after = max(mean + (per_gw[gw] - mean) * decay ** (gw - target_gameweek), value_after)
+        elif gw > last_projected:
+            value_after = _expected_max_with_normal(mean, sd, value_after)
+        # a gameweek inside the projections with no value (a blank for this chip) adds nothing
+    return value_after
+
+
+def _option_value_says_wait(per_gw: dict, target_gameweek: int, last_gameweek: int, decay: float, margin: float) -> bool:
+    """chip_wait_params v2: hold a chip when keeping it is worth more than playing it now by
+    more than margin -- counting every gameweek left before its deadline, not only the ones
+    projected. The v1 rule (_worth_waiting()) compares against the projected weeks alone, so
+    like the visible-horizon check it fired at the first week that beat the next few, which
+    comes early in a half with 15 weeks still to go: control played Bench Boost, Free Hit and
+    Triple Captain in GW3-6 and again in GW20-22 (docs/reports/2026-10_open_issues.md, issue
+    0b). Missing data never holds a chip."""
+    per_gw = {int(k): v for k, v in (per_gw or {}).items() if int(k) <= last_gameweek}
+    if target_gameweek not in per_gw or last_gameweek <= target_gameweek:
+        return False
+    return _continuation_value(per_gw, target_gameweek, last_gameweek, decay) > per_gw[target_gameweek] + margin
+
+
+def _free_hit_value_per_gw(detail: dict) -> dict:
+    """Free Hit's value by gameweek, from what evaluate_free_hit() computes: its gain this week,
+    and for a later week the same fresh XI against the current XI as projected then (a weaker
+    current XI that week is a better Free Hit week)."""
+    current = {int(k): v for k, v in (detail.get("current_xi_value_per_gw") or {}).items()}
+    gain = detail.get("gain")
+    if not current or gain is None:
+        return {}
+    now = min(current)
+    return {gw: gain + current[now] - value for gw, value in current.items()}
 
 
 def _is_best_gameweek_in_visible_horizon(per_gw: dict, target_gameweek: int, prefer: str) -> bool:
@@ -1316,27 +1454,63 @@ def _decide_gameweek_action(
 
     chip_wait_params_version (opt-in, None keeps all of the above): Triple Captain and Bench
     Boost use _worth_waiting() instead, in both chip sets -- judged on the best captain the XI
-    offers each week, not just this week's candidate, with far-off weeks discounted."""
+    offers each week, not just this week's candidate, with far-off weeks discounted.
+
+    A version carrying `unseen_weeks` (v2) uses _option_value_says_wait() for Triple Captain,
+    Bench Boost and Free Hit instead: every gameweek left in the half counts, not only the
+    projected ones. Each chip still waiting must be played by the half's last gameweek minus
+    one week per other chip still waiting, so they don't all reach the deadline together with
+    one chip a week to play them in."""
     chip_wait = None
+    option_value = False
     if chip_wait_params_version is not None:
         chip_wait = (
             params_mod.resolve_param(con, "chip_wait_params", "decay_per_gameweek", chip_wait_params_version)[0],
             params_mod.resolve_param(con, "chip_wait_params", "margin_points", chip_wait_params_version)[0],
         )
-    is_set1 = target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK
-    used_this_set = chips_used_set1 if is_set1 else chips_used_set2
+        try:
+            option_value = bool(params_mod.resolve_param(con, "chip_wait_params", "unseen_weeks", chip_wait_params_version)[0])
+        except params_mod.ParamNotFoundError:
+            option_value = False
+    # Which chips are still playable, and until when, is the season's rule (season_rules): two
+    # of each from 2025-26, while 2024-25 had one Free Hit, Bench Boost and Triple Captain for
+    # the whole season. The first half runs to GW19 inclusive.
+    plan_season = con.execute("SELECT target_season FROM transfer_plan_runs WHERE run_id = ?", [plan_run_id]).fetchone()
+    season = plan_season[0] if plan_season else None
+    is_set1 = season_rules.half_of(target_gameweek) == 1
+
+    def available(chip: str) -> bool:
+        return season_rules.chip_available(season, chip, target_gameweek, chips_used_set1, chips_used_set2)
+
+    def deadline(chip: str) -> int:
+        window = season_rules.chip_window(season, chip, target_gameweek)
+        return window[1] if window else target_gameweek
+
     rows = con.execute(
         "SELECT chip_type, recommended, detail FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
     ).fetchall()
     recommended = {chip_type: json.loads(detail or "{}") for chip_type, is_rec, detail in rows if is_rec}
 
     for candidate in CHIP_PRIORITY:
-        if candidate not in recommended or candidate in used_this_set:
+        if candidate not in recommended or not available(candidate):
             continue
+        per_gw: dict
+        if option_value and chip_wait is not None and candidate in OPTION_VALUE_CHIPS:
+            detail = recommended[candidate]
+            if candidate == "free_hit":
+                per_gw = _free_hit_value_per_gw(detail)
+            else:
+                per_gw = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
+            # one week per other waiting chip with the same deadline, so they don't collide
+            competing = [c for c in OPTION_VALUE_CHIPS if c != candidate and available(c) and deadline(c) == deadline(candidate)]
+            last_gameweek = deadline(candidate) - len(competing)
+            if _option_value_says_wait(per_gw, target_gameweek, last_gameweek, *chip_wait):
+                continue
+            return None, candidate
         if chip_wait is not None and candidate in CHIP_WAIT_FIELDS:
             detail = recommended[candidate]
-            per_gw: dict = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
-            last_gameweek = transfer_planner.GW19_DEADLINE_GAMEWEEK - 1 if is_set1 else LAST_GAMEWEEK
+            per_gw = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
+            last_gameweek = deadline(candidate)
             if _worth_waiting(per_gw, target_gameweek, last_gameweek, *chip_wait):
                 continue
             return None, candidate
@@ -1359,6 +1533,40 @@ def _decide_gameweek_action(
     if top and top[1] > accept_transfer_if_net_value_above:
         return top[0], None
     return None, None
+
+
+def _choose_transfer_move(
+    con: duckdb.DuckDBPyConnection, plan_run_id: int, accept_transfer_if_net_value_above: float,
+    *, include_multi: bool,
+) -> dict | None:
+    """The transfer move for a gameweek no chip is played in: the best single transfer, or --
+    include_multi -- the best two-transfer combination when it is worth more net of its hit.
+
+    Both net values are already after transfer costs (evaluate_transfers()/
+    evaluate_multi_transfers()), so taking the combination over the single means its second
+    transfer earns more than the -4 it costs when only one transfer is free; with two or more
+    free it costs nothing. A tie goes to the single (fewer transfers). The move is made only
+    when its net value clears accept_transfer_if_net_value_above, as before.
+
+    Returns {"kind": "single" | "multi", "rank", "net_value", "transfer_cost"} or None."""
+    moves = []
+    top = con.execute(
+        "SELECT rank, net_value, transfer_cost FROM transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1",
+        [plan_run_id],
+    ).fetchone()
+    if top:
+        moves.append({"kind": "single", "rank": top[0], "net_value": top[1], "transfer_cost": float(top[2] or 0.0)})
+    if include_multi:
+        top_multi = con.execute(
+            "SELECT rank, net_value, transfer_cost FROM multi_transfer_recommendations WHERE run_id = ? ORDER BY rank LIMIT 1",
+            [plan_run_id],
+        ).fetchone()
+        if top_multi:
+            moves.append({"kind": "multi", "rank": top_multi[0], "net_value": top_multi[1], "transfer_cost": float(top_multi[2] or 0.0)})
+    if not moves:
+        return None
+    best = max(moves, key=lambda m: (m["net_value"], m["kind"] == "single"))
+    return best if best["net_value"] > accept_transfer_if_net_value_above else None
 
 
 def run_season_simulation(
@@ -1401,6 +1609,7 @@ def run_season_simulation(
     minutes_bounds_params_version: int | None = None,
     chip_wait_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
+    multi_transfer_params_version: int | None = None,
     on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -1493,12 +1702,26 @@ def run_season_simulation(
     squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call this walk makes
     (None keeps each one's old behavior). Callers pass active_recalibratable_versions()'s.
 
+    multi_transfer_params_version (opt-in, None keeps one transfer a week at most): the planner
+    also searches two-transfer combinations, and a week with no chip makes the best of them
+    instead of the best single transfer when it is worth more net of its hit (see
+    _choose_transfer_move()). That is the only way the manager can make two moves in a week or
+    take a hit at all: one transfer a week is always free, since a free transfer is granted
+    every week (docs/reports/2026-10_open_issues.md, issue 0).
+
     on_gameweek, if given, is called after every scored gameweek with the result so far (same
     shape as the return value), so a long run that is cut off still leaves what it scored."""
     if not has_fittable_history(con, season, start_gameweek):
         raise ValueError(f"{season} GW{start_gameweek} has insufficient prior history to bootstrap from -- pick a later start_gameweek")
     horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
     horizon_gameweeks = int(horizon_gameweeks)
+    multi_transfer_pool = transfer_planner.multi_transfer_pool_limit(con, multi_transfer_params_version)
+    # The planner's chip-timing window must be able to see its fixtures (see
+    # transfer_planner.chip_timing_window_gameweeks()): the whole season's schedule is published
+    # before it starts, so showing it further ahead than the planning horizon leaks no result.
+    schedule_gameweeks = max(horizon_gameweeks, transfer_planner.chip_timing_window_gameweeks(
+        con, triple_captain_timing_params_version, bench_boost_timing_params_version,
+    ))
 
     with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
         calibration_asof_date = deadline.date()
@@ -1511,15 +1734,18 @@ def run_season_simulation(
             shrinkage_params_version, fact_multiplier_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
         )
+        bootstrap_memo = ep.new_memo()
         ep_mv = ep.run(
             con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
             scoring_params_version, bps_params_version, tau_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             lookback_seasons=lookback_seasons_for(season),
+            memo=bootstrap_memo,
         )
         un_mv = uncertainty.run(
             con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
             tau_params_version, rho_residual_params_version, corr_params_version,
+            season_priority=lookback_seasons_for(season), memo=bootstrap_memo,
         )
         bootstrap_run_id = squad_optimizer.run(
             con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,
@@ -1553,6 +1779,8 @@ def run_season_simulation(
 
     for gw in range(start_gameweek, end_gameweek + 1):
         accept_chip = None
+        accept_multi_rank = None
+        n_transfers = 0
         free_hit_squad = None
         hit_cost = 0.0
 
@@ -1565,7 +1793,7 @@ def run_season_simulation(
             chips_used_set1 = set(json.loads(chips_used_set1_json))
             chips_used_set2 = set(json.loads(chips_used_set2_json))
 
-            with asof_scope(con, season, gw, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
+            with asof_scope(con, season, gw, schedule_horizon_gameweeks=schedule_gameweeks) as deadline:
                 calibration_asof_date = deadline.date()
                 ts_mv = team_strength.calibrate(
                     con, calibration_asof_date, xi_params_version, rho_params_version,
@@ -1588,11 +1816,16 @@ def run_season_simulation(
                     bench_boost_timing_params_version=bench_boost_timing_params_version,
                     captain_risk_params_version=captain_risk_params_version,
                     rate_shrinkage_params_version=rate_shrinkage_params_version,
+                    multi_transfer_pool_limit_per_position=multi_transfer_pool,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
                     chip_wait_params_version=chip_wait_params_version,
                 )
+                if accept_chip is None and multi_transfer_pool is not None:
+                    move = _choose_transfer_move(con, plan_run_id, accept_transfer_if_net_value_above, include_multi=True)
+                    accept_transfer_rank = move["rank"] if move and move["kind"] == "single" else None
+                    accept_multi_rank = move["rank"] if move and move["kind"] == "multi" else None
 
                 if accept_chip == "free_hit":
                     free_hit_squad = transfer_planner.read_fresh_chip_squad(con, plan_run_id, "free_hit")
@@ -1609,11 +1842,21 @@ def run_season_simulation(
                         [plan_run_id, accept_transfer_rank],
                     ).fetchone()
                     hit_cost = float(cost_row[0] or 0.0) if cost_row else 0.0
+                    n_transfers = 1
+                elif accept_multi_rank is not None:
+                    multi_row = con.execute(
+                        "SELECT transfer_cost, players_out FROM multi_transfer_recommendations WHERE run_id = ? AND rank = ?",
+                        [plan_run_id, accept_multi_rank],
+                    ).fetchone()
+                    hit_cost = float(multi_row[0] or 0.0)
+                    n_transfers = len(json.loads(multi_row[1]))
                 state_version = transfer_planner.apply_recommendation(
                     con, plan_run_id, accept_transfer_rank=accept_transfer_rank, accept_chip=accept_chip,
+                    accept_multi_transfer_rank=accept_multi_rank,
                 )
             actions.append({
                 "gameweek": gw, "accepted_transfer_rank": accept_transfer_rank, "accepted_chip": accept_chip,
+                "accepted_multi_transfer_rank": accept_multi_rank, "n_transfers": n_transfers, "hit_cost": hit_cost,
                 "plan_run_id": plan_run_id,
             })
 

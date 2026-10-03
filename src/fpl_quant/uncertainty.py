@@ -30,6 +30,7 @@ NOT wired into M5's optimization objective, which works directly off Sigma (this
 and the means (M3).
 """
 
+import functools
 import math
 from datetime import date
 
@@ -71,6 +72,12 @@ def _rho_residual(con, params_version):
 # per-category variance (points-space, re-derived from ep_outputs via base_scoring_matrix)
 # ============================================================
 
+@functools.lru_cache(maxsize=8192)
+def _expected_floor_half_squared(lam: float) -> float:
+    """E[floor(X/2)^2] for X ~ Poisson(lam), truncated like ep._expected_floor_half()."""
+    return sum(((k // 2) ** 2) * poisson.pmf(k, lam) for k in range(16))
+
+
 def category_variances(con, ep_row: dict, position: str, scoring_params_version: int) -> dict:
     goal_pts = ep._sm(con, "goal_points", scoring_params_version, position)
     assist_pts = ep._sm(con, "assist_points", scoring_params_version)
@@ -95,7 +102,7 @@ def category_variances(con, ep_row: dict, position: str, scoring_params_version:
     if position in ("Goalkeeper", "Defender") and ep_row["lambda_against"] is not None:
         lam = ep_row["lambda_against"]
         e_fh = ep._expected_floor_half(lam)
-        e_fh2 = sum(((k // 2) ** 2) * poisson.pmf(k, lam) for k in range(16))
+        e_fh2 = _expected_floor_half_squared(lam)
         var_fh_given_played = max(e_fh2 - e_fh**2, 0.0)
         p60 = p2
         # G = -floor(X/2) w.p. p60 (gate open), else 0 -- variance of this mixture:
@@ -155,7 +162,9 @@ def category_state_means(con, ep_row: dict, position: str, rates: dict, def_rate
     # ep_defcon is 0 where DefCon isn't in that season's rules (ep.defcon_in_force); follow it.
     if defcon_pts and ep_row.get("ep_defcon"):
         thr = ep._sm(con, "defcon_threshold", scoring_params_version, position)
-        rate90 = def_rates["cbi_per_90"] + def_rates["recoveries_per_90"]
+        # Same action set as expected_points: a defender's DefCon counts CBIT only; ball
+        # recoveries count toward it for midfielders and forwards.
+        rate90 = def_rates["cbi_per_90"] + (def_rates["recoveries_per_90"] if position in ("Midfielder", "Forward") else 0.0)
         p1_over = 1 - poisson.cdf(thr - 1, max(rate90 * m1 / 90, 1e-9))
         p2_over = 1 - poisson.cdf(thr - 1, max(rate90 * m2 / 90, 1e-9))
         means["defcon"] = (0.0, defcon_pts * p1_over, defcon_pts * p2_over)
@@ -448,10 +457,15 @@ def run(
     rho_residual_params_version: int,
     corr_params_version: int,
     season_priority: tuple[str, ...] = ("2026-2027", "2025-2026", "2024-2025"),
+    memo: dict | None = None,
 ) -> int:
+    """memo: the expected_points.new_memo() shared with the ep.run() calls made against the
+    same asof view (see compute_horizon_ep()); None builds a fresh one for this call."""
+    if memo is None:
+        memo = ep.new_memo()
     rho_residual = _rho_residual(con, rho_residual_params_version)
     tau, _ = params_mod.resolve_param(con, "bps_dispersion_params", "tau", tau_params_version)
-    mean_minutes = ep._mean_minutes_by_bucket(con)
+    mean_minutes = ep._memo_get(memo, ("mean_minutes",), lambda: ep._mean_minutes_by_bucket(con))
 
     # The season whose rosters this run's teammate/opponent covariance structure must use --
     # read from the ep_model_version being scored, NOT season_priority[0] (which defaults to
@@ -478,8 +492,10 @@ def run(
     ).fetchone()[0]
 
     fixtures = con.execute(
-        "SELECT DISTINCT fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]
+        "SELECT DISTINCT fixture_match_id FROM ep_outputs WHERE model_version = ? ORDER BY fixture_match_id",
+        [ep_model_version],
     ).fetchall()
+    teams_table = None  # the season's teams.csv table, looked up once on the first fixture
 
     # (player_uid_a, player_uid_b) -> [first fixture_match_id, relationship, covariance summed over fixtures]
     covariances: dict[tuple[str, str], list] = {}
@@ -497,6 +513,7 @@ def run(
             JOIN dim_player dp ON dp.player_uid = o.player_uid
             JOIN minutes_model_outputs m ON m.player_uid = o.player_uid AND m.model_version = ?
             WHERE o.model_version = ? AND o.fixture_match_id = ?
+            ORDER BY o.player_uid
             """,
             [mm_model_version, ep_model_version, match_id],
         ).fetchall()
@@ -505,8 +522,9 @@ def run(
 
         # team_uid per player, for the fixture-block covariance structure
         team_of = {}
+        if teams_table is None:
+            teams_table = ep.reconcile_mod._season_root_table(con, target_season, "teams.csv")[1]
         for team_uid in (home_uid, away_uid):
-            found = ep.reconcile_mod._season_root_table(con, target_season, "teams.csv")
             roster = con.execute(
                 """
                 SELECT DISTINCT dp.player_uid
@@ -514,7 +532,7 @@ def run(
                 JOIN "{}" t ON t.code = pa.team_code
                 JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = pa.season
                 WHERE pa.season = ? AND ta.team_uid = ?
-                """.format(found[1]),
+                """.format(teams_table),
                 [target_season, team_uid],
             ).fetchall()
             for (pid,) in roster:
@@ -531,7 +549,7 @@ def run(
                 continue
             # needed for every position, not just GK/DEF: clean_sheet's conditional state
             # mean uses P(opponent scores 0) regardless of the scoring player's own position.
-            _lf, lambda_against, _ih = ep._fixture_lambdas(con, team_uid, match_id, ts_model_version)
+            _lf, lambda_against, _ih = ep._fixture_lambdas(con, team_uid, match_id, ts_model_version, memo=memo)
 
             p_r1, p_r2, p_r3 = rank_dist.get(player_uid, (0.0, 0.0, 0.0))
             ep_row = {
@@ -542,10 +560,10 @@ def run(
             }
             rates = ep.player_rates_shrunk(
                 con, player_uid, position, list(season_priority), rate_shrinkage_params_version,
-                finishing_prior_xg=finishing_prior_xg,
+                finishing_prior_xg=finishing_prior_xg, memo=memo,
             )
             def_rates = ep._defensive_action_rates_per_90(
-                con, player_uid, position, list(season_priority), rate_shrinkage_params_version,
+                con, player_uid, position, list(season_priority), rate_shrinkage_params_version, memo=memo,
             )
 
             variances, var_total = total_variance(

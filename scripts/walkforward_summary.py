@@ -18,7 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import db  # noqa: E402
+from fpl_quant import backtest, db  # noqa: E402
 
 
 def _mean_metric(con, run_id, name, tier=None):
@@ -126,7 +126,9 @@ def captain_counterfactuals(con, run_id) -> dict:
 
 
 def summarize(con, run_id: int) -> dict:
-    out = {"backtest_run_id": run_id, "headline": {}, "price_band": {}, "position": {}}
+    # steps planned vs scored: a run stopped by its time budget averages fewer gameweeks
+    out = {"backtest_run_id": run_id, "progress": backtest.walk_forward_progress(con, run_id),
+           "headline": {}, "price_band": {}, "position": {}}
     for name in ("beats_crowd_points_delta", "beats_real_avg_points_delta", "real_avg_manager_points",
                  "model_squad_realized_points", "avg_manager_benchmark_points",
                  "log_score_minutes_mean", "brier_minutes_mean", "ep_total_calibration_mean_resid",

@@ -11,12 +11,21 @@ unpopulated or misrouted lookup must fail loudly, not silently fall back to a de
 """
 
 import json
+import weakref
 
 import duckdb
 
 
 class ParamNotFoundError(Exception):
     pass
+
+
+# resolve_param() results per connection. Safe to keep for the connection's lifetime because a
+# param row is never edited or deleted once written (write_param() refuses to), so a value
+# found once stays the answer. Misses are not cached: a later write_param() can create that row.
+# One season-simulation gameweek made ~90k lookups (docs/reports/2026-10_open_issues.md,
+# issue 3). Weak keys, so a closed connection's cache goes with it.
+_RESOLVED: "weakref.WeakKeyDictionary[duckdb.DuckDBPyConnection, dict]" = weakref.WeakKeyDictionary()
 
 
 def _canonical_dimensions(dimensions: dict | None) -> str:
@@ -68,6 +77,10 @@ def resolve_param(
     """Returns (value_numeric, value_text) for a pinned params_version. Hard error on a
     missing lookup -- never silently returns a default (per M5's explicit requirement)."""
     dims = _canonical_dimensions(dimensions)
+    cache = _RESOLVED.setdefault(con, {})
+    key = (param_family, params_version, dims, param_key)
+    if key in cache:
+        return cache[key]
     row = con.execute(
         "SELECT value_numeric, value_text FROM param_versions "
         "WHERE param_family = ? AND param_version = ? AND dimensions = ? AND param_key = ?",
@@ -78,6 +91,7 @@ def resolve_param(
             f"no param_versions row for family={param_family!r} version={params_version} "
             f"dimensions={dims} key={param_key!r} -- refusing to fall back to a default"
         )
+    cache[key] = row
     return row
 
 

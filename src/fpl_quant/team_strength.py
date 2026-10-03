@@ -51,6 +51,9 @@ def fetch_calibration_matches(con: duckdb.DuckDBPyConnection, seasons: tuple[str
         FROM fact_match
         WHERE competition = ? AND season IN ({placeholders})
           AND finished = TRUE AND home_score IS NOT NULL AND away_score IS NOT NULL
+        -- fixed order: the likelihood is a float sum over these rows, and L-BFGS-B's finite-
+        -- difference gradients amplify a last-bit change into a different fitted strength
+        ORDER BY kickoff_time, match_id
         """,
         [competition, *seasons],
     ).fetchdf()
@@ -219,7 +222,7 @@ def calibrate(
         "SELECT DISTINCT team_uid FROM ("
         "  SELECT home_team_uid AS team_uid FROM fact_match WHERE season = ?"
         "  UNION SELECT away_team_uid FROM fact_match WHERE season = ?"
-        ")",
+        ") ORDER BY team_uid",
         [target_season, target_season],
     ).fetchall()
     target_teams = [r[0] for r in target_team_rows]

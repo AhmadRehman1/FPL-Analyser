@@ -728,11 +728,12 @@ def _ep_version_row(con, recipe_recorded, **recipe):
 
 def test_recipe_of_reads_back_what_run_recorded(con):
     mv = _ep_version_row(con, True, set_piece_params_version=1, fixture_params_version=None,
-                         rate_shrinkage_params_version=8, assist_calibration_params_version=None)
+                         rate_shrinkage_params_version=8, assist_calibration_params_version=None,
+                         bps_calibration_params_version=3)
     assert ep.recipe_of(con, mv) == {
         "set_piece_params_version": 1, "fixture_params_version": None,
         "rate_shrinkage_params_version": 8, "assist_calibration_params_version": None,
-        "finishing_skill_params_version": None,
+        "finishing_skill_params_version": None, "bps_calibration_params_version": 3,
     }
 
 
@@ -818,3 +819,135 @@ def test_finishing_ratios_rebuild_a_snapshot_season_from_match_grain(con):
     g, a = ep.finishing_ratios(con, "snap", ["2024-2025"], prior_xg=5.0)
     assert g == pytest.approx((10 + 5) / (5.0 + 5))   # 10 goals from 0.5 xG/90 x 900 min = 5 xG
     assert a == pytest.approx((0 + 5) / (2.5 + 5))    # 0 assists from 2.5 xA
+
+
+def test_shared_memo_gives_the_same_projection_as_separate_runs(tmp_path):
+    """compute_horizon_ep() shares one memo across its gameweeks (and with uncertainty.run());
+    the projections must be bit-for-bit those of independent runs without one."""
+    from fpl_quant import backtest as bt
+    from fpl_quant import db
+    from fpl_quant import minutes_model, team_strength
+    from fpl_quant import transfer_planner as tp
+    from fpl_quant import uncertainty as un
+    from tests.test_backtest import _seed_season_simulation_league
+
+    outputs = []
+    for shared in (True, False):
+        con = db.connect(tmp_path / f"memo_{shared}.duckdb")
+        _seed_season_simulation_league(con)
+        with bt.asof_scope(con, "2025-2026", 3, schedule_horizon_gameweeks=3) as deadline:
+            asof = deadline.date()
+            ts_mv = team_strength.calibrate(con, asof, 1, 1, target_season="2025-2026", fit_seasons=("2024-2025", "2025-2026"))
+            mm_mv = minutes_model.run(con, asof, "2025-2026", 1, 1, 1, 1)
+            if shared:
+                versions = tp.compute_horizon_ep(con, asof, "2025-2026", 3, ts_mv, mm_mv, 3, 1, 1, 1, 1, 1)
+            else:
+                versions = {}
+                for gw in (3, 4, 5):
+                    ep_mv = ep.run(con, asof, "2025-2026", gw, ts_mv, mm_mv, 1, 1, 1)
+                    versions[gw] = (ep_mv, un.run(con, asof, ep_mv, mm_mv, ts_mv, 1, 1, 1, 1, 1))
+        rows = {}
+        for gw, (ep_mv, un_mv) in versions.items():
+            rows[gw] = (
+                con.execute(
+                    "SELECT player_uid, fixture_match_id, ep_total, ep_bonus, expected_bps FROM ep_outputs "
+                    "WHERE model_version = ? ORDER BY 1, 2", [ep_mv],
+                ).fetchall(),
+                con.execute(
+                    "SELECT player_uid, var_total, quantile_95 FROM uncertainty_outputs WHERE model_version = ? ORDER BY 1",
+                    [un_mv],
+                ).fetchall(),
+                con.execute(
+                    "SELECT player_uid_a, player_uid_b, covariance FROM cross_player_covariance "
+                    "WHERE model_version = ? ORDER BY 1, 2", [un_mv],
+                ).fetchall(),
+            )
+        outputs.append(rows)
+        con.close()
+    assert sorted(outputs[0]) == [3, 4, 5]
+    assert outputs[0] == outputs[1]
+
+
+# ============================================================
+# BPS calibration (docs/reports/2026-10_open_issues.md, issue 6): premiums earn bonus from BPS
+# terms the estimate doesn't model; their real season BPS shows how much.
+# ============================================================
+
+def _seed_bps_history(con, uid, position, *, season, bps, season_minutes, matches, goals=0, assists=0):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                [uid, uid, position])
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, bps, minutes, _ingested_at) "
+        "VALUES (?, ?, 38, ?, ?, current_timestamp)", [uid, season, bps, season_minutes],
+    )
+    for i in range(matches):
+        mid = f"bps_{season}_{i}"
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, competition, "
+            "kickoff_time, _ingested_at) VALUES (?, ?, ?, 'th', 'ta', TRUE, 'Premier League', '2025-01-01', current_timestamp) "
+            "ON CONFLICT DO NOTHING", [mid, season, i + 1],
+        )
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, "
+            "goals, assists, _ingested_at) VALUES (?, ?, ?, 0, 90, 90, ?, ?, current_timestamp)",
+            [uid, mid, season, 1 if i < goals else 0, 1 if i < assists else 0],
+        )
+
+
+def test_bps_residual_is_real_season_bps_minus_the_estimates_own_terms(con):
+    ep.seed_v1_params(con)
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('th', 'H'), ('ta', 'A')")
+    # 20 full matches, 10 goals, 4 assists, 600 real BPS. The estimate's terms: 6 a match for
+    # playing, 24 a forward's goal, 9 an assist -> 120 + 240 + 36 = 396; 204 left over.
+    _seed_bps_history(con, "fwd", "Forward", season="2025-2026", bps=600, season_minutes=1800, matches=20, goals=10, assists=4)
+    # a season whose match rows cover far fewer minutes than its total is skipped, not mis-scored
+    _seed_bps_history(con, "fwd2", "Forward", season="2025-2026", bps=900, season_minutes=3000, matches=5)
+    table = ep._bps_residual_table(con, ["2025-2026"], 1)
+    assert table["player"]["fwd"] == (pytest.approx(204.0), 1800)
+    assert "fwd2" not in table["player"]
+    assert table["position"]["Forward"] == pytest.approx(204.0 / 1800 * 90)
+    # one player of the position: his own rate and the anchor agree, whatever the shrinkage
+    assert ep.bps_residual_per_90(con, "fwd", "Forward", ["2025-2026"], 1, 450.0) == pytest.approx(10.2)
+    # no calibration data for a position -> no adjustment
+    assert ep.bps_residual_per_90(con, "anyone", "Goalkeeper", ["2025-2026"], 1, 450.0) == 0.0
+
+
+def test_bps_calibration_raises_the_expected_bps_of_a_player_the_estimate_under_rates(con):
+    from tests.test_monte_carlo import _seed_asymmetric_fixture
+
+    ts_mv, _mm, _ep, _sq = _seed_asymmetric_fixture(con)
+    con.execute("UPDATE fact_player_season_stats SET bps = 900, minutes = 2700 WHERE player_uid = 'att'")
+    for i in range(30):
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, "
+            "goals, assists, _ingested_at) VALUES ('att', ?, '2025-2026', 0, 90, 90, ?, 0, current_timestamp)",
+            [f"hist_dfn_{i}", 1 if i < 15 else 0],
+        )
+    mean_minutes = ep._mean_minutes_by_bucket(con)
+    seasons = ["2026-2027", "2025-2026"]
+
+    def bps(k):
+        return ep.compute_player_fixture_components(
+            con, "att", "Forward", "fav", "m1", 0.05, 0.10, 0.85, ts_mv, 1, 1, seasons, mean_minutes,
+            target_season="2026-2027", bps_calibration_k=k,
+        )["expected_bps"]
+
+    # 900 real - (30 x 6 playing + 15 x 24 goals) = 360 over 2700 minutes = 12 per 90
+    assert bps(450.0) - bps(None) == pytest.approx(12.0 * ep.expected_minutes_given_played(0.10, 0.85, mean_minutes) / 90 * 0.95)
+
+
+def test_finishing_ratio_report_counts_players_on_the_clamp(con):
+    """docs/reports/2026-10_open_issues.md, issue 5: how many players does MAX_FINISHING_RATIO decide?"""
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES "
+                "('hot', 'hot', 'Forward'), ('cold', 'cold', 'Forward'), ('par', 'par', 'Midfielder'), ('tiny', 'tiny', 'Forward')")
+    for uid, goals, xg in (("hot", 30, 5.0), ("cold", 0, 20.0), ("par", 6, 6.0), ("tiny", 1, 0.2)):
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, goals_scored, expected_goals, assists, "
+            "expected_assists, minutes, _ingested_at) VALUES (?, '2025-2026', 38, ?, ?, 0, 0.0, 2000, current_timestamp)",
+            [uid, goals, xg],
+        )
+    report = ep.finishing_ratio_report(con, ["2025-2026"], prior_xg=2.0, min_expected=1.0)
+    assert report["goals"]["n"] == 3                      # 'tiny' is below min_expected
+    assert report["goals"]["at_cap"] == 1 and report["goals"]["capped_players"] == ["hot"]
+    assert report["goals"]["at_floor"] == 1               # (0 + 2) / (20 + 2) is under 1/2
+    assert report["assists"]["n"] == 0

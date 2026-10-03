@@ -44,6 +44,7 @@ from . import fixture_swing
 from . import ingest_workbook as iw
 from . import monte_carlo
 from . import params as params_mod
+from . import season_rules
 from . import squad_optimizer
 from . import uncertainty as un_mod
 
@@ -174,6 +175,17 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
     # per gameweek of distance, and a later week must beat now by half a point to hold.
     params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "decay_per_gameweek", value_numeric=0.85)
     params_mod.write_param(con, "chip_wait_params", 1, "2026-09-29", "margin_points", value_numeric=0.5)
+    # v2: the same discount and margin, plus every gameweek left in the half beyond the
+    # projected ones (backtest._option_value_says_wait()), for Free Hit as well. A chip played
+    # at the first week that beat the next few went in GW3-6 (docs/reports/2026-10_open_issues.md,
+    # issue 0b). Placeholders like v1's, not fitted.
+    params_mod.write_param(con, "chip_wait_params", 2, "2026-10-03", "decay_per_gameweek", value_numeric=0.85)
+    params_mod.write_param(con, "chip_wait_params", 2, "2026-10-03", "margin_points", value_numeric=0.5)
+    params_mod.write_param(con, "chip_wait_params", 2, "2026-10-03", "unseen_weeks", value_numeric=1)
+    # Two transfers in one gameweek, paying a hit when only one is free
+    # (docs/reports/2026-10_open_issues.md, issue 0). The bound is evaluate_multi_transfers()'s
+    # own default: the top 20 incoming candidates per position by horizon EP.
+    params_mod.write_param(con, "multi_transfer_params", 1, "2026-10-03", "candidate_pool_limit_per_position", value_numeric=20)
     # Priority 4 -- price-change-timing: FPL's own price-change algorithm (how large a net-
     # transfer swing at a given ownership level actually triggers a real change) is not
     # public, and this project has not verified what scale transfers_in_event/
@@ -336,6 +348,7 @@ def compute_horizon_ep(
     corr_params_version: int,
     set_piece_params_version: int | None = 1,
     rate_shrinkage_params_version: int | None = None,
+    memo: dict | None = None,
 ) -> dict[int, tuple[int, int]]:
     """One ep.run() + uncertainty.run() pair per gameweek in [start_gameweek,
     start_gameweek+horizon_gameweeks), reusing the same ts_model_version/mm_model_version
@@ -353,7 +366,14 @@ def compute_horizon_ep(
     is confirmed, same as it already does for rho_residual_params_version above -- otherwise
     the multi-gameweek horizon that actually drives transfer/captain recommendations would
     silently keep using the stale default even after a recalibration lands.
+
+    memo (expected_points.new_memo()): every gameweek here is projected from the same asof
+    view, so the players' rates and the fixture lambdas are built once and shared by all of
+    them (docs/reports/2026-10_open_issues.md, issue 3). None builds one for this call; a
+    caller making several calls against the same view can pass its own.
     """
+    if memo is None:
+        memo = ep.new_memo()
     out = {}
     for gw in range(start_gameweek, start_gameweek + horizon_gameweeks):
         try:
@@ -362,6 +382,7 @@ def compute_horizon_ep(
                 scoring_params_version, bps_params_version, tau_params_version,
                 set_piece_params_version=set_piece_params_version,
                 rate_shrinkage_params_version=rate_shrinkage_params_version,
+                memo=memo,
             )
         except ValueError:
             continue
@@ -369,6 +390,7 @@ def compute_horizon_ep(
             con, calibration_asof_date, ep_mv, mm_model_version, ts_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
+            memo=memo,
         )
         out[gw] = (ep_mv, un_mv)
     return out
@@ -642,7 +664,7 @@ def evaluate_transfers(
             club_counts[info["club"]] = club_counts.get(info["club"], 0) + 1
 
     results = []
-    for out_uid in current_uids:
+    for out_uid in sorted(current_uids):
         out_info = horizon_ep.get(out_uid)
         if out_info is None:
             continue
@@ -686,7 +708,9 @@ def evaluate_transfers(
                 result["timing_advice"] = transfer_timing_advice(in_risk, out_risk)
             results.append(result)
 
-    results.sort(key=lambda r: r["net_value"], reverse=True)
+    # Ties (two sales worth exactly the same, e.g. two injured players at 0 EP) go to the
+    # lower player_uid, not to set iteration order, which changes with PYTHONHASHSEED.
+    results.sort(key=lambda r: (-r["net_value"], r["player_out"], r["player_in"]))
     for rank, r in enumerate(results, start=1):
         r["rank"] = rank
     return results
@@ -707,7 +731,7 @@ def _bounded_incoming_pool(horizon_ep: dict, current_uid_set: set, candidate_poo
         by_position.setdefault(info["position"], []).append({"player_uid": uid, **info})
     bounded = []
     for candidates in by_position.values():
-        candidates.sort(key=lambda c: c["total_ep"], reverse=True)
+        candidates.sort(key=lambda c: (-c["total_ep"], c["player_uid"]))
         bounded.extend(candidates[:candidate_pool_limit_per_position])
     return bounded
 
@@ -809,7 +833,7 @@ def evaluate_multi_transfers(
                 "net_value": horizon_value_gain - transfer_cost,
             })
 
-    results.sort(key=lambda r: r["net_value"], reverse=True)
+    results.sort(key=lambda r: (-r["net_value"], r["players_out"], r["players_in"]))
     for rank, r in enumerate(results, start=1):
         r["rank"] = rank
     return results[:top_n]
@@ -1008,7 +1032,7 @@ def ensure_squad_simulation(
     con: duckdb.DuckDBPyConnection, state_version: int, calibration_asof_date: date, target_season: str,
     target_gameweek: int, ep_model_version: int, mm_model_version: int, ts_model_version: int,
     uncertainty_model_version: int, scoring_params_version: int, tau_params_version: int,
-    rho_residual_params_version: int, n_antithetic_pairs: int = 5000,
+    rho_residual_params_version: int, n_antithetic_pairs: int = 5000, memo: dict | None = None,
 ) -> int:
     """Runs M6's real monte_carlo.run() against the manager's *actual* current holdings for
     one gameweek, via a real manager-snapshot squad_optimizer_runs row (see
@@ -1022,7 +1046,7 @@ def ensure_squad_simulation(
     return monte_carlo.run(
         con, calibration_asof_date, snapshot_run_id, ep_model_version, mm_model_version, ts_model_version,
         uncertainty_model_version, scoring_params_version, tau_params_version, rho_residual_params_version,
-        n_antithetic_pairs=n_antithetic_pairs,
+        n_antithetic_pairs=n_antithetic_pairs, memo=memo,
     )
 
 
@@ -1093,7 +1117,7 @@ def evaluate_triple_captain(
     ]
     if not scored:
         return {"recommended": False, "reason": "no simulated XI players found for this model_version"}
-    scored.sort(key=lambda r: r["tc_score"], reverse=True)
+    scored.sort(key=lambda r: (-r["tc_score"], r["player_uid"]))
     best = scored[0]
     captain_value_per_gw = (horizon_ep_map or {}).get(best["player_uid"], {}).get("per_gw", {})
     recommended = True
@@ -1511,24 +1535,51 @@ def evaluate_free_hit_triple_captain_combo(
 # ============================================================
 
 ALL_CHIP_TYPES = frozenset({"wildcard", "free_hit", "triple_captain", "bench_boost"})
-GW19_DEADLINE_GAMEWEEK = 19
+# The first half's last gameweek: a first-set chip can be played up to and including GW19 (it
+# expires at the GW19 deadline, and a chip for GW19 is activated before it); the second set is
+# played from GW20. Which half a gameweek is in, and which chips a season allows, come from
+# season_rules -- this code used to treat GW19 as a second-half week.
+GW19_DEADLINE_GAMEWEEK = season_rules.FIRST_HALF_LAST_GAMEWEEK
 
 
-def check_gw19_deadline(target_gameweek: int, chips_used_set1: list[str], warning_window: int = 3) -> dict:
+def chip_timing_window_gameweeks(
+    con: duckdb.DuckDBPyConnection, triple_captain_timing_params_version: int | None,
+    bench_boost_timing_params_version: int | None,
+) -> int:
+    """How many gameweeks run()'s season-horizon chip-timing window projects: the wider of the
+    two chips' timing_window_gameweeks, 0 when neither is switched on.
+
+    A caller planning inside backtest.asof_scope() must make the fixture schedule visible that
+    far ahead (schedule_horizon_gameweeks): a gameweek with no visible fixtures is skipped by
+    compute_horizon_ep(), so with the planning horizon's 5-week schedule the 10-week window was
+    silently the same 5 weeks as the narrow check, and the --chip-timing arm played every chip
+    in the same week as control (docs/reports/2026-10_open_issues.md, issue 0b)."""
+    windows = []
+    if triple_captain_timing_params_version is not None:
+        w, _ = params_mod.resolve_param(con, "triple_captain_timing_params", "timing_window_gameweeks", triple_captain_timing_params_version)
+        windows.append(int(w))
+    if bench_boost_timing_params_version is not None:
+        w, _ = params_mod.resolve_param(con, "bench_boost_timing_params", "timing_window_gameweeks", bench_boost_timing_params_version)
+        windows.append(int(w))
+    return max(windows, default=0)
+
+
+def check_gw19_deadline(
+    target_gameweek: int, chips_used_set1: list[str], warning_window: int = 3, season: str | None = None,
+) -> dict:
     """Chip set 1 is forfeited entirely, not softly discounted, if unused by the GW19
     deadline -- modeled here as an explicit use-it-or-lose-it flag, not a preference that can
     silently lapse (per the spec's own explicit requirement).
 
-    Real bug fixed here: `urgent`'s lower bound was `0 <= gameweeks_remaining`, so at
-    target_gameweek == GW19_DEADLINE_GAMEWEEK itself (gameweeks_remaining == 0) both `urgent`
-    and `forfeited_now` came out True simultaneously -- a self-contradictory "hurry, use it
-    now" plus "it's already gone" pair, written straight into chip_evaluations.gw19_urgent_flag
-    for M9 to display. `urgent` now requires at least 1 gameweek still remaining; GW19 itself is
-    exclusively `forfeited_now`."""
-    unused = ALL_CHIP_TYPES - set(chips_used_set1)
+    GW19 itself is the first set's last week (season_rules), so it is `urgent` -- the last
+    chance -- and `forfeited_now` only from GW20; the two never overlap. It used to call GW19
+    forfeited, a week early. Only chips whose allowance actually ends at GW19 count: in 2024-25
+    that was the first Wildcard alone, the other chips being one per season."""
+    first_half = {c for c in ALL_CHIP_TYPES if season_rules.chip_window(season, c, 1) == season_rules.HALVES[0]}
+    unused = first_half - set(chips_used_set1)
     gameweeks_remaining = GW19_DEADLINE_GAMEWEEK - target_gameweek
-    urgent = 1 <= gameweeks_remaining <= warning_window and bool(unused)
-    forfeited_now = target_gameweek >= GW19_DEADLINE_GAMEWEEK and bool(unused)
+    urgent = 0 <= gameweeks_remaining < warning_window and bool(unused)
+    forfeited_now = target_gameweek > GW19_DEADLINE_GAMEWEEK and bool(unused)
     return {
         "unused_set1_chips": sorted(unused), "gameweeks_until_gw19": gameweeks_remaining,
         "urgent": urgent, "forfeited_now": forfeited_now,
@@ -1654,6 +1705,8 @@ def run(
     if not current_holdings:
         raise ValueError(f"manager_state_version={input_state_version} has no holdings -- cannot plan")
 
+    # One memo for every projection this call makes: they all read the same asof view.
+    memo = ep.new_memo()
     if horizon_ep_versions is None:
         horizon_gameweeks, _ = params_mod.resolve_param(con, "planning_horizon_params", "horizon_gameweeks", horizon_params_version)
         horizon_ep_versions = compute_horizon_ep(
@@ -1661,6 +1714,7 @@ def run(
             int(horizon_gameweeks), scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
+            memo=memo,
         )
 
     points_per_hit, _ = params_mod.resolve_param(con, "transfer_cost_params", "points_per_hit", transfer_cost_params_version)
@@ -1684,23 +1738,31 @@ def run(
     # a caller passing both pays for one extra horizon computation, not two.
     season_horizon_ep_map, season_horizon_ep_versions = None, None
     if triple_captain_timing_params_version is not None or bench_boost_timing_params_version is not None:
-        window_candidates = []
-        if triple_captain_timing_params_version is not None:
-            w, _ = params_mod.resolve_param(con, "triple_captain_timing_params", "timing_window_gameweeks", triple_captain_timing_params_version)
-            window_candidates.append(int(w))
-        if bench_boost_timing_params_version is not None:
-            w, _ = params_mod.resolve_param(con, "bench_boost_timing_params", "timing_window_gameweeks", bench_boost_timing_params_version)
-            window_candidates.append(int(w))
-        timing_window_gameweeks = max(window_candidates)
-        if target_gameweek < GW19_DEADLINE_GAMEWEEK:
-            timing_window_gameweeks = min(timing_window_gameweeks, GW19_DEADLINE_GAMEWEEK - target_gameweek)
+        timing_window_gameweeks = chip_timing_window_gameweeks(
+            con, triple_captain_timing_params_version, bench_boost_timing_params_version,
+        )
+        # never past the chips' own last usable gameweek (Triple Captain and Bench Boost share
+        # their windows in every season)
+        chip_deadline = (season_rules.chip_window(target_season, "triple_captain", target_gameweek) or (0, target_gameweek))[1]
+        timing_window_gameweeks = min(timing_window_gameweeks, chip_deadline - target_gameweek + 1)
         if timing_window_gameweeks > 0:
-            season_horizon_ep_versions = compute_horizon_ep(
-                con, calibration_asof_date, target_season, target_gameweek, ts_model_version, mm_model_version,
-                timing_window_gameweeks, scoring_params_version, bps_params_version, tau_params_version,
-                rho_residual_params_version, corr_params_version,
-                rate_shrinkage_params_version=rate_shrinkage_params_version,
-            )
+            # The window starts with the planning horizon's own gameweeks, projected from the
+            # same inputs a moment ago; only the weeks past it need projecting.
+            window = range(target_gameweek, target_gameweek + timing_window_gameweeks)
+            extra: dict[int, tuple[int, int]] = {}
+            for gw in window:
+                if gw not in horizon_ep_versions:
+                    extra.update(compute_horizon_ep(
+                        con, calibration_asof_date, target_season, gw, ts_model_version, mm_model_version,
+                        1, scoring_params_version, bps_params_version, tau_params_version,
+                        rho_residual_params_version, corr_params_version,
+                        rate_shrinkage_params_version=rate_shrinkage_params_version,
+                        memo=memo,
+                    ))
+            season_horizon_ep_versions = {
+                gw: horizon_ep_versions[gw] if gw in horizon_ep_versions else extra[gw]
+                for gw in window if gw in horizon_ep_versions or gw in extra
+            }
             if triple_captain_timing_params_version is not None:
                 season_horizon_ep_map = _horizon_ep_by_player(con, target_season, season_horizon_ep_versions)
 
@@ -1737,7 +1799,7 @@ def run(
         mc_model_version = ensure_squad_simulation(
             con, input_state_version, calibration_asof_date, target_season, target_gameweek, ep_mv,
             mm_model_version, ts_model_version, un_mv, scoring_params_version, tau_params_version,
-            rho_residual_params_version,
+            rho_residual_params_version, memo=memo,
         )
         tc_result = evaluate_triple_captain(
             con, mc_model_version, xi_uids, kappa_tc_params_version, horizon_ep_map=horizon_ep_map,
@@ -1791,7 +1853,7 @@ def run(
                 rho_residual_params_version, kappa_tc_params_version,
             )
 
-    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
+    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1, season=target_season)
 
     run_id = con.execute(
         """
@@ -1934,6 +1996,19 @@ def pick_lineup(
     return {"xi": frozenset(xi), "captain": captain, "vice": vice}
 
 
+def plan_gameweek_versions(con: duckdb.DuckDBPyConnection, run_id: int, gameweek: int) -> tuple[int, int] | None:
+    """(ep_model_version, uncertainty_model_version) a plan run projected `gameweek` with, or
+    None when its horizon has no projection for that week (a blank, or past the horizon)."""
+    row = con.execute(
+        "SELECT ep_model_versions, uncertainty_model_versions FROM transfer_plan_runs WHERE run_id = ?", [run_id]
+    ).fetchone()
+    if not row or not row[0] or not row[1]:
+        return None
+    ep_mv = json.loads(row[0]).get(str(gameweek))
+    un_mv = json.loads(row[1]).get(str(gameweek))
+    return None if ep_mv is None or un_mv is None else (ep_mv, un_mv)
+
+
 def _gameweek_lineup(
     con: duckdb.DuckDBPyConnection, run_id: int, gameweek: int, squad_uids: list[str], accept_chip: str | None,
 ) -> dict | None:
@@ -1968,8 +2043,20 @@ def _gameweek_lineup(
     return pick_lineup(squad_uids, positions, ep_by_uid, var_by_uid, captain_uid=tc_candidate)
 
 
+def multi_transfer_pool_limit(con: duckdb.DuckDBPyConnection, multi_transfer_params_version: int | None) -> int | None:
+    """run()'s multi_transfer_pool_limit_per_position for a multi_transfer_params version, or
+    None (the single-transfer-only behaviour) when no version is given."""
+    if multi_transfer_params_version is None:
+        return None
+    limit, _ = params_mod.resolve_param(
+        con, "multi_transfer_params", "candidate_pool_limit_per_position", multi_transfer_params_version,
+    )
+    return int(limit)
+
+
 def apply_recommendation(
     con: duckdb.DuckDBPyConnection, run_id: int, *, accept_transfer_rank: int | None = None, accept_chip: str | None = None,
+    accept_multi_transfer_rank: int | None = None,
 ) -> int:
     """Writes a new manager_state_versions row reflecting an accepted recommendation, with
     produced_by_run_id set at INSERT time (not an UPDATE to transfer_plan_runs afterward --
@@ -1989,8 +2076,18 @@ def apply_recommendation(
     see backtest.run_season_simulation() and read_fresh_chip_squad() above.) accept_chip
     and accept_transfer_rank are mutually exclusive when the chip is "wildcard": a real M5
     solve already replaces every holding, so layering a single-player transfer on top of it
-    isn't a coherent action, not a case to silently pick one of two winners for."""
-    if accept_chip == "wildcard" and accept_transfer_rank is not None:
+    isn't a coherent action, not a case to silently pick one of two winners for.
+
+    accept_multi_transfer_rank applies a row of multi_transfer_recommendations instead of a
+    single transfer: every player out sold, every player in bought, the bank moved by the
+    combined prices. Each transfer uses a free one while any are left; the rest were the hits
+    already charged in that row's transfer_cost. So two transfers on one free transfer leave
+    one free transfer for next week (0 left + the weekly 1), and on two leave one as well.
+    Before this the evolving manager could only ever make one free transfer a week
+    (docs/reports/2026-10_open_issues.md, issue 0)."""
+    if accept_transfer_rank is not None and accept_multi_transfer_rank is not None:
+        raise ValueError("accept one transfer move per call: a single transfer or a multi-transfer combination, not both")
+    if accept_chip == "wildcard" and (accept_transfer_rank is not None or accept_multi_transfer_rank is not None):
         raise ValueError("cannot accept both a transfer and Wildcard in the same call -- Wildcard already replaces the whole squad")
 
     run_row = con.execute(
@@ -2047,6 +2144,34 @@ def apply_recommendation(
         # a real bug: it made the planner progressively undercount how many free transfers
         # it had available, biasing it toward pricing genuinely-free transfers as -4 hits.
         new_free_transfers = min(5, max(0, free_transfers_available - (1 if transfer_cost == 0.0 else 0)) + 1)
+    elif accept_multi_transfer_rank is not None:
+        rec = con.execute(
+            "SELECT players_out, players_in, combined_price_out, combined_price_in FROM multi_transfer_recommendations "
+            "WHERE run_id = ? AND rank = ?",
+            [run_id, accept_multi_transfer_rank],
+        ).fetchone()
+        if not rec:
+            raise ValueError(f"no multi_transfer_recommendations row for run_id={run_id} rank={accept_multi_transfer_rank}")
+        players_out, players_in = json.loads(rec[0]), json.loads(rec[1])
+        missing = [uid for uid in players_out if uid not in holdings_by_uid]
+        if missing:
+            raise ValueError(f"multi-transfer rank {accept_multi_transfer_rank} sells players not held: {missing}")
+        positions = dict(con.execute(
+            f"SELECT player_uid, position FROM dim_player WHERE player_uid IN ({','.join('?' * (len(players_out) + len(players_in)))})",
+            [*players_out, *players_in],
+        ).fetchall())
+        # an incoming player takes the XI slot of an outgoing one in the same position (the
+        # gameweek's lineup is re-picked below whenever the plan has EP for it)
+        outgoing_xi_by_position: dict[str | None, list[bool]] = {}
+        for out_uid in sorted(players_out):
+            outgoing = holdings_by_uid.pop(out_uid)
+            outgoing_xi_by_position.setdefault(positions.get(out_uid), []).append(bool(outgoing["in_xi"]))
+        for in_uid in sorted(players_in):
+            slots = outgoing_xi_by_position.get(positions.get(in_uid)) or [False]
+            holdings_by_uid[in_uid] = {"player_uid": in_uid, "in_xi": slots.pop(0), "is_captain": False, "is_vice": False}
+        new_bank = new_bank + (rec[2] or 0.0) - (rec[3] or 0.0)
+        free_used = min(free_transfers_available, len(players_out))
+        new_free_transfers = min(5, free_transfers_available - free_used + 1)
     else:
         new_free_transfers = min(5, free_transfers_available + 1)  # banked, unused this gameweek
 
@@ -2066,7 +2191,7 @@ def apply_recommendation(
         }
 
     if accept_chip is not None:
-        if target_gameweek < GW19_DEADLINE_GAMEWEEK:
+        if season_rules.half_of(target_gameweek) == 1:
             chips_used_set1 = chips_used_set1 | {accept_chip}
         else:
             chips_used_set2 = chips_used_set2 | {accept_chip}
@@ -2162,7 +2287,7 @@ def explain_plan(con: duckdb.DuckDBPyConnection, run_id: int, top_n: int = 5) ->
         "(SELECT input_state_version FROM transfer_plan_runs WHERE run_id = ?)", [run_id],
     ).fetchone()
     chips_used_set1 = json.loads(state_row[0]) if state_row else []
-    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
+    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1, season=target_season)
 
     return {
         "run_id": run_id, "target_season": target_season, "target_gameweek": target_gameweek,
