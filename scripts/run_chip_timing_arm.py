@@ -74,8 +74,8 @@ def resolve_param_bundle(name: str) -> dict:
 
 
 def real_chip_state(entry_id: int) -> tuple[list[str], list[str]]:
-    """The chips the entry has actually spent, split into set 1 (played before GW19) and set 2
-    (GW19+), normalised to this project's chip vocabulary (FPL calls the Wildcard 'wildcard',
+    """The chips the entry has actually spent, split into set 1 (played in GW1-19) and set 2
+    (GW20+), normalised to this project's chip vocabulary (FPL calls the Wildcard 'wildcard',
     Bench Boost 'bboost', Triple Captain '3xc', Free Hit 'freehit')."""
     name_map = {"wildcard": "wildcard", "bboost": "bench_boost", "3xc": "triple_captain", "freehit": "free_hit"}
     history = ax.fetch_entry_history(entry_id)

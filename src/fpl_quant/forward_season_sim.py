@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 import duckdb
 
 from . import backtest as bt
-from . import expected_points, minutes_model, params as params_mod, team_strength, transfer_planner, uncertainty
+from . import expected_points, minutes_model, params as params_mod, season_rules, team_strength, transfer_planner, uncertainty
 
 # 80% projected band: +-1.2816 sigma. A disclosed normal approximation on the XI's summed
 # var_total -- not a full Monte Carlo (which every gameweek of every sweep arm would make this
@@ -439,8 +439,8 @@ def run_forward_season_sim(
             fh_threshold = fh.get("threshold")
 
             # ---- decide the action ----
-            forced_wildcard = force_wildcard_at == gw and "wildcard" not in (chips_set1 | chips_set2)
-            forced_free_hit = force_free_hit_at == gw and "free_hit" not in (chips_set1 | chips_set2)
+            forced_wildcard = force_wildcard_at == gw and season_rules.chip_available(target_season, "wildcard", gw, chips_set1, chips_set2)
+            forced_free_hit = force_free_hit_at == gw and season_rules.chip_available(target_season, "free_hit", gw, chips_set1, chips_set2)
             accept_rank: int | None
             accept_chip: str | None
             accept_multi_rank: int | None = None

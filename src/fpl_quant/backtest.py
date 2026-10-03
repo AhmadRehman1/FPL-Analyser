@@ -34,6 +34,7 @@ from . import ownership as ownership_mod
 from . import params as params_mod
 from . import recalibration_gate
 from . import reconcile
+from . import season_rules
 from . import squad_optimizer
 from . import team_strength
 from . import transfer_planner
@@ -1403,17 +1404,26 @@ def _decide_gameweek_action(
             option_value = bool(params_mod.resolve_param(con, "chip_wait_params", "unseen_weeks", chip_wait_params_version)[0])
         except params_mod.ParamNotFoundError:
             option_value = False
-    is_set1 = target_gameweek < transfer_planner.GW19_DEADLINE_GAMEWEEK
-    used_this_set = chips_used_set1 if is_set1 else chips_used_set2
+    # Which chips are still playable, and until when, is the season's rule (season_rules): two
+    # of each from 2025-26, while 2024-25 had one Free Hit, Bench Boost and Triple Captain for
+    # the whole season. The first half runs to GW19 inclusive.
+    plan_season = con.execute("SELECT target_season FROM transfer_plan_runs WHERE run_id = ?", [plan_run_id]).fetchone()
+    season = plan_season[0] if plan_season else None
+    is_set1 = season_rules.half_of(target_gameweek) == 1
+
+    def available(chip: str) -> bool:
+        return season_rules.chip_available(season, chip, target_gameweek, chips_used_set1, chips_used_set2)
+
+    def deadline(chip: str) -> int:
+        return season_rules.chip_window(season, chip, target_gameweek)[1]
+
     rows = con.execute(
         "SELECT chip_type, recommended, detail FROM chip_evaluations WHERE run_id = ?", [plan_run_id]
     ).fetchall()
     recommended = {chip_type: json.loads(detail or "{}") for chip_type, is_rec, detail in rows if is_rec}
-    set_last_gameweek = transfer_planner.GW19_DEADLINE_GAMEWEEK - 1 if is_set1 else LAST_GAMEWEEK
-    waiting_chips = [c for c in OPTION_VALUE_CHIPS if c not in used_this_set]
 
     for candidate in CHIP_PRIORITY:
-        if candidate not in recommended or candidate in used_this_set:
+        if candidate not in recommended or not available(candidate):
             continue
         if option_value and candidate in OPTION_VALUE_CHIPS:
             detail = recommended[candidate]
@@ -1421,14 +1431,16 @@ def _decide_gameweek_action(
                 per_gw = _free_hit_value_per_gw(detail)
             else:
                 per_gw = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
-            last_gameweek = set_last_gameweek - (len(waiting_chips) - 1)
+            # one week per other waiting chip with the same deadline, so they don't collide
+            competing = [c for c in OPTION_VALUE_CHIPS if c != candidate and available(c) and deadline(c) == deadline(candidate)]
+            last_gameweek = deadline(candidate) - len(competing)
             if _option_value_says_wait(per_gw, target_gameweek, last_gameweek, *chip_wait):
                 continue
             return None, candidate
         if chip_wait is not None and candidate in CHIP_WAIT_FIELDS:
             detail = recommended[candidate]
             per_gw: dict = next((detail[f] for f in CHIP_WAIT_FIELDS[candidate] if detail.get(f)), {})
-            last_gameweek = transfer_planner.GW19_DEADLINE_GAMEWEEK - 1 if is_set1 else LAST_GAMEWEEK
+            last_gameweek = deadline(candidate)
             if _worth_waiting(per_gw, target_gameweek, last_gameweek, *chip_wait):
                 continue
             return None, candidate

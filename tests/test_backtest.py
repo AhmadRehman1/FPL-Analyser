@@ -4049,17 +4049,18 @@ def test_decide_gameweek_action_option_value_holds_early_and_reserves_a_week_per
     )
     assert chip is None  # an ordinary week with fifteen to go: held
 
-    # GW16 with Free Hit and Bench Boost also unused: Triple Captain must go by GW18 - 2 = GW16
-    late = {"16": 7.0, "17": 9.0, "18": 9.0}
+    # GW17 with Free Hit and Bench Boost also unused: the first set's last week is GW19, so Triple
+    # Captain must go by GW19 - 2 = GW17
+    late = {"17": 7.0, "18": 9.0, "19": 9.0}
     detail = {"triple_captain": {"best_captain_value_per_gw": late}}
-    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("triple_captain",), target_gameweek=16, detail_by_chip=detail)
+    run_id = _seed_plan_run_with_recommendations(con, recommended_chips=("triple_captain",), target_gameweek=17, detail_by_chip=detail)
     _rank, chip = bt._decide_gameweek_action(
-        con, run_id, set(), set(), target_gameweek=16, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=2,
+        con, run_id, set(), set(), target_gameweek=17, accept_transfer_if_net_value_above=0.0, chip_wait_params_version=2,
     )
     assert chip == "triple_captain"
-    # with the other two already spent it can wait for GW17's better week
+    # with the other two already spent it can wait for GW18's better week
     _rank, chip = bt._decide_gameweek_action(
-        con, run_id, {"free_hit", "bench_boost"}, set(), target_gameweek=16, accept_transfer_if_net_value_above=0.0,
+        con, run_id, {"free_hit", "bench_boost"}, set(), target_gameweek=17, accept_transfer_if_net_value_above=0.0,
         chip_wait_params_version=2,
     )
     assert chip is None

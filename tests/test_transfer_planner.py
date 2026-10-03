@@ -2159,23 +2159,32 @@ def test_check_gw19_deadline_not_urgent_if_all_chips_already_used():
     assert result["urgent"] is False
 
 
-def test_check_gw19_deadline_forfeited_once_gw19_arrives_with_unused_chips():
-    result = tp.check_gw19_deadline(target_gameweek=19, chips_used_set1=["wildcard"])
-    assert result["forfeited_now"] is True
+def test_check_gw19_deadline_forfeited_once_gw20_arrives_with_unused_chips():
+    """The first set expires at the GW19 deadline, and a chip for GW19 is played before it:
+    GW19 is the last chance, GW20 is too late (docs/reports/2026-10_open_issues.md, issue 1)."""
+    assert tp.check_gw19_deadline(target_gameweek=19, chips_used_set1=["wildcard"])["forfeited_now"] is False
+    assert tp.check_gw19_deadline(target_gameweek=20, chips_used_set1=["wildcard"])["forfeited_now"] is True
 
 
 def test_check_gw19_deadline_urgent_and_forfeited_never_overlap():
-    """Regression test for a real bug: urgent's inclusive `0 <=` lower bound meant GW19 itself
-    (gameweeks_remaining == 0) was flagged both urgent ("hurry, use it now") and forfeited_now
-    ("already gone") simultaneously -- a self-contradictory pair written into
-    chip_evaluations.gw19_urgent_flag. Checks every gameweek in the warning window plus the
-    deadline itself."""
-    for gw in range(15, 21):
+    """Regression test for a real bug: a self-contradictory urgent ("hurry, use it now") plus
+    forfeited_now ("already gone") pair written into chip_evaluations.gw19_urgent_flag. Checks
+    every gameweek in the warning window plus both sides of the deadline."""
+    for gw in range(15, 22):
         result = tp.check_gw19_deadline(target_gameweek=gw, chips_used_set1=[])
         assert not (result["urgent"] and result["forfeited_now"]), f"gw={gw}: both flags true"
-    at_deadline = tp.check_gw19_deadline(target_gameweek=19, chips_used_set1=[])
-    assert at_deadline["urgent"] is False
-    assert at_deadline["forfeited_now"] is True
+    last_chance = tp.check_gw19_deadline(target_gameweek=19, chips_used_set1=[])
+    assert last_chance["urgent"] is True and last_chance["forfeited_now"] is False
+    after = tp.check_gw19_deadline(target_gameweek=20, chips_used_set1=[])
+    assert after["urgent"] is False and after["forfeited_now"] is True
+
+
+def test_check_gw19_deadline_counts_only_chips_that_expire_at_gw19():
+    """2024-25 had one Free Hit, Bench Boost and Triple Captain for the whole season; only the
+    first Wildcard expired at GW19."""
+    result = tp.check_gw19_deadline(target_gameweek=18, chips_used_set1=[], season="2024-2025")
+    assert result["unused_set1_chips"] == ["wildcard"]
+    assert tp.check_gw19_deadline(target_gameweek=18, chips_used_set1=["wildcard"], season="2024-2025")["urgent"] is False
 
 
 # ============================================================

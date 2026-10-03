@@ -26,6 +26,7 @@ from scipy.stats import poisson
 
 from . import params as params_mod
 from . import reconcile as reconcile_mod
+from . import season_rules
 from . import snapshot as snapshot_mod
 
 PL = "Premier League"
@@ -127,7 +128,12 @@ def _sm(con, key, params_version, position=None):
     return v
 
 
-def _bp(con, key, params_version, position=None):
+def _bp(con, key, params_version, position=None, season=None):
+    """A bps_formula_params weight, or `season`'s own value where that season's BPS differed
+    from the configured version (season_rules.bps_override())."""
+    override = season_rules.bps_override(season, key)
+    if override is not None:
+        return override
     dims = {"position": position} if position else None
     v, _ = params_mod.resolve_param(con, "bps_formula_params", key, params_version, dimensions=dims)
     return v
@@ -336,16 +342,12 @@ def player_rates_shrunk(
     return rates
 
 
-# FPL scoring rules that changed between seasons. Defensive contributions (DefCon: 2 points for
-# reaching a CBIT / CBIRT threshold) only exist from 2025-26; a 2024-25 walk-forward step that
-# predicted them was scoring players on points that season could not award.
-DEFCON_FIRST_SEASON = "2025-2026"
-
-
 def defcon_in_force(season: str | None) -> bool:
-    """True when `season`'s scoring awards DefCon points. "YYYY-YYYY" labels sort
-    chronologically; None (no season known) keeps the current rules."""
-    return season is None or season >= DEFCON_FIRST_SEASON
+    """True when `season`'s scoring awards DefCon points (2 points for reaching a CBIT / CBIRT
+    threshold), which only exist from 2025-26: a 2024-25 walk-forward step that predicted them
+    was scoring players on points that season could not award. Read from season_rules, the one
+    table of rules by season; None (no season known) keeps the current rules."""
+    return season_rules.rules_for(season).defcon
 
 
 MAX_FINISHING_RATIO = 2.0
@@ -956,22 +958,24 @@ def compute_player_fixture_components(
         # No penalty-taker/penalties-faced rate reconciled -- left at 0 rather than guessed.
 
     # ---- expected BPS (mu_i), components backed by reconciled data only (see module docstring) ----
+    # The target season's own BPS weights where they differed (season_rules).
+    rules_season = target_season or season_priority[0]
     mu = 0.0
-    mu += _bp(con, "playing_1_60", bps_params_version) * p_1_59
-    mu += _bp(con, "playing_60plus", bps_params_version) * p_60plus
-    mu += e_goals * _bp(con, "goal", bps_params_version, position)
-    mu += e_assists * _bp(con, "assist", bps_params_version)
+    mu += _bp(con, "playing_1_60", bps_params_version, season=rules_season) * p_1_59
+    mu += _bp(con, "playing_60plus", bps_params_version, season=rules_season) * p_60plus
+    mu += e_goals * _bp(con, "goal", bps_params_version, position, season=rules_season)
+    mu += e_assists * _bp(con, "assist", bps_params_version, season=rules_season)
     # same fixture-scaled defensive rates as the ep_* terms above (BPS's "intentional dual use"
     # of the e_* expectations -- see the module docstring's non-double-counting note).
     e_cbi = def_rates["cbi_per_90"] * defence_defcon_mult * e_min_played / 90.0 * p_played
     e_recoveries = def_rates["recoveries_per_90"] * defence_defcon_mult * e_min_played / 90.0 * p_played
-    mu += e_cbi / _bp(con, "cbi_per_point", bps_params_version)
-    mu += e_recoveries / _bp(con, "recoveries_per_point", bps_params_version)
+    mu += e_cbi / _bp(con, "cbi_per_point", bps_params_version, season=rules_season)
+    mu += e_recoveries / _bp(con, "recoveries_per_point", bps_params_version, season=rules_season)
     if position in ("Goalkeeper", "Defender"):
-        mu += _bp(con, "goal_conceded_gk_def", bps_params_version) * (_expected_floor_half(lambda_against) * 2) * p_60plus
+        mu += _bp(con, "goal_conceded_gk_def", bps_params_version, season=rules_season) * (_expected_floor_half(lambda_against) * 2) * p_60plus
     if position == "Goalkeeper":
         e_saves = rates["saves_per_90"] * defence_saves_mult * e_min_played / 90.0 * p_played
-        mu += e_saves * _bp(con, "save_inside_box", bps_params_version)
+        mu += e_saves * _bp(con, "save_inside_box", bps_params_version, season=rules_season)
 
     return {
         "position": position, "match_id": match_id,

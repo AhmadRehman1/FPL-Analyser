@@ -30,7 +30,7 @@ import duckdb
 
 from . import backtest as bt
 from . import forward_season_sim as fss
-from . import transfer_planner
+from . import season_rules
 
 STATE_FILENAME = "state.json"
 SEASON = "2026-2027"
@@ -262,9 +262,8 @@ def advance(
         state["ledger"].append(row)
 
     for r in result.rows:
-        set1_deadline = transfer_planner.GW19_DEADLINE_GAMEWEEK
         for chip in r.chips_used:
-            bucket = "chips_used_set1" if r.gameweek < set1_deadline else "chips_used_set2"
+            bucket = "chips_used_set1" if season_rules.half_of(r.gameweek) == 1 else "chips_used_set2"
             if chip not in state[bucket]:
                 state[bucket] = sorted([*state[bucket], chip])
     state["current_gameweek"] = current_event

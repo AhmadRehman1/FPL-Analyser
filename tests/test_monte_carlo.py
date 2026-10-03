@@ -626,7 +626,10 @@ def test_no_defcon_points_under_2024_25_rules(con, monkeypatch):
     # M6: this fixture is seeded as 2026-27; treating that season as pre-DefCon exercises the same
     # gate without seeding a 2024-25 teams table.
     assert _simulate(con, ts_mv, mm_mv, ep_mv, squad, n_pairs=500)["dfn"]["defcon_hit"].any()
-    monkeypatch.setattr(ep, "DEFCON_FIRST_SEASON", "2027-2028")
+    from dataclasses import replace
+
+    from fpl_quant import season_rules
+    monkeypatch.setitem(season_rules.RULES, "2026-2027", replace(season_rules.RULES["2026-2027"], defcon=False))
     assert not _simulate(con, ts_mv, mm_mv, ep_mv, squad, n_pairs=500)["dfn"]["defcon_hit"].any()
 
 

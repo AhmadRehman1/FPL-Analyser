@@ -40,12 +40,12 @@ from dataclasses import dataclass
 
 import duckdb
 
-from . import params as params_mod, squad_optimizer, transfer_planner, uncertainty
+from . import params as params_mod, season_rules, squad_optimizer, transfer_planner, uncertainty
 
-# Chip set 1 (Wildcard/Free Hit/Bench Boost/Triple Captain) is forfeited if unused by this
-# gameweek; a gameweek at or past it draws from the second set. Mirrors
-# transfer_planner.GW19_DEADLINE_GAMEWEEK / backtest._decide_gameweek_action's own is_set1 test.
-SET1_DEADLINE_GAMEWEEK = transfer_planner.GW19_DEADLINE_GAMEWEEK
+# The first gameweek played with the second chip set (Wildcard/Free Hit/Bench Boost/Triple
+# Captain): the first set can be played up to and including GW19 (season_rules). A gameweek
+# below this draws from set 1.
+SET1_DEADLINE_GAMEWEEK = season_rules.FIRST_HALF_LAST_GAMEWEEK + 1
 
 
 class ChipAlreadyUsedError(RuntimeError):
@@ -65,7 +65,7 @@ def assert_wildcard_available(
 ) -> None:
     """Guard for Step 7: refuse to run a Wildcard sweep over gameweeks whose chip set already
     has the Wildcard marked used. A set-1 Wildcard already spent does NOT block a sweep that
-    lies entirely in set 2 (GW>=19) -- that is a genuinely separate chip."""
+    lies entirely in set 2 (GW20+) -- that is a genuinely separate chip."""
     set1 = set(chips_used_set1 or [])
     set2 = set(chips_used_set2 or [])
     touches_set1 = any(gw < SET1_DEADLINE_GAMEWEEK for gw in sweep_gameweeks)

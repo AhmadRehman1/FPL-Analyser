@@ -44,6 +44,7 @@ from . import fixture_swing
 from . import ingest_workbook as iw
 from . import monte_carlo
 from . import params as params_mod
+from . import season_rules
 from . import squad_optimizer
 from . import uncertainty as un_mod
 
@@ -1534,7 +1535,11 @@ def evaluate_free_hit_triple_captain_combo(
 # ============================================================
 
 ALL_CHIP_TYPES = frozenset({"wildcard", "free_hit", "triple_captain", "bench_boost"})
-GW19_DEADLINE_GAMEWEEK = 19
+# The first half's last gameweek: a first-set chip can be played up to and including GW19 (it
+# expires at the GW19 deadline, and a chip for GW19 is activated before it); the second set is
+# played from GW20. Which half a gameweek is in, and which chips a season allows, come from
+# season_rules -- this code used to treat GW19 as a second-half week.
+GW19_DEADLINE_GAMEWEEK = season_rules.FIRST_HALF_LAST_GAMEWEEK
 
 
 def chip_timing_window_gameweeks(
@@ -1559,21 +1564,22 @@ def chip_timing_window_gameweeks(
     return max(windows, default=0)
 
 
-def check_gw19_deadline(target_gameweek: int, chips_used_set1: list[str], warning_window: int = 3) -> dict:
+def check_gw19_deadline(
+    target_gameweek: int, chips_used_set1: list[str], warning_window: int = 3, season: str | None = None,
+) -> dict:
     """Chip set 1 is forfeited entirely, not softly discounted, if unused by the GW19
     deadline -- modeled here as an explicit use-it-or-lose-it flag, not a preference that can
     silently lapse (per the spec's own explicit requirement).
 
-    Real bug fixed here: `urgent`'s lower bound was `0 <= gameweeks_remaining`, so at
-    target_gameweek == GW19_DEADLINE_GAMEWEEK itself (gameweeks_remaining == 0) both `urgent`
-    and `forfeited_now` came out True simultaneously -- a self-contradictory "hurry, use it
-    now" plus "it's already gone" pair, written straight into chip_evaluations.gw19_urgent_flag
-    for M9 to display. `urgent` now requires at least 1 gameweek still remaining; GW19 itself is
-    exclusively `forfeited_now`."""
-    unused = ALL_CHIP_TYPES - set(chips_used_set1)
+    GW19 itself is the first set's last week (season_rules), so it is `urgent` -- the last
+    chance -- and `forfeited_now` only from GW20; the two never overlap. It used to call GW19
+    forfeited, a week early. Only chips whose allowance actually ends at GW19 count: in 2024-25
+    that was the first Wildcard alone, the other chips being one per season."""
+    first_half = {c for c in ALL_CHIP_TYPES if season_rules.chip_window(season, c, 1) == season_rules.HALVES[0]}
+    unused = first_half - set(chips_used_set1)
     gameweeks_remaining = GW19_DEADLINE_GAMEWEEK - target_gameweek
-    urgent = 1 <= gameweeks_remaining <= warning_window and bool(unused)
-    forfeited_now = target_gameweek >= GW19_DEADLINE_GAMEWEEK and bool(unused)
+    urgent = 0 <= gameweeks_remaining < warning_window and bool(unused)
+    forfeited_now = target_gameweek > GW19_DEADLINE_GAMEWEEK and bool(unused)
     return {
         "unused_set1_chips": sorted(unused), "gameweeks_until_gw19": gameweeks_remaining,
         "urgent": urgent, "forfeited_now": forfeited_now,
@@ -1735,8 +1741,10 @@ def run(
         timing_window_gameweeks = chip_timing_window_gameweeks(
             con, triple_captain_timing_params_version, bench_boost_timing_params_version,
         )
-        if target_gameweek < GW19_DEADLINE_GAMEWEEK:
-            timing_window_gameweeks = min(timing_window_gameweeks, GW19_DEADLINE_GAMEWEEK - target_gameweek)
+        # never past the chips' own last usable gameweek (Triple Captain and Bench Boost share
+        # their windows in every season)
+        chip_deadline = (season_rules.chip_window(target_season, "triple_captain", target_gameweek) or (0, target_gameweek))[1]
+        timing_window_gameweeks = min(timing_window_gameweeks, chip_deadline - target_gameweek + 1)
         if timing_window_gameweeks > 0:
             # The window starts with the planning horizon's own gameweeks, projected from the
             # same inputs a moment ago; only the weeks past it need projecting.
@@ -1845,7 +1853,7 @@ def run(
                 rho_residual_params_version, kappa_tc_params_version,
             )
 
-    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
+    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1, season=target_season)
 
     run_id = con.execute(
         """
@@ -2183,7 +2191,7 @@ def apply_recommendation(
         }
 
     if accept_chip is not None:
-        if target_gameweek < GW19_DEADLINE_GAMEWEEK:
+        if season_rules.half_of(target_gameweek) == 1:
             chips_used_set1 = chips_used_set1 | {accept_chip}
         else:
             chips_used_set2 = chips_used_set2 | {accept_chip}
@@ -2279,7 +2287,7 @@ def explain_plan(con: duckdb.DuckDBPyConnection, run_id: int, top_n: int = 5) ->
         "(SELECT input_state_version FROM transfer_plan_runs WHERE run_id = ?)", [run_id],
     ).fetchone()
     chips_used_set1 = json.loads(state_row[0]) if state_row else []
-    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1)
+    gw19 = check_gw19_deadline(target_gameweek, chips_used_set1, season=target_season)
 
     return {
         "run_id": run_id, "target_season": target_season, "target_gameweek": target_gameweek,
