@@ -13,8 +13,9 @@
  * Real, standard FPL rules encoded here (matching src/fpl_quant/transfer_planner.py's own
  * confirmed-not-assumed constants): free transfers bank up to a cap of 5; each transfer beyond
  * the free allocation costs 4 points; chips come in two sets of 4 (wildcard, free_hit,
- * bench_boost, triple_captain) -- set 1 usable GW1-18, forfeited (not carried over) if unused by
- * the GW19 deadline, set 2 usable GW19-38, one of each type per set. Wildcard/Free Hit relax the
+ * bench_boost, triple_captain) -- set 1 usable GW1-19 (it expires at the GW19 deadline, and a chip
+ * played in GW19 is activated before it), forfeited (not carried over) if unused by then, set 2
+ * usable GW20-38, one of each type per set. Wildcard/Free Hit relax the
  * free-transfer limit for their own gameweek only (unlimited changes, zero hit cost) and don't
  * consume/grant free transfers beyond the normal weekly +1 accrual.
  *
@@ -65,7 +66,7 @@
   }
 
   function chipSetFor(gameweek) {
-    return gameweek < GW19_DEADLINE_GAMEWEEK ? "set1" : "set2";
+    return gameweek <= GW19_DEADLINE_GAMEWEEK ? "set1" : "set2";
   }
 
   function emptyPlan() {
@@ -306,16 +307,16 @@
       return {
         allowed: false,
         reason: targetSet === "set1"
-          ? (chipType + " already used in the first half of the season (before GW19)")
+          ? (chipType + " already used in the first half of the season (GW1-19)")
           : (chipType + " already used in the second half of the season"),
       };
     }
     // Note: there's no separate "set 1 is closed" guard here beyond chipSetFor()'s own
-    // gameweek < GW19 split -- GW19 itself already resolves to "set2" above, so assigning a
-    // chip type AT GW19 draws from the fresh second-half allocation, not a blocked first-half
-    // one. An unused set-1 chip isn't blocked from being assigned here; it's simply gone (see
-    // checkGw19Deadline()'s forfeitedNow flag) -- there's nothing left in set1 to assign once
-    // gameweek >= GW19.
+    // gameweek <= GW19 split -- GW19 is set 1's last week and GW20 the first of set 2, so
+    // assigning a chip type from GW20 draws from the fresh second-half allocation, not a blocked
+    // first-half one. An unused set-1 chip isn't blocked from being assigned here; it's simply
+    // gone (see checkGw19Deadline()'s forfeitedNow flag) -- there's nothing left in set1 to
+    // assign once gameweek > GW19.
     return { allowed: true, reason: null };
   }
 
@@ -330,8 +331,8 @@
   }
 
   /** use-it-or-lose-it flag for chip set 1, mirroring transfer_planner.py's own
-   * check_gw19_deadline(): urgent inside the last `warningWindow` gameweeks before GW19 with
-   * unused set-1 chips still on the table; forfeited_now once GW19 itself has arrived. */
+   * check_gw19_deadline(): urgent in the last `warningWindow` gameweeks up to and including GW19
+   * (its last week) with unused set-1 chips still on the table; forfeited_now from GW20. */
   function checkGw19Deadline(currentGameweek, chipsUsedSet1, warningWindow) {
     warningWindow = warningWindow || 3;
     var unused = ALL_CHIP_TYPES.filter(function (c) { return chipsUsedSet1.indexOf(c) < 0; });
@@ -339,8 +340,8 @@
     return {
       unusedSet1Chips: unused,
       gameweeksUntilGw19: gameweeksRemaining,
-      urgent: gameweeksRemaining >= 1 && gameweeksRemaining <= warningWindow && unused.length > 0,
-      forfeitedNow: currentGameweek >= GW19_DEADLINE_GAMEWEEK && unused.length > 0,
+      urgent: gameweeksRemaining >= 0 && gameweeksRemaining < warningWindow && unused.length > 0,
+      forfeitedNow: currentGameweek > GW19_DEADLINE_GAMEWEEK && unused.length > 0,
     };
   }
 

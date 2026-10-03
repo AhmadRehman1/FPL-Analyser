@@ -205,7 +205,9 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   fresh audit pass on `monte_carlo.py`, `entity_resolution.py`, and M8's chip-evaluation logic
   (lighter-scrutiny areas from the first round) found four more real bugs: GK saves-to-points
   used continuous division instead of the real integer-floor rule; `check_gw19_deadline()`
-  could flag a chip both `urgent` and `forfeited_now` simultaneously at GW19 itself;
+  could flag a chip both `urgent` and `forfeited_now` simultaneously at GW19 itself (GW19 has
+  since been corrected to set 1's last week -- urgent there, forfeited from GW20; see
+  `season_rules.py`);
   `evaluate_free_hit()` reused Wildcard's own gain threshold (calibrated for a 15-player x
   5-gameweek sum) for an 11-player x 1-gameweek gain; and `apply_recommendation(accept_chip=
   "wildcard")` never actually rebuilt the squad from the fresh M5 solve it evaluated -- a
@@ -336,9 +338,11 @@ converged on (versioned parameters, a real `evidence_claims` layer, MIQP not MIL
   the tests caught before anything else could: `computeStateAtGameweek()`'s free-transfer
   accrual originally reported next-week's count instead of the current week's (conflating "en
   route to next week" with "as of now"), and `canAssignChip()` had a dead, unreachable
-  first-half-chip-set guard (GW19 itself already resolves to chip set 2, so a
-  `set1 && gameweek >= 19` check can never fire) that a wrong test had briefly asserted was
-  real, correct behavior.
+  first-half-chip-set guard (GW19 then resolved to chip set 2, so a
+  `set1 && gameweek >= 19` check could never fire) that a wrong test had briefly asserted was
+  real, correct behavior. (GW19 has since been corrected to set 1's last week, matching
+  `src/fpl_quant/season_rules.py`: a chip played in GW19 is activated before the GW19
+  deadline.)
   **A real, disclosed data gap found and fixed along the way**: `scripts/export_projections.py`
   (real M3 xPts per player, 8-gameweek horizon, confidence bands -- exactly the "expected points
   per player" this feature needs, already fetched by the frontend via

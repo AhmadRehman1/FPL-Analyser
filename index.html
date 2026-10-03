@@ -5015,7 +5015,7 @@ function planChipHistoryFromProfile() {
     if (!c.used) return;
     const type = FPL_CHIP_CODE_TO_PLANNER_TYPE[c.chip_type];
     if (!type) return;
-    (c.used_gameweek < PlannerModel.GW19_DEADLINE_GAMEWEEK ? set1 : set2).push(type);
+    (PlannerModel.chipSetFor(c.used_gameweek) === "set1" ? set1 : set2).push(type);
   });
   return { set1, set2 };
 }
@@ -5463,8 +5463,8 @@ function planTeamInfoBlock(computed) {
       <div class="stat-tile"><div class="k">This GW's hit</div><div class="v" style="${computed.transferCostThisGw ? "color:var(--red);" : ""}">${computed.transferCostThisGw ? "-" + computed.transferCostThisGw : "0"}</div></div>
       <div class="stat-tile"><div class="k">Active chip</div><div class="v" style="font-size:12.5px;">${computed.activeChip ? CHIP_LABELS[computed.activeChip] : "None"}</div></div>
     </div>
-    ${gw19.urgent ? `<div class="flag-banner"><b>Chip set 1 closes at the GW19 deadline</b> &mdash; ${gw19.unusedSet1Chips.map(c => CHIP_LABELS[c]).join(", ")} still unused, ${gw19.gameweeksUntilGw19} gameweek${gw19.gameweeksUntilGw19 === 1 ? "" : "s"} left.</div>` : ""}
-    ${gw19.forfeitedNow ? `<div class="flag-banner severe"><b>First-half chip set is closed.</b> ${gw19.unusedSet1Chips.map(c => CHIP_LABELS[c]).join(", ")} went unused before GW19 and ${gw19.unusedSet1Chips.length === 1 ? "is" : "are"} gone for this half of the season.</div>` : ""}
+    ${gw19.urgent ? `<div class="flag-banner"><b>Chip set 1 closes at the GW19 deadline</b> &mdash; ${gw19.unusedSet1Chips.map(c => CHIP_LABELS[c]).join(", ")} still unused, ${gw19.gameweeksUntilGw19 + 1} gameweek${gw19.gameweeksUntilGw19 === 0 ? "" : "s"} left to play ${gw19.unusedSet1Chips.length === 1 ? "it" : "them"}, this one included (GW19 is the last).</div>` : ""}
+    ${gw19.forfeitedNow ? `<div class="flag-banner severe"><b>First-half chip set is closed.</b> ${gw19.unusedSet1Chips.map(c => CHIP_LABELS[c]).join(", ")} went unused by GW19 and ${gw19.unusedSet1Chips.length === 1 ? "is" : "are"} gone for this half of the season.</div>` : ""}
   `;
 }
 
