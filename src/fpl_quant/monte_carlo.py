@@ -480,7 +480,14 @@ def simulate_fixture(
 
         defcon_hit = np.zeros(state.shape, dtype=bool)
         if position != "Goalkeeper" and ep.defcon_in_force(target_season):
-            defcon_rate90 = def_rates["cbi_per_90"] + def_rates["recoveries_per_90"]
+            # The same action set as expected_points: a defender's DefCon counts CBIT only; ball
+            # recoveries count toward it for midfielders and forwards. Adding recoveries for
+            # defenders made a nailed centre-back a near-certain +2 here while M3 gave him far
+            # less, inflating defenders' simulated points -- and Triple Captain picks its
+            # candidate from these.
+            defcon_rate90 = def_rates["cbi_per_90"] + (
+                def_rates["recoveries_per_90"] if position in ("Midfielder", "Forward") else 0.0
+            )
             threshold = ep._sm(con, "defcon_threshold", scoring_params_version, position)
             lam_defcon = defcon_rate90 * mean_min / 90.0 * dfc_mult
             defcon_count = sample_poisson_vec(lam_defcon, _u_pair())

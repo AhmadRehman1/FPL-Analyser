@@ -628,3 +628,28 @@ def test_no_defcon_points_under_2024_25_rules(con, monkeypatch):
     assert _simulate(con, ts_mv, mm_mv, ep_mv, squad, n_pairs=500)["dfn"]["defcon_hit"].any()
     monkeypatch.setattr(ep, "DEFCON_FIRST_SEASON", "2027-2028")
     assert not _simulate(con, ts_mv, mm_mv, ep_mv, squad, n_pairs=500)["dfn"]["defcon_hit"].any()
+
+
+def test_m6_defender_defcon_counts_cbit_only_like_m3(con):
+    """FPL's DefCon for a defender counts clearances, blocks, interceptions and tackles; ball
+    recoveries only count for midfielders and forwards. M3 had this right, M6 added recoveries
+    for every outfield player, so a recovery-heavy defender hit DefCon in the simulation (and
+    in Triple Captain's candidate scores) while M3 gave him almost nothing."""
+    ts_mv, mm_mv, ep_mv, squad = _seed_asymmetric_fixture(con)
+    con.execute("UPDATE fact_player_match_stats SET tackles = 0, recoveries = 15 WHERE player_uid = 'dfn'")
+    # the same history for a midfielder on the other side: recoveries do count for him
+    for i in range(30):
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+            "minutes_played, tackles, clearances, interceptions, blocks, recoveries, _ingested_at) "
+            "VALUES ('favm0', ?, '2025-2026', 0, 90, 90, 0, 0, 0, 0, 15, current_timestamp)", [f"hist_dfn_{i}"],
+        )
+    mean_minutes = ep._mean_minutes_by_bucket(con)
+    seasons = ["2026-2027", "2025-2026"]
+    m3_dfn = ep.compute_player_fixture_components(
+        con, "dfn", "Defender", "dog", "m1", 0.05, 0.10, 0.85, ts_mv, 1, 1, seasons, mean_minutes, target_season="2026-2027",
+    )["ep_defcon"]
+    sim = _simulate(con, ts_mv, mm_mv, ep_mv, squad | {"favm0"}, n_pairs=2000)
+    assert m3_dfn < 0.05
+    assert sim["dfn"]["defcon_hit"].mean() < 0.05
+    assert sim["favm0"]["defcon_hit"].mean() > 0.2
