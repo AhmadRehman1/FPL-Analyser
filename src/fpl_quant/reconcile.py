@@ -222,26 +222,23 @@ def suspect_transfer_player_seasons(
 ) -> set[tuple[str, str]]:
     """`{(player_uid, season)}` for PRIOR seasons where the season-root `players.csv` assigns
     a player_code to a different club than that season's earliest by-gameweek snapshot does.
+    A diagnostic now: nothing excludes these pairs any more.
 
-    The source provider periodically regenerates a historical season's root `players.csv`
-    (and its later per-gameweek copies, and -- critically -- the `playermatchstats.csv` match
-    attribution) from a *current* FPL bootstrap. A player who has since transferred is then
-    retroactively written onto their new club for a season they never played there: 2025-2026's
-    root now lists Isak, Wissa, Eze, Garnacho, ... at their 2026-27 clubs. GW1/GW2 snapshots
-    predate the rewrite. `minutes_model._build_player_season_team_map()` reads the root, so it
-    measures a transferred player's recency-weighted start rate against the *wrong* club's
-    fixture list -- and their (equally-relabeled) match stats don't join back to it -- silently
-    collapsing `p_start_historical_own` toward zero for exactly the just-transferred players the
-    app most needs priced correctly. compute_player_historical_components() drops these
-    (player, season) pairs so the model falls back to the position-average prior + evidence.
+    This was read as the provider regenerating a historical season's root `players.csv` (and
+    its later per-gameweek copies and the `playermatchstats.csv` match attribution) from a
+    current FPL bootstrap. A check of the provider's files on 2026-10-04 found otherwise
+    (docs/reports/2026-10_open_issues.md, issue 8): the root lists each player's latest club
+    that season, the weekly snapshots are point-in-time (Isak is at Newcastle until GW3 of
+    2025-26 and Liverpool from GW4; Marmoush stays at Man City all of 2025-26), and every
+    mover's match rows sit in fixtures of the club his snapshot names. The flagged players are
+    within-season movers -- 26 in 2025-26, 17 in 2026-27 (Grealish, Marmoush, Enzo, ...).
+    minutes_model used to drop their seasons; it now measures each match against the club of
+    that week's snapshot (minutes_model._weekly_club_spells()).
 
     Scope / caveats:
     - Prior seasons only. For target_season the root IS the freshest correct roster; an
       early-gameweek snapshot would be the stale one.
-    - A genuine mid-season (January-window) transfer also trips this. That is acceptable: a
-      player who changed clubs part-way through a season has a split, low-signal history at
-      both, and leaning on the position prior + current evidence is the same conservative
-      handling we want for any recent mover. Every excluded player is named in the ::warning::.
+    - A January-window move trips this as much as a summer-window one after GW1.
     - 2024-2025's layout has no per-gameweek roster files, so its root cannot be cross-checked
       here (observed unrewritten as of 2026-09; revisit if that changes).
     """
@@ -278,9 +275,9 @@ def suspect_transfer_player_seasons(
             conflicts.append(f"{web_name} [{season}] early_club={early_team} root_club={root_team}")
     if conflicts:
         print(
-            f"::warning::reconcile.suspect_transfer_player_seasons: {len(conflicts)} player-season(s) "
-            f"excluded from the historical minutes fit -- source roster retroactively rewritten "
-            f"post-transfer: " + "; ".join(sorted(conflicts))
+            f"::notice::reconcile.suspect_transfer_player_seasons: {len(conflicts)} player-season(s) "
+            f"whose season-root club differs from their earliest weekly snapshot (within-season "
+            f"moves): " + "; ".join(sorted(conflicts))
         )
     return suspect
 

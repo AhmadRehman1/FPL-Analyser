@@ -41,26 +41,96 @@ def sigmoid(x: float) -> float:
 
 # ---------------------------------------------------------- historical fit ----
 
+ALL_SEASON = (0, 99)  # (first_gw, last_gw) of a club spell that covers the whole season
+
+
+def _weekly_club_spells(con: duckdb.DuckDBPyConnection, season: str, teams_table: str) -> pd.DataFrame:
+    """(player_uid, team_uid, first_gw, last_gw): each player's spells at a club this season,
+    read from the weekly roster snapshots (`By Gameweek/GW{n}/players.csv`, the squad as of
+    that gameweek's deadline). A spell runs from the first snapshot listing him at the club to
+    the week before the next snapshot listing him elsewhere; the last one runs to the end of
+    the season. Empty for a season without snapshots (2024-2025).
+
+    The season-root players.csv lists everyone at his latest club, so a player who moved
+    during a season -- in the summer window after GW1, or in January -- was measured against
+    his new club's fixtures for the weeks he played for the old one. Checked against the
+    provider's files on 2026-10-04 (docs/reports/2026-10_open_issues.md, issue 8): every
+    mover's match rows in 2025-26 (604) and 2026-27 (67) sit in fixtures of the club his
+    snapshot names that week."""
+    reconcile_mod._ensure_id_macro(con)
+    snapshots = []
+    for relpath, table in reconcile_mod._tables_matching(con, season, "By Gameweek/GW%/players.csv"):
+        m = reconcile_mod._GAMEWEEK_IN_RELPATH_RE.search(relpath)
+        if m:
+            snapshots.append(
+                f'SELECT {int(m.group(1))} AS gw, norm_id(CAST(player_code AS VARCHAR)) AS player_code, '
+                f'norm_id(CAST(team_code AS VARCHAR)) AS team_code FROM "{table}"'
+            )
+    if not snapshots:
+        return pd.DataFrame(columns=["player_uid", "team_uid", "first_gw", "last_gw"])
+    weekly = con.execute(
+        f"""
+        WITH snap AS ({" UNION ALL ".join(snapshots)}),
+        player_code AS (
+            SELECT DISTINCT norm_id(source_player_id) AS player_code, player_uid
+            FROM player_alias WHERE season = ? AND source_player_id IS NOT NULL
+        )
+        SELECT pc.player_uid, s.gw, min(ta.team_uid) AS team_uid
+        FROM snap s
+        JOIN player_code pc ON pc.player_code = s.player_code
+        JOIN "{teams_table}" t ON norm_id(CAST(t.code AS VARCHAR)) = s.team_code
+        JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = ?
+        GROUP BY pc.player_uid, s.gw
+        ORDER BY pc.player_uid, s.gw
+        """,
+        [season, season],
+    ).fetchall()
+    spells: list[tuple[str, str, int, int]] = []
+    for player_uid, gw, team_uid in weekly:
+        if spells and spells[-1][0] == player_uid:
+            if spells[-1][1] == team_uid:
+                continue
+            last = spells[-1]
+            spells[-1] = (last[0], last[1], last[2], gw - 1)  # the old spell ends the week before
+        spells.append((player_uid, team_uid, gw, ALL_SEASON[1]))
+    return pd.DataFrame(spells, columns=["player_uid", "team_uid", "first_gw", "last_gw"])
+
+
 def _build_player_season_team_map(con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...]) -> None:
+    """_player_season_team: the club spells (_weekly_club_spells()) whose team matches count as
+    a player's history; a player with no weekly snapshot, and every player in a season without
+    them, gets the season-root club for the whole season."""
     con.execute(
-        "CREATE OR REPLACE TEMP TABLE _player_season_team (player_uid VARCHAR, season VARCHAR, team_uid VARCHAR)"
+        "CREATE OR REPLACE TEMP TABLE _player_season_team "
+        "(player_uid VARCHAR, season VARCHAR, team_uid VARCHAR, first_gw INTEGER, last_gw INTEGER)"
     )
     for season in seasons:
         found = reconcile_mod._season_root_table(con, season, "teams.csv")
         if not found:
             continue
         _relpath, table = found
-        season_sql = season.replace("'", "''")
-        con.execute(
-            f"""
-            INSERT INTO _player_season_team
-            SELECT DISTINCT pa.player_uid, pa.season, ta.team_uid
-            FROM player_alias pa
-            JOIN "{table}" t ON t.code = pa.team_code
-            JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = pa.season
-            WHERE pa.season = '{season_sql}'
-            """
-        )
+        spells = _weekly_club_spells(con, season, table)
+        con.register("_weekly_club_spells_df", spells)
+        try:
+            con.execute(
+                "INSERT INTO _player_season_team "
+                "SELECT player_uid, ?, team_uid, first_gw, last_gw FROM _weekly_club_spells_df",
+                [season],
+            )
+            con.execute(
+                f"""
+                INSERT INTO _player_season_team
+                SELECT DISTINCT pa.player_uid, pa.season, ta.team_uid, {ALL_SEASON[0]}, {ALL_SEASON[1]}
+                FROM player_alias pa
+                JOIN "{table}" t ON t.code = pa.team_code
+                JOIN team_alias ta ON ta.alias_name = t.name AND ta.season = pa.season
+                WHERE pa.season = ?
+                  AND pa.player_uid NOT IN (SELECT player_uid FROM _weekly_club_spells_df)
+                """,
+                [season],
+            )
+        finally:
+            con.unregister("_weekly_club_spells_df")
 
 
 def _team_match_weights(con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...], asof_date: date, xi: float) -> pd.DataFrame:
@@ -88,12 +158,16 @@ def compute_player_historical_components(
     and the position-pooled average), plus raw (unweighted) counts for the
     conditional-on-not-starting sub-usage rate, which the spec doesn't ask to be time-decayed.
 
-    exclude_player_seasons: (player_uid, season) pairs to drop from the fit entirely -- used
-    for players whose source roster was retroactively rewritten onto a club they transferred
-    to later (reconcile.suspect_transfer_player_seasons), where measuring their start rate
-    against that club's fixtures is meaningless. A dropped player-season contributes nothing
-    to weighted_total/weighted_starts/competitive_matches, so run() shrinks such a player
-    toward the position average by the reduced sample size, exactly as for any thin history.
+    Each team match counts toward the club the player was at that week
+    (_build_player_season_team_map()), so a mid-season mover is measured against each club for
+    his own weeks there.
+
+    exclude_player_seasons: (player_uid, season) pairs to drop from the fit entirely. run()
+    used to drop every within-season mover this way (reconcile.suspect_transfer_player_seasons),
+    measuring him against his last club's fixtures being meaningless; the weekly club spells
+    replaced that. A dropped player-season contributes nothing to weighted_total/
+    weighted_starts/competitive_matches, so run() shrinks such a player toward the position
+    average by the reduced sample size, exactly as for any thin history.
 
     Injured/suspended matches are also dropped, per team-match: a team match the player sat
     out with fact_player_season_stats.status in ('i','s') (and no minutes) is "was unavailable
@@ -129,6 +203,7 @@ def compute_player_historical_components(
                 count(*) AS raw_team_matches
             FROM _player_season_team pst
             JOIN _team_match_weights_df tmw ON tmw.team_uid = pst.team_uid AND tmw.season = pst.season
+                AND (tmw.gameweek IS NULL OR tmw.gameweek BETWEEN pst.first_gw AND pst.last_gw)
             LEFT JOIN fact_player_match_stats pmst
                 ON pmst.player_uid = pst.player_uid AND pmst.match_id = tmw.match_id
             LEFT JOIN fact_player_season_stats fpss
@@ -1031,11 +1106,9 @@ def run(
     # 09:34 on the asof date itself is legitimately knowable "as of" that date).
     asof = datetime.combine(calibration_asof_date, datetime.max.time(), tzinfo=timezone.utc)
 
-    suspect_player_seasons = reconcile_mod.suspect_transfer_player_seasons(con, target_season)
-    per_player = compute_player_historical_components(
-        con, lookback_seasons, calibration_asof_date, xi,
-        exclude_player_seasons=suspect_player_seasons,
-    )
+    # Within-season movers are measured against each club for their own weeks there
+    # (_build_player_season_team_map()), so none is dropped from the fit any more.
+    per_player = compute_player_historical_components(con, lookback_seasons, calibration_asof_date, xi)
     position_rates = compute_position_rates(con, per_player)  # merges position internally
     conditional_rates = compute_conditional_minutes_rates(con)
     player_conditional = compute_player_conditional_minutes_rates(con)
@@ -1061,7 +1134,6 @@ def run(
     if current_season_role_params_version is not None or start_prior_params_version is not None:
         current_season_per_player = compute_player_historical_components(
             con, (target_season,), calibration_asof_date, xi,
-            exclude_player_seasons=suspect_player_seasons,
         )
         current_season_per_player_idx = current_season_per_player.set_index("player_uid")
     if current_season_role_params_version is not None:
