@@ -890,3 +890,148 @@ def test_price_band_priors_skip_thin_bands(con):
         ("Midfielder", "9.0+"), ("Midfielder", "<5.0"),
     }
     assert mm.compute_price_band_start_priors(con, per_player, prices, 1e9) == {}
+
+
+# ============================================================
+# Evidence-order start prior (docs/reports/2026-10_open_issues.md, issue 4): the player's own
+# record this season, then in earlier seasons, then a start rate rising with price.
+# ============================================================
+
+def _curve_inputs(rates_by_price, position="Midfielder", players_per_price=5, matches=20.0):
+    import pandas as pd
+
+    rows, prices, position_of = [], {}, {}
+    for price, rate in rates_by_price.items():
+        for i in range(players_per_price):
+            uid = f"{position}_{price}_{i}"
+            rows.append({"player_uid": uid, "weighted_starts": rate * matches, "weighted_total": matches})
+            prices[uid], position_of[uid] = price, position
+    return pd.DataFrame(rows), position_of, prices
+
+
+def test_price_curve_rises_steadily_with_price_and_puts_premiums_high():
+    """The 9.0+ prices include a rotated/injured-looking 0.55: a 9.0+ band average sits well
+    under 0.85, the curve does not."""
+    rates = {4.0: 0.05, 4.5: 0.1, 5.0: 0.2, 5.5: 0.35, 6.0: 0.45, 7.0: 0.6, 8.0: 0.7, 9.0: 0.55, 10.5: 0.9, 12.5: 0.95}
+    per_player, position_of, prices = _curve_inputs(rates)
+    curve = mm.fit_price_start_curve(per_player, position_of, prices)
+    assert set(curve) == {"Midfielder"} and curve["Midfielder"][1] > 0
+    grid = [mm.price_curve_start_prior(curve, "Midfielder", p) for p in (4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.5)]
+    assert grid == sorted(grid)
+    assert mm.price_curve_start_prior(curve, "Midfielder", 10.5) >= 0.85
+    assert mm.price_curve_start_prior(curve, "Midfielder", 4.0) <= 0.15
+    band_9_plus = (0.55 + 0.9 + 0.95) / 3
+    assert band_9_plus < 0.85
+
+
+def test_price_curve_stays_finite_when_every_premium_started():
+    """A cold start's first week separates perfectly (every dear player started, no cheap one
+    did); the ridge keeps the slope finite and the bounds keep the prior off 1."""
+    per_player, position_of, prices = _curve_inputs({4.5: 0.0, 10.0: 1.0}, players_per_price=10, matches=1.0)
+    curve = mm.fit_price_start_curve(per_player, position_of, prices)
+    intercept, slope = curve["Midfielder"]
+    assert abs(intercept) < 50 and 0 < slope < 50
+    assert 0.85 <= mm.price_curve_start_prior(curve, "Midfielder", 10.0) <= mm.PRICE_CURVE_BOUNDS[1]
+    assert mm.price_curve_start_prior(curve, "Midfielder", 4.5) <= 0.15
+
+
+def test_price_curve_never_falls_with_price_and_skips_thin_positions():
+    per_player, position_of, prices = _curve_inputs({4.5: 0.8, 6.0: 0.5, 9.0: 0.2})
+    curve = mm.fit_price_start_curve(per_player, position_of, prices)
+    assert curve["Midfielder"][1] == 0.0
+    flat = {mm.price_curve_start_prior(curve, "Midfielder", p) for p in (4.5, 9.0)}
+    assert len(flat) == 1 and abs(flat.pop() - 0.5) < 0.01  # the pooled rate
+    thin, position_of, prices = _curve_inputs({5.0: 0.5}, position="Goalkeeper", players_per_price=1, matches=10.0)
+    assert mm.fit_price_start_curve(thin, position_of, prices) == {}
+    assert mm.price_curve_start_prior(curve, "Goalkeeper", 5.0) is None
+    assert mm.price_curve_start_prior(curve, "Midfielder", None) is None
+
+
+def test_record_start_rate_counts_the_base_as_extra_matches():
+    import pandas as pd
+
+    assert mm.record_start_rate(None, 0.4, 5.0) == 0.4
+    assert mm.record_start_rate(pd.Series({"weighted_starts": 0.0, "weighted_total": 0.0}), 0.4, 5.0) == 0.4
+    record = pd.Series({"weighted_starts": 2.0, "weighted_total": 10.0})
+    assert mm.record_start_rate(record, 0.5, 5.0) == pytest.approx((2.0 + 2.5) / 15.0)
+
+
+def _seed_league_into_2026_27(con):
+    """_seed_league()'s two seasons (p1, 9.5m, starts all 20; p2, 4.5m, never features), then
+    2026-27 with two matches played: p1 starts both, p2 again neither, 'rookie' (9.0m, no
+    earlier record) starts both, and two arrivals with no record at all, 'star' (12.0m) and
+    'kid' (4.5m)."""
+    _seed_league(con)
+    now = datetime.now(timezone.utc)
+    _seed_raw_teams_csv(con, "2026-2027", [("1", "A"), ("2", "B")])
+    for name, uid in (("A", "team_a"), ("B", "team_b")):
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES (?, '2026-2027', ?, 't')", [name, uid])
+    for uid in ("rookie", "star", "kid"):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+    for uid in ("p1", "p2", "rookie", "star", "kid"):
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES (?, ?, '1', '2026-2027', ?)", [uid, uid, uid],
+        )
+    first_gw = {"p1": 1, "p2": 1, "rookie": 1, "star": 3, "kid": 3}  # star and kid arrive after GW2
+    for uid, cost in {"p1": 9.5, "p2": 4.5, "rookie": 9.0, "star": 12.0, "kid": 4.5}.items():
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, '2026-2027', ?, ?, ?)", [uid, first_gw[uid], cost, now],
+        )
+    for i in range(2):
+        match_id = f"m2027_{i}"
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, "
+            "competition, kickoff_time, _ingested_at) VALUES (?, '2026-2027', ?, 'team_a', 'team_b', TRUE, "
+            "'Premier League', ?, ?)",
+            [match_id, i + 1, datetime(2026, 8, 16) + i * (datetime(2026, 8, 23) - datetime(2026, 8, 16)), now],
+        )
+        for uid in ("p1", "rookie"):
+            con.execute(
+                "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+                "minutes_played, _ingested_at) VALUES (?, ?, '2026-2027', 0, 90, 90, ?)", [uid, match_id, now],
+            )
+
+
+def test_start_prior_follows_the_order_of_evidence(con):
+    _seed_league_into_2026_27(con)
+    _write_base_params(con)
+    params.write_param(con, "minutes_start_prior_params", 1, "2026-10-04", "pseudo_matches", value_numeric=5.0)
+
+    def outputs(**kw):
+        mv = mm.run(
+            con, date(2026, 9, 1), "2026-2027", decay_params_version=1, adjustment_params_version=1,
+            shrinkage_params_version=1, fact_multiplier_params_version=1, **kw,
+        )
+        return {
+            uid: {"prior": prior, "hist": hist}
+            for uid, prior, hist in con.execute(
+                "SELECT player_uid, p_start_historical_position_avg, p_start_historical_final "
+                "FROM minutes_model_outputs WHERE model_version = ?", [mv],
+            ).fetchall()
+        }
+
+    off, on = outputs(), outputs(start_prior_params_version=1)
+    # no record anywhere: the price curve alone, high for a premium, low for a cheap arrival
+    assert on["star"]["hist"] >= 0.85 and on["kid"]["hist"] <= 0.15
+    assert off["star"]["hist"] == off["kid"]["hist"]  # the position average, whatever the price
+    # a current-season record (2 starts of 2) leads, the curve only steadies it
+    assert on["rookie"]["hist"] >= 0.85
+    # never picked across 22 available matches: his own record, not the position average
+    assert on["p2"]["hist"] < 0.05 < 0.3 < off["p2"]["hist"]
+    # a full history is untouched
+    assert on["p1"]["hist"] == pytest.approx(off["p1"]["hist"])
+
+
+def test_the_two_price_priors_are_alternatives(con):
+    _seed_league(con)
+    _write_base_params(con)
+    params.write_param(con, "minutes_price_prior_params", 1, "2026-08-10", "min_band_weight", value_numeric=0.0)
+    params.write_param(con, "minutes_start_prior_params", 1, "2026-10-04", "pseudo_matches", value_numeric=5.0)
+    with pytest.raises(ValueError, match="alternative"):
+        mm.run(
+            con, date(2026, 8, 10), "2025-2026", decay_params_version=1, adjustment_params_version=1,
+            shrinkage_params_version=1, fact_multiplier_params_version=1,
+            lookback_seasons=("2024-2025", "2025-2026"), price_prior_params_version=1, start_prior_params_version=1,
+        )

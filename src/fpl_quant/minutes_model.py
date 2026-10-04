@@ -289,6 +289,116 @@ def compute_price_band_start_priors(
     return out
 
 
+# The price curve behind the evidence-order start prior (docs/reports/2026-10_open_issues.md,
+# issue 4). Placeholders, not fitted: a ridge penalty on the curve's coefficients, so a cold
+# start's first weeks (when every premium started) can't send the slope to infinity; the price
+# the intercepts sit at; the least history a position needs before it gets a curve; and bounds
+# that keep a prior off 0 and 1.
+PRICE_CURVE_RIDGE = 1.0
+PRICE_CURVE_PIVOT = 6.0
+PRICE_CURVE_MIN_WEIGHT = 20.0
+PRICE_CURVE_BOUNDS = (0.02, 0.98)
+
+
+def fit_price_start_curve(
+    per_player: pd.DataFrame, position_of: dict[str, str], prices: dict[str, float],
+) -> dict[str, tuple[float, float]]:
+    """{position: (intercept, slope)} of a start rate that rises steadily with price:
+    logit P(start) = intercept[position] + slope * (price - PRICE_CURVE_PIVOT), one slope for
+    every position and never negative, fitted by penalized maximum likelihood to each player's
+    recency-weighted starts out of the team matches he was available for (the history the
+    position average uses: injured, suspended and not-yet-registered matches are already out).
+
+    The band average it replaces is flat within a band and pools the band's rotated and
+    injured weeks, so early in 2024-25 -- no earlier season to lean on -- the 9.0+ band held
+    Salah's prior at 0.57. A curve borrows strength from the whole price range, so the
+    dearest players get the highest prior. A position with less than PRICE_CURVE_MIN_WEIGHT of
+    history gets no curve (the caller keeps the position average)."""
+    rows: list[tuple[str, float, float, float]] = []
+    for uid, starts_w, total_w in per_player[["player_uid", "weighted_starts", "weighted_total"]].itertuples(index=False):
+        player_position, player_price = position_of.get(uid), prices.get(uid)
+        if player_position is None or player_price is None or pd.isna(player_price) or not total_w or total_w <= 0:
+            continue
+        rows.append((player_position, float(player_price), float(starts_w), float(total_w)))
+    weight_by_position: dict[str, float] = {}
+    for position, _price, _starts, total in rows:
+        weight_by_position[position] = weight_by_position.get(position, 0.0) + total
+    positions = sorted(p for p, w in weight_by_position.items() if w >= PRICE_CURVE_MIN_WEIGHT)
+    rows = [r for r in rows if r[0] in positions]
+    if not rows:
+        return {}
+    column = {p: i for i, p in enumerate(positions)}
+    design = np.zeros((len(rows), len(positions) + 1))
+    for i, (position, price, _starts, _total) in enumerate(rows):
+        design[i, column[position]] = 1.0
+        design[i, -1] = price - PRICE_CURVE_PIVOT
+    starts = np.array([r[2] for r in rows])
+    totals = np.array([r[3] for r in rows])
+
+    def objective(beta: np.ndarray) -> float:
+        eta = design @ beta
+        return float(starts @ eta - totals @ np.logaddexp(0.0, eta) - 0.5 * PRICE_CURVE_RIDGE * beta @ beta)
+
+    def fit(free: np.ndarray) -> np.ndarray:
+        """Damped Newton on the coefficients flagged in `free`; the rest stay at 0."""
+        beta = np.zeros(design.shape[1])
+        x = design[:, free]
+        for _ in range(100):
+            p = 1.0 / (1.0 + np.exp(-(design @ beta)))
+            grad = x.T @ (starts - totals * p) - PRICE_CURVE_RIDGE * beta[free]
+            hess = (x * (totals * p * (1.0 - p))[:, None]).T @ x + PRICE_CURVE_RIDGE * np.eye(int(free.sum()))
+            step = np.linalg.solve(hess, grad)
+            current, scale = objective(beta), 1.0
+            while scale > 1e-6:
+                trial = beta.copy()
+                trial[free] += scale * step
+                if objective(trial) >= current:
+                    break
+                scale /= 2.0
+            beta[free] += scale * step
+            if np.max(np.abs(scale * step)) < 1e-10:
+                break
+        return beta
+
+    beta = fit(np.ones(design.shape[1], dtype=bool))
+    if beta[-1] < 0.0:  # a curve that falls with price: refit it flat
+        free = np.ones(design.shape[1], dtype=bool)
+        free[-1] = False
+        beta = fit(free)
+    return {p: (float(beta[column[p]]), float(beta[-1])) for p in positions}
+
+
+def price_curve_start_prior(
+    curve: dict[str, tuple[float, float]], position: str | None, price: float | None,
+) -> float | None:
+    """The curve's start prior at this price, or None (no curve for the position, or no price)."""
+    if position not in curve or price is None or pd.isna(price):
+        return None
+    intercept, slope = curve[position]
+    low, high = PRICE_CURVE_BOUNDS
+    return min(high, max(low, sigmoid(intercept + slope * (float(price) - PRICE_CURVE_PIVOT))))
+
+
+def _record_of(records: pd.DataFrame | None, player_uid: str) -> pd.Series | None:
+    """One player's row of compute_player_historical_components() (indexed by player_uid)."""
+    if records is None or player_uid not in records.index:
+        return None
+    return records.loc[player_uid]
+
+
+def record_start_rate(record: pd.Series | None, base: float, pseudo_matches: float) -> float:
+    """A player's own start rate over one stretch of history (weighted starts out of the team
+    matches he was available for), with `base` counted as `pseudo_matches` more matches;
+    `base` itself when he has no record there. Zero minutes in matches he was available for
+    is a record -- of not being picked."""
+    if record is None:
+        return base
+    total = float(record["weighted_total"] or 0.0)
+    if total <= 0.0:
+        return base
+    return (float(record["weighted_starts"]) + pseudo_matches * base) / (total + pseudo_matches)
+
+
 def compute_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Empirical P(60+ | started) and P(60+ | subbed on), per position. P(1-59 | .) is the
     complement in both cases -- a featuring player (started or subbed on) always has >0
@@ -928,6 +1038,7 @@ def run(
     current_season_role_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
     price_prior_params_version: int | None = None,
+    start_prior_params_version: int | None = None,
 ) -> int:
     """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
@@ -971,7 +1082,17 @@ def run(
 
     price_prior_params_version (opt-in, None is the prior behavior): the start prior a thin
     history shrinks toward becomes the (position, price band) start rate instead of the
-    position average -- see compute_price_band_start_priors()."""
+    position average -- see compute_price_band_start_priors().
+
+    start_prior_params_version (opt-in, None is the prior behavior; docs/reports/
+    2026-10_open_issues.md, issue 4): the start prior a thin history shrinks toward follows an
+    order of evidence -- the player's own record this season, else his own record in the
+    earlier seasons, else a start rate that rises with his price (fit_price_start_curve()).
+    Each level counts the next one down as minutes_start_prior_params.pseudo_matches extra
+    matches (record_start_rate()), so price only decides the prior of a player with no
+    record at all: a new arrival, or everyone at the very start of 2024-25, the first season
+    in the data. A player with a full history (weight_own = 1) is unaffected. The two price
+    priors are alternatives: passing both raises."""
     xi, _ = params_mod.resolve_param(con, "minutes_model_decay_params", "xi", decay_params_version)
     # minutes_bounds_params_version=None keeps the old unbounded probabilities.
     p_floor = 0.0
@@ -994,6 +1115,8 @@ def run(
     availability = live_availability_by_player(con, target_season)
     price_priors: dict[tuple[str, str], float] = {}
     prices: dict[str, float] = {}
+    if price_prior_params_version is not None and start_prior_params_version is not None:
+        raise ValueError("price_prior_params_version and start_prior_params_version are alternative start priors; pass one")
     if price_prior_params_version is not None:
         min_band_weight, _ = params_mod.resolve_param(
             con, "minutes_price_prior_params", "min_band_weight", price_prior_params_version,
@@ -1005,17 +1128,36 @@ def run(
     # SEPARATE, target_season-only call to the exact same compute_player_historical_components()
     # -- no new query shape, just a narrower `seasons` tuple -- so its own within-season
     # recency weighting (still governed by the same xi) is never diluted by the multi-season
-    # blend above.
+    # blend above. The evidence-order start prior reads the same target_season-only record.
     current_season_per_player_idx = None
     current_season_matches_threshold = None
-    if current_season_role_params_version is not None:
-        current_season_matches_threshold, _ = params_mod.resolve_param(
-            con, "current_season_role_params", "current_season_matches_threshold", current_season_role_params_version,
-        )
+    if current_season_role_params_version is not None or start_prior_params_version is not None:
         current_season_per_player = compute_player_historical_components(
             con, (target_season,), calibration_asof_date, xi,
         )
         current_season_per_player_idx = current_season_per_player.set_index("player_uid")
+    if current_season_role_params_version is not None:
+        current_season_matches_threshold, _ = params_mod.resolve_param(
+            con, "current_season_role_params", "current_season_matches_threshold", current_season_role_params_version,
+        )
+
+    # start_prior_params_version (opt-in, see this function's own docstring): the record in
+    # the seasons before target_season, and the price curve under both records.
+    start_prior_pseudo_matches = None
+    earlier_per_player_idx = None
+    price_curve: dict[str, tuple[float, float]] = {}
+    if start_prior_params_version is not None:
+        start_prior_pseudo_matches, _ = params_mod.resolve_param(
+            con, "minutes_start_prior_params", "pseudo_matches", start_prior_params_version,
+        )
+        earlier_seasons = tuple(s for s in lookback_seasons if s < target_season)
+        if earlier_seasons:
+            earlier_per_player_idx = compute_player_historical_components(
+                con, earlier_seasons, calibration_asof_date, xi,
+            ).set_index("player_uid")
+        prices = latest_price_by_player(con)
+        position_of = dict(con.execute("SELECT player_uid, position FROM dim_player").fetchall())
+        price_curve = fit_price_start_curve(per_player, position_of, prices)
 
     target_players = con.execute(
         """
@@ -1049,6 +1191,15 @@ def run(
         band = price_band(prices.get(player_uid)) if price_priors else None
         if band is not None:
             p_start_pos_avg = price_priors.get((position, band), p_start_pos_avg)
+        if start_prior_pseudo_matches is not None:
+            curve_prior = price_curve_start_prior(price_curve, position, prices.get(player_uid))
+            earlier_rate = record_start_rate(
+                _record_of(earlier_per_player_idx, player_uid),
+                curve_prior if curve_prior is not None else p_start_pos_avg, start_prior_pseudo_matches,
+            )
+            p_start_pos_avg = record_start_rate(
+                _record_of(current_season_per_player_idx, player_uid), earlier_rate, start_prior_pseudo_matches,
+            )
         p_sub_used = float(pos_row["p_used_as_sub_given_not_started"]) if pos_row is not None else 0.0
 
         if player_uid in per_player_idx.index:
@@ -1062,7 +1213,10 @@ def run(
         weight_own = min(1.0, competitive_matches / threshold) if p_start_own is not None else 0.0
         p_start_hist_final = weight_own * p_start_own + (1 - weight_own) * p_start_pos_avg if p_start_own is not None else p_start_pos_avg
 
-        if current_season_per_player_idx is not None and player_uid in current_season_per_player_idx.index:
+        if (
+            current_season_matches_threshold is not None and current_season_per_player_idx is not None
+            and player_uid in current_season_per_player_idx.index
+        ):
             curr_row = current_season_per_player_idx.loc[player_uid]
             curr_weighted_total = curr_row["weighted_total"] or 0.0
             p_start_current_own = float(curr_row["weighted_starts"] / curr_weighted_total) if curr_weighted_total > 0 else None
