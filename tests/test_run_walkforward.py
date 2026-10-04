@@ -39,6 +39,14 @@ def test_minutes_price_prior_flag_maps_to_a_param_version(con):
     out = rw._experiment_versions(con, rw._parse_args(["--minutes-price-prior", "50"]))
     weight, _ = params_mod.resolve_param(con, "minutes_price_prior_params", "min_band_weight", out["minutes_price_prior_params_version"])
     assert weight == 50.0
+    # replaces the live start prior: minutes_model.run() takes one or the other
+    assert out["minutes_start_prior_params_version"] is None
+
+
+def test_no_minutes_start_prior_flag_switches_the_live_prior_off(con):
+    assert rw._experiment_versions(con, rw._parse_args(["--no-minutes-start-prior"])) == {
+        "minutes_start_prior_params_version": None,
+    }
 
 
 def test_minutes_start_prior_flag_maps_to_a_param_version(con):

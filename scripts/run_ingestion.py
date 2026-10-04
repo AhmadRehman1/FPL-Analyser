@@ -114,6 +114,7 @@ def main() -> None:
     # changes no model number; see minutes_model.role_change_evidence_flag.
     minutes_model.seed_role_change_flag_params(con)
     minutes_model.seed_minutes_bounds_params(con)  # v1 = the live 0.005 floor (Fix F)
+    minutes_model.seed_start_prior_params(con)  # v1 = the live evidence-order start prior (issue 4)
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
@@ -221,6 +222,10 @@ def main() -> None:
         # Fix F, switched on 2026-09-29: no minutes state below 0.005 (log score -1.256 -> -0.717
         # in the walk-forward, no loss of squad points).
         minutes_bounds_params_version=ACTIVE["minutes_bounds_params_version"],
+        # Issue 4, switched on 2026-10-04: a thin history shrinks toward the player's own record
+        # (this season, then earlier ones) before a price curve, not the position average
+        # (2025-26 walk-forward: points level, minutes MAE 1.27 -> 1.10, Brier 0.36 -> 0.30).
+        start_prior_params_version=ACTIVE["minutes_start_prior_params_version"],
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]

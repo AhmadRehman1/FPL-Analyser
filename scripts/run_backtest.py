@@ -53,6 +53,7 @@ def _param_versions(active: dict) -> dict:
         captain_risk_params_version=active["captain_risk_params_version"],
         rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
         minutes_bounds_params_version=active["minutes_bounds_params_version"],
+        minutes_start_prior_params_version=active["minutes_start_prior_params_version"],
     )
 
 # Modest, explicit blocks for the M2 coordinate descent -- kept small deliberately (this runs

@@ -879,6 +879,23 @@ def seed_minutes_bounds_params(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+# Placeholder, not fitted (docs/reports/2026-10_open_issues.md, issue 4): how many matches the
+# next level down of run()'s evidence-order start prior counts as. The one value walk-forwarded:
+# against the old position-average prior, 2025-26 kept its points against the real average
+# (+0.03 +/- 0.27 a gameweek) while the calibration improved (MAE 1.27 -> 1.10, minutes Brier
+# 0.36 -> 0.30).
+PLACEHOLDER_START_PRIOR_PSEUDO_MATCHES = 5.0
+
+
+def seed_start_prior_params(con: duckdb.DuckDBPyConnection) -> None:
+    """minutes_start_prior_params v1 = the live evidence-order start prior (run()'s
+    start_prior_params_version)."""
+    params_mod.write_param(
+        con, "minutes_start_prior_params", 1, "2026-10-04", "pseudo_matches",
+        value_numeric=PLACEHOLDER_START_PRIOR_PSEUDO_MATCHES,
+    )
+
+
 def apply_probability_floor(p_0: float, p_1_59: float, p_60plus: float, p_floor: float) -> tuple[float, float, float]:
     """Mixes the 3-state distribution with uniform so every state is at least p_floor (and at
     most 1 - 2*p_floor). Keeps the sum at 1 and the ordering of the states."""
@@ -1084,10 +1101,11 @@ def run(
     history shrinks toward becomes the (position, price band) start rate instead of the
     position average -- see compute_price_band_start_priors().
 
-    start_prior_params_version (opt-in, None is the prior behavior; docs/reports/
-    2026-10_open_issues.md, issue 4): the start prior a thin history shrinks toward follows an
-    order of evidence -- the player's own record this season, else his own record in the
-    earlier seasons, else a start rate that rises with his price (fit_price_start_curve()).
+    start_prior_params_version (None is the old position-average prior; live since 2026-10-04,
+    every caller passes active_recalibratable_versions()'s; docs/reports/2026-10_open_issues.md,
+    issue 4): the start prior a thin history shrinks toward follows an order of evidence -- the
+    player's own record this season, else his own record in the earlier seasons, else a start
+    rate that rises with his price (fit_price_start_curve()).
     Each level counts the next one down as minutes_start_prior_params.pseudo_matches extra
     matches (record_start_rate()), so price only decides the prior of a player with no
     record at all: a new arrival, or everyone at the very start of 2024-25, the first season
