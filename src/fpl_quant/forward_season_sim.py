@@ -188,6 +188,9 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         "captain_risk_params_version": active.get("captain_risk_params_version"),
         "minutes_bounds_params_version": active.get("minutes_bounds_params_version"),
         "rate_shrinkage_params_version": active.get("rate_shrinkage_params_version"),
+        # Issue 4's evidence-order start prior, live since 2026-10-04 (None when `active`
+        # doesn't carry it).
+        "minutes_start_prior_params_version": active.get("minutes_start_prior_params_version"),
         # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
         "chip_wait_params_version": active.get("chip_wait_params_version"),
         # Opt-in two-transfer moves and hits (docs/reports/2026-10_open_issues.md, issue 0);
@@ -371,7 +374,8 @@ def run_forward_season_sim(
         mm0 = minutes_model.run(con, asof, target_season, versions["decay_params_version"],
                                 versions["adjustment_params_version"], versions["shrinkage_params_version"],
                                 versions["fact_multiplier_params_version"],
-                                minutes_bounds_params_version=versions["minutes_bounds_params_version"])
+                                minutes_bounds_params_version=versions["minutes_bounds_params_version"],
+                                start_prior_params_version=versions["minutes_start_prior_params_version"])
         ep0 = expected_points.run(con, asof, target_season, start_gameweek, ts0, mm0,
                                   versions["scoring_params_version"], versions["bps_params_version"],
                                   versions["tau_params_version"],
@@ -403,7 +407,8 @@ def run_forward_season_sim(
             mm_mv = minutes_model.run(con, asof, target_season, versions["decay_params_version"],
                                       versions["adjustment_params_version"], versions["shrinkage_params_version"],
                                       versions["fact_multiplier_params_version"],
-                                      minutes_bounds_params_version=versions["minutes_bounds_params_version"])
+                                      minutes_bounds_params_version=versions["minutes_bounds_params_version"],
+                                      start_prior_params_version=versions["minutes_start_prior_params_version"])
             plan_run_id = transfer_planner.run(
                 con, asof, target_season, gw, state_version, ts_mv, mm_mv,
                 versions["horizon_params_version"], versions["scoring_params_version"], versions["bps_params_version"],

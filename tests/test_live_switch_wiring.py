@@ -1,5 +1,6 @@
-"""The two live model switches (Fix D: captain_risk_params, Fix F: minutes_bounds_params) reach
-every squad builder and every minutes model run, from one source: active_recalibratable_versions().
+"""The live model switches (Fix D: captain_risk_params, Fix F: minutes_bounds_params, issue 4:
+minutes_start_prior_params) reach every squad builder and every minutes model run, from one
+source: active_recalibratable_versions().
 
 Before this, only run_ingestion.py and run_walkforward.py passed them; every other caller fell
 back to the old captain penalty and no minutes floor (docs/reports/2026-10_live_path_diagnosis.md,
@@ -26,21 +27,22 @@ from fpl_quant import squad_optimizer as so  # noqa: E402
 SEED_DIR = REPO_ROOT / "data" / "recalibration"
 CAPTAIN = "captain_risk_params_version"
 MINUTES = "minutes_bounds_params_version"
+START = "minutes_start_prior_params_version"
 RATE = "rate_shrinkage_params_version"
 
 # (module, function) -> keyword every call must pass explicitly (a None is allowed: it's visible).
 REQUIRED = {
     ("squad_optimizer", "run"): [CAPTAIN],
     ("squad_optimizer", "solve"): ["captain_variance_multiplier"],
-    ("minutes_model", "run"): [MINUTES],
+    ("minutes_model", "run"): [MINUTES, "start_prior_params_version"],
     ("expected_points", "run"): [RATE],
     ("transfer_planner", "compute_horizon_ep"): [RATE],
     ("projections", "build_projections"): [RATE],
     ("transfer_planner", "run"): [CAPTAIN, RATE],
     ("decision_engine", "recommend_best_move"): [CAPTAIN, RATE],
     ("squad_grade", "grade_squad"): [CAPTAIN],
-    ("backtest", "run"): [CAPTAIN, MINUTES, RATE],
-    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE],
+    ("backtest", "run"): [CAPTAIN, MINUTES, RATE, START],
+    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE, START],
 }
 
 # Calls that pass their versions through a ** dict. Each one's dict builder is checked below, or it
@@ -123,9 +125,9 @@ def test_every_splat_call_is_reviewed():
 
 
 @pytest.mark.parametrize("script, keys", [
-    ("run_backtest", [CAPTAIN, MINUTES, RATE]),
-    ("run_season_simulation", [CAPTAIN, MINUTES, RATE]),
-    ("export_leaderboard", [CAPTAIN, MINUTES, RATE]),
+    ("run_backtest", [CAPTAIN, MINUTES, RATE, START]),
+    ("run_season_simulation", [CAPTAIN, MINUTES, RATE, START]),
+    ("export_leaderboard", [CAPTAIN, MINUTES, RATE, START]),
     ("explain_my_move", [CAPTAIN, RATE]),
     ("run_scenarios", [CAPTAIN, RATE]),
     ("track_elite", [CAPTAIN, RATE]),
@@ -145,12 +147,14 @@ def test_forward_sim_resolves_the_live_switches():
     assert versions[CAPTAIN] == active[CAPTAIN]
     assert versions[MINUTES] == active[MINUTES]
     assert versions[RATE] == active[RATE]
+    assert versions[START] == active[START]
 
 
 def test_active_versions_resolve_to_the_live_values(con):
     """Materialize the committed seeds the way run_ingestion.py does, then resolve."""
     so.seed_v1_params(con)
     mm.seed_minutes_bounds_params(con)
+    mm.seed_start_prior_params(con)
     for seed in bt.load_confirmed_recalibration_seeds(SEED_DIR):
         params.write_param(
             con, seed["param_family"], seed["new_params_version"], "2026-08-12",
@@ -159,8 +163,10 @@ def test_active_versions_resolve_to_the_live_values(con):
     active = bt.active_recalibratable_versions(SEED_DIR)
     captain, _ = params.resolve_param(con, "captain_risk_params", "captain_variance_multiplier", active[CAPTAIN])
     floor, _ = params.resolve_param(con, "minutes_bounds_params", "p_floor", active[MINUTES])
+    pseudo_matches, _ = params.resolve_param(con, "minutes_start_prior_params", "pseudo_matches", active[START])
     assert captain == so.LIVE_CAPTAIN_VARIANCE_MULTIPLIER == 0.0
     assert floor == mm.PLACEHOLDER_MINUTES_P_FLOOR
+    assert pseudo_matches == mm.PLACEHOLDER_START_PRIOR_PSEUDO_MATCHES == 5.0
 
 
 def test_live_switch_seed_file_is_confirmed():

@@ -1614,6 +1614,7 @@ def run_season_simulation(
     chip_wait_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     multi_transfer_params_version: int | None = None,
+    minutes_start_prior_params_version: int | None = None,
     on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -1702,9 +1703,10 @@ def run_season_simulation(
     run this function once with these two None (the current greedy approach) and once with
     real versions, compare beats_crowd_points_delta.
 
-    captain_risk_params_version/minutes_bounds_params_version: threaded to every
-    squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call this walk makes
-    (None keeps each one's old behavior). Callers pass active_recalibratable_versions()'s.
+    captain_risk_params_version/minutes_bounds_params_version/minutes_start_prior_params_version:
+    threaded to every squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call
+    this walk makes (None keeps each one's old behavior). Callers pass
+    active_recalibratable_versions()'s.
 
     multi_transfer_params_version (opt-in, None keeps one transfer a week at most): the planner
     also searches two-transfer combinations, and a week with no chip makes the best of them
@@ -1737,6 +1739,7 @@ def run_season_simulation(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
+            start_prior_params_version=minutes_start_prior_params_version,
         )
         bootstrap_memo = ep.new_memo()
         ep_mv = ep.run(
@@ -1807,6 +1810,7 @@ def run_season_simulation(
                     con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
                     shrinkage_params_version, fact_multiplier_params_version,
                     minutes_bounds_params_version=minutes_bounds_params_version,
+                    start_prior_params_version=minutes_start_prior_params_version,
                 )
                 plan_run_id = transfer_planner.run(
                     con, calibration_asof_date, season, gw, state_version, ts_mv, mm_mv,
@@ -2114,6 +2118,7 @@ def beats_baseline(
     recent_points_lookback_gameweeks: int = 3,
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
+    minutes_start_prior_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -2160,6 +2165,7 @@ def beats_baseline(
                 con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
                 shrinkage_params_version, fact_multiplier_params_version,
                 minutes_bounds_params_version=minutes_bounds_params_version,
+                start_prior_params_version=minutes_start_prior_params_version,
             )
             ep_mv = ep.run(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
@@ -2496,6 +2502,9 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     # run_walkforward.py passed them (docs/reports/2026-10_live_path_diagnosis.md, finding 4).
     "captain_risk_params_version": ("captain_risk_params", "captain_variance_multiplier"),
     "minutes_bounds_params_version": ("minutes_bounds_params", "p_floor"),
+    # The evidence-order start prior (docs/reports/2026-10_open_issues.md, issue 4), live since
+    # 2026-10-04 after the 2025-26 walk-forward kept points level and cut the calibration error.
+    "minutes_start_prior_params_version": ("minutes_start_prior_params", "pseudo_matches"),
 }
 
 
@@ -2600,6 +2609,10 @@ def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path |
             con, seed["param_family"], seed["new_params_version"], "2026-08-12",
             seed["param_key"], value_numeric=seed["new_value"], dimensions=seed["dimensions"],
         )
+    # The live switches whose active version is the code's own v1, not a seed file's: a cached
+    # DB built before one went live has no v1 row for it yet.
+    minutes_model.seed_minutes_bounds_params(con)
+    minutes_model.seed_start_prior_params(con)
     return len(seeds)
 
 
@@ -2752,9 +2765,11 @@ def _minutes_log_score_for_step(
         mm_model_version = minutes_model.run(
             con, gameweek_deadline(con, season, gameweek).date(), season,
             decay_params_version, adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version,
-            # Scores the model's own probabilities, before the live floor, so the refit stays
-            # comparable with every earlier recalibration run.
+            # Scores the model's own probabilities, before the live floor and with the old
+            # position-average start prior, so the refit stays comparable with every earlier
+            # recalibration run.
             minutes_bounds_params_version=None,
+            start_prior_params_version=None,
         )
     ep_fixture_of = dict(con.execute(
         "SELECT player_uid, fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]
