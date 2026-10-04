@@ -3927,6 +3927,11 @@ def test_materialize_confirmed_seeds_writes_the_active_version_idempotently(con)
     active = bt.active_recalibratable_versions(real_seed_dir)
     lam, _ = bt.params_mod.resolve_param(con, "risk_aversion_params", "lambda_value", active["lambda_params_version"])
     assert lam == 0.0
+    # the live switches whose active version is the code's own v1: a cached DB built before
+    # one went live gets it here too, not only from run_ingestion.py
+    for arg in ("minutes_bounds_params_version", "minutes_start_prior_params_version"):
+        family, key = bt.RECALIBRATABLE_VERSION_ARGS[arg]
+        bt.params_mod.resolve_param(con, family, key, active[arg])
 
 
 def test_refit_lambda_picks_on_points_with_sharpe_as_tie_break():
