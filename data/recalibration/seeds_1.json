@@ -3,6 +3,26 @@
   "proposals": [
     {
       "dimensions": null,
+      "grid_max": 0.5,
+      "grid_min": 0.0,
+      "holdout_metric_after": null,
+      "holdout_metric_before": null,
+      "metric_after": 1.170237790150004,
+      "metric_before": 1.145119418354882,
+      "metric_name": "realized_sharpe",
+      "new_params_version": 4,
+      "new_value": 0.0,
+      "old_params_version": 3,
+      "old_value": 0.2,
+      "param_family": "tc_risk_aversion_params",
+      "param_key": "kappa_tc",
+      "proposal_id": 1,
+      "reviewed_at": null,
+      "reviewed_by": null,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
       "metric_after": 1.1453659985877347,
       "metric_before": 1.1456995269035073,
       "metric_name": "ep_total_calibration_mae",
@@ -167,5 +187,5 @@
       "status": "confirmed"
     }
   ],
-  "written_at": "2026-10-04T13:08:21.280885+00:00"
+  "written_at": "2026-10-04T13:08:27.865237+00:00"
 }
