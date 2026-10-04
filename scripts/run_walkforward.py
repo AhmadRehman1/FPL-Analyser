@@ -21,7 +21,7 @@ Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
 
 The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa, --finishing-prior-xg,
---minutes-price-prior) each swap one
+--minutes-price-prior, --minutes-start-prior) each swap one
 setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
@@ -31,6 +31,12 @@ estimated BPS implies):
                                season BPS, shrunk toward his position with this k (minutes)
     --bps-tau 7                the Plackett-Luce BPS dispersion (live: 10); smaller gives the
                                top BPS in a match more of the bonus
+
+Minutes start prior (docs/reports/2026-10_open_issues.md, issue 4):
+    --minutes-start-prior 5    a thin history shrinks toward the player's own record this
+                               season, else in earlier seasons, else a start rate rising with
+                               price; each level counts the next as 5 matches. Judge it on
+                               2025-26 (--seasons 2025-2026); 2024-25 is the cold-start stress test
 
 Long runs (docs/reports/2026-10_open_issues.md: an arm hit the job's 330-minute limit and left
 no summary):
@@ -72,6 +78,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="turn on per-player finishing skill: (goals + p) / (xG + p), same for assists/xA")
     parser.add_argument("--minutes-price-prior", type=float, default=None, metavar="MIN_BAND_WEIGHT",
                         help="shrink thin minutes histories toward the (position, price band) start rate")
+    parser.add_argument("--minutes-start-prior", type=float, default=None, metavar="PSEUDO_MATCHES",
+                        help="shrink thin minutes histories toward the player's own record (this season, "
+                             "then earlier ones), then a start rate rising with price; each level counts "
+                             "the next as this many matches")
     parser.add_argument("--backtest-evidence", action="store_true",
                         help="let each step see evidence claims observed before its deadline (default: none, as before)")
     parser.add_argument("--bps-calibration-k", type=float, default=None, metavar="K_MINUTES",
@@ -112,6 +122,11 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         out["minutes_price_prior_params_version"] = params_mod.get_or_create_version(
             con, "minutes_price_prior_params", "min_band_weight", EXPERIMENT_EFFECTIVE_DATE,
             value_numeric=args.minutes_price_prior,
+        )
+    if getattr(args, "minutes_start_prior", None) is not None:
+        out["minutes_start_prior_params_version"] = params_mod.get_or_create_version(
+            con, "minutes_start_prior_params", "pseudo_matches", EXPERIMENT_EFFECTIVE_DATE,
+            value_numeric=args.minutes_start_prior,
         )
     if getattr(args, "backtest_evidence", False):
         out["backtest_evidence"] = True

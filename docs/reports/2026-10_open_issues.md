@@ -150,11 +150,11 @@ _From the runs dispatched after #227/#228 merged._
 | 1 | fixed | `season_rules.py`: one table of DefCon, chip allowances and BPS weights by season, read by every scorer and planner. 2024-25 gets one FH/BB/TC for the season and two Wildcards. GW19 is the first half's last week (it was treated as a second-half week, in the app's planner too). BPS: +1 per 2 CBI until 2025-26 (per 3 since), keeper saves 2 BPS in 2024-25. Not modelled: 2024-25's Assistant Manager chip, 2025-26's relaxed assist definition. |
 | 2 | fixed | DuckDB pinned to one thread (multi-threaded DISTINCT/GROUP BY order and float sums changed every run), ordered query inputs, Monte Carlo seeded on what it simulates instead of DB sequence ids, tie-breaks by player_uid. The synthetic season simulation now repeats bit for bit across processes and DB histories. |
 | 3 | fixed | One memo per asof view shared across the horizon's EP/uncertainty/MC runs, `resolve_param()` cache, one claims query per run, the timing window reuses the horizon. Synthetic 4-GW season sim 28.4s -> 10.6s; the test suite 12m47s -> ~6m. Not yet timed on the real DB. |
-| 4 | **needs your call** | The open question stands. Note 2024-25 has no earlier season in the DB, so "own previous-season minutes" can only help 2025-26 on. The price-prior arm can now be re-dispatched (faster, and `--max-minutes` keeps its summary). |
+| 4 | decided, arm built | Price is the last fallback (2026-10-04 decision below). `--minutes-start-prior 5`: a thin history shrinks toward the player's own record this season, else his earlier seasons, else a start rate that rises with price. |
 | 5 | diagnostic | `scripts/diagnose_finishing_ratios.py` prints clamp counts and ratio quantiles per window; needs a run on the ingested DB. |
 | 6 | two opt-in arms | `--bps-calibration-k 450` adds each player's BPS the estimate misses (real season BPS minus the estimate's own terms on his matches, per 90, shrunk to his position). `--bps-tau 7` sharpens the Plackett-Luce bonus split (live 10). |
 | 7 | follows 5 and 6 | Also: Monte Carlo and uncertainty added ball recoveries to a defender's DefCon (the EP engine doesn't), inflating defenders' simulated points, which Triple Captain picks from. Fixed. |
-| 8 | **needs data** | Not changed. Per `reconcile.suspect_transfer_player_seasons()`, the provider rewrites the later per-gameweek snapshots and the match attribution too, so only the GW1/GW2 snapshots can be trusted; a repair would have to infer each match's club from appearances, which needs the real files to check. |
+| 8 | checked; repair in its own PR | No opponent or home/away field exists, but the weekly roster snapshots are point-in-time and every mover's match rows agree with them, so nothing was rewritten (2026-10-04 decision and check below). The minutes fit can measure each match against that week's club instead of dropping movers. |
 | 9 | partly addressed | Walk-forward: `--max-minutes` (branch_walkforward.yml passes 300), `--resume RUN_ID`, `--seasons 2025-2026`, and a `progress` block in the summary. mypy stays at its 75-error baseline. |
 
 **Baselines move.** Re-run control before comparing any arm: outputs are now deterministic but not
@@ -163,7 +163,61 @@ defenders, 2024-25 and 2025-26 use their own BPS weights, 2024-25 plays fewer ch
 set-1 week (season-sim chunks default to GW2-19 and GW20-38).
 
 **Runs to dispatch:**
-- Walk-forward control (both seasons), then `--bps-calibration-k 450`, `--bps-tau 7`, and
-  `--minutes-price-prior 50` again.
-- Season-sim control (2025-26), then `--multi-transfers`, `--chip-option-value`, and both together.
+- Walk-forward control, one job per season (`--seasons 2025-2026`, `--seasons 2024-2025`):
+  dispatched 2026-10-04, runs 37163852286 and 37163854338. Then `--bps-calibration-k 450`,
+  `--bps-tau 7`, and `--minutes-start-prior 5` (issue 4; replaces `--minutes-price-prior 50`).
+- Season-sim control (2025-26): dispatched 2026-10-04, run 37163855869. Then
+  `--multi-transfers`, `--chip-option-value`, and both together.
 - `scripts/diagnose_finishing_ratios.py` against the ingested DB.
+
+## Decisions (2026-10-04)
+
+### Issue 4: price is the last fallback; judge on 2025-26
+
+- **Order of evidence** for a player's start prior: his own record this season once he has
+  one, then his own record in earlier seasons, and a price-based prior only when neither exists.
+  - "Record" means the team matches he was available for, so zero minutes in matches he could
+    have played counts as evidence of not being picked.
+  - Each level counts the next one down as a few extra matches (`pseudo_matches`), so a thin
+    record is steadied, not replaced.
+- **The price prior is a curve, not a band.** A start rate rising steadily with price
+  (`minutes_model.fit_price_start_curve()`), fitted to every player's starts out of the matches
+  he was available for. The 9.0+ band average pooled rotated and injured weeks and held Salah
+  at 0.57; premiums should come out around 0.85 or higher.
+- **Judge on 2025-26.** The live season always has two earlier seasons, so 2024-25's cold
+  start only happens in the backtest. The earlier arm's losses were almost all 2024-25
+  cold-start steps, and its 2025-26 picks were nearly unchanged.
+  - Decide on the 2025-26 real-average comparison plus calibration.
+  - Report 2024-25 separately as a cold-start stress test.
+- **Promote if** it keeps the calibration gain (MAE about 1.24 → 1.20, minutes Brier
+  0.36 → 0.34) without losing points against the real average in 2025-26.
+- **Scoreboard.** `walkforward_summary.py` now reports `headline_by_season`, and
+  `minutes_prior_by_price_band` (mean start prior vs the share that started, by season, tier
+  and price band) for the premium check.
+
+### Issue 8: keep the exclusion
+
+- **Impact is small.** The minutes fit is mostly about the player, not the club, so dropping
+  17 player-seasons costs little. Club matters mainly for team-strength attribution and
+  teammate covariance; look there if anything breaks.
+- **Cheap repair, if the data allows.** If the per-gameweek rows carry the opponent and a
+  home/away flag (FPL's own gameweek data does), the player's club for that match is the other
+  side of that fixture: a lookup, not an inference.
+- **Check first.** Confirm those columns exist and weren't rewritten too: spot-check Grealish
+  and Marmoush against the provider's files. If they're clean, the repair is small; if not,
+  the exclusion stays.
+
+**What the check found (FPL-Core-Insights, 2026-10-04):**
+- The per-gameweek player rows carry no opponent, home/away or team field, and
+  `playermatchstats.csv` has `match_id` but no team.
+- The weekly roster snapshots (`By Gameweek/GW{n}/players.csv`) are point-in-time.
+  - 2026-27: Grealish is at Man City for GW1–2 and Everton from GW3; Marmoush is at Man City
+    for GW1 and Spurs from GW2.
+  - 2025-26: Isak is at Newcastle to GW3 and Liverpool from GW4. Marmoush, Enzo, Delap and
+    N.Jackson keep their 2025-26 clubs all season.
+- Every mover's Premier League match row sits in a fixture of the club his snapshot names
+  that week (604 rows in 2025-26, 67 in 2026-27, no mismatches).
+- So nothing was rewritten. The season-root roster lists each player's latest club, and the
+  flagged players are within-season movers: 26 in 2025-26, the 17 in 2026-27.
+- The repair is a lookup on the weekly snapshot rather than on the fixture's other side. It
+  is in its own PR so it doesn't confound the issue 4 comparison.
