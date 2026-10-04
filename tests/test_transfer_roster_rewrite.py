@@ -1,11 +1,10 @@
-"""Regression: FPL-Core-Insights periodically regenerates a *historical* season's root
-players.csv (and its later per-gameweek copies, and the playermatchstats.csv match
-attribution) from a CURRENT bootstrap, so a since-transferred player is retroactively written
-onto their new club for a season they never played there -- 2025-2026's root lists Isak at
-Liverpool though he was at Newcastle all season. reconcile.suspect_transfer_player_seasons()
-detects that (root club != earliest-gameweek club) and minutes_model excludes the affected
-(player, season) from the historical start-rate fit rather than measuring it against the
-wrong club's fixtures.
+"""A season's root players.csv lists each player at his latest club that season, so a player
+who moved during it (Isak: Newcastle to GW3 of 2025-26, Liverpool from GW4) was measured
+against his last club's fixtures for the whole season. reconcile.suspect_transfer_player_seasons()
+names such players (root club != earliest weekly snapshot); minutes_model used to drop their
+seasons and now measures each match against the club of that week's snapshot
+(docs/reports/2026-10_open_issues.md, issue 8: the provider's weekly snapshots and match rows
+checked out point-in-time on 2026-10-04).
 """
 
 from pathlib import Path
@@ -117,3 +116,59 @@ def test_compute_historical_components_drops_excluded_player_seasons(con):
     ).set_index("player_uid")
     assert dropped.loc["p1", "raw_team_matches"] == 1  # 2025-2026 half removed
     assert dropped.loc["p2", "raw_team_matches"] == 2  # untouched
+
+
+def _raw_table(con, season, relpath, columns, rows):
+    table = "raw_" + "".join(ch if ch.isalnum() else "_" for ch in f"{season}_{relpath}")
+    con.execute(f'CREATE TABLE "{table}" ({", ".join(f"{c} VARCHAR" for c in columns)})')
+    for row in rows:
+        con.execute(f'INSERT INTO "{table}" VALUES ({", ".join("?" for _ in columns)})', list(row))
+    con.execute(
+        "INSERT INTO fact_raw_ingestion_log (raw_table_name, season, source_relpath, source_file_hash, row_count) "
+        "VALUES (?, ?, ?, ?, ?)", [table, season, relpath, f"hash_{table}", len(rows)],
+    )
+
+
+def test_a_mid_season_mover_is_measured_against_each_club_for_his_own_weeks(con):
+    """'mover' starts all four gameweeks: GW1-2 for A, GW3-4 for B (the root lists B). Every
+    gameweek has A v C and B v D. Measured against B all season he started 2 of B's 4 matches;
+    measured against the club of each week's snapshot he started all 4 of his own."""
+    from datetime import date, datetime, timezone
+
+    season = "2025-2026"
+    now = datetime.now(timezone.utc)
+    clubs = {"1": ("A", "team_a"), "2": ("B", "team_b"), "3": ("C", "team_c"), "4": ("D", "team_d")}
+    _raw_table(con, season, "teams.csv", ("code", "name"), [(code, name) for code, (name, _uid) in clubs.items()])
+    for _code, (name, uid) in clubs.items():
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [uid, name])
+        con.execute("INSERT INTO team_alias (alias_name, season, team_uid, alias_source) VALUES (?, ?, ?, 't')", [name, season, uid])
+    for uid, code, root_club in (("mover", "77", "2"), ("stayer", "88", "1")):
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid, source_player_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)", [uid, uid, root_club, season, uid, code],
+        )
+    for gw in range(1, 5):
+        mover_club = "1" if gw <= 2 else "2"
+        _raw_table(con, season, f"By Gameweek/GW{gw}/players.csv", ("player_code", "team_code"),
+                   [("77.0", mover_club), ("88", "1")])
+        for home, away in (("team_a", "team_c"), ("team_b", "team_d")):
+            match_id = f"{home}_{gw}"
+            con.execute(
+                "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, competition, "
+                "kickoff_time, _ingested_at) VALUES (?, ?, ?, ?, ?, TRUE, 'Premier League', ?, ?)",
+                [match_id, season, gw, home, away, datetime(2025, 8, 1 + 7 * gw), now],
+            )
+        for uid, match_id in (("mover", f"team_{'a' if gw <= 2 else 'b'}_{gw}"), ("stayer", f"team_a_{gw}")):
+            con.execute(
+                "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, "
+                "_ingested_at) VALUES (?, ?, ?, 0, 90, 90, ?)", [uid, match_id, season, now],
+            )
+
+    spells = minutes_model._weekly_club_spells(con, season, "raw_2025_2026_teams_csv")
+    assert sorted(map(tuple, spells.itertuples(index=False))) == [
+        ("mover", "team_a", 1, 2), ("mover", "team_b", 3, 99), ("stayer", "team_a", 1, 99),
+    ]
+    history = minutes_model.compute_player_historical_components(con, (season,), date(2025, 10, 1), 0.0).set_index("player_uid")
+    assert (history.loc["mover", "raw_team_matches"], history.loc["mover", "raw_starts"]) == (4, 4)
+    assert (history.loc["stayer", "raw_team_matches"], history.loc["stayer", "raw_starts"]) == (4, 4)
