@@ -1,23 +1,23 @@
 {
-  "action": "free_hit",
-  "action_display": "free_hit",
+  "action": "wildcard",
+  "action_display": "wildcard",
   "data_asof": "2026-10-04",
   "downside_ci": [
-    -9.152063973280127,
-    101.40535600909843
+    -8.490426421350875,
+    102.75583400534174
   ],
   "entry_id": 7139944,
-  "ep_lift": 15.835124163481453,
+  "ep_lift": 19.12259033076063,
   "gw": 6,
   "price_hint": null,
   "provenance": {
     "data_asof": "2026-10-04",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": 7.161180047282738,
+      "delta_ep": 4.039358761311018,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
       "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
@@ -27,7 +27,7 @@
   "swaps": [],
   "track_record": {
     "optimal_in_n_of_71": null,
-    "pattern": "action_kind:free_hit",
+    "pattern": "action_kind:wildcard",
     "sample_size": 0
   }
 }
