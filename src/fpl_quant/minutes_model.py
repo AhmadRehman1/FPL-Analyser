@@ -1154,7 +1154,6 @@ def run(
         if earlier_seasons:
             earlier_per_player_idx = compute_player_historical_components(
                 con, earlier_seasons, calibration_asof_date, xi,
-                exclude_player_seasons=suspect_player_seasons,
             ).set_index("player_uid")
         prices = latest_price_by_player(con)
         position_of = dict(con.execute("SELECT player_uid, position FROM dim_player").fetchall())
