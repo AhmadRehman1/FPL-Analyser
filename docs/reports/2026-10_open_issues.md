@@ -140,13 +140,33 @@ _From the runs dispatched after #227/#228 merged._
 - **Transfer threshold:** raising it from 0 to 0.5 or 2.0 costs about 2.6 points per gameweek, and the two arms barely differ from each other (issue 0).
 - **Chip-wait arm:** its chunks were still running when this was written. Results will be in the run's `season-sim-summary` artifact.
 
+### Season-sim arms (2025-26, run 37201797073, master after #231/#232)
+
+| arm | changed | net pts/GW | vs real avg | vs control (paired) | hits | transfers | chips |
+|---|---|---|---|---|---|---|---|
+| control | live settings | 60.24 | +10.49 | - | 0 | 28 | GW3 BB, GW5 FH, GW6 TC, GW21 FH, GW22 WC, GW23 BB, GW24 TC |
+| multi | `--multi-transfers` | 59.89 | +10.14 | −0.35 ± 1.44 | 36 | 44 | as control |
+| chipov | `--chip-option-value` | 59.51 | +9.76 | −0.73 ± 2.01 | 0 | 27 | GW3 BB, GW5 WC, GW8 TC, GW11 FH, GW21 BB, GW22 WC, GW26 TC, GW31 FH |
+| both | both flags | 60.92 | +11.16 | +0.68 ± 1.36 | 40 | 45 | GW3 BB, GW5 FH, GW6 TC, GW21 BB, GW22 WC, GW26 TC, GW34 FH |
+
+Paired over the same 37 gameweeks (n = 37); FPL's real average is 49.76 a gameweek.
+
+- **No arm separates from control.** Every difference is under one standard error, so both settings stay
+  opt-in.
+- **Multi-transfers** takes hits now (9 in the season: 5 in GW2–19, 4 in GW20–38). Set 1
+  +0.78 ± 1.47, set 2 −1.42 ± 2.46.
+- **Chip option value** spreads the chips out instead of playing them at the first chance. Set 1
+  −4.22 ± 3.38 (Triple Captain GW6 → GW8, Free Hit GW5 → GW11), set 2 +2.58 ± 2.08.
+- **Both together:** set 1 is identical to multi-transfers alone. On that squad the option-value rule
+  agreed with the old one (BB GW3, FH GW5, TC GW6), so only set 2 differs (+0.58 ± 2.28).
+
 
 ## Status (2026-10-03)
 
 | # | status | what changed / what's left |
 |---|---|---|
-| 0 | built, opt-in | `multi_transfer_params` v1: a week with no chip makes the best two-transfer combination instead of the best single when it's worth more net of its hit. `apply_recommendation()` applies combinations and spends free transfers first. Season-sim arm: `--multi-transfers`. The live model team is unchanged until an arm justifies it. |
-| 0b | diagnosed, fixed, opt-in rule | The magnitude floors never bind (TC 0.1 vs ~6, BB 0.5 vs ~8, FH 1.5). The `--chip-timing` arm could not differ from control: the simulations showed only the planning horizon's 5 weeks of fixtures, so the 10-week window was the 5-week one (fixed). The gate plays at the first local maximum of a sliding window, and set 2 has none. `chip_wait_params` v2 (`--chip-option-value`) holds a chip unless it beats the value of every week left in the half (backward induction, unseen weeks as draws from the projected ones), for FH too. |
+| 0 | built, opt-in; arm level with control | `multi_transfer_params` v1: a week with no chip makes the best two-transfer combination instead of the best single when it's worth more net of its hit. `apply_recommendation()` applies combinations and spends free transfers first. Season-sim arm `--multi-transfers` (2026-10-04): −0.35 ± 1.44 pts/GW against control, 9 hits and 44 transfers to control's 0 and 28 (results below). Stays opt-in. |
+| 0b | diagnosed, fixed, opt-in rule | The magnitude floors never bind (TC 0.1 vs ~6, BB 0.5 vs ~8, FH 1.5). The `--chip-timing` arm could not differ from control: the simulations showed only the planning horizon's 5 weeks of fixtures, so the 10-week window was the 5-week one (fixed). The gate plays at the first local maximum of a sliding window, and set 2 has none. `chip_wait_params` v2 (`--chip-option-value`) holds a chip unless it beats the value of every week left in the half (backward induction, unseen weeks as draws from the projected ones), for FH too. Season-sim arm (2026-10-04): −0.73 ± 2.01 pts/GW against control, so it stays opt-in (results below). |
 | 1 | fixed | `season_rules.py`: one table of DefCon, chip allowances and BPS weights by season, read by every scorer and planner. 2024-25 gets one FH/BB/TC for the season and two Wildcards. GW19 is the first half's last week (it was treated as a second-half week, in the app's planner too). BPS: +1 per 2 CBI until 2025-26 (per 3 since), keeper saves 2 BPS in 2024-25. Not modelled: 2024-25's Assistant Manager chip, 2025-26's relaxed assist definition. |
 | 2 | fixed | DuckDB pinned to one thread (multi-threaded DISTINCT/GROUP BY order and float sums changed every run), ordered query inputs, Monte Carlo seeded on what it simulates instead of DB sequence ids, tie-breaks by player_uid. The synthetic season simulation now repeats bit for bit across processes and DB histories. |
 | 3 | fixed | One memo per asof view shared across the horizon's EP/uncertainty/MC runs, `resolve_param()` cache, one claims query per run, the timing window reuses the horizon. Synthetic 4-GW season sim 28.4s -> 10.6s; the test suite 12m47s -> ~6m. Not yet timed on the real DB. |
@@ -168,7 +188,7 @@ set-1 week (season-sim chunks default to GW2-19 and GW20-38).
   `--bps-tau 7`. Issue 4's start prior is done (promoted, above); a control dispatched after
   2026-10-04 includes it.
 - Season-sim control (2025-26): dispatched 2026-10-04, run 37163855869. Then
-  `--multi-transfers`, `--chip-option-value`, and both together.
+  `--multi-transfers`, `--chip-option-value`, and both together: done, run 37201797073 (below).
 - `scripts/diagnose_finishing_ratios.py` against the ingested DB.
 
 ## Decisions (2026-10-04)
@@ -223,6 +243,10 @@ points do.
   2024-25 −2.54) because the synthetic average manager discounts each owned player by the
   model's own chance of that player playing, so a better minutes model raises the benchmark
   itself. FPL's real average doesn't move with the model.
+- **Season sim** (the evolving manager with transfers and chips; run 37203343610 against
+  37201797073's control): −1.84 ± 2.02 pts/GW, n = 37, within noise. One week carries it. At GW6
+  both played Triple Captain on squads that differed after GW5's chip (a Wildcard instead of
+  the Free Hit): 31 points against 78. Without GW6 the gap is −0.58 ± 1.62.
 - **Not yet re-tuned:** the M7 recalibration still scores the minutes model with the old
   prior, like the floor, so a refit of `competitive_matches_threshold` is tuned for the old
   prior.
