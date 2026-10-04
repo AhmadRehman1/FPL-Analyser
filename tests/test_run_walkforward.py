@@ -48,6 +48,12 @@ def test_minutes_start_prior_flag_maps_to_a_param_version(con):
     assert rw._experiment_versions(con, rw._parse_args(["--minutes-start-prior", "5"])) == out
 
 
+def test_start_prior_min_appearances_flag_maps_to_a_param_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--minutes-start-prior", "5", "--start-prior-min-appearances", "1"]))
+    n, _ = params_mod.resolve_param(con, "minutes_start_prior_record_params", "min_appearances", out["minutes_start_prior_record_params_version"])
+    assert n == 1.0 and "minutes_start_prior_params_version" in out
+
+
 def test_run_length_flags_are_not_experiment_settings(con):
     """--max-minutes / --resume / --seasons shape the run, they don't change the model; the
     workflow puts --max-minutes first so an arm's own value overrides it."""

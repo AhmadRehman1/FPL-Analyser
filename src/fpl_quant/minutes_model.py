@@ -386,15 +386,18 @@ def _record_of(records: pd.DataFrame | None, player_uid: str) -> pd.Series | Non
     return records.loc[player_uid]
 
 
-def record_start_rate(record: pd.Series | None, base: float, pseudo_matches: float) -> float:
+def record_start_rate(
+    record: pd.Series | None, base: float, pseudo_matches: float, min_appearances: int = 0,
+) -> float:
     """A player's own start rate over one stretch of history (weighted starts out of the team
     matches he was available for), with `base` counted as `pseudo_matches` more matches;
     `base` itself when he has no record there. Zero minutes in matches he was available for
-    is a record -- of not being picked."""
+    is a record -- of not being picked -- unless `min_appearances` asks for more: a stretch in
+    which he appeared fewer times than that is no record, and `base` decides."""
     if record is None:
         return base
     total = float(record["weighted_total"] or 0.0)
-    if total <= 0.0:
+    if total <= 0.0 or (min_appearances > 0 and int(record["competitive_matches"] or 0) < min_appearances):
         return base
     return (float(record["weighted_starts"]) + pseudo_matches * base) / (total + pseudo_matches)
 
@@ -1039,6 +1042,7 @@ def run(
     minutes_bounds_params_version: int | None = None,
     price_prior_params_version: int | None = None,
     start_prior_params_version: int | None = None,
+    start_prior_record_params_version: int | None = None,
 ) -> int:
     """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
@@ -1092,7 +1096,13 @@ def run(
     matches (record_start_rate()), so price only decides the prior of a player with no
     record at all: a new arrival, or everyone at the very start of 2024-25, the first season
     in the data. A player with a full history (weight_own = 1) is unaffected. The two price
-    priors are alternatives: passing both raises."""
+    priors are alternatives: passing both raises.
+
+    start_prior_record_params_version (opt-in, with start_prior_params_version; None counts
+    every available match): minutes_start_prior_record_params.min_appearances, the
+    appearances a stretch needs before it counts as a record (record_start_rate()). At 1, a
+    player who never played in a stretch is judged by the next level down -- the price curve,
+    if he never played at all -- rather than by his zeros."""
     xi, _ = params_mod.resolve_param(con, "minutes_model_decay_params", "xi", decay_params_version)
     # minutes_bounds_params_version=None keeps the old unbounded probabilities.
     p_floor = 0.0
@@ -1144,12 +1154,18 @@ def run(
     # start_prior_params_version (opt-in, see this function's own docstring): the record in
     # the seasons before target_season, and the price curve under both records.
     start_prior_pseudo_matches = None
+    start_prior_min_appearances = 0
     earlier_per_player_idx = None
     price_curve: dict[str, tuple[float, float]] = {}
     if start_prior_params_version is not None:
         start_prior_pseudo_matches, _ = params_mod.resolve_param(
             con, "minutes_start_prior_params", "pseudo_matches", start_prior_params_version,
         )
+        if start_prior_record_params_version is not None:
+            min_appearances, _ = params_mod.resolve_param(
+                con, "minutes_start_prior_record_params", "min_appearances", start_prior_record_params_version,
+            )
+            start_prior_min_appearances = int(min_appearances)
         earlier_seasons = tuple(s for s in lookback_seasons if s < target_season)
         if earlier_seasons:
             earlier_per_player_idx = compute_player_historical_components(
@@ -1196,9 +1212,11 @@ def run(
             earlier_rate = record_start_rate(
                 _record_of(earlier_per_player_idx, player_uid),
                 curve_prior if curve_prior is not None else p_start_pos_avg, start_prior_pseudo_matches,
+                start_prior_min_appearances,
             )
             p_start_pos_avg = record_start_rate(
                 _record_of(current_season_per_player_idx, player_uid), earlier_rate, start_prior_pseudo_matches,
+                start_prior_min_appearances,
             )
         p_sub_used = float(pos_row["p_used_as_sub_given_not_started"]) if pos_row is not None else 0.0
 

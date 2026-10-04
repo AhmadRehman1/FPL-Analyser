@@ -352,6 +352,7 @@ def run_gameweek_step(
     finishing_skill_params_version: int | None = None,
     minutes_price_prior_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
+    minutes_start_prior_record_params_version: int | None = None,
     bps_calibration_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
@@ -415,6 +416,7 @@ def run_gameweek_step(
             minutes_bounds_params_version=minutes_bounds_params_version,
             price_prior_params_version=minutes_price_prior_params_version,
             start_prior_params_version=minutes_start_prior_params_version,
+            start_prior_record_params_version=minutes_start_prior_record_params_version,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
@@ -1128,6 +1130,7 @@ def run(
     finishing_skill_params_version: int | None = None,
     minutes_price_prior_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
+    minutes_start_prior_record_params_version: int | None = None,
     bps_calibration_params_version: int | None = None,
     seasons: tuple[str, ...] | None = None,
     stop_after_seconds: float | None = None,
@@ -1230,6 +1233,7 @@ def run(
             finishing_skill_params_version=finishing_skill_params_version,
             minutes_price_prior_params_version=minutes_price_prior_params_version,
             minutes_start_prior_params_version=minutes_start_prior_params_version,
+            minutes_start_prior_record_params_version=minutes_start_prior_record_params_version,
             bps_calibration_params_version=bps_calibration_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(

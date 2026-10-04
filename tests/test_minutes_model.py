@@ -1035,3 +1035,38 @@ def test_the_two_price_priors_are_alternatives(con):
             shrinkage_params_version=1, fact_multiplier_params_version=1,
             lookback_seasons=("2024-2025", "2025-2026"), price_prior_params_version=1, start_prior_params_version=1,
         )
+
+
+def test_record_start_rate_can_require_appearances():
+    import pandas as pd
+
+    never_played = pd.Series({"weighted_starts": 0.0, "weighted_total": 20.0, "competitive_matches": 0})
+    assert mm.record_start_rate(never_played, 0.4, 5.0) == pytest.approx(5.0 * 0.4 / 25.0)  # his zeros count
+    assert mm.record_start_rate(never_played, 0.4, 5.0, min_appearances=1) == 0.4  # no record: the base decides
+    played = pd.Series({"weighted_starts": 2.0, "weighted_total": 10.0, "competitive_matches": 3})
+    assert mm.record_start_rate(played, 0.5, 5.0, min_appearances=1) == pytest.approx((2.0 + 2.5) / 15.0)
+
+
+def test_start_prior_appearances_only_judges_a_never_picked_player_by_price(con):
+    """p2 was available for 22 matches and never played: by his zeros he is near 0; with a
+    record needing an appearance he gets the price curve, like 'kid', the other 4.5m
+    midfielder with no record. Players who have played are unaffected."""
+    _seed_league_into_2026_27(con)
+    _write_base_params(con)
+    params.write_param(con, "minutes_start_prior_params", 1, "2026-10-04", "pseudo_matches", value_numeric=5.0)
+    params.write_param(con, "minutes_start_prior_record_params", 1, "2026-10-04", "min_appearances", value_numeric=1)
+
+    def hist(**kw):
+        mv = mm.run(
+            con, date(2026, 9, 1), "2026-2027", decay_params_version=1, adjustment_params_version=1,
+            shrinkage_params_version=1, fact_multiplier_params_version=1, start_prior_params_version=1, **kw,
+        )
+        return dict(con.execute(
+            "SELECT player_uid, p_start_historical_final FROM minutes_model_outputs WHERE model_version = ?", [mv],
+        ).fetchall())
+
+    zeros, appearances = hist(), hist(start_prior_record_params_version=1)
+    assert zeros["p2"] < 0.05
+    assert appearances["p2"] == pytest.approx(appearances["kid"]) and appearances["p2"] > zeros["p2"]
+    for uid in ("p1", "rookie", "star", "kid"):
+        assert appearances[uid] == pytest.approx(zeros[uid]), uid
