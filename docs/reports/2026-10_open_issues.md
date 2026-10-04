@@ -154,7 +154,7 @@ _From the runs dispatched after #227/#228 merged._
 | 5 | diagnostic | `scripts/diagnose_finishing_ratios.py` prints clamp counts and ratio quantiles per window; needs a run on the ingested DB. |
 | 6 | two opt-in arms | `--bps-calibration-k 450` adds each player's BPS the estimate misses (real season BPS minus the estimate's own terms on his matches, per 90, shrunk to his position). `--bps-tau 7` sharpens the Plackett-Luce bonus split (live 10). |
 | 7 | follows 5 and 6 | Also: Monte Carlo and uncertainty added ball recoveries to a defender's DefCon (the EP engine doesn't), inflating defenders' simulated points, which Triple Captain picks from. Fixed. |
-| 8 | decided: keep the exclusion | Repair only by a fixture lookup, if per-gameweek rows carry opponent and home/away and the provider didn't rewrite them (2026-10-04 decision below). That check needs the provider's files, which this environment couldn't fetch. |
+| 8 | checked; repair in its own PR | No opponent or home/away field exists, but the weekly roster snapshots are point-in-time and every mover's match rows agree with them, so nothing was rewritten (2026-10-04 decision and check below). The minutes fit can measure each match against that week's club instead of dropping movers. |
 | 9 | partly addressed | Walk-forward: `--max-minutes` (branch_walkforward.yml passes 300), `--resume RUN_ID`, `--seasons 2025-2026`, and a `progress` block in the summary. mypy stays at its 75-error baseline. |
 
 **Baselines move.** Re-run control before comparing any arm: outputs are now deterministic but not
@@ -206,3 +206,18 @@ set-1 week (season-sim chunks default to GW2-19 and GW20-38).
 - **Check first.** Confirm those columns exist and weren't rewritten too: spot-check Grealish
   and Marmoush against the provider's files. If they're clean, the repair is small; if not,
   the exclusion stays.
+
+**What the check found (FPL-Core-Insights, 2026-10-04):**
+- The per-gameweek player rows carry no opponent, home/away or team field, and
+  `playermatchstats.csv` has `match_id` but no team.
+- The weekly roster snapshots (`By Gameweek/GW{n}/players.csv`) are point-in-time.
+  - 2026-27: Grealish is at Man City for GW1–2 and Everton from GW3; Marmoush is at Man City
+    for GW1 and Spurs from GW2.
+  - 2025-26: Isak is at Newcastle to GW3 and Liverpool from GW4. Marmoush, Enzo, Delap and
+    N.Jackson keep their 2025-26 clubs all season.
+- Every mover's Premier League match row sits in a fixture of the club his snapshot names
+  that week (604 rows in 2025-26, 67 in 2026-27, no mismatches).
+- So nothing was rewritten. The season-root roster lists each player's latest club, and the
+  flagged players are within-season movers: 26 in 2025-26, the 17 in 2026-27.
+- The repair is a lookup on the weekly snapshot rather than on the fixture's other side. It
+  is in its own PR so it doesn't confound the issue 4 comparison.
