@@ -21,14 +21,60 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from fpl_quant import backtest, db  # noqa: E402
 
 
-def _mean_metric(con, run_id, name, tier=None):
+HEADLINE_METRICS = (
+    "beats_crowd_points_delta", "beats_real_avg_points_delta", "real_avg_manager_points",
+    "model_squad_realized_points", "avg_manager_benchmark_points",
+    "log_score_minutes_mean", "brier_minutes_mean", "ep_total_calibration_mean_resid",
+    "ep_total_calibration_mae",
+)
+
+
+def _mean_metric(con, run_id, name, tier=None, season=None):
     sql = "SELECT avg(metric_value), count(*) FROM backtest_metrics WHERE backtest_run_id = ? AND metric_name = ?"
     args = [run_id, name]
     if tier:
         sql += " AND tier = ?"
         args.append(tier)
+    if season:
+        sql += " AND season = ?"
+        args.append(season)
     avg, n = con.execute(sql, args).fetchone()
     return (round(avg, 4) if avg is not None else None), n
+
+
+def minutes_prior_by_price_band(con, run_id) -> dict:
+    """{season: {tier: {band: {...}}}}: the minutes model's mean start prior
+    (p_start_historical_final, before evidence and fitness), its final p_start, and the share
+    that actually started, for every rostered player priced in that band that week. Shows
+    whether a start prior sits where it should, e.g. premiums at the 2024-25 cold start
+    (docs/reports/2026-10_open_issues.md, issue 4: Salah at 0.57)."""
+    rows = con.execute(
+        """
+        SELECT s.season, s.tier,
+               CASE WHEN f.now_cost < 5.0 THEN '<5.0' WHEN f.now_cost < 7.0 THEN '5.0-7.0'
+                    WHEN f.now_cost < 9.0 THEN '7.0-9.0' ELSE '9.0+' END AS band,
+               avg(m.p_start_historical_final), avg(m.p_start_final),
+               avg(CASE WHEN EXISTS (
+                   SELECT 1 FROM fact_player_match_stats pm JOIN fact_match fm ON fm.match_id = pm.match_id
+                   WHERE pm.player_uid = m.player_uid AND fm.season = s.season AND fm.gameweek = s.gameweek
+                     AND pm.start_min = 0
+               ) THEN 1.0 ELSE 0.0 END),
+               count(*)
+        FROM backtest_gameweek_steps s
+        JOIN minutes_model_outputs m ON m.model_version = s.mm_model_version
+        JOIN fact_player_season_stats f ON f.player_uid = m.player_uid AND f.season = s.season AND f.gw = s.gameweek
+        WHERE s.backtest_run_id = ? AND f.now_cost IS NOT NULL
+        GROUP BY 1, 2, 3 ORDER BY 1, 2, 3
+        """,
+        [run_id],
+    ).fetchall()
+    out: dict = {}
+    for season, tier, band, prior, final, started, n in rows:
+        out.setdefault(season, {}).setdefault(tier, {})[band] = {
+            "p_start_prior": round(prior, 3), "p_start_final": round(final, 3),
+            "started_share": round(started, 3), "n": n,
+        }
+    return out
 
 
 def captain_stats(con, run_id) -> dict:
@@ -128,17 +174,25 @@ def captain_counterfactuals(con, run_id) -> dict:
 def summarize(con, run_id: int) -> dict:
     # steps planned vs scored: a run stopped by its time budget averages fewer gameweeks
     out = {"backtest_run_id": run_id, "progress": backtest.walk_forward_progress(con, run_id),
-           "headline": {}, "price_band": {}, "position": {}}
-    for name in ("beats_crowd_points_delta", "beats_real_avg_points_delta", "real_avg_manager_points",
-                 "model_squad_realized_points", "avg_manager_benchmark_points",
-                 "log_score_minutes_mean", "brier_minutes_mean", "ep_total_calibration_mean_resid",
-                 "ep_total_calibration_mae"):
+           "headline": {}, "headline_by_season": {}, "price_band": {}, "position": {}}
+    for name in HEADLINE_METRICS:
         out["headline"][name], out["headline"][f"n_{name}"] = _mean_metric(con, run_id, name)
+    # each season on its own: 2025-26 decides an arm, 2024-25 (no earlier season in the data) is
+    # the cold-start stress test
+    seasons = [r[0] for r in con.execute(
+        "SELECT DISTINCT season FROM backtest_metrics WHERE backtest_run_id = ? ORDER BY season", [run_id],
+    ).fetchall()]
+    for season in seasons:
+        by_season = out["headline_by_season"][season] = {}
+        for name in HEADLINE_METRICS:
+            by_season[name], by_season[f"n_{name}"] = _mean_metric(con, run_id, name, season=season)
     for band in ("<5.0", "5.0-7.0", "7.0-9.0", "9.0+"):
         out["price_band"][band] = {
             comp: _mean_metric(con, run_id, f"ep_{comp}_calibration_mean_resid:price_band={band}")[0]
             for comp in ("total", "appearance", "goals", "assists", "cleansheet", "other")
         }
+        out["price_band"][band]["brier_minutes"] = _mean_metric(con, run_id, f"brier_minutes_mean:price_band={band}")[0]
+    out["minutes_prior_by_price_band"] = minutes_prior_by_price_band(con, run_id)
     for pos in ("Goalkeeper", "Defender", "Midfielder", "Forward"):
         out["position"][pos] = _mean_metric(con, run_id, f"ep_total_calibration_mean_resid:position={pos}")[0]
     out["captain"] = captain_stats(con, run_id)
