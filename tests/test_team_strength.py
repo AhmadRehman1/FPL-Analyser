@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timezone
 
 import pandas as pd
@@ -294,3 +295,147 @@ def test_calibrate_uses_league_average_when_team_has_no_mle_and_no_elo(con, monk
     expected_fallback = real_fits["attack_mle"].mean()
     assert renamed_row["final_attack"] == pytest.approx(expected_fallback)
     assert "::warning::" in capsys.readouterr().out
+
+
+# ============================================================
+# team_strength_guard_params: docs/reports/2026-10_promoted_club_strength.md
+# ============================================================
+
+FIT_3 = ("2024-2025", "2025-2026", "2026-2027")
+ELO = {"A": 2000.0, "B": 1900.0, "C": 1850.0}
+
+
+def _insert_match(con, match_id, season, home, away, hg, ag, kickoff, *, finished=True, home_elo=None, away_elo=None):
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, home_score, away_score, "
+        "home_team_elo, away_team_elo, finished, competition, kickoff_time, _ingested_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Premier League', ?, ?)",
+        [match_id, season, home, away, hg, ag, home_elo, away_elo, finished, kickoff, datetime.now(timezone.utc)],
+    )
+
+
+def _seed_guard_league(con, *, newcomer_elo=None, newcomer_results=((0, 2), (0, 1), (0, 3))):
+    """A, B, C play each other in 2024-25 and 2025-26 (with their Elo on every match); in
+    2026-27 promoted N joins and loses every match without scoring."""
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    uids = _seed_teams(con, ["A", "B", "C", "N"])
+    results = [("A", "B", 2, 0), ("B", "A", 0, 1), ("A", "C", 3, 1), ("C", "A", 0, 2), ("B", "C", 1, 1), ("C", "B", 1, 0)]
+    for season, year in (("2024-2025", 2025), ("2025-2026", 2026)):
+        for i, (h, a, hg, ag) in enumerate(results):
+            _insert_match(con, f"m{season}_{i}", season, uids[h], uids[a], hg, ag, datetime(year, 1, 1 + i),
+                          home_elo=ELO[h], away_elo=ELO[a])
+    for i, (h, a, hg, ag) in enumerate([("A", "B", 1, 1), ("B", "C", 2, 1), ("C", "A", 0, 1)]):
+        _insert_match(con, f"m2026_{i}", "2026-2027", uids[h], uids[a], hg, ag, datetime(2026, 8, 20 + i),
+                      home_elo=ELO[h], away_elo=ELO[a])
+    for i, (opponent, (n_goals, opp_goals)) in enumerate(zip(("A", "B", "C"), newcomer_results)):
+        _insert_match(con, f"m2026_n{i}", "2026-2027", uids["N"], uids[opponent], n_goals, opp_goals,
+                      datetime(2026, 8, 24 + i), home_elo=newcomer_elo, away_elo=ELO[opponent])
+    return uids
+
+
+def _snapshot(con, model_version):
+    return con.execute(
+        "SELECT team_uid, attack_mle, defence_mle, attack_elo_prior, defence_elo_prior, final_attack, final_defence, "
+        "seasons_of_topflight_data, weight_own_data, elo_at_calibration FROM team_strength_snapshots WHERE model_version = ?",
+        [model_version],
+    ).fetchdf().set_index("team_uid")
+
+
+def _guard_version(con, arm):
+    return params.get_or_create_bundle_version(con, ts.GUARD_FAMILY, ts.GUARD_ARMS[arm], "2026-10-05")
+
+
+def test_point_in_time_elo_is_each_clubs_latest_finished_match(con):
+    uids = _seed_teams(con, ["A", "B"])
+    _insert_match(con, "old", "2025-2026", uids["A"], uids["B"], 1, 0, datetime(2026, 5, 1), home_elo=1900.0, away_elo=1700.0)
+    _insert_match(con, "new", "2026-2027", uids["B"], uids["A"], 0, 0, datetime(2026, 8, 20), home_elo=1710.0)
+    # the next fixture's Elo is not known yet: only finished matches count
+    _insert_match(con, "next", "2026-2027", uids["A"], uids["B"], None, None, datetime(2026, 9, 1),
+                  finished=False, home_elo=1950.0, away_elo=1750.0)
+    assert ts.fetch_point_in_time_elo(con) == {uids["A"]: 1900.0, uids["B"]: 1710.0}
+
+
+def test_unguarded_fit_lets_a_club_that_has_not_scored_run_off(con, monkeypatch):
+    """The failure the guard exists for: with 2026-27 in the fit and no Elo, the newcomer's raw
+    fit goes in unshrunk."""
+    uids = _seed_guard_league(con)
+    # as live: 2026-27's teams.csv Elo blank, 2025-26's lists only the established clubs
+    monkeypatch.setattr(ts, "fetch_current_elo", lambda con, season: (
+        {} if season == "2026-2027" else {uids[name]: elo for name, elo in ELO.items()}
+    ))
+    snap = _snapshot(con, ts.calibrate(con, date(2026, 9, 1), 1, 1, target_season="2026-2027", fit_seasons=FIT_3))
+    # the fit centres attack on every club, so read strength against the established clubs
+    centre = snap.loc[[uids["A"], uids["B"], uids["C"]], "attack_mle"].mean()
+    assert snap.loc[uids["N"], "final_attack"] - centre < -3
+    assert snap.loc[uids["A"], "weight_own_data"] == pytest.approx(1.0)  # the in-progress season counted
+
+
+def test_guard_holds_a_first_season_club_near_its_prior(con, capsys):
+    uids = _seed_guard_league(con)
+    snap = _snapshot(con, ts.calibrate(con, date(2026, 9, 1), 1, 1, target_season="2026-2027", fit_seasons=FIT_3,
+                                       guard_params_version=_guard_version(con, "fix")))
+    newcomer = snap.loc[uids["N"]]
+    established = snap.loc[[uids["A"], uids["B"], uids["C"]]]
+    # no Elo anywhere for N: the promoted-club prior, the established mean plus the offsets
+    assert pd.isna(newcomer["elo_at_calibration"])
+    assert newcomer["attack_elo_prior"] == pytest.approx(established["attack_mle"].mean() - 0.39)
+    assert newcomer["defence_elo_prior"] == pytest.approx(established["defence_mle"].mean() - 0.32)
+    # three matches: weight 3 / 13, its runaway fit held 1.0 below the prior first
+    assert newcomer["weight_own_data"] == pytest.approx(3 / 13)
+    assert newcomer["final_attack"] == pytest.approx(newcomer["attack_elo_prior"] - 3 / 13)
+    # nothing more than 1.5 from the established clubs (the fit centres attack on every club,
+    # so a runaway club shifts all stored values alike; strengths are read against each other)
+    for final, fitted in (("final_attack", "attack_mle"), ("final_defence", "defence_mle")):
+        assert (snap[final] - established[fitted].mean()).abs().max() < 1.5
+    # the established clubs keep 2/3 although 2026-27 is in the fit
+    assert established["weight_own_data"].tolist() == pytest.approx([2 / 3] * 3)
+    assert "promoted" in capsys.readouterr().out
+
+
+def test_guard_uses_a_promoted_clubs_own_match_elo_unless_withheld(con):
+    uids = _seed_guard_league(con, newcomer_elo=1700.0)
+    fix = _snapshot(con, ts.calibrate(con, date(2026, 9, 1), 1, 1, target_season="2026-2027", fit_seasons=FIT_3,
+                                      guard_params_version=_guard_version(con, "fix")))
+    assert fix.loc[uids["N"], "elo_at_calibration"] == 1700.0
+    withheld = _snapshot(con, ts.calibrate(con, date(2026, 9, 1), 1, 1, target_season="2026-2027", fit_seasons=FIT_3,
+                                           guard_params_version=_guard_version(con, "fix-withheld")))
+    assert pd.isna(withheld.loc[uids["N"], "elo_at_calibration"])
+    # established clubs keep theirs either way
+    assert withheld.loc[uids["A"], "elo_at_calibration"] == 2000.0
+
+
+def test_guard_gives_an_unplayed_newcomer_the_promoted_club_prior(con):
+    uids = _seed_guard_league(con, newcomer_results=())
+    _insert_match(con, "n_next", "2026-2027", uids["N"], uids["A"], None, None, datetime(2026, 9, 5), finished=False)
+    snap = _snapshot(con, ts.calibrate(con, date(2026, 9, 1), 1, 1, target_season="2026-2027", fit_seasons=FIT_3,
+                                       guard_params_version=_guard_version(con, "fix")))
+    newcomer = snap.loc[uids["N"]]
+    assert pd.isna(newcomer["attack_mle"]) and newcomer["weight_own_data"] == 0.0
+    assert newcomer["final_attack"] == pytest.approx(newcomer["attack_elo_prior"])
+    assert newcomer["final_defence"] == pytest.approx(newcomer["defence_elo_prior"])
+
+
+def test_live_like_fits_prior_seasons_and_leaves_a_promoted_club_at_league_average(con, capsys):
+    """What live did before the fix: no 2026-27 match in the fit, no Elo for the promoted club."""
+    uids = _seed_guard_league(con, newcomer_elo=1700.0)
+    model_version = ts.calibrate(con, date(2026, 9, 1), 1, 1, target_season="2026-2027", fit_seasons=FIT_3,
+                                 guard_params_version=_guard_version(con, "live-like"))
+    seasons_fit = con.execute(
+        "SELECT seasons_fit FROM team_strength_model_versions WHERE model_version = ?", [model_version],
+    ).fetchone()[0]
+    assert json.loads(seasons_fit) == ["2024-2025", "2025-2026"]
+    snap = _snapshot(con, model_version)
+    assert pd.isna(snap.loc[uids["N"], "attack_mle"]) and pd.isna(snap.loc[uids["N"], "elo_at_calibration"])
+    assert "league-average" in capsys.readouterr().out
+
+
+def test_guard_v1_is_the_recommended_blend_and_arms_reuse_their_versions(con):
+    ts.seed_team_strength_guard_params(con)
+    assert ts.resolve_guard_params(con, 1) == ts.GUARD_RECOMMENDED
+    assert _guard_version(con, "fix") == 1
+    honest = _guard_version(con, "honest")
+    assert honest == 2 and _guard_version(con, "honest") == honest
+    assert set(ts.GUARD_ARMS) == {"honest", "live-like", "fix", "fix-withheld"}
+    for values in ts.GUARD_ARMS.values():
+        assert set(values) == set(ts.GUARD_RECOMMENDED)

@@ -115,6 +115,7 @@ def main() -> None:
     minutes_model.seed_role_change_flag_params(con)
     minutes_model.seed_minutes_bounds_params(con)  # v1 = the live 0.005 floor (Fix F)
     minutes_model.seed_start_prior_params(con)  # v1 = the live evidence-order start prior (issue 4)
+    team_strength.seed_team_strength_guard_params(con)  # v1 = the recommended guard, not live yet
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)

@@ -75,3 +75,15 @@ def test_bonus_model_flags_map_to_param_versions(con):
     assert out["tau_params_version"] != 1
     # the live tau value reuses v1
     assert rw._experiment_versions(con, rw._parse_args(["--bps-tau", "10"])) == {"tau_params_version": 1}
+
+
+def test_team_strength_flag_maps_each_arm_to_a_guard_version(con):
+    from fpl_quant import team_strength as ts
+
+    ts.seed_team_strength_guard_params(con)  # as materialize_confirmed_seeds() does first
+    assert rw._experiment_versions(con, rw._parse_args(["--team-strength", "fix"])) == {
+        "team_strength_guard_params_version": 1,
+    }
+    for arm in ("honest", "live-like", "fix-withheld"):
+        version = rw._experiment_versions(con, rw._parse_args(["--team-strength", arm]))["team_strength_guard_params_version"]
+        assert ts.resolve_guard_params(con, version) == ts.GUARD_ARMS[arm]

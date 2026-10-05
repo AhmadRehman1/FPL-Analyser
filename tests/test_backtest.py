@@ -110,8 +110,14 @@ def test_fit_seasons_for_covers_the_three_loaded_seasons():
     assert bt.fit_seasons_for("2024-2025") == ("2024-2025",)
     assert bt.fit_seasons_for("2025-2026") == ("2024-2025", "2025-2026")
     assert bt.fit_seasons_for("2026-2027") == ("2024-2025", "2025-2026", "2026-2027")
-    with pytest.raises(ValueError):
-        bt.fit_seasons_for("2027-2028")
+
+
+def test_fit_seasons_for_rolls_over_to_a_new_season():
+    """Live ingestion fits fit_seasons_for(TARGET_SEASON): next summer must not need a code change."""
+    assert bt.fit_seasons_for("2027-2028") == ("2025-2026", "2026-2027", "2027-2028")
+    for bad in ("2023-2024", "2027-2029", "2027"):
+        with pytest.raises(ValueError):
+            bt.fit_seasons_for(bad)
 
 
 # ============================================================
@@ -681,6 +687,34 @@ def test_score_gameweek_records_no_segment_metrics_when_not_opted_in(con):
         "SELECT metric_name FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
     ).fetchall()}
     assert not any(":" in n and not n.startswith("realized_") for n in names)
+
+
+def test_score_gameweek_tags_the_players_facing_a_promoted_club(con):
+    """team_c is new to 2025-2026: p2 plays for it, p1 and p3 (team_a) face it."""
+    backtest_run_id, ep_mv, ts_mv = _seed_score_gameweek_segment_scenario(con)
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, 1, ts_mv, 1,
+        compute_segments=True, set_piece_params_version=1,
+    )
+    rows = dict(con.execute(
+        "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall())
+    # p1 2-2=0 and p3 6-2=+4 face team_c; p2 8-2=+6 plays for it
+    assert rows["ep_total_calibration_mean_resid:vs_promoted_team"] == pytest.approx(2.0)
+    assert rows["ep_total_calibration_mean_resid:promoted_team"] == pytest.approx(6.0)
+    # the one match involves the promoted club, so both match log-likelihoods are the same
+    assert rows["match_score_log_lik_mean:promoted_match"] == pytest.approx(rows["match_score_log_lik_mean"])
+
+
+def test_match_score_log_likelihood_is_dixon_coles_and_survives_a_runaway_fit():
+    from scipy.stats import poisson
+    expected = poisson.logpmf(2, 1.5) + poisson.logpmf(1, 1.1)  # 2-1: outside tau's low-score cells
+    assert bt._match_score_log_likelihood(1.5, 1.1, 2, 1, -0.13) == pytest.approx(expected)
+    low = poisson.logpmf(1, 1.5) + poisson.logpmf(0, 1.1) + math.log(1 + 1.1 * -0.13)  # 1-0
+    assert bt._match_score_log_likelihood(1.5, 1.1, 1, 0, -0.13) == pytest.approx(low)
+    # a club fitted at attack -13 that then scores: very unlikely, but a finite score
+    runaway = bt._match_score_log_likelihood(math.exp(-13), 1.1, 1, 1, -0.13)
+    assert math.isfinite(runaway) and runaway < -12
 
 
 def test_score_gameweek_records_position_and_price_band_segments(con):

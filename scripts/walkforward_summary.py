@@ -25,7 +25,16 @@ HEADLINE_METRICS = (
     "beats_crowd_points_delta", "beats_real_avg_points_delta", "real_avg_manager_points",
     "model_squad_realized_points", "avg_manager_benchmark_points",
     "log_score_minutes_mean", "brier_minutes_mean", "ep_total_calibration_mean_resid",
-    "ep_total_calibration_mae",
+    "ep_total_calibration_mae", "match_score_log_lik_mean",
+)
+
+# Promoted clubs' players and the players who face them: where a promoted club's strength
+# reaches the points (docs/reports/2026-10_promoted_club_strength.md). "Promoted" needs the
+# previous season in the data, so 2024-25 has none.
+PROMOTED_SEGMENTS = ("promoted_team", "vs_promoted_team")
+PROMOTED_METRICS = (
+    "ep_total_calibration_mean_resid", "ep_total_calibration_mae",
+    "log_score_clean_sheet_mean", "brier_clean_sheet_mean", "log_score_goals_mean",
 )
 
 
@@ -74,6 +83,31 @@ def minutes_prior_by_price_band(con, run_id) -> dict:
             "p_start_prior": round(prior, 3), "p_start_final": round(final, 3),
             "started_share": round(started, 3), "n": n,
         }
+    return out
+
+
+def promoted_club_cuts(con, run_id) -> dict:
+    """{season: {"promoted_match": mean match-score log-likelihood of matches with a promoted
+    club, segment: {metric: mean}}} for the PROMOTED_SEGMENTS, seasons that have them only."""
+    out: dict = {}
+    seasons = [r[0] for r in con.execute(
+        "SELECT DISTINCT season FROM backtest_metrics WHERE backtest_run_id = ? ORDER BY season", [run_id],
+    ).fetchall()]
+    for season in seasons:
+        by_season: dict = {}
+        value, n = _mean_metric(con, run_id, "match_score_log_lik_mean:promoted_match", season=season)
+        if n:
+            by_season["promoted_match_score_log_lik_mean"] = value
+        for segment in PROMOTED_SEGMENTS:
+            cut = {}
+            for name in PROMOTED_METRICS:
+                value, n = _mean_metric(con, run_id, f"{name}:{segment}", season=season)
+                if n:
+                    cut[name] = value
+            if cut:
+                by_season[segment] = cut
+        if by_season:
+            out[season] = by_season
     return out
 
 
@@ -193,6 +227,7 @@ def summarize(con, run_id: int) -> dict:
         }
         out["price_band"][band]["brier_minutes"] = _mean_metric(con, run_id, f"brier_minutes_mean:price_band={band}")[0]
     out["minutes_prior_by_price_band"] = minutes_prior_by_price_band(con, run_id)
+    out["promoted_clubs"] = promoted_club_cuts(con, run_id)
     for pos in ("Goalkeeper", "Defender", "Midfielder", "Forward"):
         out["position"][pos] = _mean_metric(con, run_id, f"ep_total_calibration_mean_resid:position={pos}")[0]
     out["captain"] = captain_stats(con, run_id)
@@ -200,11 +235,14 @@ def summarize(con, run_id: int) -> dict:
     # per-gameweek rows so two arms can be compared on the SAME scored steps (an arm can lose
     # steps, e.g. to the optimizer's divergence check at very low lambda)
     out["per_gameweek"] = [
-        {"season": s, "gw": g, "beats_crowd": round(v, 3), "beats_real": None if r is None else round(r, 3)}
-        for s, g, v, r in con.execute(
-            "SELECT c.season, c.gameweek, c.metric_value, r.metric_value FROM backtest_metrics c "
+        {"season": s, "gw": g, "beats_crowd": round(v, 3), "beats_real": None if r is None else round(r, 3),
+         "match_log_lik": None if ll is None else round(ll, 4)}
+        for s, g, v, r, ll in con.execute(
+            "SELECT c.season, c.gameweek, c.metric_value, r.metric_value, ll.metric_value FROM backtest_metrics c "
             "LEFT JOIN backtest_metrics r ON r.backtest_run_id = c.backtest_run_id AND r.season = c.season "
             "AND r.gameweek = c.gameweek AND r.metric_name = 'beats_real_avg_points_delta' "
+            "LEFT JOIN backtest_metrics ll ON ll.backtest_run_id = c.backtest_run_id AND ll.season = c.season "
+            "AND ll.gameweek = c.gameweek AND ll.metric_name = 'match_score_log_lik_mean' "
             "WHERE c.backtest_run_id = ? AND c.metric_name = 'beats_crowd_points_delta' "
             "ORDER BY c.season, c.gameweek", [run_id],
         ).fetchall()

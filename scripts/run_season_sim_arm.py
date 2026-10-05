@@ -56,6 +56,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--transfer-threshold", type=float, default=None)
     parser.add_argument("--multi-transfers", action="store_true",
                         help="multi_transfer_params v1: two-transfer moves and hits")
+    parser.add_argument("--team-strength", default=None,
+                        help="a team-strength arm, as run_walkforward.py --team-strength (team_strength.GUARD_ARMS)")
     return parser.parse_args(argv)
 
 
@@ -68,6 +70,7 @@ def arm_versions(con, args: argparse.Namespace) -> tuple[dict, dict]:
     # walk-forward-only lever, so it is not offered here.
     experiment = _experiment_versions(con, argparse.Namespace(
         lambda_value=args.lambda_value, role_matches_threshold=None, assist_prior_xa=args.assist_prior_xa,
+        team_strength=args.team_strength,
     ))
     versions.update(experiment)
     changed.update(experiment)
