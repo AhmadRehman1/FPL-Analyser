@@ -214,10 +214,12 @@ def fit_elo_regression(
 #                               -0.39 attack, -0.32 defence below it in their first season)
 #   max_own_seasons             other clubs weight their fit min(seasons, this) / 3, so the
 #                               in-progress season doesn't lift them from 2/3 to 1
-# All placeholders, not fitted; v1 is the recommended blend.
+# All placeholders, not fitted. v1 is the recommended blend with a newcomer's Elo withheld: the
+# two tied in the 2025-26 walk-forward, and 2026-27's per-match Elo stopped after GW2, which
+# would leave Hull on a pre-season 1533.
 GUARD_FAMILY = "team_strength_guard_params"
 GUARD_RECOMMENDED = {
-    "point_in_time_elo": 1.0, "exclude_target_season": 0.0, "withhold_newcomer_elo": 0.0,
+    "point_in_time_elo": 1.0, "exclude_target_season": 0.0, "withhold_newcomer_elo": 1.0,
     "first_season_pseudo_matches": 10.0, "clamp": 1.0,
     "newcomer_attack_offset": -0.39, "newcomer_defence_offset": -0.32, "max_own_seasons": 2.0,
 }
@@ -228,14 +230,15 @@ GUARD_ARMS = {
     "honest": {**_GUARD_OFF, "point_in_time_elo": 1.0},
     # what live did before the fix: prior seasons only, no Elo for a promoted club
     "live-like": {**_GUARD_OFF, "point_in_time_elo": 1.0, "exclude_target_season": 1.0, "withhold_newcomer_elo": 1.0},
-    "fix": dict(GUARD_RECOMMENDED),
-    # the fix with a promoted club's own-match Elo withheld, as for 2026-27's frozen feed
-    "fix-withheld": {**GUARD_RECOMMENDED, "withhold_newcomer_elo": 1.0},
+    # the fix with a promoted club's own-match Elo used as its prior
+    "fix": {**GUARD_RECOMMENDED, "withhold_newcomer_elo": 0.0},
+    "fix-withheld": dict(GUARD_RECOMMENDED),
 }
 
 
 def seed_team_strength_guard_params(con: duckdb.DuckDBPyConnection) -> None:
-    """team_strength_guard_params v1 = the recommended blend (GUARD_RECOMMENDED)."""
+    """team_strength_guard_params v1 = the recommended blend (GUARD_RECOMMENDED, the
+    fix-withheld arm)."""
     for key, value in GUARD_RECOMMENDED.items():
         params_mod.write_param(con, GUARD_FAMILY, 1, "2026-10-05", key, value_numeric=value)
 

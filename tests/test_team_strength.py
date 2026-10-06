@@ -432,8 +432,8 @@ def test_live_like_fits_prior_seasons_and_leaves_a_promoted_club_at_league_avera
 
 def test_guard_v1_is_the_recommended_blend_and_arms_reuse_their_versions(con):
     ts.seed_team_strength_guard_params(con)
-    assert ts.resolve_guard_params(con, 1) == ts.GUARD_RECOMMENDED
-    assert _guard_version(con, "fix") == 1
+    assert ts.resolve_guard_params(con, 1) == ts.GUARD_RECOMMENDED == ts.GUARD_ARMS["fix-withheld"]
+    assert _guard_version(con, "fix-withheld") == 1
     honest = _guard_version(con, "honest")
     assert honest == 2 and _guard_version(con, "honest") == honest
     assert set(ts.GUARD_ARMS) == {"honest", "live-like", "fix", "fix-withheld"}

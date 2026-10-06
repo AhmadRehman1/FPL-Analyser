@@ -266,7 +266,8 @@ corrected warning message. Nothing is live yet. The live switch (`run_ingestion.
 - **Point-in-time Elo** (`fetch_point_in_time_elo`): each club's Elo from its latest finished
   match before the deadline, from `fact_match`. The target gameweek's own fixtures stay
   unfinished under `asof_scope()`, so their Elo is not read.
-- **The guard, v1 = the recommended change** (`team_strength.GUARD_RECOMMENDED`):
+- **The guard, v1 = the recommended change with a newcomer's Elo withheld**
+  (`team_strength.GUARD_RECOMMENDED`, the `fix-withheld` arm; chosen after the results below):
   - a club with no match in an earlier fit season weights its own fit n / (n + 10), held
     within 1.0 of its prior first;
   - a newcomer with no Elo starts from the established clubs' mean −0.39 attack, −0.32 defence;
