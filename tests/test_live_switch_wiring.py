@@ -1,6 +1,6 @@
 """The live model switches (Fix D: captain_risk_params, Fix F: minutes_bounds_params, issue 4:
-minutes_start_prior_params) reach every squad builder and every minutes model run, from one
-source: active_recalibratable_versions().
+minutes_start_prior_params, team_strength_guard_params) reach every squad builder, every minutes
+model run and every team-strength fit, from one source: active_recalibratable_versions().
 
 Before this, only run_ingestion.py and run_walkforward.py passed them; every other caller fell
 back to the old captain penalty and no minutes floor (docs/reports/2026-10_live_path_diagnosis.md,
@@ -23,11 +23,13 @@ from fpl_quant import forward_season_sim as fss  # noqa: E402
 from fpl_quant import minutes_model as mm  # noqa: E402
 from fpl_quant import params  # noqa: E402
 from fpl_quant import squad_optimizer as so  # noqa: E402
+from fpl_quant import team_strength as ts  # noqa: E402
 
 SEED_DIR = REPO_ROOT / "data" / "recalibration"
 CAPTAIN = "captain_risk_params_version"
 MINUTES = "minutes_bounds_params_version"
 START = "minutes_start_prior_params_version"
+GUARD = "team_strength_guard_params_version"
 RATE = "rate_shrinkage_params_version"
 
 # (module, function) -> keyword every call must pass explicitly (a None is allowed: it's visible).
@@ -35,14 +37,15 @@ REQUIRED = {
     ("squad_optimizer", "run"): [CAPTAIN],
     ("squad_optimizer", "solve"): ["captain_variance_multiplier"],
     ("minutes_model", "run"): [MINUTES, "start_prior_params_version"],
+    ("team_strength", "calibrate"): ["guard_params_version"],
     ("expected_points", "run"): [RATE],
     ("transfer_planner", "compute_horizon_ep"): [RATE],
     ("projections", "build_projections"): [RATE],
     ("transfer_planner", "run"): [CAPTAIN, RATE],
     ("decision_engine", "recommend_best_move"): [CAPTAIN, RATE],
     ("squad_grade", "grade_squad"): [CAPTAIN],
-    ("backtest", "run"): [CAPTAIN, MINUTES, RATE, START],
-    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE, START],
+    ("backtest", "run"): [CAPTAIN, MINUTES, RATE, START, GUARD],
+    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE, START, GUARD],
 }
 
 # Calls that pass their versions through a ** dict. Each one's dict builder is checked below, or it
@@ -125,9 +128,9 @@ def test_every_splat_call_is_reviewed():
 
 
 @pytest.mark.parametrize("script, keys", [
-    ("run_backtest", [CAPTAIN, MINUTES, RATE, START]),
-    ("run_season_simulation", [CAPTAIN, MINUTES, RATE, START]),
-    ("export_leaderboard", [CAPTAIN, MINUTES, RATE, START]),
+    ("run_backtest", [CAPTAIN, MINUTES, RATE, START, GUARD]),
+    ("run_season_simulation", [CAPTAIN, MINUTES, RATE, START, GUARD]),
+    ("export_leaderboard", [CAPTAIN, MINUTES, RATE, START, GUARD]),
     ("explain_my_move", [CAPTAIN, RATE]),
     ("run_scenarios", [CAPTAIN, RATE]),
     ("track_elite", [CAPTAIN, RATE]),
@@ -148,6 +151,7 @@ def test_forward_sim_resolves_the_live_switches():
     assert versions[MINUTES] == active[MINUTES]
     assert versions[RATE] == active[RATE]
     assert versions[START] == active[START]
+    assert versions[GUARD] == active[GUARD]
 
 
 def test_active_versions_resolve_to_the_live_values(con):
@@ -155,6 +159,7 @@ def test_active_versions_resolve_to_the_live_values(con):
     so.seed_v1_params(con)
     mm.seed_minutes_bounds_params(con)
     mm.seed_start_prior_params(con)
+    ts.seed_team_strength_guard_params(con)
     for seed in bt.load_confirmed_recalibration_seeds(SEED_DIR):
         params.write_param(
             con, seed["param_family"], seed["new_params_version"], "2026-08-12",
@@ -167,6 +172,7 @@ def test_active_versions_resolve_to_the_live_values(con):
     assert captain == so.LIVE_CAPTAIN_VARIANCE_MULTIPLIER == 0.0
     assert floor == mm.PLACEHOLDER_MINUTES_P_FLOOR
     assert pseudo_matches == mm.PLACEHOLDER_START_PRIOR_PSEUDO_MATCHES == 5.0
+    assert ts.resolve_guard_params(con, active[GUARD]) == ts.GUARD_RECOMMENDED == ts.GUARD_ARMS["fix-withheld"]
 
 
 def test_live_switch_seed_file_is_confirmed():

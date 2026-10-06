@@ -45,8 +45,9 @@ live, a club that hasn't scored fitted at attack -13, an end-of-season Elo in ev
     --team-strength honest        today's blend on each club's Elo as known at the deadline
     --team-strength live-like     prior seasons only and no Elo for a promoted club, as live was
     --team-strength fix           the guard with a promoted club's own-match Elo as its prior
-    --team-strength fix-withheld  the recommended guard (team_strength.GUARD_RECOMMENDED, v1):
-                                  a promoted club's Elo withheld, the newcomer prior instead
+    --team-strength fix-withheld  the recommended guard (team_strength.GUARD_RECOMMENDED, v1,
+                                  live since 2026-10-06): a promoted club's Elo withheld
+    --team-strength off           the model before 2026-10-06: no guard, end-of-season Elo
 
 Long runs (docs/reports/2026-10_open_issues.md: an arm hit the job's 330-minute limit and left
 no summary):
@@ -95,8 +96,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "the next as this many matches (live: 5)")
     parser.add_argument("--no-minutes-start-prior", action="store_true",
                         help="shrink thin minutes histories toward the position average, as before 2026-10-04")
-    parser.add_argument("--team-strength", choices=sorted(team_strength.GUARD_ARMS), default=None,
-                        help="a team-strength arm (team_strength.GUARD_ARMS); default: today's model")
+    parser.add_argument("--team-strength", choices=[*sorted(team_strength.GUARD_ARMS), "off"], default=None,
+                        help="a team-strength arm (team_strength.GUARD_ARMS), or off for the model before "
+                             "2026-10-06; default: the live guard")
     parser.add_argument("--backtest-evidence", action="store_true",
                         help="let each step see evidence claims observed before its deadline (default: none, as before)")
     parser.add_argument("--bps-calibration-k", type=float, default=None, metavar="K_MINUTES",
@@ -147,7 +149,9 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
             con, "minutes_start_prior_params", "pseudo_matches", EXPERIMENT_EFFECTIVE_DATE,
             value_numeric=args.minutes_start_prior,
         )
-    if getattr(args, "team_strength", None):
+    if getattr(args, "team_strength", None) == "off":
+        out["team_strength_guard_params_version"] = None
+    elif getattr(args, "team_strength", None):
         out["team_strength_guard_params_version"] = params_mod.get_or_create_bundle_version(
             con, team_strength.GUARD_FAMILY, team_strength.GUARD_ARMS[args.team_strength], EXPERIMENT_EFFECTIVE_DATE,
         )

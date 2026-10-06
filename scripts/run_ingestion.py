@@ -115,7 +115,7 @@ def main() -> None:
     minutes_model.seed_role_change_flag_params(con)
     minutes_model.seed_minutes_bounds_params(con)  # v1 = the live 0.005 floor (Fix F)
     minutes_model.seed_start_prior_params(con)  # v1 = the live evidence-order start prior (issue 4)
-    team_strength.seed_team_strength_guard_params(con)  # v1 = the recommended guard, not live yet
+    team_strength.seed_team_strength_guard_params(con)  # v1 = the live team-strength guard
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
@@ -191,9 +191,15 @@ def main() -> None:
         print(f"[understat] {time.time() - t0:.1f}s -> SKIPPED (fetch/parse failed: {e})")
 
     t0 = time.time()
+    # This season's results count (the seasons every backtest fits), with the guard that keeps a
+    # thin fit from running off: before 2026-10-06 the live fit stopped at 2025-26 and gave
+    # Coventry and Hull, promoted, league-average strength (docs/reports/
+    # 2026-10_promoted_club_strength.md).
     ts_model_version = team_strength.calibrate(
         con, CALIBRATION_ASOF_DATE,
         xi_params_version=ACTIVE["xi_params_version"], rho_params_version=ACTIVE["rho_params_version"],
+        target_season=TARGET_SEASON, fit_seasons=backtest.fit_seasons_for(TARGET_SEASON),
+        guard_params_version=ACTIVE["team_strength_guard_params_version"],
     )
     n_teams = con.execute(
         "SELECT count(*) FROM team_strength_snapshots WHERE model_version = ?", [ts_model_version]
