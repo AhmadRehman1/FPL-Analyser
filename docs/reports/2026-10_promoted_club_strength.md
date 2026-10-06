@@ -300,17 +300,19 @@ Built behind `team_strength_guard_params` (#235). Live since 2026-10-06:
   `promoted_clubs`.
 
 **Arms** (`run_walkforward.py --team-strength ARM`, also `run_season_sim_arm.py`):
-`honest` (today's blend on point-in-time Elo, the new baseline), `live-like`, `fix`,
-`fix-withheld`. The run with no flag is today's model, end-of-season Elo included.
+`honest` (the blend from before the guard, on point-in-time Elo: the baseline), `live-like`,
+`fix`, `fix-withheld`. Since 2026-10-06 a run with no flag is `fix-withheld` (v1), and `off` is
+the model from before, end-of-season Elo included.
 
 ### Results (2026-10-06)
 
-Walk-forward from this branch. Paired per gameweek against `honest`, today's blend on
-point-in-time Elo, the new baseline. 2025-26 decides; 2024-25 is the cold-start stress test.
+Walk-forward from the #235 branch. Paired per gameweek against `honest`, the blend from before
+the guard on point-in-time Elo, the new baseline. 2025-26 decides; 2024-25 is the cold-start
+stress test.
 
 | 2025-26 (n = 37) | squad pts | vs `honest` | match log-lik | vs `honest` | promoted matches |
 |---|---|---|---|---|---|
-| today (end-of-season Elo) | 61.59 | +1.78 ± 0.81 | −2.992 | +0.006 ± 0.013 | −3.46 |
+| `off` (end-of-season Elo) | 61.59 | +1.78 ± 0.81 | −2.992 | +0.006 ± 0.013 | −3.46 |
 | `honest` | 59.81 | | −2.998 | | −3.43 |
 | `live-like` | 61.30 | +1.49 ± 1.55 | −2.895 | +0.107 ± 0.101 | −2.95 |
 | `fix` | 60.14 | +0.32 ± 0.83 | −2.904 | +0.098 ± 0.100 | −2.96 |

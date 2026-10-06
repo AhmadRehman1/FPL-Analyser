@@ -198,8 +198,9 @@ def fit_elo_regression(
 
 # docs/reports/2026-10_promoted_club_strength.md: the live fit gave Coventry and Hull, promoted
 # for 2026-27, league-average strength, and fitting this season's matches without a guard sent
-# a club that hadn't scored to an attack of -13. team_strength_guard_params (opt-in through
-# calibrate()'s guard_params_version) holds the fix and the walk-forward arms that test it:
+# a club that hadn't scored to an attack of -13. team_strength_guard_params (calibrate()'s
+# guard_params_version; v1 live since 2026-10-06) holds the fix and the walk-forward arms that
+# test it:
 #   point_in_time_elo           1: each club's Elo from its latest finished match before the
 #                               deadline (fetch_point_in_time_elo), not the season-root teams.csv
 #                               -- end-of-season for a finished season, blank all of 2026-27
@@ -226,7 +227,7 @@ GUARD_RECOMMENDED = {
 _GUARD_OFF = {key: 0.0 for key in GUARD_RECOMMENDED}
 # The walk-forward arms (scripts/run_walkforward.py --team-strength ARM).
 GUARD_ARMS = {
-    # today's blend on a point-in-time Elo: the honest baseline
+    # the blend from before the guard, on a point-in-time Elo: the honest baseline
     "honest": {**_GUARD_OFF, "point_in_time_elo": 1.0},
     # what live did before the fix: prior seasons only, no Elo for a promoted club
     "live-like": {**_GUARD_OFF, "point_in_time_elo": 1.0, "exclude_target_season": 1.0, "withhold_newcomer_elo": 1.0},
@@ -295,8 +296,9 @@ def calibrate(
     seasons_threshold: int = 3,
     guard_params_version: int | None = None,
 ) -> int:
-    """guard_params_version (opt-in, None is the prior behavior): see team_strength_guard_params
-    above GUARD_FAMILY."""
+    """guard_params_version: see team_strength_guard_params above GUARD_FAMILY. Every caller
+    passes v1 since 2026-10-06; None is the model from before (run_walkforward.py
+    --team-strength off)."""
     xi, _ = params_mod.resolve_param(con, "model_decay_params", "xi", xi_params_version)
     rho, _ = params_mod.resolve_param(con, "model_decay_params", "rho", rho_params_version)
     guard = resolve_guard_params(con, guard_params_version)
