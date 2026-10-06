@@ -335,3 +335,11 @@ stress test.
 - **Season sim (2025-26, against `honest`):** `fix` −0.57 ± 1.52, `fix-withheld` −0.73 ± 1.43,
   within noise. The `honest` control is +8.1 against the real average, against +10.5 under
   end-of-season Elo.
+- **The season sim does not repeat across CI jobs (checked after the switch).** In run
+  37397424563, `control` and `--team-strength fix-withheld` had the same database and param versions.
+  They still split at GW3, where one played Bench Boost and the other held it to GW6. That gave 1,059
+  and 1,064 points over GW2–19, +0.28 ± 1.81 a gameweek, with weeks up to 17 points apart. Four
+  such runs, on #235's first commit, #236's branch and master, gave only those two paths. The arm
+  differences above are no larger than this noise floor. The cause is not confirmed. Wall time does
+  not track the path, so it is not the solver's time limit; floating point that differs between
+  runner CPUs is suspected.
