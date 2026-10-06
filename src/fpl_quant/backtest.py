@@ -505,11 +505,13 @@ def brier_categorical(probs: dict, observed_key: str) -> float:
 
 
 def _match_score_log_likelihood(lam_home: float, lam_away: float, home_goals: int, away_goals: int, rho: float) -> float:
-    """log P(this scoreline) under the Dixon-Coles model team_strength fits, with its lambda
-    clip and tau floor -- so a diverged strength (a club that hasn't scored yet, fitted at
-    attack -13) is scored as the near-zero chance it gave a goal, not dropped."""
-    lam_home = min(max(lam_home, 1e-6), 1e6)
-    lam_away = min(max(lam_away, 1e-6), 1e6)
+    """log P(this scoreline) under the Dixon-Coles model team_strength fits, with its tau
+    floor -- so a diverged strength (a club that hasn't scored yet, fitted at attack -13) is
+    scored as the near-zero chance it gave a goal, not dropped. Rates are held to [1e-6,
+    MAX_PHYSICAL_LAMBDA]: a runaway cold-start fit can put one at 1e6, and that single match
+    would otherwise swamp its gameweek's mean (about -1e5)."""
+    lam_home = min(max(lam_home, 1e-6), MAX_PHYSICAL_LAMBDA)
+    lam_away = min(max(lam_away, 1e-6), MAX_PHYSICAL_LAMBDA)
     adjustment = max(team_strength.tau(home_goals, away_goals, lam_home, lam_away, rho), 1e-10)
     return float(poisson.logpmf(home_goals, lam_home) + poisson.logpmf(away_goals, lam_away) + math.log(adjustment))
 

@@ -277,6 +277,14 @@ corrected warning message. Nothing is live yet. The live switch (`run_ingestion.
   in the fit, and backtests are unchanged for established clubs.
 - **The clamp covers every first-season club.** That includes every club in 2024-25's
   one-season fit, the cold-start stress test.
+- **Cold-start rule (added after the first arms).** A first-season club with fewer than 10
+  matches stays out of the Elo regression and the centre. At 2024-25 GW2–10, when every club's
+  fit is that thin, there is no regression: every club starts from the median club. The first
+  run fitted the regression on runaway values, and GW3 still scored a near-impossible match.
+  Live and 2025-26 are unaffected, because their regression clubs are all established.
+- **Scoreboard cap.** `match_score_log_lik_mean` caps each rate at 15 goals
+  (`MAX_PHYSICAL_LAMBDA`). A runaway 2024-25 fit reached 1e6, and that one match pulled its
+  gameweek's mean to −100,000.
 - **Stored values move together.** The fit centres attack on all clubs, so a runaway raw fit
   shifts every club's stored values alike (about +0.57 for one club at −13 in a 23-club fit).
   Lambdas depend only on differences, and priors are fitted in the same frame.

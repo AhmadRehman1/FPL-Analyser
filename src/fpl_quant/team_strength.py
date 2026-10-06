@@ -366,7 +366,20 @@ def calibrate(
         elo_source = "no Elo in teams.csv for the target or fallback season"
     if guard and guard["withhold_newcomer_elo"]:
         elo_by_team = {t: e for t, e in elo_by_team.items() if t not in newcomers}
-    a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, eligible_teams)
+    g: dict[str, float] = guard or {}
+    guarded = bool(g) and g["first_season_pseudo_matches"] > 0
+    matches_played = pd.concat([matches.home_team_uid, matches.away_team_uid]).value_counts().to_dict()
+    regression_teams = eligible_teams
+    if guarded:
+        # a fit on a few matches can run off (and at a one-season cold start every club's does):
+        # keep those out of the Elo regression and the centre, so priors don't inherit them
+        thin = {t for t in first_season if matches_played.get(t, 0) < g["first_season_pseudo_matches"]}
+        regression_teams = [t for t in eligible_teams if t not in thin]
+    regression: tuple[float, float, float, float] | None = None
+    n_reg = 0
+    if not guarded or sum(1 for t in regression_teams if t in attack_mle and t in elo_by_team) >= 2:
+        a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, regression_teams)
+        regression = (a0, a1, b0, b1)
 
     model_version = con.execute(
         """
@@ -378,7 +391,7 @@ def calibrate(
         RETURNING model_version
         """,
         [calibration_asof_date, home_advantage, xi_params_version, rho_params_version,
-         reference_team_uid, a0, a1, b0, b1, n_reg, json.dumps(list(fit_seasons))],
+         reference_team_uid, *(regression or (None, None, None, None)), n_reg, json.dumps(list(fit_seasons))],
     ).fetchone()[0]
 
     # Without the guard, a target-season club with no match in fit_seasons and no Elo -- a
@@ -388,23 +401,24 @@ def calibrate(
     fallback_attack = sum(attack_mle.values()) / len(attack_mle) if attack_mle else 0.0
     fallback_defence = sum(defence_mle.values()) / len(defence_mle) if defence_mle else 0.0
 
-    g: dict[str, float] = guard or {}
-    guarded = bool(g) and g["first_season_pseudo_matches"] > 0
     if guarded:
         pseudo_matches, clamp = g["first_season_pseudo_matches"], g["clamp"]
         max_own_seasons = int(g["max_own_seasons"])
-        matches_played = pd.concat([matches.home_team_uid, matches.away_team_uid]).value_counts().to_dict()
-        established = [t for t in eligible_teams if t in attack_mle] or list(attack_mle)
-        established_attack = sum(attack_mle[t] for t in established) / len(established)
-        established_defence = sum(defence_mle[t] for t in established) / len(established)
+        established = [t for t in regression_teams if t in attack_mle]
+        if len(established) >= 2:
+            established_attack = sum(attack_mle[t] for t in established) / len(established)
+            established_defence = sum(defence_mle[t] for t in established) / len(established)
+        else:  # nothing settled yet: the median club, which a runaway fit can't drag
+            established_attack = float(np.median(list(attack_mle.values())))
+            established_defence = float(np.median(list(defence_mle.values())))
     on_newcomer_prior = []
 
     for team_uid in target_teams:
         seasons = seasons_map.get(team_uid, 0)
         weight_own = min(1.0, seasons / seasons_threshold)
         elo = elo_by_team.get(team_uid)
-        attack_prior = a0 + a1 * elo if elo is not None else None
-        defence_prior = b0 + b1 * elo if elo is not None else None
+        attack_prior = regression[0] + regression[1] * elo if regression and elo is not None else None
+        defence_prior = regression[2] + regression[3] * elo if regression and elo is not None else None
         a_mle = attack_mle.get(team_uid)
         d_mle = defence_mle.get(team_uid)
 

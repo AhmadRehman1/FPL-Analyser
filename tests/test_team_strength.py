@@ -439,3 +439,26 @@ def test_guard_v1_is_the_recommended_blend_and_arms_reuse_their_versions(con):
     assert set(ts.GUARD_ARMS) == {"honest", "live-like", "fix", "fix-withheld"}
     for values in ts.GUARD_ARMS.values():
         assert set(values) == set(ts.GUARD_RECOMMENDED)
+
+
+def test_guard_keeps_a_one_season_cold_start_bounded(con):
+    """2024-25, the first season in the data: every club has a match or two, so every fit is
+    thin -- the Elo regression and the centre must not be fitted on them."""
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "model_decay_params", 1, "2026-08-10", "rho", value_numeric=-0.13)
+    uids = _seed_teams(con, ["A", "B", "C", "D"])
+    elo = {"A": 2000.0, "B": 1900.0, "C": 1850.0, "D": 1700.0}
+    for i, (h, a, hg, ag) in enumerate([("A", "D", 3, 0), ("B", "C", 1, 1), ("D", "B", 0, 2), ("C", "A", 0, 1)]):
+        _insert_match(con, f"m{i}", "2024-2025", uids[h], uids[a], hg, ag, datetime(2024, 8, 17 + i),
+                      home_elo=elo[h], away_elo=elo[a])
+    model_version = ts.calibrate(con, date(2024, 8, 30), 1, 1, target_season="2024-2025", fit_seasons=("2024-2025",),
+                                 guard_params_version=_guard_version(con, "fix"))
+    n_reg = con.execute(
+        "SELECT elo_regression_teams FROM team_strength_model_versions WHERE model_version = ?", [model_version],
+    ).fetchone()[0]
+    assert n_reg == 0  # no club has 10 matches yet: no regression on thin fits
+    snap = _snapshot(con, model_version)
+    # D never scored: its fit runs off, the guard holds everyone near the median club
+    assert snap.loc[uids["D"], "attack_mle"] - snap["attack_mle"].median() < -3
+    for final, fitted in (("final_attack", "attack_mle"), ("final_defence", "defence_mle")):
+        assert (snap[final] - snap[fitted].median()).abs().max() <= 1.0 + 1e-9
