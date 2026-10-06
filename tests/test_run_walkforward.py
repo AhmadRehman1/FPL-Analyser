@@ -87,3 +87,7 @@ def test_team_strength_flag_maps_each_arm_to_a_guard_version(con):
     for arm in ("honest", "live-like", "fix"):
         version = rw._experiment_versions(con, rw._parse_args(["--team-strength", arm]))["team_strength_guard_params_version"]
         assert ts.resolve_guard_params(con, version) == ts.GUARD_ARMS[arm]
+    # the model before the guard went live, for comparisons
+    assert rw._experiment_versions(con, rw._parse_args(["--team-strength", "off"])) == {
+        "team_strength_guard_params_version": None,
+    }

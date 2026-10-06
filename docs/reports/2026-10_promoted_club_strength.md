@@ -257,11 +257,15 @@ Analysis only. Nothing in the repository was changed, pushed or opened as a PR.
 - **The replay is a scratch harness.** It scores match scores, not FPL points, over 2025-26 and five gameweeks of 2026-27. Its "live today" arm has one prior season, not two, and its "recommended" arm gives promoted clubs no Elo, as in live.
 - **Not checked.** ClubElo's API (unreachable from here). Anything about the minutes model: it does not read team strength, contrary to the brief.
 
-## Implementation (2026-10-05, opt-in)
+## Implementation (2026-10-05; live 2026-10-06)
 
-Built behind `team_strength_guard_params`. With no version, `calibrate()` is unchanged apart from a
-corrected warning message. Nothing is live yet. The live switch (`run_ingestion.py` fitting
-`fit_seasons_for(TARGET_SEASON)` with the guard) follows the walk-forward below.
+Built behind `team_strength_guard_params` (#235). Live since 2026-10-06:
+- `run_ingestion.py` fits `fit_seasons_for(TARGET_SEASON)`, so 2026-27's own matches count.
+- v1, the `fix-withheld` arm, joins `RECALIBRATABLE_VERSION_ARGS`. It is the default for live
+  ingestion, the forward season sim, the walk-forward and the season simulations.
+- `--team-strength off` runs the model from before 2026-10-06 for comparisons.
+- Backtest baselines are point-in-time now, so they sit about 1.8 points a gameweek below
+  earlier runs.
 
 - **Point-in-time Elo** (`fetch_point_in_time_elo`): each club's Elo from its latest finished
   match before the deadline, from `fact_match`. The target gameweek's own fixtures stay

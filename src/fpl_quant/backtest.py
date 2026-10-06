@@ -2571,6 +2571,9 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     # The evidence-order start prior (docs/reports/2026-10_open_issues.md, issue 4), live since
     # 2026-10-04 after the 2025-26 walk-forward kept points level and cut the calibration error.
     "minutes_start_prior_params_version": ("minutes_start_prior_params", "pseudo_matches"),
+    # The team-strength guard and point-in-time Elo (docs/reports/2026-10_promoted_club_strength.md),
+    # live since 2026-10-06: level with the honest baseline in 2025-26, without its runaway fits.
+    "team_strength_guard_params_version": ("team_strength_guard_params", "first_season_pseudo_matches"),
 }
 
 
@@ -2679,7 +2682,7 @@ def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path |
     # DB built before one went live has no v1 row for it yet.
     minutes_model.seed_minutes_bounds_params(con)
     minutes_model.seed_start_prior_params(con)
-    # not live yet; seeded first so v1 is always the recommended guard, whichever arm mints next
+    # seeded before any walk-forward arm mints a version, so v1 is always the live guard
     team_strength.seed_team_strength_guard_params(con)
     return len(seeds)
 
