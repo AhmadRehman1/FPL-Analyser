@@ -98,3 +98,25 @@ def test_summarize_reports_each_season_and_the_minutes_prior_by_price_band():
     prior = out["minutes_prior_by_price_band"]
     assert prior["2024-2025"]["cold"]["9.0+"] == {"p_start_prior": 0.9, "p_start_final": 0.9, "started_share": 1.0, "n": 1}
     assert prior["2025-2026"]["mature"]["<5.0"]["started_share"] == 0.0
+
+
+def test_promoted_club_cuts_read_the_segment_metrics_by_season():
+    con = duckdb.connect(":memory:")
+    db.apply_schema(con)
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    for gw, value in ((5, -3.0), (6, -2.0)):
+        for name, metric_value in (
+            ("match_score_log_lik_mean", value), ("match_score_log_lik_mean:promoted_match", value - 1.0),
+            ("ep_total_calibration_mae:vs_promoted_team", 2.5), ("ep_total_calibration_mean_resid:promoted_team", -0.5),
+        ):
+            con.execute(
+                "INSERT INTO backtest_metrics (backtest_run_id, season, gameweek, tier, metric_name, metric_value) "
+                "VALUES (?, '2025-2026', ?, 'mature', ?, ?)", [run_id, gw, name, metric_value],
+            )
+    out = wfs.summarize(con, run_id)
+    assert out["headline"]["match_score_log_lik_mean"] == -2.5
+    assert out["promoted_clubs"] == {"2025-2026": {
+        "promoted_match_score_log_lik_mean": -3.5,
+        "promoted_team": {"ep_total_calibration_mean_resid": -0.5},
+        "vs_promoted_team": {"ep_total_calibration_mae": 2.5},
+    }}

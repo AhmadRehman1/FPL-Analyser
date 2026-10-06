@@ -191,6 +191,9 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         # Issue 4's evidence-order start prior, live since 2026-10-04 (None when `active`
         # doesn't carry it).
         "minutes_start_prior_params_version": active.get("minutes_start_prior_params_version"),
+        # The team-strength guard (docs/reports/2026-10_promoted_club_strength.md); None (today's
+        # unguarded fit) when `active` doesn't carry it.
+        "team_strength_guard_params_version": active.get("team_strength_guard_params_version"),
         # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
         "chip_wait_params_version": active.get("chip_wait_params_version"),
         # Opt-in two-transfer moves and hits (docs/reports/2026-10_open_issues.md, issue 0);
@@ -370,7 +373,8 @@ def run_forward_season_sim(
     with bt.asof_scope(con, target_season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
         asof = deadline.date()
         ts0 = team_strength.calibrate(con, asof, versions["xi_params_version"], versions["rho_params_version"],
-                                      target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season))
+                                      target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season),
+                                      guard_params_version=versions["team_strength_guard_params_version"])
         mm0 = minutes_model.run(con, asof, target_season, versions["decay_params_version"],
                                 versions["adjustment_params_version"], versions["shrinkage_params_version"],
                                 versions["fact_multiplier_params_version"],
@@ -403,7 +407,8 @@ def run_forward_season_sim(
         with bt.asof_scope(con, target_season, gw, schedule_horizon_gameweeks=schedule_gameweeks) as deadline:
             asof = deadline.date()
             ts_mv = team_strength.calibrate(con, asof, versions["xi_params_version"], versions["rho_params_version"],
-                                            target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season))
+                                            target_season=target_season, fit_seasons=bt.fit_seasons_for(target_season),
+                                            guard_params_version=versions["team_strength_guard_params_version"])
             mm_mv = minutes_model.run(con, asof, target_season, versions["decay_params_version"],
                                       versions["adjustment_params_version"], versions["shrinkage_params_version"],
                                       versions["fact_multiplier_params_version"],

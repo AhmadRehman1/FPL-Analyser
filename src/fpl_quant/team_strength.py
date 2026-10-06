@@ -196,6 +196,95 @@ def fit_elo_regression(
     return float(a0), float(a1), float(b0), float(b1), len(xs)
 
 
+# docs/reports/2026-10_promoted_club_strength.md: the live fit gave Coventry and Hull, promoted
+# for 2026-27, league-average strength, and fitting this season's matches without a guard sent
+# a club that hadn't scored to an attack of -13. team_strength_guard_params (opt-in through
+# calibrate()'s guard_params_version) holds the fix and the walk-forward arms that test it:
+#   point_in_time_elo           1: each club's Elo from its latest finished match before the
+#                               deadline (fetch_point_in_time_elo), not the season-root teams.csv
+#                               -- end-of-season for a finished season, blank all of 2026-27
+#   exclude_target_season       1: fit only the seasons before the target (what live did)
+#   withhold_newcomer_elo       1: a club with no match in an earlier fit season gets no Elo
+#   first_season_pseudo_matches k > 0 turns the guard on: a club with no match in an earlier fit
+#                               season weights its own fit n / (n + k) after n matches, every
+#                               club gets a prior (Elo, else the newcomer or established mean)
+#   clamp                       the first-season fit is held within this of its prior first
+#   newcomer_attack_offset /    a newcomer's prior when it has no Elo: the established clubs'
+#   newcomer_defence_offset     mean plus these (the six promoted clubs in the data averaged
+#                               -0.39 attack, -0.32 defence below it in their first season)
+#   max_own_seasons             other clubs weight their fit min(seasons, this) / 3, so the
+#                               in-progress season doesn't lift them from 2/3 to 1
+# All placeholders, not fitted. v1 is the recommended blend with a newcomer's Elo withheld: the
+# two tied in the 2025-26 walk-forward, and 2026-27's per-match Elo stopped after GW2, which
+# would leave Hull on a pre-season 1533.
+GUARD_FAMILY = "team_strength_guard_params"
+GUARD_RECOMMENDED = {
+    "point_in_time_elo": 1.0, "exclude_target_season": 0.0, "withhold_newcomer_elo": 1.0,
+    "first_season_pseudo_matches": 10.0, "clamp": 1.0,
+    "newcomer_attack_offset": -0.39, "newcomer_defence_offset": -0.32, "max_own_seasons": 2.0,
+}
+_GUARD_OFF = {key: 0.0 for key in GUARD_RECOMMENDED}
+# The walk-forward arms (scripts/run_walkforward.py --team-strength ARM).
+GUARD_ARMS = {
+    # today's blend on a point-in-time Elo: the honest baseline
+    "honest": {**_GUARD_OFF, "point_in_time_elo": 1.0},
+    # what live did before the fix: prior seasons only, no Elo for a promoted club
+    "live-like": {**_GUARD_OFF, "point_in_time_elo": 1.0, "exclude_target_season": 1.0, "withhold_newcomer_elo": 1.0},
+    # the fix with a promoted club's own-match Elo used as its prior
+    "fix": {**GUARD_RECOMMENDED, "withhold_newcomer_elo": 0.0},
+    "fix-withheld": dict(GUARD_RECOMMENDED),
+}
+
+
+def seed_team_strength_guard_params(con: duckdb.DuckDBPyConnection) -> None:
+    """team_strength_guard_params v1 = the recommended blend (GUARD_RECOMMENDED, the
+    fix-withheld arm)."""
+    for key, value in GUARD_RECOMMENDED.items():
+        params_mod.write_param(con, GUARD_FAMILY, 1, "2026-10-05", key, value_numeric=value)
+
+
+def resolve_guard_params(con: duckdb.DuckDBPyConnection, version: int | None) -> dict[str, float] | None:
+    if version is None:
+        return None
+    return {key: float(params_mod.resolve_param(con, GUARD_FAMILY, key, version)[0]) for key in GUARD_RECOMMENDED}
+
+
+def fetch_point_in_time_elo(con: duckdb.DuckDBPyConnection) -> dict[str, float]:
+    """Each club's Elo from its latest finished Premier League match that records one
+    (fact_match.home_team_elo / away_team_elo, from the dataset's matches.csv). Under
+    backtest.asof_scope() fact_match holds only what was known at the deadline -- the target
+    gameweek's own fixtures stay unfinished -- so this is the rating known then. The season-root
+    teams.csv it replaces holds the end-of-season Elo for a finished season (Sunderland's
+    2025-26 GW1 prior was 189 points above its GW1 rating) and is blank all of 2026-27."""
+    rows = con.execute(
+        """
+        SELECT team_uid, elo FROM (
+            SELECT home_team_uid AS team_uid, home_team_elo AS elo, kickoff_time, match_id FROM fact_match
+            WHERE competition = ? AND finished = TRUE AND home_team_elo IS NOT NULL
+            UNION ALL
+            SELECT away_team_uid, away_team_elo, kickoff_time, match_id FROM fact_match
+            WHERE competition = ? AND finished = TRUE AND away_team_elo IS NOT NULL
+        )
+        QUALIFY row_number() OVER (PARTITION BY team_uid ORDER BY kickoff_time DESC, match_id DESC) = 1
+        ORDER BY team_uid
+        """,
+        [PL, PL],
+    ).fetchall()
+    return {team_uid: float(elo) for team_uid, elo in rows}
+
+
+def _teams_with_matches(con: duckdb.DuckDBPyConnection, seasons: list[str]) -> set[str]:
+    if not seasons:
+        return set()
+    placeholders = ",".join(["?"] * len(seasons))
+    rows = con.execute(
+        f"SELECT home_team_uid FROM fact_match WHERE competition = ? AND season IN ({placeholders}) "
+        f"UNION SELECT away_team_uid FROM fact_match WHERE competition = ? AND season IN ({placeholders})",
+        [PL, *seasons, PL, *seasons],
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
 def calibrate(
     con: duckdb.DuckDBPyConnection,
     calibration_asof_date: date,
@@ -204,9 +293,17 @@ def calibrate(
     target_season: str = "2026-2027",
     fit_seasons: tuple[str, ...] = ("2024-2025", "2025-2026"),
     seasons_threshold: int = 3,
+    guard_params_version: int | None = None,
 ) -> int:
+    """guard_params_version (opt-in, None is the prior behavior): see team_strength_guard_params
+    above GUARD_FAMILY."""
     xi, _ = params_mod.resolve_param(con, "model_decay_params", "xi", xi_params_version)
     rho, _ = params_mod.resolve_param(con, "model_decay_params", "rho", rho_params_version)
+    guard = resolve_guard_params(con, guard_params_version)
+    if guard and guard["exclude_target_season"]:
+        prior_seasons_only = tuple(s for s in fit_seasons if s != target_season)
+        if prior_seasons_only:
+            fit_seasons = prior_seasons_only
 
     matches = fetch_calibration_matches(con, fit_seasons)
     if matches.empty:
@@ -234,30 +331,58 @@ def calibrate(
     effective_threshold = min(seasons_threshold, len(fit_seasons))
     eligible_teams = [t for t, s in seasons_map.items() if s >= effective_threshold]
 
-    # A real, observed condition (surfaced by an actual live CI run, not hypothesized): early
-    # in a season, FPL-Core-Insights' target-season teams.csv genuinely ships an `elo` column
-    # that's present but entirely blank for every team -- fetch_current_elo() correctly
-    # returns {} for that, but an empty Elo population makes the regression permanently
-    # unfittable (fit_elo_regression's own >=2-eligible-teams requirement) despite fit_seasons'
-    # match data being perfectly fine. A team's Elo doesn't reset to unknown at a season
-    # boundary, so falling back to the most recent prior season's real, populated Elo snapshot
-    # (matched to today's teams via the same team_uid identity fetch_current_elo already
-    # resolves through) is a reasonable, disclosed proxy -- not a fabricated value -- for
-    # exactly as long as this season's own Elo hasn't been published upstream yet.
-    #
-    # The fallback walks the PRIOR fit_seasons newest-first, never fit_seasons[-1] blindly:
-    # backtest.fit_seasons_for("2026-2027") now returns ("2024-2025","2025-2026","2026-2027"),
-    # so fit_seasons[-1] IS the target season whose Elo is the blank column this fallback
-    # exists to route around -- using it would leave elo_by_team empty and crash every real
-    # 2026-2027 calibration (chip_timing_analysis.yml run 33453667681, forward_season_sim.yml
-    # run 33432100674, both dead on "fit_elo_regression ... got 0").
-    elo_by_team = fetch_current_elo(con, target_season)
-    if not elo_by_team:
-        for prior_season in reversed([s for s in fit_seasons if s != target_season]):
-            elo_by_team = fetch_current_elo(con, prior_season)
-            if elo_by_team:
-                break
-    a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, eligible_teams)
+    # A club with no match in a fit season before the target: every club in a one-season fit,
+    # and a newcomer (a promoted club) when there are earlier seasons to be new against.
+    earlier_seasons = [s for s in fit_seasons if s != target_season]
+    seen_before = _teams_with_matches(con, earlier_seasons)
+    first_season = {t for t in target_teams if t not in seen_before}
+    newcomers = first_season if earlier_seasons else set()
+
+    if guard and guard["point_in_time_elo"]:
+        elo_by_team = fetch_point_in_time_elo(con)
+        elo_source = "no Elo in its finished matches"
+    else:
+        # A real, observed condition (surfaced by an actual live CI run, not hypothesized):
+        # early in a season, FPL-Core-Insights' target-season teams.csv genuinely ships an
+        # `elo` column that's present but entirely blank for every team -- fetch_current_elo()
+        # correctly returns {} for that, but an empty Elo population makes the regression
+        # permanently unfittable (fit_elo_regression's own >=2-eligible-teams requirement)
+        # despite fit_seasons' match data being perfectly fine. A team's Elo doesn't reset to
+        # unknown at a season boundary, so falling back to the most recent prior season's real,
+        # populated Elo snapshot (matched to today's teams via the same team_uid identity
+        # fetch_current_elo already resolves through) is a reasonable, disclosed proxy -- not a
+        # fabricated value -- for exactly as long as this season's own Elo hasn't been
+        # published upstream yet.
+        #
+        # The fallback walks the PRIOR fit_seasons newest-first, never fit_seasons[-1] blindly:
+        # backtest.fit_seasons_for("2026-2027") returns ("2024-2025","2025-2026","2026-2027"),
+        # so fit_seasons[-1] IS the target season whose Elo is the blank column this fallback
+        # exists to route around -- using it would leave elo_by_team empty and crash every real
+        # 2026-2027 calibration (chip_timing_analysis.yml run 33453667681, forward_season_sim.yml
+        # run 33432100674, both dead on "fit_elo_regression ... got 0").
+        elo_by_team = fetch_current_elo(con, target_season)
+        if not elo_by_team:
+            for prior_season in reversed([s for s in fit_seasons if s != target_season]):
+                elo_by_team = fetch_current_elo(con, prior_season)
+                if elo_by_team:
+                    break
+        elo_source = "no Elo in teams.csv for the target or fallback season"
+    if guard and guard["withhold_newcomer_elo"]:
+        elo_by_team = {t: e for t, e in elo_by_team.items() if t not in newcomers}
+    g: dict[str, float] = guard or {}
+    guarded = bool(g) and g["first_season_pseudo_matches"] > 0
+    matches_played = pd.concat([matches.home_team_uid, matches.away_team_uid]).value_counts().to_dict()
+    regression_teams = eligible_teams
+    if guarded:
+        # a fit on a few matches can run off (and at a one-season cold start every club's does):
+        # keep those out of the Elo regression and the centre, so priors don't inherit them
+        thin = {t for t in first_season if matches_played.get(t, 0) < g["first_season_pseudo_matches"]}
+        regression_teams = [t for t in eligible_teams if t not in thin]
+    regression: tuple[float, float, float, float] | None = None
+    n_reg = 0
+    if not guarded or sum(1 for t in regression_teams if t in attack_mle and t in elo_by_team) >= 2:
+        a0, a1, b0, b1, n_reg = fit_elo_regression(attack_mle, defence_mle, elo_by_team, regression_teams)
+        regression = (a0, a1, b0, b1)
 
     model_version = con.execute(
         """
@@ -269,39 +394,62 @@ def calibrate(
         RETURNING model_version
         """,
         [calibration_asof_date, home_advantage, xi_params_version, rho_params_version,
-         reference_team_uid, a0, a1, b0, b1, n_reg, json.dumps(list(fit_seasons))],
+         reference_team_uid, *(regression or (None, None, None, None)), n_reg, json.dumps(list(fit_seasons))],
     ).fetchone()[0]
 
-    # Real, observed condition (surfaced by an actual live CI run): a target-season team can
-    # have genuinely zero information available from ANY loaded source -- no MLE fit (never
-    # played a competitive fixture in fit_seasons under this exact name) AND no Elo prior
-    # (not present in either the target season's or the fallback season's teams.csv, again
-    # under this exact name). The real, root-cause example this project actually hit: FPL-
-    # Core-Insights spells the same club "Ipswich" in 2024-25's source data but "Ipswich Town"
-    # in 2026-27's -- two different literal strings normalize to two different team_uids
-    # (entity_resolution.team_uid_for has no fuzzy suffix-stripping, by design -- see its own
-    # docstring: name-variant unification is meant to be an explicit, curated alias row, not a
-    # heuristic guess), so the 2024-25 history genuinely never gets attached to the 2026-27
-    # team_uid unless the (private, curated) evidence workbook's club_name_map covers this
-    # specific spelling variant. It doesn't yet -- a real, named gap, not silently patched over
-    # here. Rather than hard-failing the whole calibration (and blocking every other team's
-    # otherwise-real forecast) over this one team, such a team gets the real, computed
-    # league-average attack/defence across every team that DOES have an MLE fit -- a genuine
-    # "we truly have nothing better" default, not an invented literal, clearly logged so it's
-    # visible rather than silently accepted.
+    # Without the guard, a target-season club with no match in fit_seasons and no Elo -- a
+    # promoted club while the Elo feed is blank, as Coventry and Hull for all of 2026-27 so far --
+    # gets the league-average attack/defence across every club with a fit (logged), and a club
+    # with a fit but no Elo uses that fit unshrunk however few matches it rests on.
     fallback_attack = sum(attack_mle.values()) / len(attack_mle) if attack_mle else 0.0
     fallback_defence = sum(defence_mle.values()) / len(defence_mle) if defence_mle else 0.0
+
+    if guarded:
+        pseudo_matches, clamp = g["first_season_pseudo_matches"], g["clamp"]
+        max_own_seasons = int(g["max_own_seasons"])
+        established = [t for t in regression_teams if t in attack_mle]
+        if len(established) >= 2:
+            established_attack = sum(attack_mle[t] for t in established) / len(established)
+            established_defence = sum(defence_mle[t] for t in established) / len(established)
+        else:  # nothing settled yet: the median club, which a runaway fit can't drag
+            established_attack = float(np.median(list(attack_mle.values())))
+            established_defence = float(np.median(list(defence_mle.values())))
+    on_newcomer_prior = []
 
     for team_uid in target_teams:
         seasons = seasons_map.get(team_uid, 0)
         weight_own = min(1.0, seasons / seasons_threshold)
         elo = elo_by_team.get(team_uid)
-        attack_prior = a0 + a1 * elo if elo is not None else None
-        defence_prior = b0 + b1 * elo if elo is not None else None
+        attack_prior = regression[0] + regression[1] * elo if regression and elo is not None else None
+        defence_prior = regression[2] + regression[3] * elo if regression and elo is not None else None
         a_mle = attack_mle.get(team_uid)
         d_mle = defence_mle.get(team_uid)
 
-        if a_mle is not None and attack_prior is not None:
+        if guarded:
+            if attack_prior is None or defence_prior is None:
+                attack_prior, defence_prior = established_attack, established_defence
+                if team_uid in newcomers:
+                    attack_prior += g["newcomer_attack_offset"]
+                    defence_prior += g["newcomer_defence_offset"]
+                    on_newcomer_prior.append(team_uid)
+            if team_uid in first_season:
+                n = int(matches_played.get(team_uid, 0))
+                weight_own = n / (n + pseudo_matches)
+            elif max_own_seasons > 0:
+                weight_own = min(1.0, min(seasons, max_own_seasons) / seasons_threshold)
+            if a_mle is None or d_mle is None:
+                weight_own = 0.0
+                final_attack, final_defence = attack_prior, defence_prior
+            else:
+                own_attack, own_defence = a_mle, d_mle
+                if team_uid in first_season and clamp > 0:
+                    # a club that hasn't scored (or conceded) yet has a fit running off to -inf
+                    # (+inf): hold it near its prior before blending
+                    own_attack = min(max(own_attack, attack_prior - clamp), attack_prior + clamp)
+                    own_defence = min(max(own_defence, defence_prior - clamp), defence_prior + clamp)
+                final_attack = weight_own * own_attack + (1 - weight_own) * attack_prior
+                final_defence = weight_own * own_defence + (1 - weight_own) * defence_prior
+        elif a_mle is not None and attack_prior is not None:
             final_attack = weight_own * a_mle + (1 - weight_own) * attack_prior
             final_defence = weight_own * d_mle + (1 - weight_own) * defence_prior
         elif attack_prior is not None:
@@ -310,10 +458,9 @@ def calibrate(
             final_attack, final_defence = a_mle, d_mle
         else:
             print(
-                f"::warning::team_strength.calibrate: {team_uid} has neither an MLE fit nor an "
-                f"Elo prior (likely a club_name_map gap -- see team_strength.py's own comment "
-                f"just above this loop) -- using the real league-average attack/defence as a "
-                f"last-resort fallback instead of crashing the whole calibration"
+                f"::warning::team_strength.calibrate: {team_uid} has no {PL} match in {list(fit_seasons)} "
+                f"and {elo_source} (a promoted club, or an Elo feed that is blank) -- using the "
+                f"league-average attack/defence"
             )
             final_attack, final_defence = fallback_attack, fallback_defence
 
@@ -328,4 +475,10 @@ def calibrate(
              final_attack, final_defence, seasons, weight_own, elo],
         )
 
+    if on_newcomer_prior:
+        print(
+            f"::notice::team_strength.calibrate: no Elo for promoted {sorted(on_newcomer_prior)} -- "
+            f"established mean {g['newcomer_attack_offset']:+.2f} attack, "
+            f"{g['newcomer_defence_offset']:+.2f} defence as their prior"
+        )
     return model_version

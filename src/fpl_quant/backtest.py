@@ -87,6 +87,9 @@ def lookback_seasons_for(season: str) -> tuple[str, ...]:
     return tuple(reversed(fit_seasons_for(season)))
 
 
+FIRST_LOADED_SEASON = "2024-2025"  # the first season FPL-Core-Insights ships
+
+
 def fit_seasons_for(season: str) -> tuple[str, ...]:
     """team_strength.calibrate()'s Elo-regression eligibility threshold is
     min(seasons_threshold, len(fit_seasons)) -- its own hardcoded live default,
@@ -106,14 +109,18 @@ def fit_seasons_for(season: str) -> tuple[str, ...]:
     empty set the 2024-2025 bug produced. Early in 2026-2027 its own match rows are sparse,
     but fit_dixon_coles' xi-decay weighting and weight_own_data=min(1,seasons/3) already
     govern how much that thin recent slice is trusted; fit_seasons only decides what data is
-    on the table, and all reachable data is the consistent answer."""
-    if season == "2024-2025":
-        return ("2024-2025",)
-    if season == "2025-2026":
-        return ("2024-2025", "2025-2026")
-    if season == "2026-2027":
-        return ("2024-2025", "2025-2026", "2026-2027")
-    raise ValueError(f"no fit_seasons definition for season {season!r} -- backtest only covers 2024-25/2025-26/2026-27")
+    on the table, and all reachable data is the consistent answer.
+
+    Any later season fits its two predecessors and itself (2027-2028 -> 2025-26 to 2027-28), so
+    a new season needs no code change here once its data is loaded."""
+    first_year = int(FIRST_LOADED_SEASON[:4])
+    try:
+        start, end = (int(part) for part in season.split("-"))
+    except ValueError:
+        raise ValueError(f"not a season label: {season!r} (expected e.g. '2025-2026')") from None
+    if end != start + 1 or start < first_year:
+        raise ValueError(f"no fit_seasons for season {season!r} -- the data starts at {FIRST_LOADED_SEASON}")
+    return tuple(f"{year}-{year + 1}" for year in range(max(first_year, start - 2), start + 1))
 
 
 def gameweek_deadline(con: duckdb.DuckDBPyConnection, season: str, gameweek: int):
@@ -353,6 +360,7 @@ def run_gameweek_step(
     minutes_price_prior_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
     bps_calibration_params_version: int | None = None,
+    team_strength_guard_params_version: int | None = None,
 ) -> None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -407,6 +415,7 @@ def run_gameweek_step(
         ts_model_version = team_strength.calibrate(
             con, calibration_asof_date, xi_params_version, rho_params_version,
             target_season=season, fit_seasons=fit_seasons_for(season),
+            guard_params_version=team_strength_guard_params_version,
         )
         mm_model_version = minutes_model.run(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
@@ -493,6 +502,18 @@ def log_score_categorical(probs: dict, observed_key: str) -> float:
 
 def brier_categorical(probs: dict, observed_key: str) -> float:
     return sum((p - (1.0 if k == observed_key else 0.0)) ** 2 for k, p in probs.items())
+
+
+def _match_score_log_likelihood(lam_home: float, lam_away: float, home_goals: int, away_goals: int, rho: float) -> float:
+    """log P(this scoreline) under the Dixon-Coles model team_strength fits, with its tau
+    floor -- so a diverged strength (a club that hasn't scored yet, fitted at attack -13) is
+    scored as the near-zero chance it gave a goal, not dropped. Rates are held to [1e-6,
+    MAX_PHYSICAL_LAMBDA]: a runaway cold-start fit can put one at 1e6, and that single match
+    would otherwise swamp its gameweek's mean (about -1e5)."""
+    lam_home = min(max(lam_home, 1e-6), MAX_PHYSICAL_LAMBDA)
+    lam_away = min(max(lam_away, 1e-6), MAX_PHYSICAL_LAMBDA)
+    adjustment = max(team_strength.tau(home_goals, away_goals, lam_home, lam_away, rho), 1e-10)
+    return float(poisson.logpmf(home_goals, lam_home) + poisson.logpmf(away_goals, lam_away) + math.log(adjustment))
 
 
 def log_score_poisson(lam: float, observed_count: int) -> float:
@@ -841,8 +862,12 @@ def score_gameweek(
         team_of: dict[str, str] = {}
         promoted_team_cache: dict[str, bool | None] = {}
         asof = gameweek_deadline(con, season, gameweek)
+        opponents_of: dict[str, set[str]] = {}
         for match_id, home_uid, away_uid, _hs, _as in fixtures:
-            team_of.update(monte_carlo._team_of_for_fixture(con, home_uid, away_uid, season))
+            fixture_team_of = monte_carlo._team_of_for_fixture(con, home_uid, away_uid, season)
+            team_of.update(fixture_team_of)
+            for player_uid, team_uid in fixture_team_of.items():
+                opponents_of.setdefault(player_uid, set()).add(away_uid if team_uid == home_uid else home_uid)
         # position is time-invariant; now_cost is read at the gameweek actually being scored
         # (score_gameweek runs after asof_scope has exited, so this is the real, known price
         # that week -- not a look-ahead).
@@ -857,9 +882,36 @@ def score_gameweek(
                 con, player_uid, team_uid, season, asof, set_piece_params_version, promoted_team_cache,
                 position=position_of.get(player_uid), now_cost=price_of.get(player_uid),
             )
+            # facing a promoted club: where a promoted club's strength reaches other players'
+            # points (their clean sheets and goals), docs/reports/2026-10_promoted_club_strength.md
+            for opponent in opponents_of.get(player_uid, ()):
+                if opponent not in promoted_team_cache:
+                    promoted_team_cache[opponent] = _is_newly_promoted_team(con, opponent, season)
+                if promoted_team_cache[opponent]:
+                    segment_of[player_uid].add("vs_promoted_team")
     resids, n_degenerate = [], 0
+    # match-score log-likelihood: the team-strength model's own probability of each real
+    # scoreline (Dixon-Coles, as fitted), the direct measure of a team-strength change
+    rho_row = con.execute(
+        "SELECT rho_params_version FROM team_strength_model_versions WHERE model_version = ?", [ts_model_version],
+    ).fetchone()
+    try:
+        rho = params_mod.resolve_param(con, "model_decay_params", "rho", rho_row[0])[0] if rho_row else 0.0
+    except params_mod.ParamNotFoundError:  # a hand-built snapshot with no fit behind it: plain Poisson
+        rho = 0.0
+    match_log_lik: list[float] = []
+    promoted_match_log_lik: list[float] = []
+    promoted_cache: dict[str, bool | None] = {}
     for match_id, home_uid, away_uid, home_score, away_score in fixtures:
         lam_home, lam_away, _ = ep._fixture_lambdas(con, home_uid, match_id, ts_model_version)
+        log_lik = _match_score_log_likelihood(lam_home, lam_away, int(home_score), int(away_score), rho)
+        match_log_lik.append(log_lik)
+        if compute_segments:
+            for team_uid in (home_uid, away_uid):
+                if team_uid not in promoted_cache:
+                    promoted_cache[team_uid] = _is_newly_promoted_team(con, team_uid, season)
+            if promoted_cache[home_uid] or promoted_cache[away_uid]:
+                promoted_match_log_lik.append(log_lik)
         for lam, score in ((lam_home, home_score), (lam_away, away_score)):
             # fit_dixon_coles()'s unconstrained MLE (M1, tested/frozen against the live fit --
             # not touched here) can genuinely diverge on cold-tier's sparse early data, a real
@@ -874,6 +926,13 @@ def score_gameweek(
             resids.append(score - lam)
     if resids:
         _record_metric(con, backtest_run_id, season, gameweek, tier, "poisson_calibration_mean_resid", sum(resids) / len(resids))
+    if match_log_lik:
+        _record_metric(con, backtest_run_id, season, gameweek, tier, "match_score_log_lik_mean", sum(match_log_lik) / len(match_log_lik))
+    if promoted_match_log_lik:
+        _record_metric(
+            con, backtest_run_id, season, gameweek, tier, "match_score_log_lik_mean:promoted_match",
+            sum(promoted_match_log_lik) / len(promoted_match_log_lik),
+        )
     if n_degenerate:
         _record_metric(con, backtest_run_id, season, gameweek, tier, "poisson_calibration_degenerate_count", n_degenerate)
 
@@ -1129,6 +1188,7 @@ def run(
     minutes_price_prior_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
     bps_calibration_params_version: int | None = None,
+    team_strength_guard_params_version: int | None = None,
     seasons: tuple[str, ...] | None = None,
     stop_after_seconds: float | None = None,
     resume_backtest_run_id: int | None = None,
@@ -1231,6 +1291,7 @@ def run(
             minutes_price_prior_params_version=minutes_price_prior_params_version,
             minutes_start_prior_params_version=minutes_start_prior_params_version,
             bps_calibration_params_version=bps_calibration_params_version,
+            team_strength_guard_params_version=team_strength_guard_params_version,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -1615,6 +1676,7 @@ def run_season_simulation(
     rate_shrinkage_params_version: int | None = None,
     multi_transfer_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
+    team_strength_guard_params_version: int | None = None,
     on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -1734,6 +1796,7 @@ def run_season_simulation(
         ts_mv = team_strength.calibrate(
             con, calibration_asof_date, xi_params_version, rho_params_version,
             target_season=season, fit_seasons=fit_seasons_for(season),
+            guard_params_version=team_strength_guard_params_version,
         )
         mm_mv = minutes_model.run(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
@@ -1805,6 +1868,7 @@ def run_season_simulation(
                 ts_mv = team_strength.calibrate(
                     con, calibration_asof_date, xi_params_version, rho_params_version,
                     target_season=season, fit_seasons=fit_seasons_for(season),
+                    guard_params_version=team_strength_guard_params_version,
                 )
                 mm_mv = minutes_model.run(
                     con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
@@ -2119,6 +2183,7 @@ def beats_baseline(
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
+    team_strength_guard_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -2160,6 +2225,7 @@ def beats_baseline(
             ts_mv = team_strength.calibrate(
                 con, calibration_asof_date, xi_params_version, rho_params_version,
                 target_season=season, fit_seasons=fit_seasons_for(season),
+                guard_params_version=team_strength_guard_params_version,
             )
             mm_mv = minutes_model.run(
                 con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
@@ -2613,6 +2679,8 @@ def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path |
     # DB built before one went live has no v1 row for it yet.
     minutes_model.seed_minutes_bounds_params(con)
     minutes_model.seed_start_prior_params(con)
+    # not live yet; seeded first so v1 is always the recommended guard, whichever arm mints next
+    team_strength.seed_team_strength_guard_params(con)
     return len(seeds)
 
 

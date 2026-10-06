@@ -40,6 +40,14 @@ else a start rate rising with price, each level counting the next as 5 matches.
 Judge either on 2025-26 (--seasons 2025-2026); 2024-25 is the cold-start stress test.
 --minutes-price-prior replaces the live start prior (the two are alternatives).
 
+Team strength (docs/reports/2026-10_promoted_club_strength.md: promoted clubs at league average
+live, a club that hasn't scored fitted at attack -13, an end-of-season Elo in every backtest):
+    --team-strength honest        today's blend on each club's Elo as known at the deadline
+    --team-strength live-like     prior seasons only and no Elo for a promoted club, as live was
+    --team-strength fix           the guard with a promoted club's own-match Elo as its prior
+    --team-strength fix-withheld  the recommended guard (team_strength.GUARD_RECOMMENDED, v1):
+                                  a promoted club's Elo withheld, the newcomer prior instead
+
 Long runs (docs/reports/2026-10_open_issues.md: an arm hit the job's 330-minute limit and left
 no summary):
     --max-minutes 300          stop before a step that would run past this; the summary marks
@@ -58,6 +66,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest, db  # noqa: E402
 from fpl_quant import params as params_mod  # noqa: E402
+from fpl_quant import team_strength  # noqa: E402
 
 # Reuse run_backtest.py's own version-resolution verbatim -- the walk-forward must measure the
 # model against the same git-committed confirmed-seed versions every other script uses, not a
@@ -86,6 +95,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "the next as this many matches (live: 5)")
     parser.add_argument("--no-minutes-start-prior", action="store_true",
                         help="shrink thin minutes histories toward the position average, as before 2026-10-04")
+    parser.add_argument("--team-strength", choices=sorted(team_strength.GUARD_ARMS), default=None,
+                        help="a team-strength arm (team_strength.GUARD_ARMS); default: today's model")
     parser.add_argument("--backtest-evidence", action="store_true",
                         help="let each step see evidence claims observed before its deadline (default: none, as before)")
     parser.add_argument("--bps-calibration-k", type=float, default=None, metavar="K_MINUTES",
@@ -135,6 +146,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         out["minutes_start_prior_params_version"] = params_mod.get_or_create_version(
             con, "minutes_start_prior_params", "pseudo_matches", EXPERIMENT_EFFECTIVE_DATE,
             value_numeric=args.minutes_start_prior,
+        )
+    if getattr(args, "team_strength", None):
+        out["team_strength_guard_params_version"] = params_mod.get_or_create_bundle_version(
+            con, team_strength.GUARD_FAMILY, team_strength.GUARD_ARMS[args.team_strength], EXPERIMENT_EFFECTIVE_DATE,
         )
     if getattr(args, "backtest_evidence", False):
         out["backtest_evidence"] = True

@@ -149,6 +149,35 @@ def get_or_create_version(
     return next_version
 
 
+def get_or_create_bundle_version(
+    con: duckdb.DuckDBPyConnection, param_family: str, values: dict[str, float], effective_date: str,
+) -> int:
+    """get_or_create_version() for a family whose version sets several keys together (numeric,
+    no dimensions): the version holding exactly these keys at exactly these values, else a
+    fresh one (family max + 1) with every key written."""
+    rows = con.execute(
+        "SELECT param_version, param_key, value_numeric FROM param_versions "
+        "WHERE param_family = ? AND dimensions = ? ORDER BY param_version",
+        [param_family, _canonical_dimensions(None)],
+    ).fetchall()
+    by_version: dict[int, dict[str, float]] = {}
+    for version, key, value in rows:
+        by_version.setdefault(version, {})[key] = value
+    wanted = {k: float(v) for k, v in values.items()}
+    for version, held in by_version.items():
+        if held == wanted:
+            return version
+    next_version_row = con.execute(
+        "SELECT coalesce(max(param_version), 0) + 1 FROM param_versions WHERE param_family = ?",
+        [param_family],
+    ).fetchone()
+    assert next_version_row is not None
+    next_version = next_version_row[0]
+    for key, value in wanted.items():
+        write_param(con, param_family, next_version, effective_date, key, value_numeric=value)
+    return next_version
+
+
 # ============================================================
 # M9 adapter -- parameter transparency panel
 # ============================================================

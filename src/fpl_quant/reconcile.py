@@ -81,8 +81,9 @@ def build_dim_team(con: duckdb.DuckDBPyConnection) -> None:
             # current-season team_uid and team_strength.calibrate() falls back to a
             # league-average forecast for a club it genuinely has (weak) data for. Reuse the
             # team_uid already registered for this code in an earlier season (SEASONS is
-            # oldest-first); a genuinely new club (promoted, never seen) still gets a fresh uid
-            # and a real Elo prior. This is the code-level floor for the specific variants in
+            # oldest-first); a genuinely new club (promoted, never seen) gets a fresh uid. Its Elo
+            # prior is a separate matter: teams.csv's elo is blank all of 2026-27 so far (see
+            # team_strength.fetch_point_in_time_elo). This is the code-level floor for the specific variants in
             # the public dataset; the private evidence workbook's "26_Club Name Map" tab
             # (apply_club_name_map, below) remains the general mechanism for anything else.
             prior = con.execute(
