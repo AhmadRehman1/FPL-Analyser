@@ -24,6 +24,7 @@ from datetime import date, datetime, timezone
 import duckdb
 from scipy.stats import poisson
 
+from . import minutes_model as minutes_mod
 from . import params as params_mod
 from . import reconcile as reconcile_mod
 from . import season_rules
@@ -182,9 +183,14 @@ def _season_match_minutes(con: duckdb.DuckDBPyConnection, player_uid: str, seaso
     return float(row[0]) if row and row[0] else 0.0
 
 
-def _player_rate_pool(con: duckdb.DuckDBPyConnection, player_uid: str, season_priority: list[str]) -> dict:
+def _player_rate_pool(
+    con: duckdb.DuckDBPyConnection, player_uid: str, season_priority: list[str],
+    season_weights: dict[str, float] | None = None,
+) -> dict:
     """Pools each lookback season's latest (most complete cumulative) row, weighted by that
-    season's own total minutes -- not a single cherry-picked season.
+    season's own total minutes -- not a single cherry-picked season. season_weights (the opt-in
+    rate prior's recency, season_weights_for()) also scales each season's minutes and returns,
+    so sample_minutes is the weighted evidence; None weights every season 1.
 
     Two source schemas: 2025-26+ publishes a season-total `minutes` + `expected_goals`
     (cumulative), while 2024-2025's snapshot publishes `expected_goals_per_90` directly but no
@@ -195,6 +201,7 @@ def _player_rate_pool(con: duckdb.DuckDBPyConnection, player_uid: str, season_pr
     not suffer. This now recovers 2024-25 from the per-90 rate + match-grain minutes."""
     total_minutes = total_goals = total_assists = total_saves_weighted = saves_minutes = 0.0
     for season in season_priority:
+        w = season_weights.get(season, 1.0) if season_weights else 1.0
         row = con.execute(
             "SELECT minutes, expected_goals, expected_assists, saves_per_90, "
             "expected_goals_per_90, expected_assists_per_90 "
@@ -205,19 +212,19 @@ def _player_rate_pool(con: duckdb.DuckDBPyConnection, player_uid: str, season_pr
             continue
         minutes, xg, xa, saves_p90, xg90, xa90 = row
         if minutes and xg is not None:
-            total_minutes += minutes
-            total_goals += xg or 0.0
-            total_assists += xa or 0.0
+            total_minutes += w * minutes
+            total_goals += w * (xg or 0.0)
+            total_assists += w * (xa or 0.0)
             if saves_p90 is not None:
-                total_saves_weighted += saves_p90 * minutes
-                saves_minutes += minutes
+                total_saves_weighted += saves_p90 * w * minutes
+                saves_minutes += w * minutes
         elif xg90 is not None or xa90 is not None:
             mins = _season_match_minutes(con, player_uid, season)
             if mins <= 0:
                 continue
-            total_minutes += mins
-            total_goals += (xg90 or 0.0) / 90.0 * mins
-            total_assists += (xa90 or 0.0) / 90.0 * mins
+            total_minutes += w * mins
+            total_goals += w * ((xg90 or 0.0) / 90.0 * mins)
+            total_assists += w * ((xa90 or 0.0) / 90.0 * mins)
             # saves_per_90 genuinely isn't in this schema -- a snapshot-only season contributes
             # nothing to the saves anchor rather than a fabricated 0 that would drag it down.
     if total_minutes <= 0:
@@ -319,17 +326,118 @@ def _memo_get(memo: dict | None, key: tuple, compute):
     return memo[key]
 
 
+# ============================================================
+# rate prior (opt-in experiment, rate_prior_params; None = the rates above, unchanged). Early in
+# 2026-27 the model ranked the season's template picks 100th-500th: a player new to the league
+# has a few hundred minutes of own rate, shrunk with k_minutes toward the flat position average,
+# and every premium is shrunk toward that same average (the walk-forward under-predicts 9.0+ by
+# ~0.8 pts/GW). Three knobs, one bundle version, so each walk-forward arm is one flag set:
+#   price_anchor           1 shrinks goals/assists toward a per-position rate rising with price
+#                          (price_anchor_fits()) instead of the position average; saves keep the
+#                          average (cheap keepers on weak sides face more shots)
+#   current_season_weight  multiplies the newest lookback season's minutes and returns in the
+#                          player's pool, so this season's evidence counts for more
+#   season_decay           the weight of each season further back (0.5: last season half, the
+#                          one before a quarter)
+# ============================================================
+
+RATE_PRIOR_KEYS = ("price_anchor", "current_season_weight", "season_decay")
+# A position needs this much pooled history before it gets a price anchor (else the average).
+PRICE_ANCHOR_MIN_MINUTES = 5000.0
+
+
+def resolve_rate_prior(con: duckdb.DuckDBPyConnection, rate_prior_params_version: int | None) -> dict | None:
+    """The rate_prior_params bundle as {key: value}, or None when off."""
+    if rate_prior_params_version is None:
+        return None
+    values = {
+        key: params_mod.resolve_param(con, "rate_prior_params", key, rate_prior_params_version)[0]
+        for key in RATE_PRIOR_KEYS
+    }
+    return {
+        "price_anchor": bool(values["price_anchor"]),
+        "current_season_weight": float(values["current_season_weight"]),
+        "season_decay": float(values["season_decay"]),
+    }
+
+
+def season_weights_for(season_priority: list[str], rate_prior: dict | None) -> dict[str, float] | None:
+    """{season: weight} for _player_rate_pool(): the newest season current_season_weight, each
+    one further back season_decay times the last. None when the prior is off or every weight
+    is 1."""
+    if rate_prior is None:
+        return None
+    newest_first = sorted(set(season_priority), reverse=True)
+    weights = {
+        season: rate_prior["current_season_weight"] if i == 0 else rate_prior["season_decay"] ** i
+        for i, season in enumerate(newest_first)
+    }
+    return None if all(w == 1.0 for w in weights.values()) else weights
+
+
+def price_anchor_fits(
+    con: duckdb.DuckDBPyConnection, position: str, season_priority: list[str], *, memo: dict | None = None,
+) -> dict[str, tuple[float, float, float]] | None:
+    """{rate key: (intercept, slope, pivot)} for goals and assists per 90 at `position`: a
+    minutes-weighted least-squares line of each player's pooled own rate (_player_rate_pool(),
+    unweighted by recency) on his price, centred on the weighted mean price (the pivot), so the
+    intercept is the weighted mean rate. Slopes below 0 are set to 0. None when fewer than
+    PRICE_ANCHOR_MIN_MINUTES of priced history exist (the caller keeps the position average).
+    Prices are minutes_model.latest_price_by_player(), the price as of an asof_scope deadline."""
+    seasons = list(season_priority)
+    placeholders = ",".join(["?"] * len(seasons))
+    uids = [r[0] for r in con.execute(
+        f"""
+        SELECT DISTINCT fps.player_uid FROM fact_player_season_stats fps
+        JOIN dim_player dp ON dp.player_uid = fps.player_uid
+        WHERE dp.position = ? AND fps.season IN ({placeholders}) ORDER BY 1
+        """,
+        [position, *seasons],
+    ).fetchall()]
+    prices = _memo_get(memo, ("latest_prices",), lambda: minutes_mod.latest_price_by_player(con))
+    rows = []
+    for uid in uids:
+        pool = _memo_get(memo, ("rate_pool", uid, tuple(seasons)), lambda uid=uid: _player_rate_pool(con, uid, seasons))
+        if pool["sample_minutes"] > 0 and uid in prices:
+            rows.append((prices[uid], pool["sample_minutes"], pool["expected_goals_per_90"], pool["expected_assists_per_90"]))
+    total = sum(r[1] for r in rows)
+    if total < PRICE_ANCHOR_MIN_MINUTES:
+        return None
+    pivot = sum(r[0] * r[1] for r in rows) / total
+    var = sum(r[1] * (r[0] - pivot) ** 2 for r in rows)
+    fits = {}
+    for i, key in ((2, "expected_goals_per_90"), (3, "expected_assists_per_90")):
+        mean = sum(r[i] * r[1] for r in rows) / total
+        cov = sum(r[1] * (r[0] - pivot) * (r[i] - mean) for r in rows)
+        fits[key] = (mean, max(cov / var, 0.0) if var > 0 else 0.0, pivot)
+    return fits
+
+
 def player_rates_shrunk(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, season_priority: list[str],
     rate_shrinkage_params_version: int | None = None, finishing_prior_xg: float | None = None,
-    *, memo: dict | None = None,
+    *, memo: dict | None = None, rate_prior: dict | None = None,
 ) -> dict:
     seasons = list(season_priority)
-    own = _memo_get(memo, ("rate_pool", player_uid, tuple(seasons)), lambda: _player_rate_pool(con, player_uid, seasons))
+    weights = season_weights_for(seasons, rate_prior)
+    if weights is None:
+        own = _memo_get(memo, ("rate_pool", player_uid, tuple(seasons)), lambda: _player_rate_pool(con, player_uid, seasons))
+    else:
+        own = _memo_get(
+            memo, ("rate_pool", player_uid, tuple(seasons), tuple(sorted(weights.items()))),
+            lambda: _player_rate_pool(con, player_uid, seasons, weights),
+        )
     pos_avg = _memo_get(memo, ("position_rates", position, tuple(seasons)), lambda: _position_average_rates(con, position, seasons))
+    anchor = dict(pos_avg)
+    if rate_prior is not None and rate_prior["price_anchor"]:
+        fits = _memo_get(memo, ("price_anchor", position, tuple(seasons)), lambda: price_anchor_fits(con, position, seasons, memo=memo))
+        price = _memo_get(memo, ("latest_prices",), lambda: minutes_mod.latest_price_by_player(con)).get(player_uid)
+        if fits is not None and price is not None:
+            for key, (intercept, slope, pivot) in fits.items():
+                anchor[key] = max(intercept + slope * (price - pivot), 0.0)
     k = _resolve_shrinkage_k(con, rate_shrinkage_params_version)
     rates = {
-        key: _shrink_rate(own[key], own["sample_minutes"], pos_avg[key], k=k)
+        key: _shrink_rate(own[key], own["sample_minutes"], anchor[key], k=k)
         for key in ("expected_goals_per_90", "expected_assists_per_90", "saves_per_90")
     }
     if finishing_prior_xg is not None:
@@ -1041,10 +1149,11 @@ def compute_player_fixture_components(
     finishing_prior_xg: float | None = None,
     memo: dict | None = None,
     bps_calibration_k: float | None = None,
+    rate_prior: dict | None = None,
 ) -> dict:
     rates = player_rates_shrunk(
         con, player_uid, position, season_priority, rate_shrinkage_params_version, finishing_prior_xg=finishing_prior_xg,
-        memo=memo,
+        memo=memo, rate_prior=rate_prior,
     )
     def_rates = _defensive_action_rates_per_90(
         con, player_uid, position, season_priority, rate_shrinkage_params_version, memo=memo,
@@ -1170,7 +1279,7 @@ def compute_player_fixture_components(
 RECIPE_KEYS = (
     "set_piece_params_version", "fixture_params_version",
     "rate_shrinkage_params_version", "assist_calibration_params_version",
-    "finishing_skill_params_version", "bps_calibration_params_version",
+    "finishing_skill_params_version", "bps_calibration_params_version", "rate_prior_params_version",
 )
 
 
@@ -1206,7 +1315,10 @@ def run(
     finishing_skill_params_version: int | None = None,
     memo: dict | None = None,
     bps_calibration_params_version: int | None = None,
+    rate_prior_params_version: int | None = None,
 ) -> int:
+    # rate_prior_params_version (opt-in, None = off): the price anchor and season recency on
+    # each player's goal/assist rates -- see the rate prior block above player_rates_shrunk().
     # bps_calibration_params_version (opt-in, None = off): add each player's BPS the estimate
     # can't see -- see _bps_residual_table().
     # memo (see new_memo()): pass one memo to every run() -- and the uncertainty.run() calls --
@@ -1231,6 +1343,7 @@ def run(
         )
     finishing_prior_xg = resolve_finishing_prior(con, finishing_skill_params_version)
     bps_calibration_k = resolve_bps_calibration(con, bps_calibration_params_version)
+    rate_prior = resolve_rate_prior(con, rate_prior_params_version)
     # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()
     # already established -- a claim ingested at 09:34 on the asof date itself is legitimately
     # knowable "as of" that date. Only used when set_piece_params_version opts the uplift in.
@@ -1258,14 +1371,15 @@ def run(
              scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
              assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-             recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             rate_prior_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version,
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
-         assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version],
+         assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
+         rate_prior_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -1306,6 +1420,7 @@ def run(
                     finishing_prior_xg=finishing_prior_xg,
                     memo=memo,
                     bps_calibration_k=bps_calibration_k,
+                    rate_prior=rate_prior,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

@@ -213,6 +213,43 @@ def test_compute_free_transfers_gw1_row_does_not_offset_later_gameweeks():
 
 
 # ============================================================
+# real_manager_state
+# ============================================================
+
+def test_real_manager_state_reads_free_transfers_bank_and_chips():
+    history = {
+        "current": [
+            {"event": 1, "event_transfers": 0, "bank": 5},
+            {"event": 2, "event_transfers": 0, "bank": 5},
+            {"event": 3, "event_transfers": 1, "bank": 12},
+            {"event": 4, "event_transfers": 11, "bank": 3},
+            {"event": 5, "event_transfers": 0, "bank": 3},
+        ],
+        # Triple Captain GW3, Wildcard GW4; FPL's Assistant Manager ("manager") has no planner chip
+        "chips": [{"name": "3xc", "event": 3}, {"name": "wildcard", "event": 4}, {"name": "manager", "event": 5}],
+    }
+    state = ax.real_manager_state(history, 5)
+    # GW2 0 used -> 2; GW3 1 used -> 2; GW4 wildcard -> 3; GW5 0 used -> 4
+    assert state["free_transfers_available"] == 4
+    assert state["bank"] == 0.3
+    assert state["chips_used_set1"] == ["triple_captain", "wildcard"]
+    assert state["chips_used_set2"] == []
+    assert state["chips_played"] == [{"chip": "triple_captain", "gameweek": 3}, {"chip": "wildcard", "gameweek": 4}]
+
+
+def test_real_manager_state_puts_gw19_in_the_first_half():
+    history = {"current": [{"event": 20, "event_transfers": 0, "bank": 0}],
+               "chips": [{"name": "freehit", "event": 19}, {"name": "bboost", "event": 20}]}
+    state = ax.real_manager_state(history, 20)
+    assert state["chips_used_set1"] == ["free_hit"]
+    assert state["chips_used_set2"] == ["bench_boost"]
+
+
+def test_real_manager_state_bank_is_none_without_a_row_for_the_event():
+    assert ax.real_manager_state({"current": [{"event": 4, "bank": 7}], "chips": []}, 5)["bank"] is None
+
+
+# ============================================================
 # build_team_snapshot
 # ============================================================
 

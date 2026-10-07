@@ -48,7 +48,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest, db, decision_engine as de, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
+from fpl_quant import app_export as ax, backtest, db, decision_engine as de, ingest_fpl_entry_picks as ifp, reporting  # noqa: E402
 from fpl_quant import scenario as scen  # noqa: E402
 from fpl_quant import transfer_planner as tp  # noqa: E402
 
@@ -163,7 +163,10 @@ def main() -> None:
         shared_horizon_for_run = None
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]
 
-    state_version = tp.bootstrap_from_real_squad(con, calibration_asof_date, TARGET_SEASON, current_event, ep_mv, un_mv, squad)
+    state_version = tp.bootstrap_from_real_squad(
+        con, calibration_asof_date, TARGET_SEASON, current_event, ep_mv, un_mv, squad,
+        real_state=ax.fetch_real_manager_state(entry_id, current_event),
+    )
     current_holdings = tp._read_holdings(con, state_version)
 
     base_state = dict(
