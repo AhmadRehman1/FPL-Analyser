@@ -734,6 +734,7 @@ def test_recipe_of_reads_back_what_run_recorded(con):
         "set_piece_params_version": 1, "fixture_params_version": None,
         "rate_shrinkage_params_version": 8, "assist_calibration_params_version": None,
         "finishing_skill_params_version": None, "bps_calibration_params_version": 3,
+        "rate_prior_params_version": None,
     }
 
 
@@ -748,6 +749,80 @@ def test_run_records_every_recipe_column():
     src = inspect.getsource(ep.run)
     for key in ep.RECIPE_KEYS:
         assert key in src.split("INSERT INTO ep_model_versions", 1)[1].split("RETURNING", 1)[0]
+
+
+# ============================================================
+# rate prior (opt-in): season recency in the rate pool, and a price anchor for goals/assists
+# ============================================================
+
+_RECENCY = {"price_anchor": False, "current_season_weight": 2.0, "season_decay": 0.5}
+_ANCHOR = {"price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0}
+
+
+def test_season_weights_for_is_none_when_off_or_flat():
+    seasons = ["2025-2026", "2026-2027", "2024-2025"]
+    assert ep.season_weights_for(seasons, None) is None
+    assert ep.season_weights_for(seasons, _ANCHOR) is None
+    assert ep.season_weights_for(seasons, _RECENCY) == {"2026-2027": 2.0, "2025-2026": 0.5, "2024-2025": 0.25}
+
+
+def test_player_rate_pool_weights_this_season_up_and_older_seasons_down(con):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p', 'p', 'Midfielder')")
+    _fps(con, "p", "2025-2026", 38, xg=9.0, xa=0.0, saves_p90=0, minutes=2700)  # 0.30 xG/90 last season
+    _fps(con, "p", "2026-2027", 5, xg=4.5, xa=0.0, saves_p90=0, minutes=450)    # 0.90 xG/90 this season
+    seasons = ["2026-2027", "2025-2026"]
+    flat = ep._player_rate_pool(con, "p", seasons)
+    weighted = ep._player_rate_pool(con, "p", seasons, ep.season_weights_for(seasons, _RECENCY))
+    assert flat["expected_goals_per_90"] == pytest.approx(13.5 / 3150 * 90)
+    # 2 x 450 + 0.5 x 2700 minutes; 2 x 4.5 + 0.5 x 9.0 xG
+    assert weighted["sample_minutes"] == pytest.approx(2250)
+    assert weighted["expected_goals_per_90"] == pytest.approx(13.5 / 2250 * 90)
+
+
+def _priced_forward(con, uid, xg, minutes, price, season="2025-2026"):
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Forward')", [uid, uid])
+    con.execute(
+        "INSERT INTO fact_player_season_stats (player_uid, season, gw, expected_goals, expected_assists, "
+        "expected_goals_per_90, expected_assists_per_90, saves_per_90, minutes, now_cost, _ingested_at) "
+        "VALUES (?, ?, 38, ?, 0, ?, 0, 0, ?, ?, current_timestamp)",
+        [uid, season, xg, xg / minutes * 90, minutes, price],
+    )
+
+
+def test_price_anchor_lifts_a_thin_premium_and_lowers_a_thin_cheap_player(con):
+    # the population: xG/90 rising with price, 3000 minutes each
+    for uid, xg90, price in (("f5", 0.20, 5.0), ("f6", 0.30, 6.0), ("f8", 0.45, 8.0), ("f12", 0.80, 12.0)):
+        _priced_forward(con, uid, xg=xg90 * 3000 / 90, minutes=3000, price=price)
+    # two players with only 450 minutes of their own: a premium and a cheap one, both at 0.50
+    _priced_forward(con, "thin_premium", xg=2.5, minutes=450, price=12.5)
+    _priced_forward(con, "thin_cheap", xg=2.5, minutes=450, price=4.5)
+    seasons = ["2025-2026"]
+    fits = ep.price_anchor_fits(con, "Forward", seasons)
+    assert fits["expected_goals_per_90"][1] > 0  # rate rises with price
+
+    off_p = ep.player_rates_shrunk(con, "thin_premium", "Forward", seasons)
+    on_p = ep.player_rates_shrunk(con, "thin_premium", "Forward", seasons, rate_prior=_ANCHOR)
+    off_c = ep.player_rates_shrunk(con, "thin_cheap", "Forward", seasons)
+    on_c = ep.player_rates_shrunk(con, "thin_cheap", "Forward", seasons, rate_prior=_ANCHOR)
+    assert on_p["expected_goals_per_90"] > off_p["expected_goals_per_90"]
+    assert on_c["expected_goals_per_90"] < off_c["expected_goals_per_90"]
+    assert on_p["saves_per_90"] == off_p["saves_per_90"]  # saves keep the position average
+
+
+def test_price_anchor_needs_enough_priced_history(con):
+    _priced_forward(con, "only", xg=5.0, minutes=900, price=8.0)
+    assert ep.price_anchor_fits(con, "Forward", ["2025-2026"]) is None
+    # with no fit the anchor is the position average, as if the prior were off
+    assert ep.player_rates_shrunk(con, "only", "Forward", ["2025-2026"], rate_prior=_ANCHOR) == \
+        ep.player_rates_shrunk(con, "only", "Forward", ["2025-2026"])
+
+
+def test_resolve_rate_prior_reads_a_bundle(con):
+    version = params_mod.get_or_create_bundle_version(
+        con, "rate_prior_params", {"price_anchor": 1.0, "current_season_weight": 2.0, "season_decay": 0.5}, "2026-10-07",
+    )
+    assert ep.resolve_rate_prior(con, version) == {"price_anchor": True, "current_season_weight": 2.0, "season_decay": 0.5}
+    assert ep.resolve_rate_prior(con, None) is None
 
 
 def _seed_finisher(con, uid, goals, xg, assists, xa, season="2025-2026"):
