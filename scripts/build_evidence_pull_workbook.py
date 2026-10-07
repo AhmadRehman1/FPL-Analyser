@@ -108,30 +108,68 @@ def _clean_cell(v: str) -> str:
     return "" if v in ("-", "—", "–", "n/a", "N/A") else v
 
 
-def _fetch_fpl_name_map() -> tuple[dict[str, str], set[str]]:
-    """(name_variant_lower -> 'First Last', ambiguous_surnames). Best effort."""
+def _fetch_fpl_name_map() -> tuple[dict[str, str], set[str], dict[str, set[tuple[str, str]]]]:
+    """_name_map() over FPL's own bootstrap-static. Best effort."""
     req = urllib.request.Request(
         "https://fantasy.premierleague.com/api/bootstrap-static/", headers={"User-Agent": "Mozilla/5.0"}
     )
     data = json.load(urllib.request.urlopen(req, timeout=25))
-    full_by_surname: dict[str, set[str]] = {}
+    return _name_map(data["elements"], data["teams"])
+
+
+def _name_map(
+    elements: list[dict], teams: list[dict],
+) -> tuple[dict[str, str], set[str], dict[str, set[tuple[str, str]]]]:
+    """(name_variant_lower -> 'First Last', ambiguous_names, {bare_name: {(full, club)}}).
+
+    A web_name or surname two players share maps to neither in `variants`; build() picks the
+    one at the row's own club from the third value. Mapping a shared web_name to whichever
+    player came first resolved Leeds' "Wilson" to Callum Wilson of Brentford, and once James
+    Wright joined FPL, Coventry's "Wright" to him."""
+    club_of = {t["id"]: t["name"] for t in teams}
+    by_name: dict[str, set[tuple[str, str]]] = {}
     variants: dict[str, str] = {}
-    for e in data["elements"]:
+    web_names: dict[str, set[str]] = {}
+    surnames: dict[str, set[str]] = {}
+    for e in elements:
         first, second, web = e.get("first_name", ""), e.get("second_name", ""), e.get("web_name", "")
         full = f"{first} {second}".strip()
         if not full:
             continue
         variants.setdefault(full.lower(), full)
-        if web:
-            variants.setdefault(web.lower(), full)
         surname = second.split()[-1].lower() if second else ""
-        if surname:
-            full_by_surname.setdefault(surname, set()).add(full)
-    ambiguous = {s for s, fs in full_by_surname.items() if len(fs) > 1}
-    for s, fs in full_by_surname.items():
-        if len(fs) == 1:
-            variants.setdefault(s, next(iter(fs)))
-    return variants, ambiguous
+        for key, index in ((web.lower(), web_names), (surname, surnames)):
+            if key:
+                index.setdefault(key, set()).add(full)
+                by_name.setdefault(key, set()).add((full, club_of.get(e.get("team"), "")))
+    ambiguous = {k for index in (web_names, surnames) for k, fs in index.items() if len(fs) > 1}
+    for index in (web_names, surnames):
+        for key, fs in index.items():
+            if key not in ambiguous:
+                variants.setdefault(key, next(iter(fs)))
+    return variants, ambiguous, by_name
+
+
+# Source spellings of clubs FPL abbreviates (bootstrap-static's team names).
+_CLUB_ALIASES = {
+    "manchester city": "man city", "manchester united": "man utd", "nottingham forest": "nottm forest",
+    "tottenham": "spurs", "tottenham hotspur": "spurs", "wolverhampton": "wolves",
+    "wolverhampton wanderers": "wolves", "west ham united": "west ham", "afc bournemouth": "bournemouth",
+    "brighton and hove albion": "brighton",
+}
+
+
+def _club_key(club: str) -> str:
+    key = re.sub(r"[^a-z0-9 ]", "", (club or "").lower().replace("&", "and"))
+    key = re.sub(r"\s+", " ", key).strip()
+    return _CLUB_ALIASES.get(key, key)
+
+
+def _same_club(source_club: str, fpl_club: str) -> bool:
+    """'Leeds United' is FPL's 'Leeds', 'Ipswich' its 'Ipswich Town', 'Manchester United' its
+    'Man Utd'. Whole words only, so 'Man City' never matches 'Man Utd'."""
+    a, b = _club_key(source_club), _club_key(fpl_club)
+    return bool(a and b) and (a == b or a.startswith(b + " ") or b.startswith(a + " "))
 
 
 _STATUS_MAP = [
@@ -163,15 +201,16 @@ def build(md_paths: Path | list[Path], out_path: Path, *, resolve: bool = True) 
 
     variants: dict[str, str] = {}
     ambiguous: set[str] = set()
+    by_name: dict[str, set[tuple[str, str]]] = {}
     if resolve:
         try:
-            variants, ambiguous = _fetch_fpl_name_map()
+            variants, ambiguous, by_name = _fetch_fpl_name_map()
         except Exception as exc:  # noqa: BLE001
             print(f"::warning::name resolution skipped ({exc}); bare surnames will not be expanded")
 
     unresolved: list[str] = []
 
-    def canon(name: str) -> str:
+    def canon(name: str, club: str | None) -> str:
         if not name:
             return name
         key = name.lower()
@@ -181,6 +220,10 @@ def build(md_paths: Path | list[Path], out_path: Path, *, resolve: bool = True) 
         toks = re.sub(r"[^\w\s]", " ", key).split()
         if toks and toks[-1] in variants and toks[-1] not in ambiguous:
             return variants[toks[-1]]
+        if len(toks) == 1 and club:  # a bare name two players share: the one at this row's club
+            at_club = {full for full, fpl_club in by_name.get(toks[0], ()) if _same_club(club, fpl_club)}
+            if len(at_club) == 1:
+                return next(iter(at_club))
         if len(name.split()) == 1 and resolve:
             unresolved.append(name)
         return name
@@ -189,7 +232,7 @@ def build(md_paths: Path | list[Path], out_path: Path, *, resolve: bool = True) 
         for row in rows:
             for col in _NAME_COLS.get(sheet, []):
                 if col in row and row[col]:
-                    row[col] = canon(row[col])
+                    row[col] = canon(row[col], row.get("club"))
             if sheet == "Injuries" and "status" in row:
                 raw = row["status"]
                 row["status"] = _normalise_status(raw)
