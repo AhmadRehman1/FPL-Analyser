@@ -44,6 +44,7 @@ def _param_versions(active: dict) -> dict:
         free_hit_threshold_params_version=1, kappa_tc_params_version=active["kappa_tc_params_version"],
         captain_risk_params_version=active["captain_risk_params_version"],
         rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
+        rate_prior_params_version=active["rate_prior_params_version"],
     )
 
 

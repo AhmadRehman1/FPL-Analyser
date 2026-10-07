@@ -1,6 +1,7 @@
 """The live model switches (Fix D: captain_risk_params, Fix F: minutes_bounds_params, issue 4:
-minutes_start_prior_params, team_strength_guard_params) reach every squad builder, every minutes
-model run and every team-strength fit, from one source: active_recalibratable_versions().
+minutes_start_prior_params, team_strength_guard_params, rate_prior_params) reach every squad
+builder, every minutes model run, every team-strength fit and every EP projection, from one
+source: active_recalibratable_versions().
 
 Before this, only run_ingestion.py and run_walkforward.py passed them; every other caller fell
 back to the old captain penalty and no minutes floor (docs/reports/2026-10_live_path_diagnosis.md,
@@ -19,6 +20,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest as bt  # noqa: E402
+from fpl_quant import expected_points as ep  # noqa: E402
 from fpl_quant import forward_season_sim as fss  # noqa: E402
 from fpl_quant import minutes_model as mm  # noqa: E402
 from fpl_quant import params  # noqa: E402
@@ -31,6 +33,7 @@ MINUTES = "minutes_bounds_params_version"
 START = "minutes_start_prior_params_version"
 GUARD = "team_strength_guard_params_version"
 RATE = "rate_shrinkage_params_version"
+PRIOR = "rate_prior_params_version"
 
 # (module, function) -> keyword every call must pass explicitly (a None is allowed: it's visible).
 REQUIRED = {
@@ -38,14 +41,14 @@ REQUIRED = {
     ("squad_optimizer", "solve"): ["captain_variance_multiplier"],
     ("minutes_model", "run"): [MINUTES, "start_prior_params_version"],
     ("team_strength", "calibrate"): ["guard_params_version"],
-    ("expected_points", "run"): [RATE],
-    ("transfer_planner", "compute_horizon_ep"): [RATE],
-    ("projections", "build_projections"): [RATE],
-    ("transfer_planner", "run"): [CAPTAIN, RATE],
-    ("decision_engine", "recommend_best_move"): [CAPTAIN, RATE],
+    ("expected_points", "run"): [RATE, PRIOR],
+    ("transfer_planner", "compute_horizon_ep"): [RATE, PRIOR],
+    ("projections", "build_projections"): [RATE, PRIOR],
+    ("transfer_planner", "run"): [CAPTAIN, RATE, PRIOR],
+    ("decision_engine", "recommend_best_move"): [CAPTAIN, RATE, PRIOR],
     ("squad_grade", "grade_squad"): [CAPTAIN],
-    ("backtest", "run"): [CAPTAIN, MINUTES, RATE, START, GUARD],
-    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE, START, GUARD],
+    ("backtest", "run"): [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR],
+    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR],
 }
 
 # Calls that pass their versions through a ** dict. Each one's dict builder is checked below, or it
@@ -128,13 +131,13 @@ def test_every_splat_call_is_reviewed():
 
 
 @pytest.mark.parametrize("script, keys", [
-    ("run_backtest", [CAPTAIN, MINUTES, RATE, START, GUARD]),
-    ("run_season_simulation", [CAPTAIN, MINUTES, RATE, START, GUARD]),
-    ("export_leaderboard", [CAPTAIN, MINUTES, RATE, START, GUARD]),
-    ("explain_my_move", [CAPTAIN, RATE]),
-    ("run_scenarios", [CAPTAIN, RATE]),
-    ("track_elite", [CAPTAIN, RATE]),
-    ("grade_squad", [RATE]),
+    ("run_backtest", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR]),
+    ("run_season_simulation", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR]),
+    ("export_leaderboard", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR]),
+    ("explain_my_move", [CAPTAIN, RATE, PRIOR]),
+    ("run_scenarios", [CAPTAIN, RATE, PRIOR]),
+    ("track_elite", [CAPTAIN, RATE, PRIOR]),
+    ("grade_squad", [RATE, PRIOR]),
 ])
 def test_script_param_dicts_carry_the_live_switches(script, keys):
     module = __import__(script)
@@ -152,6 +155,7 @@ def test_forward_sim_resolves_the_live_switches():
     assert versions[RATE] == active[RATE]
     assert versions[START] == active[START]
     assert versions[GUARD] == active[GUARD]
+    assert versions[PRIOR] == active[PRIOR]
 
 
 def test_active_versions_resolve_to_the_live_values(con):
@@ -160,6 +164,7 @@ def test_active_versions_resolve_to_the_live_values(con):
     mm.seed_minutes_bounds_params(con)
     mm.seed_start_prior_params(con)
     ts.seed_team_strength_guard_params(con)
+    ep.seed_rate_prior_params(con)
     for seed in bt.load_confirmed_recalibration_seeds(SEED_DIR):
         params.write_param(
             con, seed["param_family"], seed["new_params_version"], "2026-08-12",
@@ -173,6 +178,9 @@ def test_active_versions_resolve_to_the_live_values(con):
     assert floor == mm.PLACEHOLDER_MINUTES_P_FLOOR
     assert pseudo_matches == mm.PLACEHOLDER_START_PRIOR_PSEUDO_MATCHES == 5.0
     assert ts.resolve_guard_params(con, active[GUARD]) == ts.GUARD_RECOMMENDED == ts.GUARD_ARMS["fix-withheld"]
+    assert ep.resolve_rate_prior(con, active[PRIOR]) == {
+        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0,
+    }
 
 
 def test_live_switch_seed_file_is_confirmed():

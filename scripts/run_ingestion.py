@@ -116,6 +116,7 @@ def main() -> None:
     minutes_model.seed_minutes_bounds_params(con)  # v1 = the live 0.005 floor (Fix F)
     minutes_model.seed_start_prior_params(con)  # v1 = the live evidence-order start prior (issue 4)
     team_strength.seed_team_strength_guard_params(con)  # v1 = the live team-strength guard
+    expected_points.seed_rate_prior_params(con)  # v1 = the live price-anchored rate prior
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
@@ -256,6 +257,10 @@ def main() -> None:
         ts_model_version=ts_model_version, mm_model_version=mm_model_version,
         scoring_params_version=1, bps_params_version=1, tau_params_version=1,
         rate_shrinkage_params_version=ACTIVE["rate_shrinkage_params_version"],
+        # Switched on 2026-10-07: goal/assist rates shrink toward a rate rising with price, not
+        # the position average (walk-forward: EP MAE down both seasons, 9.0+ bias +0.54 -> +0.07,
+        # squad points level or better -- docs/reports/2026-10_rate_prior.md).
+        rate_prior_params_version=ACTIVE["rate_prior_params_version"],
     )
     n_ep_rows = con.execute(
         "SELECT count(*) FROM ep_outputs WHERE model_version = ?", [ep_model_version]

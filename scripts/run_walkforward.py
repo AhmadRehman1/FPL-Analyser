@@ -49,12 +49,11 @@ live, a club that hasn't scored fitted at attack -13, an end-of-season Elo in ev
                                   live since 2026-10-06): a promoted club's Elo withheld
     --team-strength off           the model before 2026-10-06: no guard, end-of-season Elo
 
-Scoring rates (2026-10-07: the season's template picks new to the league ranked 100th-500th,
-premiums under-predicted; expected_points' rate prior block). Each flag on its own is an arm;
-the three --rate-* flags share one rate_prior_params bundle:
+Scoring rates (expected_points' rate prior block, docs/reports/2026-10_rate_prior.md): goal and
+assist rates shrink toward a per-position rate rising with price, live since 2026-10-07
+(rate_prior_params v1). The --rate-* flags change that live bundle; each one alone is an arm:
     --k-minutes 450                    the shrinkage k (live: 900 since 2026-09-09)
-    --rate-price-anchor                shrink goal/assist rates toward a per-position rate
-                                       rising with price, not the position average
+    --no-rate-price-anchor             shrink toward the position average, as before 2026-10-07
     --rate-current-season-weight 2     this season's minutes and returns count double
     --rate-season-decay 0.5            each earlier season counts half the one after it
 
@@ -75,6 +74,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest, db  # noqa: E402
+from fpl_quant import expected_points as ep  # noqa: E402
 from fpl_quant import params as params_mod  # noqa: E402
 from fpl_quant import team_strength  # noqa: E402
 
@@ -116,8 +116,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="bps_dispersion_params tau for this arm (live: 10)")
     parser.add_argument("--k-minutes", type=float, default=None,
                         help="rate_shrinkage_params k_minutes for this arm (live: 900)")
-    parser.add_argument("--rate-price-anchor", action="store_true",
-                        help="shrink goal/assist rates toward a per-position rate rising with price")
+    parser.add_argument("--no-rate-price-anchor", action="store_true",
+                        help="shrink goal/assist rates toward the position average, as before 2026-10-07")
     parser.add_argument("--rate-current-season-weight", type=float, default=None, metavar="WEIGHT",
                         help="weight on the newest season's minutes and returns in a player's rate pool")
     parser.add_argument("--rate-season-decay", type=float, default=None, metavar="DECAY",
@@ -183,14 +183,21 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
             con, "rate_shrinkage_params", "k_minutes", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.k_minutes,
         )
     weight, decay = getattr(args, "rate_current_season_weight", None), getattr(args, "rate_season_decay", None)
-    if getattr(args, "rate_price_anchor", False) or weight is not None or decay is not None:
+    no_anchor = getattr(args, "no_rate_price_anchor", False)
+    if weight is not None or decay is not None:
+        # the live bundle with these knobs changed
+        bundle = dict(ep.LIVE_RATE_PRIOR)
+        if no_anchor:
+            bundle["price_anchor"] = 0.0
+        if weight is not None:
+            bundle["current_season_weight"] = weight
+        if decay is not None:
+            bundle["season_decay"] = decay
         out["rate_prior_params_version"] = params_mod.get_or_create_bundle_version(
-            con, "rate_prior_params", {
-                "price_anchor": 1.0 if getattr(args, "rate_price_anchor", False) else 0.0,
-                "current_season_weight": 1.0 if weight is None else weight,
-                "season_decay": 1.0 if decay is None else decay,
-            }, EXPERIMENT_EFFECTIVE_DATE,
+            con, "rate_prior_params", bundle, EXPERIMENT_EFFECTIVE_DATE,
         )
+    elif no_anchor:
+        out["rate_prior_params_version"] = None
     if getattr(args, "bps_tau", None) is not None:
         out["tau_params_version"] = params_mod.get_or_create_version(
             con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,

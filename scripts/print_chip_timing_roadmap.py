@@ -86,6 +86,7 @@ PARAM_VERSIONS = dict(
     scoring_params_version=1, bps_params_version=1, tau_params_version=1,
     rho_residual_params_version=_ACTIVE["rho_residual_params_version"], corr_params_version=1,
     rate_shrinkage_params_version=_ACTIVE["rate_shrinkage_params_version"],
+    rate_prior_params_version=_ACTIVE["rate_prior_params_version"],
 )
 
 ACCOUNTS = [

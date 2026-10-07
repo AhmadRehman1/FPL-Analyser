@@ -57,6 +57,7 @@ def _param_versions(active: dict) -> dict:
         kappa_tc_params_version=active["kappa_tc_params_version"],
         captain_risk_params_version=active["captain_risk_params_version"],
         rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
+        rate_prior_params_version=active["rate_prior_params_version"],
     )
 
 
@@ -141,6 +142,7 @@ def main() -> None:
             PARAM_VERSIONS["scoring_params_version"], PARAM_VERSIONS["bps_params_version"], PARAM_VERSIONS["tau_params_version"],
             PARAM_VERSIONS["rho_residual_params_version"], PARAM_VERSIONS["corr_params_version"],
             rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
+            rate_prior_params_version=active["rate_prior_params_version"],
         )
         shared_horizon_for_recommend = None
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]

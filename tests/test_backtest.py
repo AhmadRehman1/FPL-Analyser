@@ -3785,6 +3785,39 @@ def test_refit_rate_shrinkage_skips_a_step_whose_score_fn_returns_none(con):
     assert result["grid"][450.0]["ep_total_calibration_mae"] == pytest.approx(2.0)
 
 
+def test_ep_calibration_mae_for_step_keeps_the_original_rate_prior(con, monkeypatch):
+    """A candidate k is scored with the rate prior the original step ran with: k shrinks
+    toward that prior's anchor, so dropping it would score a model nobody runs."""
+    from contextlib import nullcontext
+
+    ts_mv = con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2025-09-01', 0.2, 1, 1, 'team_a') RETURNING model_version"
+    ).fetchone()[0]
+    mm_mv = con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2025-09-01', '2025-2026', 1, 1, 1, 1, '[]') RETURNING model_version"
+    ).fetchone()[0]
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version, "
+        "rate_prior_params_version) VALUES ('2025-09-01', '2025-2026', ?, ?, 1, 1, 1, 1)", [ts_mv, mm_mv],
+    )
+    original = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    seen = {}
+
+    def fake_run(con, *args, **kwargs):
+        seen.update(kwargs)
+        return original
+
+    monkeypatch.setattr(bt, "asof_scope", lambda *a, **k: nullcontext())
+    monkeypatch.setattr(bt, "gameweek_deadline", lambda *a: datetime(2025, 9, 13))
+    monkeypatch.setattr(bt.ep, "run", fake_run)
+    bt._ep_calibration_mae_for_step(con, "2025-2026", 4, original, 7)
+    assert (seen["rate_shrinkage_params_version"], seen["rate_prior_params_version"]) == (7, 1)
+
+
 def test_recalibrate_proposes_rate_shrinkage_when_the_winning_k_differs_from_current(con, monkeypatch, tmp_path):
     from fpl_quant import params
 
@@ -3966,6 +3999,9 @@ def test_materialize_confirmed_seeds_writes_the_active_version_idempotently(con)
     for arg in ("minutes_bounds_params_version", "minutes_start_prior_params_version"):
         family, key = bt.RECALIBRATABLE_VERSION_ARGS[arg]
         bt.params_mod.resolve_param(con, family, key, active[arg])
+    assert bt.ep.resolve_rate_prior(con, active["rate_prior_params_version"]) == {
+        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0,
+    }
 
 
 def test_refit_lambda_picks_on_points_with_sharpe_as_tie_break():

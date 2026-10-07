@@ -144,8 +144,9 @@ def _seed_live_horizon(con, gws=(1, 2)):
                         "VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, FALSE, 'Premier League', ?)",
                         [mid, LIVE_SEASON, gw, datetime(2026, 8, 10 + gw), f"team_{h.lower()}", f"team_{a.lower()}", NOW])
         con.execute("INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
-                    "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
-                    "VALUES ('26-08-01', ?, ?, ?, 1, 1, 1)", [LIVE_SEASON, ts_mv, mm_mv])
+                    "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version, "
+                    "rate_shrinkage_params_version, rate_prior_params_version, recipe_recorded) "
+                    "VALUES ('26-08-01', ?, ?, ?, 1, 1, 1, 8, 1, TRUE)", [LIVE_SEASON, ts_mv, mm_mv])
         ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
         con.execute("INSERT INTO uncertainty_model_versions (calibration_asof_date, ep_model_version, "
                     "minutes_model_version, team_strength_model_version, rho_residual_params_version) "
@@ -190,12 +191,15 @@ def test_write_ml_horizon_ep_versions_writes_scaled_shadow_copies(seeded_db, mon
     }
 
     ml_versions = forward.write_ml_horizon_ep_versions(seeded_db, LIVE_SEASON, horizon, mm_mv)
+    from fpl_quant import expected_points as ep_mod
 
     assert ml_versions is not None and set(ml_versions) == {1, 2}
     for gw, (ml_ep_mv, un_mv) in ml_versions.items():
         quant_ep_mv, quant_un_mv = horizon[gw]
         assert ml_ep_mv != quant_ep_mv
         assert un_mv == quant_un_mv  # uncertainty is reused, not recomputed
+        # the whole EP recipe is copied, so a replay describes the same model
+        assert ep_mod.recipe_of(seeded_db, ml_ep_mv) == ep_mod.recipe_of(seeded_db, quant_ep_mv)
         # same players/fixtures, ep_total now equals the ML prediction
         q = dict(seeded_db.execute("SELECT player_uid, ep_total FROM ep_outputs WHERE model_version=?", [quant_ep_mv]).fetchall())
         m = dict(seeded_db.execute("SELECT player_uid, ep_total FROM ep_outputs WHERE model_version=?", [ml_ep_mv]).fetchall())
