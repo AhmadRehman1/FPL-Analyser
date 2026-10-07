@@ -24,7 +24,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest  # noqa: E402
 from fpl_quant import decision_engine as de  # noqa: E402
-from fpl_quant import db, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
+from fpl_quant import app_export as ax, db, ingest_fpl_entry_picks as ifp, transfer_planner as tp  # noqa: E402
 from fpl_quant import price_changes as pc  # noqa: E402
 from fpl_quant import reporting  # noqa: E402
 
@@ -145,7 +145,10 @@ def main() -> None:
         shared_horizon_for_recommend = None
     ep_mv, un_mv = horizon_ep_versions[plan_for_gameweek]
 
-    state_version = tp.bootstrap_from_real_squad(con, calibration_asof_date, TARGET_SEASON, current_event, ep_mv, un_mv, squad)
+    state_version = tp.bootstrap_from_real_squad(
+        con, calibration_asof_date, TARGET_SEASON, current_event, ep_mv, un_mv, squad,
+        real_state=ax.fetch_real_manager_state(entry_id, current_event),
+    )
 
     decision = de.recommend_best_move(
         con, entry_id, calibration_asof_date, TARGET_SEASON, plan_for_gameweek, state_version,
