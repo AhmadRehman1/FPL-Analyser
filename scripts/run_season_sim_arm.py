@@ -17,6 +17,8 @@ version (nothing is activated):
     --chip-option-value      ... the wait rule counting every week left in the half (v2), Free Hit too
     --transfer-threshold 1.0 accept the top transfer only above this net value
     --multi-transfers        two-transfer moves, taking a hit when only one is free
+    --team-strength off      the team-strength model from before 2026-10-06 (or another arm of
+                             run_walkforward.py --team-strength)
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/run_season_sim_arm.py --label control --season 2025-2026
@@ -57,7 +59,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--multi-transfers", action="store_true",
                         help="multi_transfer_params v1: two-transfer moves and hits")
     parser.add_argument("--team-strength", default=None,
-                        help="a team-strength arm, as run_walkforward.py --team-strength (team_strength.GUARD_ARMS)")
+                        help="a team-strength arm, as run_walkforward.py --team-strength "
+                             "(team_strength.GUARD_ARMS, or off)")
     return parser.parse_args(argv)
 
 

@@ -42,7 +42,7 @@ Judge either on 2025-26 (--seasons 2025-2026); 2024-25 is the cold-start stress 
 
 Team strength (docs/reports/2026-10_promoted_club_strength.md: promoted clubs at league average
 live, a club that hasn't scored fitted at attack -13, an end-of-season Elo in every backtest):
-    --team-strength honest        today's blend on each club's Elo as known at the deadline
+    --team-strength honest        as off, with each club's Elo as known at the deadline
     --team-strength live-like     prior seasons only and no Elo for a promoted club, as live was
     --team-strength fix           the guard with a promoted club's own-match Elo as its prior
     --team-strength fix-withheld  the recommended guard (team_strength.GUARD_RECOMMENDED, v1,

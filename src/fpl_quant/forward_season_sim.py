@@ -191,8 +191,8 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         # Issue 4's evidence-order start prior, live since 2026-10-04 (None when `active`
         # doesn't carry it).
         "minutes_start_prior_params_version": active.get("minutes_start_prior_params_version"),
-        # The team-strength guard (docs/reports/2026-10_promoted_club_strength.md); None (today's
-        # unguarded fit) when `active` doesn't carry it.
+        # The team-strength guard (docs/reports/2026-10_promoted_club_strength.md), live since
+        # 2026-10-06; None (the unguarded fit from before) when `active` doesn't carry it.
         "team_strength_guard_params_version": active.get("team_strength_guard_params_version"),
         # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
         "chip_wait_params_version": active.get("chip_wait_params_version"),
