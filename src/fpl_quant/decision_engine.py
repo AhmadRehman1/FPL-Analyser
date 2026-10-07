@@ -196,6 +196,7 @@ def recommend_best_move(
     horizon_ep_versions: dict[int, tuple[int, int]] | None = None,
     captain_risk_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
+    rate_prior_params_version: int | None = None,
 ) -> Decision:
     """rank_posture is accepted for interface stability with the roadmap's own suggested
     contract but not yet wired into transfer_planner.run() (which has no rank-relative-
@@ -231,6 +232,7 @@ def recommend_best_move(
         wildcard_threshold_params_version, free_hit_threshold_params_version, kappa_tc_params_version,
         horizon_ep_versions=horizon_ep_versions, captain_risk_params_version=captain_risk_params_version,
         rate_shrinkage_params_version=rate_shrinkage_params_version,
+        rate_prior_params_version=rate_prior_params_version,
     )
 
     state_row = con.execute(
@@ -278,6 +280,7 @@ def recommend_best_move(
         rank_posture=rank_posture, historical_actions=historical_actions,
         captain_risk_params_version=captain_risk_params_version,
         rate_shrinkage_params_version=rate_shrinkage_params_version,
+        rate_prior_params_version=rate_prior_params_version,
     )
 
     sensitivity: list[Sensitivity] = []

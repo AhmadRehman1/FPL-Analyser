@@ -327,7 +327,7 @@ def _memo_get(memo: dict | None, key: tuple, compute):
 
 
 # ============================================================
-# rate prior (opt-in experiment, rate_prior_params; None = the rates above, unchanged). Early in
+# rate prior (rate_prior_params; None = the rates above, unchanged). Early in
 # 2026-27 the model ranked the season's template picks 100th-500th: a player new to the league
 # has a few hundred minutes of own rate, shrunk with k_minutes toward the flat position average,
 # and every premium is shrunk toward that same average (the walk-forward under-predicts 9.0+ by
@@ -339,11 +339,23 @@ def _memo_get(memo: dict | None, key: tuple, compute):
 #                          player's pool, so this season's evidence counts for more
 #   season_decay           the weight of each season further back (0.5: last season half, the
 #                          one before a quarter)
+# Live since 2026-10-07 as v1: the price anchor alone (docs/reports/2026-10_rate_prior.md). In the
+# walk-forward it cut the EP error (2025-26 MAE 1.093 -> 1.083, the 9.0+ under-prediction +0.54 ->
+# +0.07) and kept the squad's points (+0.59 +/- 0.71 a gameweek against FPL's real average). The
+# recency weights stay opt-in: no calibration gain, and noisier points.
 # ============================================================
 
 RATE_PRIOR_KEYS = ("price_anchor", "current_season_weight", "season_decay")
 # A position needs this much pooled history before it gets a price anchor (else the average).
 PRICE_ANCHOR_MIN_MINUTES = 5000.0
+# rate_prior_params v1, the live bundle.
+LIVE_RATE_PRIOR = {"price_anchor": 1.0, "current_season_weight": 1.0, "season_decay": 1.0}
+
+
+def seed_rate_prior_params(con: duckdb.DuckDBPyConnection) -> None:
+    """rate_prior_params v1 = the live rate prior (run()'s rate_prior_params_version)."""
+    for key, value in LIVE_RATE_PRIOR.items():
+        params_mod.write_param(con, "rate_prior_params", 1, "2026-10-07", key, value_numeric=value)
 
 
 def resolve_rate_prior(con: duckdb.DuckDBPyConnection, rate_prior_params_version: int | None) -> dict | None:
@@ -1317,8 +1329,9 @@ def run(
     bps_calibration_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
 ) -> int:
-    # rate_prior_params_version (opt-in, None = off): the price anchor and season recency on
-    # each player's goal/assist rates -- see the rate prior block above player_rates_shrunk().
+    # rate_prior_params_version (None = off; live since 2026-10-07, every caller passes
+    # active_recalibratable_versions()'s): the price anchor and season recency on each player's
+    # goal/assist rates -- see the rate prior block above player_rates_shrunk().
     # bps_calibration_params_version (opt-in, None = off): add each player's BPS the estimate
     # can't see -- see _bps_residual_table().
     # memo (see new_memo()): pass one memo to every run() -- and the uncertainty.run() calls --

@@ -82,6 +82,7 @@ def main() -> None:
         SCORING_PARAMS_VERSION, BPS_PARAMS_VERSION, TAU_PARAMS_VERSION,
         rho_residual_params_version, CORR_PARAMS_VERSION,
         rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
+        rate_prior_params_version=active["rate_prior_params_version"],
     )
     if plan_for_gameweek not in horizon_ep_versions:
         raise SystemExit(f"no fixtures found for {TARGET_SEASON} GW{plan_for_gameweek} -- cannot compute a shared horizon")

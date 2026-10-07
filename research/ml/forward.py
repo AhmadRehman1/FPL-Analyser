@@ -167,12 +167,14 @@ def write_ml_horizon_ep_versions(
                  minutes_model_version, scoring_matrix_params_version, bps_params_version,
                  bps_tau_params_version, set_piece_params_version, fixture_params_version,
                  rate_shrinkage_params_version, assist_calibration_params_version,
-                 finishing_skill_params_version, recipe_recorded)
+                 finishing_skill_params_version, bps_calibration_params_version,
+                 rate_prior_params_version, recipe_recorded)
             SELECT calibration_asof_date, target_season, team_strength_model_version,
                    minutes_model_version, scoring_matrix_params_version, bps_params_version,
                    bps_tau_params_version, set_piece_params_version, fixture_params_version,
                    rate_shrinkage_params_version, assist_calibration_params_version,
-                   finishing_skill_params_version, recipe_recorded
+                   finishing_skill_params_version, bps_calibration_params_version,
+                   rate_prior_params_version, recipe_recorded
             FROM ep_model_versions WHERE model_version = ?
             RETURNING model_version
             """,

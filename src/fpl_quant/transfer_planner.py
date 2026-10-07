@@ -364,6 +364,7 @@ def compute_horizon_ep(
     set_piece_params_version: int | None = 1,
     rate_shrinkage_params_version: int | None = None,
     memo: dict | None = None,
+    rate_prior_params_version: int | None = None,
 ) -> dict[int, tuple[int, int]]:
     """One ep.run() + uncertainty.run() pair per gameweek in [start_gameweek,
     start_gameweek+horizon_gameweeks), reusing the same ts_model_version/mm_model_version
@@ -381,6 +382,7 @@ def compute_horizon_ep(
     is confirmed, same as it already does for rho_residual_params_version above -- otherwise
     the multi-gameweek horizon that actually drives transfer/captain recommendations would
     silently keep using the stale default even after a recalibration lands.
+    rate_prior_params_version the same: the live rate prior, None for the old rates.
 
     memo (expected_points.new_memo()): every gameweek here is projected from the same asof
     view, so the players' rates and the fixture lambdas are built once and shared by all of
@@ -397,6 +399,7 @@ def compute_horizon_ep(
                 scoring_params_version, bps_params_version, tau_params_version,
                 set_piece_params_version=set_piece_params_version,
                 rate_shrinkage_params_version=rate_shrinkage_params_version,
+                rate_prior_params_version=rate_prior_params_version,
                 memo=memo,
             )
         except ValueError:
@@ -1636,6 +1639,7 @@ def run(
     bench_boost_timing_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
+    rate_prior_params_version: int | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1729,6 +1733,7 @@ def run(
             int(horizon_gameweeks), scoring_params_version, bps_params_version, tau_params_version,
             rho_residual_params_version, corr_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
+            rate_prior_params_version=rate_prior_params_version,
             memo=memo,
         )
 
@@ -1772,6 +1777,7 @@ def run(
                         1, scoring_params_version, bps_params_version, tau_params_version,
                         rho_residual_params_version, corr_params_version,
                         rate_shrinkage_params_version=rate_shrinkage_params_version,
+                        rate_prior_params_version=rate_prior_params_version,
                         memo=memo,
                     ))
             season_horizon_ep_versions = {

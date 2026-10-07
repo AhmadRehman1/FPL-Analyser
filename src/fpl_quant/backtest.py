@@ -1681,6 +1681,7 @@ def run_season_simulation(
     multi_transfer_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
     team_strength_guard_params_version: int | None = None,
+    rate_prior_params_version: int | None = None,
     on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -1813,6 +1814,7 @@ def run_season_simulation(
             con, calibration_asof_date, season, start_gameweek, ts_mv, mm_mv,
             scoring_params_version, bps_params_version, tau_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
+            rate_prior_params_version=rate_prior_params_version,
             lookback_seasons=lookback_seasons_for(season),
             memo=bootstrap_memo,
         )
@@ -1892,6 +1894,7 @@ def run_season_simulation(
                     bench_boost_timing_params_version=bench_boost_timing_params_version,
                     captain_risk_params_version=captain_risk_params_version,
                     rate_shrinkage_params_version=rate_shrinkage_params_version,
+                    rate_prior_params_version=rate_prior_params_version,
                     multi_transfer_pool_limit_per_position=multi_transfer_pool,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
@@ -2188,6 +2191,7 @@ def beats_baseline(
     rate_shrinkage_params_version: int | None = None,
     minutes_start_prior_params_version: int | None = None,
     team_strength_guard_params_version: int | None = None,
+    rate_prior_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -2241,6 +2245,7 @@ def beats_baseline(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
                 scoring_params_version, bps_params_version, tau_params_version,
                 rate_shrinkage_params_version=rate_shrinkage_params_version,
+                rate_prior_params_version=rate_prior_params_version,
                 lookback_seasons=lookback_seasons_for(season),
             )
 
@@ -2578,6 +2583,9 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     # The team-strength guard and point-in-time Elo (docs/reports/2026-10_promoted_club_strength.md),
     # live since 2026-10-06: level with the honest baseline in 2025-26, without its runaway fits.
     "team_strength_guard_params_version": ("team_strength_guard_params", "first_season_pseudo_matches"),
+    # The price-anchored scoring-rate prior (docs/reports/2026-10_rate_prior.md), live since
+    # 2026-10-07: EP error down in both seasons, squad points level or better.
+    "rate_prior_params_version": ("rate_prior_params", ep.RATE_PRIOR_KEYS),
 }
 
 
@@ -2688,6 +2696,7 @@ def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path |
     minutes_model.seed_start_prior_params(con)
     # seeded before any walk-forward arm mints a version, so v1 is always the live guard
     team_strength.seed_team_strength_guard_params(con)
+    ep.seed_rate_prior_params(con)
     return len(seeds)
 
 
@@ -2889,16 +2898,19 @@ def _ep_calibration_mae_for_step(
     function in this project defaults to when it can't look a value up."""
     row = con.execute(
         "SELECT target_season, calibration_asof_date, team_strength_model_version, minutes_model_version, "
-        "scoring_matrix_params_version, bps_params_version, bps_tau_params_version "
+        "scoring_matrix_params_version, bps_params_version, bps_tau_params_version, rate_prior_params_version "
         "FROM ep_model_versions WHERE model_version = ?", [original_ep_model_version],
     ).fetchone()
     if row is None:
         return None
-    _, _, ts_mv, mm_mv, scoring_pv, bps_pv, tau_pv = row
+    _, _, ts_mv, mm_mv, scoring_pv, bps_pv, tau_pv, rate_prior_pv = row
     with asof_scope(con, season, gameweek):
         candidate_ep_mv = ep.run(
             con, gameweek_deadline(con, season, gameweek).date(), season, gameweek, ts_mv, mm_mv,
             scoring_pv, bps_pv, tau_pv, rate_shrinkage_params_version=rate_shrinkage_params_version,
+            # the original step's rate prior: k shrinks toward its anchor, so a candidate k is
+            # scored against the anchor it would run with
+            rate_prior_params_version=rate_prior_pv,
         )
     rows = con.execute(
         "SELECT player_uid, event_points, selected_by_percent FROM fact_player_season_stats "

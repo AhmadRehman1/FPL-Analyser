@@ -74,6 +74,7 @@ def main() -> None:
         kappa_tc_params_version=active["kappa_tc_params_version"],
         captain_risk_params_version=active["captain_risk_params_version"],
         rate_shrinkage_params_version=active["rate_shrinkage_params_version"],
+        rate_prior_params_version=active["rate_prior_params_version"],
     )
     print(f"[transfer_planner.run] {time.time() - t0:.1f}s -> run_id={run_id}")
 

@@ -93,20 +93,28 @@ def test_team_strength_flag_maps_each_arm_to_a_guard_version(con):
     }
 
 
-def test_rate_flags_map_to_one_rate_prior_bundle(con):
+def test_rate_flags_change_the_live_rate_prior_bundle(con):
     from fpl_quant import expected_points as ep
 
+    ep.seed_rate_prior_params(con)  # main() materializes it before any arm mints a version
     out = rw._experiment_versions(con, rw._parse_args(
-        ["--rate-price-anchor", "--rate-current-season-weight", "2", "--rate-season-decay", "0.5"],
+        ["--rate-current-season-weight", "2", "--rate-season-decay", "0.5"],
     ))
     assert set(out) == {"rate_prior_params_version"}
     assert ep.resolve_rate_prior(con, out["rate_prior_params_version"]) == {
         "price_anchor": True, "current_season_weight": 2.0, "season_decay": 0.5,
     }
-    # one knob on its own leaves the others neutral
-    only_anchor = rw._experiment_versions(con, rw._parse_args(["--rate-price-anchor"]))
-    assert ep.resolve_rate_prior(con, only_anchor["rate_prior_params_version"]) == {
-        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0,
+    # the recency knobs without the anchor
+    no_anchor = rw._experiment_versions(con, rw._parse_args(["--no-rate-price-anchor", "--rate-season-decay", "0.5"]))
+    assert ep.resolve_rate_prior(con, no_anchor["rate_prior_params_version"]) == {
+        "price_anchor": False, "current_season_weight": 1.0, "season_decay": 0.5,
+    }
+    # the live bundle's own values find v1 rather than minting a copy
+    same = rw._experiment_versions(con, rw._parse_args(["--rate-current-season-weight", "1"]))
+    assert same == {"rate_prior_params_version": 1}
+    # the model before the anchor went live, for comparisons
+    assert rw._experiment_versions(con, rw._parse_args(["--no-rate-price-anchor"])) == {
+        "rate_prior_params_version": None,
     }
 
 

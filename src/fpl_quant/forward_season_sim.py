@@ -188,6 +188,9 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         "captain_risk_params_version": active.get("captain_risk_params_version"),
         "minutes_bounds_params_version": active.get("minutes_bounds_params_version"),
         "rate_shrinkage_params_version": active.get("rate_shrinkage_params_version"),
+        # The price-anchored scoring-rate prior, live since 2026-10-07 (None when `active`
+        # doesn't carry it).
+        "rate_prior_params_version": active.get("rate_prior_params_version"),
         # Issue 4's evidence-order start prior, live since 2026-10-04 (None when `active`
         # doesn't carry it).
         "minutes_start_prior_params_version": active.get("minutes_start_prior_params_version"),
@@ -383,7 +386,8 @@ def run_forward_season_sim(
         ep0 = expected_points.run(con, asof, target_season, start_gameweek, ts0, mm0,
                                   versions["scoring_params_version"], versions["bps_params_version"],
                                   versions["tau_params_version"],
-                                  rate_shrinkage_params_version=versions["rate_shrinkage_params_version"])
+                                  rate_shrinkage_params_version=versions["rate_shrinkage_params_version"],
+                                  rate_prior_params_version=versions["rate_prior_params_version"])
         un0 = uncertainty.run(con, asof, ep0, mm0, ts0, versions["scoring_params_version"],
                               versions["bps_params_version"], versions["tau_params_version"],
                               versions["rho_residual_params_version"], versions["corr_params_version"])
@@ -427,6 +431,7 @@ def run_forward_season_sim(
                 bench_boost_timing_params_version=versions["bench_boost_timing_params_version"],
                 captain_risk_params_version=versions["captain_risk_params_version"],
                 rate_shrinkage_params_version=versions["rate_shrinkage_params_version"],
+                rate_prior_params_version=versions["rate_prior_params_version"],
                 multi_transfer_pool_limit_per_position=multi_transfer_pool,
             )
 
