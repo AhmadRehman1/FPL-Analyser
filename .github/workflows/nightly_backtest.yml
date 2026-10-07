@@ -126,7 +126,8 @@ jobs:
         run: PYTHONPATH=src python scripts/export_track_record.py
 
       # The DB now carries BOTH the walk-forward (training) and the live pipeline's own
-      # ep_outputs (inference target). Fit Huber δ=4 on the whole walk-forward, predict
+      # next-gameweek ep_outputs (inference target -- scheduled_pipeline.yml's shared horizon,
+      # saved in the `duckdb-` cache restored above). Fit Huber δ=4 on the whole walk-forward, predict
       # ep_total_ml for the upcoming gameweek -> data/dashboard/ml_shadow.json. Shadow only,
       # feeds no recommendation (research/ml/forward_test/FROZEN_CONFIG.md). Best-effort: a
       # missing lightgbm / thin history writes a placeholder, never fails the job.

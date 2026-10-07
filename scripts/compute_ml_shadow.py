@@ -3,9 +3,11 @@ the upcoming gameweek. Writes data/dashboard/ml_shadow.json for a side-by-side "
 view agree?" panel -- it feeds NO recommendation. Promoting it to a real decision input is a
 separate, human-gated step (research/ml/forward_test/FROZEN_CONFIG.md, REPORT.md §10b).
 
-Needs both: a live ingestion (scripts/run_ingestion.py -> current ep_outputs) AND a
-walk-forward backtest already in the same DB (scripts/run_walkforward.py -> backtest_gameweek_
-steps to train on). nightly_backtest.yml runs both, so this slots in right after.
+Needs both: the live pipeline's ep_outputs for the next gameweek (scheduled_pipeline.yml's shared
+horizon, scripts/compute_shared_horizon.py, saved in the `duckdb-` cache nightly_backtest.yml
+restores -- run_ingestion.py's own ep_outputs are GW1's) AND a walk-forward backtest already in the
+same DB (scripts/run_walkforward.py -> backtest_gameweek_steps to train on). nightly_backtest.yml
+runs the walk-forward on that restored DB, so this slots in right after.
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/compute_ml_shadow.py [target_gameweek]
@@ -60,23 +62,28 @@ def _target_gameweek_from_db(con, cutoff) -> int | None:
 
 def _ep_versions_for_gameweek(con, gameweek: int) -> tuple[int, int] | None:
     """(ep_model_version, minutes_model_version) of the newest ep_outputs built for exactly this
-    TARGET_SEASON gameweek -- every fixture it points at is one of that gameweek's -- paired with
-    the minutes model it was built from, as each walk-forward training step is. Not the newest
+    TARGET_SEASON gameweek -- its fixtures are that gameweek's fixtures, all of them, as
+    expected_points.run() selects them (a half-written version is skipped) -- paired with the
+    minutes model it was built from, as each walk-forward training step is. Not the newest
     version overall: the nightly's own walk-forward writes one per historical step (2025-26 GW38
     last), and planner horizons / forward plans write later gameweeks. None when there is none."""
     row = con.execute(
         """
+        WITH gw_fixtures AS (
+            SELECT match_id FROM fact_match
+            WHERE season = ? AND gameweek = ? AND competition = 'Premier League'
+        )
         SELECT v.model_version, v.minutes_model_version
         FROM ep_model_versions v
         JOIN ep_outputs o ON o.model_version = v.model_version
-        JOIN fact_match m ON m.match_id = o.fixture_match_id
         WHERE v.target_season = ?
         GROUP BY v.model_version, v.minutes_model_version
-        HAVING bool_and(coalesce(m.season = ? AND m.gameweek = ? AND m.competition = 'Premier League', FALSE))
+        HAVING bool_and(o.fixture_match_id IN (SELECT match_id FROM gw_fixtures))
+           AND count(DISTINCT o.fixture_match_id) = (SELECT count(*) FROM gw_fixtures)
         ORDER BY v.model_version DESC
         LIMIT 1
         """,
-        [TARGET_SEASON, TARGET_SEASON, gameweek],
+        [TARGET_SEASON, gameweek, TARGET_SEASON],
     ).fetchone()
     return (row[0], row[1]) if row else None
 
