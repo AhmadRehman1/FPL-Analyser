@@ -204,6 +204,25 @@ def test_bootstrap_from_real_squad_resolves_names_and_creates_matching_state(con
     assert run_row[0] is True
 
 
+def test_bootstrap_from_real_squad_takes_the_real_managers_state(con):
+    ep_mv, un_mv = _seed_model_version_chain(con)
+    _seed_resolvable_player(con, "Erling Haaland", "erling haaland", "p_haaland")
+    squad = [{"player_name": "Erling Haaland", "in_xi": True, "is_captain": True, "is_vice": False}]
+    real_state = {
+        "free_transfers_available": 3, "bank": 1.5,
+        "chips_used_set1": ["wildcard", "triple_captain"], "chips_used_set2": [],
+        "chips_played": [{"chip": "triple_captain", "gameweek": 3}, {"chip": "wildcard", "gameweek": 4}],
+    }
+    state_version = tp.bootstrap_from_real_squad(
+        con, date(2026, 10, 7), "2026-2027", 5, ep_mv, un_mv, squad, real_state=real_state,
+    )
+    state = con.execute(
+        "SELECT free_transfers_available, chips_used_set1, chips_used_set2, bank "
+        "FROM manager_state_versions WHERE state_version = ?", [state_version],
+    ).fetchone()
+    assert state == (3, '["triple_captain", "wildcard"]', "[]", 1.5)
+
+
 def test_bootstrap_from_real_squad_raises_on_unresolvable_name(con):
     ep_mv, un_mv = _seed_model_version_chain(con)
     squad = [{"player_name": "Not A Real Player", "in_xi": True, "is_captain": False, "is_vice": False}]

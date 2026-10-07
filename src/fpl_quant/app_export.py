@@ -22,6 +22,8 @@ from pathlib import Path
 
 import requests
 
+from fpl_quant import season_rules
+
 FPL_API_BASE = "https://fantasy.premierleague.com/api"
 
 
@@ -302,6 +304,43 @@ def compute_free_transfers(history_current: list[dict], chips: list[dict]) -> in
         used = gw_row.get("event_transfers", 0) or 0
         available = min(max(available - used, 0) + 1, 5)
     return available
+
+
+# FPL's chip names -> transfer_planner's ("manager", the 2024-25 Assistant Manager, has no
+# counterpart and is ignored).
+PLANNER_CHIP_NAMES = {"wildcard": "wildcard", "freehit": "free_hit", "bboost": "bench_boost", "3xc": "triple_captain"}
+
+
+def real_manager_state(history: dict, event: int) -> dict:
+    """The manager's real state going into `event + 1`, from entry/<id>/history/, in the shape
+    transfer_planner.bootstrap_from_real_squad() takes: free transfers (compute_free_transfers()),
+    the bank after `event` (None when the history has no row for it), and the chips already
+    played, split by half (season_rules.half_of()). chips_played keeps each chip's gameweek."""
+    current = history.get("current", [])
+    chips = history.get("chips", [])
+    row = next((r for r in current if r.get("event") == event), None)
+    played = sorted(
+        (PLANNER_CHIP_NAMES[c["name"]], int(c["event"]))
+        for c in chips if c.get("name") in PLANNER_CHIP_NAMES and c.get("event")
+    )
+    return {
+        "free_transfers_available": compute_free_transfers(current, chips),
+        "bank": round(row["bank"] / 10, 1) if row and row.get("bank") is not None else None,
+        "chips_used_set1": sorted({chip for chip, gw in played if season_rules.half_of(gw) == 1}),
+        "chips_used_set2": sorted({chip for chip, gw in played if season_rules.half_of(gw) == 2}),
+        "chips_played": [{"chip": chip, "gameweek": gw} for chip, gw in played],
+    }
+
+
+def fetch_real_manager_state(entry_id: int, event: int) -> dict | None:
+    """real_manager_state() for a live entry, or None (with a ::warning::) when the history fetch
+    fails -- the caller then falls back to the fresh-account defaults rather than not planning."""
+    try:
+        return real_manager_state(fetch_entry_history(entry_id), event)
+    except Exception as e:  # noqa: BLE001 -- best-effort, like every other live FPL fetch here
+        print(f"::warning::fetch_real_manager_state: entry {entry_id} history fetch failed ({e}) -- "
+              "planning with 1 free transfer, no chips used and a computed bank")
+        return None
 
 
 # ============================================================

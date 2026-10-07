@@ -349,7 +349,7 @@ def simulate_fixture(
     scoring_params_version: int, tau_val: float, sigma_z_sq: float, mean_minutes: dict,
     rng: np.random.Generator, n_pairs: int, fixture_params_version: int | None = 1,
     rate_shrinkage_params_version: int | None = None, assist_ratio_by_position: dict[str, float] | None = None,
-    finishing_prior_xg: float | None = None, memo: dict | None = None,
+    finishing_prior_xg: float | None = None, memo: dict | None = None, rate_prior: dict | None = None,
 ) -> dict:
     """Returns {player_uid: {category: array of shape (2*n_pairs,)}} for every squad player
     present in this fixture (empty dict if none). One call = one fixture's contribution to
@@ -451,7 +451,7 @@ def simulate_fixture(
 
         rates = ep.player_rates_shrunk(
             con, player_uid, position, season_priority, rate_shrinkage_params_version,
-            finishing_prior_xg=finishing_prior_xg, memo=memo,
+            finishing_prior_xg=finishing_prior_xg, memo=memo, rate_prior=rate_prior,
         )
         def_rates = ep._defensive_action_rates_per_90(
             con, player_uid, position, season_priority, rate_shrinkage_params_version, memo=memo,
@@ -645,8 +645,10 @@ def run(
     rate_shrinkage_params_version = None
     assist_ratio_by_position: dict[str, float] = {}
     finishing_prior_xg = None
+    rate_prior = None
     if recipe is not None:
         finishing_prior_xg = ep.resolve_finishing_prior(con, recipe["finishing_skill_params_version"])
+        rate_prior = ep.resolve_rate_prior(con, recipe["rate_prior_params_version"])
         fixture_params_version = recipe["fixture_params_version"]
         rate_shrinkage_params_version = recipe["rate_shrinkage_params_version"]
         if recipe["assist_calibration_params_version"] is not None:
@@ -699,6 +701,7 @@ def run(
             assist_ratio_by_position=assist_ratio_by_position,
             finishing_prior_xg=finishing_prior_xg,
             memo=memo,
+            rate_prior=rate_prior,
         )
         if not fixture_result:
             continue

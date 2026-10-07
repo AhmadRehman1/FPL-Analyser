@@ -49,6 +49,15 @@ live, a club that hasn't scored fitted at attack -13, an end-of-season Elo in ev
                                   live since 2026-10-06): a promoted club's Elo withheld
     --team-strength off           the model before 2026-10-06: no guard, end-of-season Elo
 
+Scoring rates (2026-10-07: the season's template picks new to the league ranked 100th-500th,
+premiums under-predicted; expected_points' rate prior block). Each flag on its own is an arm;
+the three --rate-* flags share one rate_prior_params bundle:
+    --k-minutes 450                    the shrinkage k (live: 900 since 2026-09-09)
+    --rate-price-anchor                shrink goal/assist rates toward a per-position rate
+                                       rising with price, not the position average
+    --rate-current-season-weight 2     this season's minutes and returns count double
+    --rate-season-decay 0.5            each earlier season counts half the one after it
+
 Long runs (docs/reports/2026-10_open_issues.md: an arm hit the job's 330-minute limit and left
 no summary):
     --max-minutes 300          stop before a step that would run past this; the summary marks
@@ -105,6 +114,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="turn on the per-player BPS calibration with this shrinkage k")
     parser.add_argument("--bps-tau", type=float, default=None,
                         help="bps_dispersion_params tau for this arm (live: 10)")
+    parser.add_argument("--k-minutes", type=float, default=None,
+                        help="rate_shrinkage_params k_minutes for this arm (live: 900)")
+    parser.add_argument("--rate-price-anchor", action="store_true",
+                        help="shrink goal/assist rates toward a per-position rate rising with price")
+    parser.add_argument("--rate-current-season-weight", type=float, default=None, metavar="WEIGHT",
+                        help="weight on the newest season's minutes and returns in a player's rate pool")
+    parser.add_argument("--rate-season-decay", type=float, default=None, metavar="DECAY",
+                        help="weight of each earlier season relative to the one after it")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="stop before a step that would likely run past this many minutes")
     parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
@@ -160,6 +177,19 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
     if getattr(args, "bps_calibration_k", None) is not None:
         out["bps_calibration_params_version"] = params_mod.get_or_create_version(
             con, "bps_calibration_params", "k_minutes", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_calibration_k,
+        )
+    if getattr(args, "k_minutes", None) is not None:
+        out["rate_shrinkage_params_version"] = params_mod.get_or_create_version(
+            con, "rate_shrinkage_params", "k_minutes", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.k_minutes,
+        )
+    weight, decay = getattr(args, "rate_current_season_weight", None), getattr(args, "rate_season_decay", None)
+    if getattr(args, "rate_price_anchor", False) or weight is not None or decay is not None:
+        out["rate_prior_params_version"] = params_mod.get_or_create_bundle_version(
+            con, "rate_prior_params", {
+                "price_anchor": 1.0 if getattr(args, "rate_price_anchor", False) else 0.0,
+                "current_season_weight": 1.0 if weight is None else weight,
+                "season_decay": 1.0 if decay is None else decay,
+            }, EXPERIMENT_EFFECTIVE_DATE,
         )
     if getattr(args, "bps_tau", None) is not None:
         out["tau_params_version"] = params_mod.get_or_create_version(

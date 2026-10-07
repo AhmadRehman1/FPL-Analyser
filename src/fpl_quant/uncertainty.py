@@ -480,6 +480,7 @@ def run(
     recipe = ep.recipe_of(con, ep_model_version) or {}
     rate_shrinkage_params_version = recipe.get("rate_shrinkage_params_version")
     finishing_prior_xg = ep.resolve_finishing_prior(con, recipe.get("finishing_skill_params_version"))
+    rate_prior = ep.resolve_rate_prior(con, recipe.get("rate_prior_params_version"))
 
     model_version = con.execute(
         """
@@ -560,7 +561,7 @@ def run(
             }
             rates = ep.player_rates_shrunk(
                 con, player_uid, position, list(season_priority), rate_shrinkage_params_version,
-                finishing_prior_xg=finishing_prior_xg, memo=memo,
+                finishing_prior_xg=finishing_prior_xg, memo=memo, rate_prior=rate_prior,
             )
             def_rates = ep._defensive_action_rates_per_90(
                 con, player_uid, position, list(season_priority), rate_shrinkage_params_version, memo=memo,

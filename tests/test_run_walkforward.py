@@ -91,3 +91,26 @@ def test_team_strength_flag_maps_each_arm_to_a_guard_version(con):
     assert rw._experiment_versions(con, rw._parse_args(["--team-strength", "off"])) == {
         "team_strength_guard_params_version": None,
     }
+
+
+def test_rate_flags_map_to_one_rate_prior_bundle(con):
+    from fpl_quant import expected_points as ep
+
+    out = rw._experiment_versions(con, rw._parse_args(
+        ["--rate-price-anchor", "--rate-current-season-weight", "2", "--rate-season-decay", "0.5"],
+    ))
+    assert set(out) == {"rate_prior_params_version"}
+    assert ep.resolve_rate_prior(con, out["rate_prior_params_version"]) == {
+        "price_anchor": True, "current_season_weight": 2.0, "season_decay": 0.5,
+    }
+    # one knob on its own leaves the others neutral
+    only_anchor = rw._experiment_versions(con, rw._parse_args(["--rate-price-anchor"]))
+    assert ep.resolve_rate_prior(con, only_anchor["rate_prior_params_version"]) == {
+        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0,
+    }
+
+
+def test_k_minutes_flag_maps_to_a_rate_shrinkage_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--k-minutes", "450"]))
+    k, _ = params_mod.resolve_param(con, "rate_shrinkage_params", "k_minutes", out["rate_shrinkage_params_version"])
+    assert k == 450.0

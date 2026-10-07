@@ -29,7 +29,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest as bt, db, expected_points as ep_mod, fixture_swing as fs, ingest_fpl_entry_picks as ifp, minutes_model as mm, reporting, risk_posture, transfer_planner as tp, uncertainty as un_mod  # noqa: E402
+from fpl_quant import app_export as ax, backtest as bt, db, expected_points as ep_mod, fixture_swing as fs, ingest_fpl_entry_picks as ifp, minutes_model as mm, reporting, risk_posture, season_rules, transfer_planner as tp, uncertainty as un_mod  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -176,6 +176,31 @@ def reconcile_chips_with_timing_sweep(
                 entry["detail_timing"] = f"Hold -- the chip-timing sweep's best {chip.replace('_', ' ')} week is GW{bw}{extra}."
             else:
                 entry["detail_timing"] = f"Hold -- the chip-timing sweep found no clearly-best {chip.replace('_', ' ')} week in its horizon."
+    return chips_out
+
+
+def mark_played_chips(chips_out: list[dict], plan_for_gameweek: int, real_state: dict | None) -> list[dict]:
+    """Mutates `chips_out` in place (and returns it): a chip the manager can't play in
+    plan_for_gameweek -- already played in the window covering it (season_rules.chip_available())
+    -- is never recommended, whatever the planner or the timing sweep said, and detail_timing
+    says when it was played and when it comes back. None (no real history) changes nothing."""
+    if real_state is None:
+        return chips_out
+    windows = season_rules.rules_for(TARGET_SEASON).chip_windows
+    for entry in chips_out:
+        chip = entry["chip_type"]
+        if season_rules.chip_available(
+            TARGET_SEASON, chip, plan_for_gameweek, real_state["chips_used_set1"], real_state["chips_used_set2"],
+        ):
+            continue
+        played = [p["gameweek"] for p in real_state["chips_played"] if p["chip"] == chip]
+        back = next((w[0] for w in windows.get(chip, ()) if w[0] > plan_for_gameweek), None)
+        entry["recommended"] = False
+        entry["played_gameweek"] = played[-1] if played else None
+        entry["detail_timing"] = (
+            (f"Already played in GW{played[-1]}" if played else f"Not available in GW{plan_for_gameweek}")
+            + (f" -- back from GW{back}." if back else " -- not available again this season.")
+        )
     return chips_out
 
 
@@ -433,10 +458,16 @@ def main() -> None:
     print(f"[fetch] pulling real picks for entry_id={entry_id}, GW{current_event}...")
     squad = _fetch_real_squad(entry_id, current_event)
     print(f"[fetch] {len(squad)} players")
+    # The real free transfers, bank and chips played, not a fresh account's (None if the history
+    # fetch fails -- the plan then falls back to those defaults, with a warning).
+    real_state = ax.fetch_real_manager_state(entry_id, current_event)
+    if real_state is not None:
+        print(f"[fetch] {real_state['free_transfers_available']} FT, bank {real_state['bank']}, "
+              f"chips played {real_state['chips_played']}")
 
     state_version = tp.bootstrap_from_real_squad(
         con, date.today(), TARGET_SEASON, current_event,
-        ep_model_version=1, uncertainty_model_version=1, squad=squad,
+        ep_model_version=1, uncertainty_model_version=1, squad=squad, real_state=real_state,
     )
     print(f"[bootstrap] state_version={state_version} from real entry_id={entry_id}")
 
@@ -587,6 +618,7 @@ def main() -> None:
     # points -- so a chip is only surfaced as "recommended" now if the sweep's best week for it
     # IS this week.
     reconcile_chips_with_timing_sweep(chips_out, plan_for_gameweek, _load_timing_sweep(entry_id))
+    mark_played_chips(chips_out, plan_for_gameweek, real_state)
 
     # A real "who should you captain" directive -- the highest analytic-E[points] XI player (see
     # reporting.build_captain_recommendation()'s own docstring on why the weekly captain is NOT
@@ -674,6 +706,7 @@ def main() -> None:
         "plan_for_gameweek": plan_for_gameweek,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "risk_posture": risk_posture_meta,
+        "manager_state": real_state,
         "transfer_recommendations": recs_out,
         "hold_vs_transfer_now": hold_out,
         "chip_evaluations": _order_chip_evaluations(chips_out),

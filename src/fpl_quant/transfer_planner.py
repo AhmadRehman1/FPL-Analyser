@@ -222,15 +222,20 @@ def _compute_bank_for_squad(con: duckdb.DuckDBPyConnection, target_season: str, 
     return 0.0
 
 
-def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_optimizer_run_id: int) -> int:
+def bootstrap_from_squad_optimizer_run(
+    con: duckdb.DuckDBPyConnection, squad_optimizer_run_id: int, *,
+    free_transfers_available: int = 1, chips_used_set1: list[str] | tuple = (),
+    chips_used_set2: list[str] | tuple = (), bank: float | None = None,
+) -> int:
     """One-time seed: reads a real squad_optimizer_selections row and writes the first
-    manager_state_versions/manager_squad_holdings rows. free_transfers_available starts at 1
-    (a fresh account's real starting allocation); chip usage starts empty. bank starts at
-    whatever the source squad left unspent against M5's BUDGET -- known exactly only when every
-    held player has a resolvable current price (the same price source squad_optimizer.
-    fetch_candidate_pool() itself uses); otherwise conservatively starts at 0.0 rather than
-    guessing, since overstating bank would let evaluate_transfers() legalize a transfer the
-    manager can't actually afford."""
+    manager_state_versions/manager_squad_holdings rows. By default free_transfers_available
+    starts at 1 (a fresh account's real starting allocation) and chip usage starts empty; a
+    real manager's own values (app_export.real_manager_state()) can be passed instead. bank
+    None starts at whatever the source squad left unspent against M5's BUDGET -- known exactly
+    only when every held player has a resolvable current price (the same price source
+    squad_optimizer.fetch_candidate_pool() itself uses); otherwise conservatively 0.0 rather
+    than guessing, since overstating bank would let evaluate_transfers() legalize a transfer
+    the manager can't actually afford."""
     run_row = con.execute(
         "SELECT target_season, target_gameweek FROM squad_optimizer_runs WHERE run_id = ?", [squad_optimizer_run_id]
     ).fetchone()
@@ -246,13 +251,15 @@ def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_opt
         raise ValueError(f"squad_optimizer_run_id={squad_optimizer_run_id} has no in_squad players -- cannot bootstrap")
 
     held_uids = [uid for uid, *_ in holdings]
-    bank = _compute_bank_for_squad(con, target_season, held_uids)
+    if bank is None:
+        bank = _compute_bank_for_squad(con, target_season, held_uids)
 
     state_version = con.execute(
         "INSERT INTO manager_state_versions (season, as_of_gameweek, free_transfers_available, "
         "chips_used_set1, chips_used_set2, derived_from_state_version, bank) "
-        "VALUES (?, ?, 1, '[]', '[]', NULL, ?) RETURNING state_version",
-        [target_season, target_gameweek, bank],
+        "VALUES (?, ?, ?, ?, ?, NULL, ?) RETURNING state_version",
+        [target_season, target_gameweek, free_transfers_available,
+         json.dumps(sorted(set(chips_used_set1))), json.dumps(sorted(set(chips_used_set2))), bank],
     ).fetchone()[0]
 
     for player_uid, in_xi, is_captain, is_vice in holdings:
@@ -267,6 +274,7 @@ def bootstrap_from_squad_optimizer_run(con: duckdb.DuckDBPyConnection, squad_opt
 def bootstrap_from_real_squad(
     con: duckdb.DuckDBPyConnection, calibration_asof_date: date, target_season: str, target_gameweek: int,
     ep_model_version: int, uncertainty_model_version: int, squad: list[dict],
+    real_state: dict | None = None,
 ) -> int:
     """Priority 10-adjacent addition: bootstraps manager_state_versions/manager_squad_holdings
     from a squad the manager actually holds in real life (e.g. built outside this project
@@ -288,11 +296,13 @@ def bootstrap_from_real_squad(
     (see _write_manager_snapshot_as_optimizer_run()'s own docstring for why that's the only path
     that actually works against this schema's FK constraints), then hands off to
     bootstrap_from_squad_optimizer_run() for the bank/state_version bookkeeping -- one bootstrap
-    mechanism, not two independently-maintained ones. Inherits that function's own
-    free_transfers_available=1 assumption ("a fresh account's real starting allocation") --
-    correct for a genuine GW1/GW2 bootstrap, but a real manager rolling a transfer into a LATER
-    gameweek may actually hold 2; that case isn't handled by either bootstrap path today and
-    would need a real free_transfers_available parameter threaded through, not assumed here."""
+    mechanism, not two independently-maintained ones.
+
+    real_state: the entry's app_export.real_manager_state() (its free_transfers_available,
+    chips_used_set1, chips_used_set2 and bank seed the state). None inherits the
+    fresh-account defaults (1 free transfer, no chips played, a bank computed from current
+    prices), which are only right for a GW1/GW2 bootstrap. A real bank is still paired with
+    current prices on the sell side; FPL's selling price (half of any rise) isn't public."""
     resolved = []
     for p in squad:
         player_uid = iw._resolve_player(con, p["player_name"], target_season)
@@ -318,7 +328,12 @@ def bootstrap_from_real_squad(
             "VALUES (?, ?, TRUE, ?, ?, ?)",
             [run_id, p["player_uid"], p["in_xi"], p["is_captain"], p["is_vice"]],
         )
-    return bootstrap_from_squad_optimizer_run(con, run_id)
+    state = real_state or {}
+    return bootstrap_from_squad_optimizer_run(
+        con, run_id, free_transfers_available=state.get("free_transfers_available", 1),
+        chips_used_set1=state.get("chips_used_set1", ()), chips_used_set2=state.get("chips_used_set2", ()),
+        bank=state.get("bank"),
+    )
 
 
 def _read_holdings(con: duckdb.DuckDBPyConnection, state_version: int) -> list[dict]:

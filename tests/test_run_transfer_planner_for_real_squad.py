@@ -8,7 +8,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 from run_transfer_planner_for_real_squad import (  # noqa: E402
     _analytic_gameweek_ep, _build_chip_preview_squad, _gameweek_ep_model_version,
     _order_chip_evaluations, _resolve_decision_log_row, _role_change_flags_for_players,
-    attach_recommendation_breakdowns, reconcile_chips_with_timing_sweep,
+    attach_recommendation_breakdowns, mark_played_chips, reconcile_chips_with_timing_sweep,
 )
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -437,3 +437,36 @@ def test_analytic_gameweek_ep_sums_ep_total_over_a_players_fixtures(con):
     assert round(out["player_in"], 2) == 4.68
     assert "missing_uid" not in out
     assert _analytic_gameweek_ep(con, ep_mv, []) == {}
+
+
+def _played_state():
+    return {
+        "chips_used_set1": ["triple_captain", "wildcard"], "chips_used_set2": [],
+        "chips_played": [{"chip": "triple_captain", "gameweek": 3}, {"chip": "wildcard", "gameweek": 4}],
+    }
+
+
+def test_mark_played_chips_never_recommends_a_chip_already_played_this_half():
+    chips = [
+        {"chip_type": "triple_captain", "recommended": True, "score": 3.6},
+        {"chip_type": "bench_boost", "recommended": True, "score": 12.0},
+        {"chip_type": "wildcard", "recommended": False, "score": 6.2, "detail_timing": "Hold -- the sweep's best week is GW9."},
+    ]
+    mark_played_chips(chips, 6, _played_state())
+    tc, bb, wc = chips
+    assert tc["recommended"] is False
+    assert tc["played_gameweek"] == 3
+    assert tc["detail_timing"] == "Already played in GW3 -- back from GW20."
+    assert wc["detail_timing"] == "Already played in GW4 -- back from GW20."
+    assert bb == {"chip_type": "bench_boost", "recommended": True, "score": 12.0}  # still available
+
+
+def test_mark_played_chips_first_half_use_does_not_block_the_second_half():
+    chips = [{"chip_type": "triple_captain", "recommended": True, "score": 3.6}]
+    mark_played_chips(chips, 20, _played_state())
+    assert chips[0]["recommended"] is True
+
+
+def test_mark_played_chips_without_real_history_changes_nothing():
+    chips = [{"chip_type": "triple_captain", "recommended": True, "score": 3.6}]
+    assert mark_played_chips(chips, 6, None) == [{"chip_type": "triple_captain", "recommended": True, "score": 3.6}]
