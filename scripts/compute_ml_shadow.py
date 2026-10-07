@@ -3,15 +3,18 @@ the upcoming gameweek. Writes data/dashboard/ml_shadow.json for a side-by-side "
 view agree?" panel -- it feeds NO recommendation. Promoting it to a real decision input is a
 separate, human-gated step (research/ml/forward_test/FROZEN_CONFIG.md, REPORT.md §10b).
 
-Needs both: a live ingestion (scripts/run_ingestion.py -> current ep_outputs) AND a
-walk-forward backtest already in the same DB (scripts/run_walkforward.py -> backtest_gameweek_
-steps to train on). nightly_backtest.yml runs both, so this slots in right after.
+Needs both: the live pipeline's ep_outputs for the next gameweek (scheduled_pipeline.yml's shared
+horizon, scripts/compute_shared_horizon.py, saved in the `duckdb-` cache nightly_backtest.yml
+restores -- run_ingestion.py's own ep_outputs are GW1's) AND a walk-forward backtest already in the
+same DB (scripts/run_walkforward.py -> backtest_gameweek_steps to train on). nightly_backtest.yml
+runs the walk-forward on that restored DB, so this slots in right after.
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/compute_ml_shadow.py [target_gameweek]
 
-The target gameweek is derived from the live ep_outputs' own fixtures by default (so the
-shadow always matches the DB it reads); pass it explicitly only to override.
+The target gameweek is derived from the DB by default -- the first gameweek whose deadline is
+after the DB's data cutoff -- and the shadow reads the ep_outputs version built for exactly that
+gameweek (so it always matches the DB it reads); pass it explicitly only to override.
 """
 
 import json
@@ -29,25 +32,60 @@ TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
 
 
-def _latest(con, table: str) -> int | None:
-    row = con.execute(f"SELECT max(model_version) FROM {table}").fetchone()
-    return row[0] if row and row[0] is not None else None
+def _data_cutoff(con):
+    """When this DB's data was pulled: the latest fact_match ingest time. Read from the DB, not a
+    live bootstrap fetch or today's clock -- the nightly restores a cached ingestion whose
+    ep_outputs may lag a live deadline, and the live next gameweek is the one after this moment."""
+    return con.execute("SELECT max(_ingested_at) FROM fact_match").fetchone()[0]
 
 
-def _target_gameweek_from_db(con, ep_model_version: int) -> int | None:
-    """The gameweek the live ep_outputs were actually built for -- derived from the fixtures
-    they point at, not a live bootstrap fetch, so the shadow always matches the DB it reads
-    (the nightly restores a cached ingestion whose ep_outputs may lag a live deadline)."""
-    rows = con.execute(
+def _target_gameweek_from_db(con, cutoff) -> int | None:
+    """The live next gameweek as of the data cutoff: the first TARGET_SEASON gameweek whose
+    deadline (its first kickoff, backtest.gameweek_deadline's stand-in) is after it. None when no
+    gameweek is."""
+    if cutoff is None:
+        return None
+    row = con.execute(
         """
-        SELECT DISTINCT m.gameweek
-        FROM ep_outputs o JOIN fact_match m ON m.match_id = o.fixture_match_id
-        WHERE o.model_version = ? AND m.competition = 'Premier League'
+        SELECT gameweek
+        FROM fact_match
+        WHERE season = ? AND competition = 'Premier League' AND gameweek IS NOT NULL
+        GROUP BY gameweek
+        HAVING min(kickoff_time) > ?
+        ORDER BY min(kickoff_time), gameweek
+        LIMIT 1
         """,
-        [ep_model_version],
-    ).fetchall()
-    gws = sorted(r[0] for r in rows if r[0] is not None)
-    return gws[0] if len(gws) == 1 else None
+        [TARGET_SEASON, cutoff],
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _ep_versions_for_gameweek(con, gameweek: int) -> tuple[int, int] | None:
+    """(ep_model_version, minutes_model_version) of the newest ep_outputs built for exactly this
+    TARGET_SEASON gameweek -- its fixtures are that gameweek's fixtures, all of them, as
+    expected_points.run() selects them (a half-written version is skipped) -- paired with the
+    minutes model it was built from, as each walk-forward training step is. Not the newest
+    version overall: the nightly's own walk-forward writes one per historical step (2025-26 GW38
+    last), and planner horizons / forward plans write later gameweeks. None when there is none."""
+    row = con.execute(
+        """
+        WITH gw_fixtures AS (
+            SELECT match_id FROM fact_match
+            WHERE season = ? AND gameweek = ? AND competition = 'Premier League'
+        )
+        SELECT v.model_version, v.minutes_model_version
+        FROM ep_model_versions v
+        JOIN ep_outputs o ON o.model_version = v.model_version
+        WHERE v.target_season = ?
+        GROUP BY v.model_version, v.minutes_model_version
+        HAVING bool_and(o.fixture_match_id IN (SELECT match_id FROM gw_fixtures))
+           AND count(DISTINCT o.fixture_match_id) = (SELECT count(*) FROM gw_fixtures)
+        ORDER BY v.model_version DESC
+        LIMIT 1
+        """,
+        [TARGET_SEASON, gameweek, TARGET_SEASON],
+    ).fetchone()
+    return (row[0], row[1]) if row else None
 
 
 def _fetch_element_names() -> dict[int, str]:
@@ -61,9 +99,9 @@ def _fetch_element_names() -> dict[int, str]:
 
 def build_ml_shadow_payload(con, target_gameweek: int | None = None, element_names: dict[int, str] | None = None) -> dict:
     """The full ml_shadow.json body. `status` is 'ok' only when a real prediction was made;
-    every other value ('no_live_model', 'no_prediction', ...) is an honest "couldn't run"
-    placeholder, never fabricated numbers. target_gameweek None -> derived from the live
-    ep_outputs' own fixtures."""
+    every other value ('no_ep_outputs_for_target_gameweek', ...) is an honest "couldn't run"
+    placeholder, never fabricated numbers. target_gameweek None -> the next gameweek after the
+    DB's data cutoff; either way only an ep_outputs version built for that gameweek is read."""
     payload: dict = {
         "data_asof": date.today().isoformat(),
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -76,16 +114,20 @@ def build_ml_shadow_payload(con, target_gameweek: int | None = None, element_nam
         "players": [],
     }
 
-    ep_mv, mm_mv = _latest(con, "ep_model_versions"), _latest(con, "minutes_model_versions")
-    if ep_mv is None or mm_mv is None:
-        payload["status"] = "no_live_model"
-        return payload
     if target_gameweek is None:
-        target_gameweek = _target_gameweek_from_db(con, ep_mv)
+        cutoff = _data_cutoff(con)
+        payload["data_cutoff"] = cutoff.isoformat() if cutoff is not None else None
+        target_gameweek = _target_gameweek_from_db(con, cutoff)
         payload["target_gameweek"] = target_gameweek
         if target_gameweek is None:
-            payload["status"] = "ambiguous_target_gameweek"
+            payload["status"] = "no_next_gameweek"
             return payload
+    versions = _ep_versions_for_gameweek(con, target_gameweek)
+    if versions is None:
+        payload["status"] = "no_ep_outputs_for_target_gameweek"
+        return payload
+    ep_mv, mm_mv = versions
+    payload["ep_model_version"] = ep_mv
 
     try:
         from research.ml import forward

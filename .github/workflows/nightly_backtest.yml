@@ -78,14 +78,17 @@ jobs:
 
       # Cache-miss fallback -- identical to weekly_backtest.yml / on_demand_report.yml. Only
       # ever executes on the very first run, before any scheduled_pipeline.yml run has cached a DB.
+      # Guarded on cache-matched-key (empty only when nothing was restored), not cache-hit:
+      # cache-hit is 'true' only for an exact key match, which the key above never is, so a
+      # cache-hit guard ran these steps on every run, re-ingesting on top of the restored DB.
       - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-matched-key == ''
         run: |
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
 
       - name: Materialize evidence workbooks [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-matched-key == ''
         run: |
           mkdir -p data/external
           fetch_drive_file() {
@@ -107,7 +110,7 @@ jobs:
           fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
       - name: Run ingestion (M0-M6) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-matched-key == ''
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
       - name: Run walk-forward backtest (M7) -- backtest.run() only, no recalibration
@@ -126,7 +129,8 @@ jobs:
         run: PYTHONPATH=src python scripts/export_track_record.py
 
       # The DB now carries BOTH the walk-forward (training) and the live pipeline's own
-      # ep_outputs (inference target). Fit Huber δ=4 on the whole walk-forward, predict
+      # next-gameweek ep_outputs (inference target -- scheduled_pipeline.yml's shared horizon,
+      # saved in the `duckdb-` cache restored above). Fit Huber δ=4 on the whole walk-forward, predict
       # ep_total_ml for the upcoming gameweek -> data/dashboard/ml_shadow.json. Shadow only,
       # feeds no recommendation (research/ml/forward_test/FROZEN_CONFIG.md). Best-effort: a
       # missing lightgbm / thin history writes a placeholder, never fails the job.

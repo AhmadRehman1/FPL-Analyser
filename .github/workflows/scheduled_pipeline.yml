@@ -149,24 +149,8 @@ jobs:
         run: PYTHONPATH=src python scripts/record_provenance.py
 
       - name: Run ingestion (M0-M6)
+        id: ingest
         run: PYTHONPATH=src python scripts/run_ingestion.py
-
-      # Multi-user roadmap item: the on-demand-report.yml workflow needs a freshly-ingested
-      # DB to bootstrap a NEW manager's transfer plan from (M8) without re-running the entire
-      # M0-M7 pipeline itself (expensive, and pointless duplicate work of what THIS job just
-      # did). actions/cache is the free, GitHub-native way to hand that file to a later,
-      # separate workflow run -- no external storage/DB service needed. Key is unique per run
-      # (github.run_id) so every scheduled run always writes a fresh entry; the on-demand
-      # workflow finds it via a `duckdb-` prefix restore-key match (newest wins), not this exact
-      # key, since it can't predict a run_id it wasn't part of. Saved right after ingestion,
-      # before the per-account transfer-planner steps below -- those only add manager-specific
-      # state on top and the on-demand workflow bootstraps its own fresh manager state anyway,
-      # so the cached snapshot doesn't need to (and shouldn't have to) wait on them.
-      - name: Cache the freshly-ingested DB for on-demand manager requests
-        uses: actions/cache/save@v6
-        with:
-          path: db/fpl_quant_v2.duckdb
-          key: duckdb-${{ github.run_id }}
 
       # Same real bootstrap-static-derived resolver app_export.current_event() already gives
       # export_live_data.py/export_projections.py/track_elite.py and on_demand_report.yml's own
@@ -226,6 +210,32 @@ jobs:
         run: |
           PYTHONPATH=src python scripts/compute_shared_horizon.py "$EVENT" /tmp/fpl_shared_horizon_ep_versions.json
           echo "FPL_SHARED_HORIZON_FILE=/tmp/fpl_shared_horizon_ep_versions.json" >> "$GITHUB_ENV"
+
+      # Multi-user roadmap item: the on-demand-report.yml workflow needs a freshly-ingested
+      # DB to bootstrap a NEW manager's transfer plan from (M8) without re-running the entire
+      # M0-M7 pipeline itself (expensive, and pointless duplicate work of what THIS job just
+      # did). actions/cache is the free, GitHub-native way to hand that file to a later,
+      # separate workflow run -- no external storage/DB service needed. Key is unique per run
+      # (github.run_id) so every scheduled run always writes a fresh entry; the on-demand
+      # workflow finds it via a `duckdb-` prefix restore-key match (newest wins), not this exact
+      # key, since it can't predict a run_id it wasn't part of. Saved before the per-account
+      # transfer-planner steps below -- those only add manager-specific state on top and the
+      # on-demand workflow bootstraps its own fresh manager state anyway, so the cached
+      # snapshot doesn't need to (and shouldn't have to) wait on them.
+      #
+      # Saved AFTER the shared horizon, not straight after ingestion: run_ingestion.py's own
+      # ep_outputs are for GW1 only, so the horizon's event+1 EP is the only next-gameweek EP
+      # this run builds, and nightly_backtest.yml's ML shadow reads it from this cache
+      # (scripts/compute_ml_shadow.py). No `duckdb-` consumer picks a newest EP/uncertainty
+      # version, so the extra versions change nothing for them. Still saved whenever ingestion
+      # succeeded, even if the gameweek lookup or the horizon failed, as when it ran right
+      # after ingestion -- the shadow then reports a placeholder rather than a number.
+      - name: Cache the freshly-ingested DB (with the shared horizon) for later workflows
+        if: ${{ !cancelled() && steps.ingest.outcome == 'success' }}
+        uses: actions/cache/save@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-${{ github.run_id }}
 
       # Runs for real on every scheduled run (not manual-dispatch-only anymore) for both real
       # FPL accounts this project tracks -- has to live in THIS job, right after ingestion,
@@ -509,8 +519,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.lock
 
-      # run-pipeline saves db/fpl_quant_v2.duckdb under `duckdb-<run_id>` right after ingestion
-      # (see its "Cache the freshly-ingested DB" step). Restore that exact key; the `duckdb-`
+      # run-pipeline saves db/fpl_quant_v2.duckdb under `duckdb-<run_id>` after ingestion and the
+      # shared horizon (see its "Cache the freshly-ingested DB" step). Restore that exact key; the `duckdb-`
       # restore-key is a fallback only for the first run after this workflow changed.
       - name: Restore this run's freshly-ingested DB
         id: cache
