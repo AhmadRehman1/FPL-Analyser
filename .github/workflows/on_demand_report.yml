@@ -153,8 +153,11 @@ jobs:
 
       # Rare fallback: only when no scheduled run has EVER cached a DB yet. Mirrors
       # scheduled_pipeline.yml's own early steps exactly.
+      # Guarded on cache-matched-key (empty only when nothing was restored), not cache-hit:
+      # cache-hit is 'true' only for an exact key match, which the key above never is, so a
+      # cache-hit guard ran these steps on every run, re-ingesting on top of the restored DB.
       - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-matched-key == ''
         run: |
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
@@ -163,7 +166,7 @@ jobs:
       # on a transient Drive hiccup, and sanity-check the download isn't actually Google's
       # virus-scan interstitial page.
       - name: Materialize evidence workbooks [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-matched-key == ''
         run: |
           mkdir -p data/external
           fetch_drive_file() {
@@ -185,7 +188,7 @@ jobs:
           fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
       - name: Run ingestion (M0-M6) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-matched-key == ''
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
       - name: Determine current gameweek

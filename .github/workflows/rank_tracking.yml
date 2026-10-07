@@ -67,16 +67,19 @@ jobs:
           restore-keys: |
             duckdb-
 
-      # Cache-miss fallback -- identical to nightly_backtest.yml / weekly_backtest.yml. Only
-      # ever executes before any scheduled_pipeline.yml run has cached a DB.
-      - name: Fetch FPL-Core-Insights (public dataset) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+      # Refresh the restored DB with today's data (or build it, if nothing was cached). The cache
+      # is the latest scheduled_pipeline.yml run's, which can predate Monday night's final scores
+      # and bonus. Ingesting on top updates fact_player_season_stats in place (reconcile's ON
+      # CONFLICT DO UPDATE), and the autopsy's realised points read it; which gameweeks count as
+      # settled still comes from the cache's fact_match, whose existing rows ingestion never
+      # rewrites. These steps were labelled a cache-miss fallback, but their cache-hit guard is
+      # never 'true' after a restore-keys prefix match, so they ran every week -- now explicitly.
+      - name: Fetch FPL-Core-Insights (public dataset)
         run: |
           git clone --depth 1 https://github.com/olbauday/FPL-Core-Insights.git \
             data/external/FPL-Core-Insights-main
 
-      - name: Materialize evidence workbooks [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Materialize evidence workbooks
         run: |
           mkdir -p data/external
           fetch_drive_file() {
@@ -97,8 +100,7 @@ jobs:
           [ -f "data/external/FPL_Evidence_Claims_Research_Pull.xlsx" ] && echo "using committed research pull" || fetch_drive_file "1DkoW82AD_kgN0VtKf9bjC2EyANmFPpAx" "data/external/FPL_Evidence_Claims_Research_Pull.xlsx"
           fetch_drive_file "190aVAPUl3zlwJCDXXofZdJEaGQ8NPCBC" "data/external/FPL_202627_Master_Evidence_Database.xlsx"
 
-      - name: Run ingestion (M0-M6) [cache miss fallback]
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Refresh the DB (M0-M6 ingestion on top of the restored cache)
         run: PYTHONPATH=src python scripts/run_ingestion.py
 
       # ~200 real requests to FPL's own API per not-yet-sampled completed gameweek. Idempotent
