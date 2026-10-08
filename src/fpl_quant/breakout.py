@@ -85,12 +85,25 @@ def classify(
             GROUP BY c.player_uid, c.team_uid
         ),
         prior_club_matches AS (
+            -- the matches minutes_model counts as his history: his clubs' matches during his
+            -- spells, less those he missed while injured, suspended or unavailable, or before
+            -- he was registered that season (a January signing's season-root spell covers all)
             SELECT DISTINCT s.player_uid, m.match_id
             FROM _player_season_team s
             JOIN fact_match m ON m.season = s.season AND m.competition = ?
                 AND s.team_uid IN (m.home_team_uid, m.away_team_uid)
-                AND coalesce(m.gameweek, 0) BETWEEN s.first_gw AND s.last_gw
+                AND (m.gameweek IS NULL OR m.gameweek BETWEEN s.first_gw AND s.last_gw)
+            LEFT JOIN fact_player_match_stats pms ON pms.player_uid = s.player_uid AND pms.match_id = m.match_id
+            LEFT JOIN fact_player_season_stats f
+                ON f.player_uid = s.player_uid AND f.season = s.season AND f.gw = m.gameweek
+            LEFT JOIN (
+                SELECT player_uid, season, min(gw) AS first_gw FROM fact_player_season_stats GROUP BY player_uid, season
+            ) reg ON reg.player_uid = s.player_uid AND reg.season = s.season
             WHERE s.season < ?
+              AND NOT (
+                coalesce(pms.minutes_played, 0) = 0
+                AND (coalesce(f.status, '') IN ('i', 's', 'u', 'n') OR coalesce(m.gameweek < reg.first_gw, FALSE))
+              )
         ),
         prior_starts AS (
             SELECT p.player_uid, count(*) AS club_matches,
@@ -120,7 +133,9 @@ def classify(
     memo = promoted_memo if promoted_memo is not None else {}
     out: dict[str, str] = {}
     for uid, team_uid, prior_minutes, prior_starts, prior_club_matches in rows:
-        share = prior_starts / prior_club_matches if prior_club_matches else 0.0
+        # no earlier club matches on record (new to the league, or a spell that didn't join):
+        # judged on minutes alone
+        share = prior_starts / prior_club_matches if prior_club_matches else 1.0
         if not (prior_minutes < PRIOR_MINUTES_MAX or share < PRIOR_START_SHARE_MAX):
             continue
         key = (team_uid, season)

@@ -263,16 +263,32 @@ def breakout_cuts(con, run_id) -> dict:
             ).fetchall()
             for uid, name, predicted, realized in rows:
                 by_season[groups[uid] + suffix].append(realized - predicted)
-                if suffix == "" and groups[uid] == breakout.BREAKOUT and len(samples.setdefault(season, [])) < BREAKOUT_SAMPLE_SIZE:
-                    samples[season].append({"gw": gw, "player": name, "predicted": round(predicted, 3), "realized": realized})
+                if groups[uid] == breakout.BREAKOUT:
+                    samples.setdefault((season, suffix), []).append(
+                        {"gw": gw, "player": name, "predicted": round(predicted, 3), "realized": realized}
+                    )
     out: dict = {}
     for season, by_label in resid.items():
         if by_label is None:
             out[season] = None
             continue
         out[season] = {label: _residual_block(values) for label, values in sorted(by_label.items())}
-        out[season]["sample"] = samples.get(season, [])
+        for suffix in ("", "_widened"):
+            out[season]["sample" + suffix] = _spread_sample(samples.get((season, suffix), []))
     return out
+
+
+def _spread_sample(rows: list[dict]) -> list[dict]:
+    """Up to BREAKOUT_SAMPLE_SIZE player-steps for a sanity read: one per player (his first
+    step in the group), evenly spaced across the season rather than the first gameweek's."""
+    first: dict = {}
+    for row in sorted(rows, key=lambda r: (r["gw"], r["player"])):
+        first.setdefault(row["player"], row)
+    picks = sorted(first.values(), key=lambda r: (r["gw"], r["player"]))
+    if len(picks) <= BREAKOUT_SAMPLE_SIZE:
+        return picks
+    step = len(picks) / BREAKOUT_SAMPLE_SIZE
+    return [picks[int(i * step)] for i in range(BREAKOUT_SAMPLE_SIZE)]
 
 
 def summarize(con, run_id: int) -> dict:

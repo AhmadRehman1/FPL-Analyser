@@ -124,11 +124,14 @@ def main(argv: list[str] | None = None) -> int:
     if len(paths) != 2:
         print(__doc__)
         return 2
-    control, arm = (json.loads(Path(p).read_text()) for p in paths)
     try:
+        control, arm = (json.loads(Path(p).read_text()) for p in paths)
         result = compare(control, arm)
     except Refused as e:
         print(f"REFUSED: {e}")
+        return 2
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as e:  # unreadable or malformed: not a FAIL
+        print(f"REFUSED: unreadable summary ({type(e).__name__}: {e})")
         return 2
     print(json.dumps(result, indent=2) if as_json else _fmt(result))
     return 0 if result["verdict"] == "PASS" else 1

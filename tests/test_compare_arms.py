@@ -90,3 +90,8 @@ def test_cli_exit_codes(tmp_path, capsys):
     assert capsys.readouterr().out.startswith("PASS")
     arm.write_text(json.dumps(_run(CONTROL, key="duckdb-9")))
     assert ca.main([str(control), str(arm)]) == 2
+    # a crashed scoreboard leaves an empty file: refused, not a FAIL
+    arm.write_text("")
+    assert ca.main([str(control), str(arm)]) == 2
+    arm.write_text(json.dumps({**_run(CONTROL), "headline_by_season": {}}))
+    assert ca.main([str(control), str(arm)]) == 2
