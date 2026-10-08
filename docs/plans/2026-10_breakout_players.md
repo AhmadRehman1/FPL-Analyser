@@ -199,7 +199,7 @@ Executor's choice: script internals, output formatting, function names.
 - The user confirms done by reading `docs/reports/2026-10_breakout_players.md` and the four players' new projections.
 
 ## Build Phases
-- [ ] Phase 1: Diagnose the gap on the live DB
+- [x] Phase 1: Diagnose the gap on the live DB
       Done when: the `diagnose_breakouts.json` artifact meets R1's acceptance for all six players.
       Steps:
         - First step: check A5. Confirm the restored cache has EP for the next gameweek; if not, dispatch `scheduled_pipeline.yml` and retry.
@@ -207,7 +207,7 @@ Executor's choice: script internals, output formatting, function names.
         - Add `.github/workflows/diagnose_breakouts.yml`: restore the cache, fail on a miss, run the script, upload the artifact.
         - Open a PR, merge when green, dispatch on master, and read the artifact.
       Covers: R1; checks: A5, A6.
-- [ ] Phase 2: Add the breakout metric, the cache key and the comparison script
+- [x] Phase 2: Add the breakout metric, the cache key and the comparison script
       Done when:
         - the R2, R3 and R3b unit tests pass;
         - a control `branch_walkforward.yml` run on this branch writes `breakout`, `breakout_promoted` and `db_cache_key`;
@@ -220,21 +220,21 @@ Executor's choice: script internals, output formatting, function names.
         - Dispatch a control run on the branch, record the numbers, then merge when CI is green.
       Covers: R2, R3, R3b, R4; checks: A1, A2, A3.
       Critique: important phase - after building, hand the result plus this phase's Done-when and Covers lines to a blind critic (fresh sub-agent if available, else a fresh-eyes reread). The critic defaults to FAIL and returns PASS/FAIL, strengths, weaknesses and fixes. It checks especially that no data from after a step's deadline leaks into the classification, and that the paired comparison uses only gameweeks non-null in both files. Apply blocker fixes and repeat, max 3 rounds. Done only on PASS.
-- [ ] Phase 3: Run the predeclared existing-flag arms
+- [x] Phase 3: Run the predeclared existing-flag arms
       Done when: a control and A1-A3, dispatched together on master, are complete (`progress.complete` true, same `db_cache_key`), and `compare_arms.py` output is recorded for each.
       Steps:
         - Dispatch the control and A1-A3 at the same time on master; they run in parallel (distinct args, so the concurrency group doesn't cancel any).
         - Download the artifacts and run `compare_arms.py` for each arm.
         - Record every number in the report draft.
       Covers: R4; checks: A4.
-- [ ] Phase 4: Run the diagnosis-led arms (only those declared in the Phase 2 PR)
+- [x] Phase 4: Run the diagnosis-led arms (only those declared in the Phase 2 PR)
       Done when: each declared arm (at most two) has an opt-in flag, tests, a complete run with its own control from the same batch, and a `compare_arms.py` result. If none were declared, the report says why.
       Steps:
         - Build each arm opt-in, default off, behind a `run_walkforward.py` flag, following the rate prior pattern in #243. Write tests first.
         - Merge when green, then dispatch a fresh control and the arm(s) together on master.
         - Run `compare_arms.py` and record the results.
       Covers: R4.
-- [ ] Phase 5: Promote the best passing arm, if any
+- [x] Phase 5: Promote the best passing arm, if any
       Done when:
         - the promotion PR is merged with green CI;
         - the next `scheduled_pipeline.yml` run succeeded;
@@ -248,7 +248,7 @@ Executor's choice: script internals, output formatting, function names.
         - Note the projections commit, dispatch the pipeline, and compare.
       Covers: R5.
       Critique: important phase - after building, hand the diff plus this phase's Done-when and Covers lines to a blind critic (fresh sub-agent if available, else a fresh-eyes reread). The critic defaults to FAIL and checks that every caller that builds minutes or EP receives the new setting. Apply blocker fixes and repeat, max 3 rounds. Done only on PASS.
-- [ ] Phase 6: Write the report
+- [x] Phase 6: Write the report
       Done when: `docs/reports/2026-10_breakout_players.md` is merged and contains the diagnosis table, control's breakout metric, every arm's R4 numbers with raw m ± SE, the decision, and the parked follow-ups.
       Steps:
         - Write it in the house report style (see `docs/reports/2026-10_rate_prior.md`).
