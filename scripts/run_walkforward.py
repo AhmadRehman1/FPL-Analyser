@@ -20,9 +20,9 @@ Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py
     PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
 
-The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, --assist-prior-xa,
---finishing-prior-xg, --minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior) each swap one
-setting for a fresh or existing param version, so an arm runs from master via
+The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, --no-current-season-blend,
+--assist-prior-xa, --finishing-prior-xg, --minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior)
+each swap one setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
 Bonus model (docs/reports/2026-10_open_issues.md, issue 6: premiums get more bonus than their
@@ -92,7 +92,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lambda", dest="lambda_value", type=float, default=None,
                         help="risk_aversion_params lambda_value for this arm (default: the live version)")
     parser.add_argument("--role-matches-threshold", type=float, default=None,
-                        help="turn on the current-season role blend with this matches threshold")
+                        help="the current-season role blend's matches threshold for this arm (live: 4)")
     parser.add_argument("--assist-prior-xa", type=float, default=None,
                         help="turn on the FPL/xA assist calibration with this prior pseudo-count")
     parser.add_argument("--finishing-prior-xg", type=float, default=None,
@@ -104,8 +104,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "then earlier ones), then a start rate rising with price; each level counts "
                              "the next as this many matches (live: 5)")
     parser.add_argument("--role-minutes-blend", action="store_true",
-                        help="blend this season's own P(60+ | started) in at weight min(1, starts/4); "
-                             "the breakout plan's A4, used with --role-matches-threshold 4")
+                        help="blend this season's own P(60+ | started) in at weight min(1, starts/4) "
+                             "(live since 2026-10-08)")
+    parser.add_argument("--no-current-season-blend", action="store_true",
+                        help="the minutes model without this season's own start rate and P(60+ | started) "
+                             "blends, as before 2026-10-08")
     parser.add_argument("--no-minutes-start-prior", action="store_true",
                         help="shrink thin minutes histories toward the position average, as before 2026-10-04")
     parser.add_argument("--team-strength", choices=[*sorted(team_strength.GUARD_ARMS), "off"], default=None,
@@ -159,6 +162,9 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         out["current_season_minutes_params_version"] = params_mod.get_or_create_version(
             con, "current_season_minutes_params", "starts_threshold", EXPERIMENT_EFFECTIVE_DATE, value_numeric=4.0,
         )
+    if getattr(args, "no_current_season_blend", False):
+        out["current_season_role_params_version"] = None
+        out["current_season_minutes_params_version"] = None
     if getattr(args, "minutes_price_prior", None) is not None:
         out["minutes_price_prior_params_version"] = params_mod.get_or_create_version(
             con, "minutes_price_prior_params", "min_band_weight", EXPERIMENT_EFFECTIVE_DATE,

@@ -131,3 +131,17 @@ def test_role_minutes_blend_flag_maps_to_a_current_season_minutes_version(con):
         con, "current_season_minutes_params", "starts_threshold", out["current_season_minutes_params_version"],
     )
     assert threshold == 4.0
+
+
+def test_current_season_blend_flags_find_the_live_v1_or_switch_it_off(con):
+    from fpl_quant import minutes_model as mm
+    mm.seed_current_season_role_params(con)
+    mm.seed_current_season_minutes_params(con)
+    # the live values find v1 rather than minting a copy
+    assert rw._experiment_versions(con, rw._parse_args(["--role-matches-threshold", "4", "--role-minutes-blend"])) == {
+        "current_season_role_params_version": 1, "current_season_minutes_params_version": 1,
+    }
+    # the model before the blends went live, for comparisons
+    assert rw._experiment_versions(con, rw._parse_args(["--no-current-season-blend"])) == {
+        "current_season_role_params_version": None, "current_season_minutes_params_version": None,
+    }

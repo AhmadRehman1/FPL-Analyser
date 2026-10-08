@@ -117,6 +117,8 @@ def main() -> None:
     minutes_model.seed_start_prior_params(con)  # v1 = the live evidence-order start prior (issue 4)
     team_strength.seed_team_strength_guard_params(con)  # v1 = the live team-strength guard
     expected_points.seed_rate_prior_params(con)  # v1 = the live price-anchored rate prior
+    minutes_model.seed_current_season_role_params(con)  # v1 = the live current-season start-rate blend
+    minutes_model.seed_current_season_minutes_params(con)  # v1 = the live current-season P(60+) blend
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
@@ -234,6 +236,11 @@ def main() -> None:
         # (this season, then earlier ones) before a price curve, not the position average
         # (2025-26 walk-forward: points level, minutes MAE 1.27 -> 1.10, Brier 0.36 -> 0.30).
         start_prior_params_version=ACTIVE["minutes_start_prior_params_version"],
+        # Switched on 2026-10-08: this season's own start rate and P(60+ | started) count fully
+        # after 4 matches/starts (2025-26 walk-forward: points level, EP MAE 1.083 -> 1.067,
+        # breakout players' under-prediction +0.27 -> +0.11; docs/reports/2026-10_breakout_players.md).
+        current_season_role_params_version=ACTIVE["current_season_role_params_version"],
+        current_season_minutes_params_version=ACTIVE["current_season_minutes_params_version"],
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]

@@ -1,5 +1,6 @@
 """The live model switches (Fix D: captain_risk_params, Fix F: minutes_bounds_params, issue 4:
-minutes_start_prior_params, team_strength_guard_params, rate_prior_params) reach every squad
+minutes_start_prior_params, team_strength_guard_params, rate_prior_params, the current-season
+minutes blends) reach every squad
 builder, every minutes model run, every team-strength fit and every EP projection, from one
 source: active_recalibratable_versions().
 
@@ -34,12 +35,14 @@ START = "minutes_start_prior_params_version"
 GUARD = "team_strength_guard_params_version"
 RATE = "rate_shrinkage_params_version"
 PRIOR = "rate_prior_params_version"
+ROLE = "current_season_role_params_version"
+P60 = "current_season_minutes_params_version"
 
 # (module, function) -> keyword every call must pass explicitly (a None is allowed: it's visible).
 REQUIRED = {
     ("squad_optimizer", "run"): [CAPTAIN],
     ("squad_optimizer", "solve"): ["captain_variance_multiplier"],
-    ("minutes_model", "run"): [MINUTES, "start_prior_params_version"],
+    ("minutes_model", "run"): [MINUTES, "start_prior_params_version", ROLE, P60],
     ("team_strength", "calibrate"): ["guard_params_version"],
     ("expected_points", "run"): [RATE, PRIOR],
     ("transfer_planner", "compute_horizon_ep"): [RATE, PRIOR],
@@ -47,8 +50,8 @@ REQUIRED = {
     ("transfer_planner", "run"): [CAPTAIN, RATE, PRIOR],
     ("decision_engine", "recommend_best_move"): [CAPTAIN, RATE, PRIOR],
     ("squad_grade", "grade_squad"): [CAPTAIN],
-    ("backtest", "run"): [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR],
-    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR],
+    ("backtest", "run"): [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR, ROLE, P60],
+    ("backtest", "run_season_simulation"): [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR, ROLE, P60],
 }
 
 # Calls that pass their versions through a ** dict. Each one's dict builder is checked below, or it
@@ -131,9 +134,9 @@ def test_every_splat_call_is_reviewed():
 
 
 @pytest.mark.parametrize("script, keys", [
-    ("run_backtest", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR]),
-    ("run_season_simulation", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR]),
-    ("export_leaderboard", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR]),
+    ("run_backtest", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR, ROLE, P60]),
+    ("run_season_simulation", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR, ROLE, P60]),
+    ("export_leaderboard", [CAPTAIN, MINUTES, RATE, START, GUARD, PRIOR, ROLE, P60]),
     ("explain_my_move", [CAPTAIN, RATE, PRIOR]),
     ("run_scenarios", [CAPTAIN, RATE, PRIOR]),
     ("track_elite", [CAPTAIN, RATE, PRIOR]),
@@ -156,6 +159,8 @@ def test_forward_sim_resolves_the_live_switches():
     assert versions[START] == active[START]
     assert versions[GUARD] == active[GUARD]
     assert versions[PRIOR] == active[PRIOR]
+    assert versions[ROLE] == active[ROLE]
+    assert versions[P60] == active[P60]
 
 
 def test_active_versions_resolve_to_the_live_values(con):
@@ -165,6 +170,8 @@ def test_active_versions_resolve_to_the_live_values(con):
     mm.seed_start_prior_params(con)
     ts.seed_team_strength_guard_params(con)
     ep.seed_rate_prior_params(con)
+    mm.seed_current_season_role_params(con)
+    mm.seed_current_season_minutes_params(con)
     for seed in bt.load_confirmed_recalibration_seeds(SEED_DIR):
         params.write_param(
             con, seed["param_family"], seed["new_params_version"], "2026-08-12",
@@ -181,6 +188,10 @@ def test_active_versions_resolve_to_the_live_values(con):
     assert ep.resolve_rate_prior(con, active[PRIOR]) == {
         "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0,
     }
+    matches, _ = params.resolve_param(con, "current_season_role_params", "current_season_matches_threshold", active[ROLE])
+    starts, _ = params.resolve_param(con, "current_season_minutes_params", "starts_threshold", active[P60])
+    assert matches == 4
+    assert starts == mm.PLACEHOLDER_CURRENT_SEASON_STARTS_THRESHOLD == 4.0
 
 
 def test_live_switch_seed_file_is_confirmed():
