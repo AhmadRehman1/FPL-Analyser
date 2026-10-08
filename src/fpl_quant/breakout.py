@@ -9,7 +9,9 @@ kicked off before G's deadline:
   (a) his club in S has played at least RECENT_MATCHES league matches, and he started at least
       MIN_RECENT_STARTS of the last RECENT_MATCHES;
   (b) across the seasons before S he played fewer than PRIOR_MINUTES_MAX league minutes, or
-      started fewer than PRIOR_START_SHARE_MAX of the league matches of the clubs he was at;
+      started fewer than PRIOR_START_SHARE_MAX of the league matches of the clubs he was at --
+      counted as minutes_model counts them: not the ones he missed while injured, suspended or
+      unavailable, or before he was registered that season (no such matches: minutes alone);
   (c) his club in S is not newly promoted -- otherwise every regular at a promoted club meets
       (b), and the club-strength bias would swamp the group. Those players are labelled
       PROMOTED, reported apart and never decide anything.
@@ -17,7 +19,8 @@ A season with no earlier loaded season can't apply (b), so classify() returns No
 
 Clubs come from minutes_model's _player_season_team spells (a weekly roster snapshot puts him
 at the club at G). A season without weekly snapshots gives the season-root club for the whole
-season, so a mid-season mover there is judged at his later club -- a known simplification.
+season, so a mid-season mover there is judged at his later club -- a known simplification:
+a January move between two Premier League clubs in 2024-25 loses his starts at the first club.
 """
 
 import duckdb
