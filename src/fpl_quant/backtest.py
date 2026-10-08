@@ -351,6 +351,7 @@ def run_gameweek_step(
     bench_quality_params_version: int | None = None,
     concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    current_season_minutes_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
@@ -422,6 +423,7 @@ def run_gameweek_step(
             con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
             shrinkage_params_version, fact_multiplier_params_version,
             current_season_role_params_version=current_season_role_params_version,
+            current_season_minutes_params_version=current_season_minutes_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
             price_prior_params_version=minutes_price_prior_params_version,
             start_prior_params_version=minutes_start_prior_params_version,
@@ -1181,6 +1183,7 @@ def run(
     solve_bench_quality_params_version: int | None = None,
     solve_concentration_risk_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
+    current_season_minutes_params_version: int | None = None,
     minutes_bounds_params_version: int | None = None,
     rate_shrinkage_params_version: int | None = None,
     captain_risk_params_version: int | None = None,
@@ -1285,6 +1288,7 @@ def run(
             bench_quality_params_version=solve_bench_quality_params_version,
             concentration_risk_params_version=solve_concentration_risk_params_version,
             current_season_role_params_version=current_season_role_params_version,
+            current_season_minutes_params_version=current_season_minutes_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             captain_risk_params_version=captain_risk_params_version,
@@ -1682,6 +1686,8 @@ def run_season_simulation(
     minutes_start_prior_params_version: int | None = None,
     team_strength_guard_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
+    current_season_role_params_version: int | None = None,
+    current_season_minutes_params_version: int | None = None,
     on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -1770,7 +1776,8 @@ def run_season_simulation(
     run this function once with these two None (the current greedy approach) and once with
     real versions, compare beats_crowd_points_delta.
 
-    captain_risk_params_version/minutes_bounds_params_version/minutes_start_prior_params_version:
+    captain_risk_params_version/minutes_bounds_params_version/minutes_start_prior_params_version/
+    current_season_role_params_version/current_season_minutes_params_version:
     threaded to every squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call
     this walk makes (None keeps each one's old behavior). Callers pass
     active_recalibratable_versions()'s.
@@ -1808,6 +1815,8 @@ def run_season_simulation(
             shrinkage_params_version, fact_multiplier_params_version,
             minutes_bounds_params_version=minutes_bounds_params_version,
             start_prior_params_version=minutes_start_prior_params_version,
+            current_season_role_params_version=current_season_role_params_version,
+            current_season_minutes_params_version=current_season_minutes_params_version,
         )
         bootstrap_memo = ep.new_memo()
         ep_mv = ep.run(
@@ -1881,6 +1890,8 @@ def run_season_simulation(
                     shrinkage_params_version, fact_multiplier_params_version,
                     minutes_bounds_params_version=minutes_bounds_params_version,
                     start_prior_params_version=minutes_start_prior_params_version,
+                    current_season_role_params_version=current_season_role_params_version,
+                    current_season_minutes_params_version=current_season_minutes_params_version,
                 )
                 plan_run_id = transfer_planner.run(
                     con, calibration_asof_date, season, gw, state_version, ts_mv, mm_mv,
@@ -2192,6 +2203,8 @@ def beats_baseline(
     minutes_start_prior_params_version: int | None = None,
     team_strength_guard_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
+    current_season_role_params_version: int | None = None,
+    current_season_minutes_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -2240,6 +2253,8 @@ def beats_baseline(
                 shrinkage_params_version, fact_multiplier_params_version,
                 minutes_bounds_params_version=minutes_bounds_params_version,
                 start_prior_params_version=minutes_start_prior_params_version,
+                current_season_role_params_version=current_season_role_params_version,
+                current_season_minutes_params_version=current_season_minutes_params_version,
             )
             ep_mv = ep.run(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
@@ -2586,6 +2601,11 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     # The price-anchored scoring-rate prior (docs/reports/2026-10_rate_prior.md), live since
     # 2026-10-07: EP error down in both seasons, squad points level or better.
     "rate_prior_params_version": ("rate_prior_params", ep.RATE_PRIOR_KEYS),
+    # The current-season minutes blends (docs/reports/2026-10_breakout_players.md, arm A4), live
+    # since 2026-10-08: this season's own start rate and P(60+ | started) count fully after 4
+    # matches/starts. Squad points level in 2025-26, EP error down, breakout players' gap cut.
+    "current_season_role_params_version": ("current_season_role_params", "current_season_matches_threshold"),
+    "current_season_minutes_params_version": ("current_season_minutes_params", "starts_threshold"),
 }
 
 
@@ -2697,6 +2717,8 @@ def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path |
     # seeded before any walk-forward arm mints a version, so v1 is always the live guard
     team_strength.seed_team_strength_guard_params(con)
     ep.seed_rate_prior_params(con)
+    minutes_model.seed_current_season_role_params(con)
+    minutes_model.seed_current_season_minutes_params(con)
     return len(seeds)
 
 
@@ -2850,10 +2872,12 @@ def _minutes_log_score_for_step(
             con, gameweek_deadline(con, season, gameweek).date(), season,
             decay_params_version, adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version,
             # Scores the model's own probabilities, before the live floor and with the old
-            # position-average start prior, so the refit stays comparable with every earlier
-            # recalibration run.
+            # position-average start prior and no current-season blends, so the refit stays
+            # comparable with every earlier recalibration run.
             minutes_bounds_params_version=None,
             start_prior_params_version=None,
+            current_season_role_params_version=None,
+            current_season_minutes_params_version=None,
         )
     ep_fixture_of = dict(con.execute(
         "SELECT player_uid, fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]

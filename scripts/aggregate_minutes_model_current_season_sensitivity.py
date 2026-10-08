@@ -48,10 +48,11 @@ def main() -> None:
 
     md = ["# Minutes-model current-season-role sensitivity study", ""]
     md += [
-        "Full M7 walk-forward (`backtest.run()`), both historical seasons. \"off\" = current "
-        "production behavior (current_season_role_params_version never activated); \"on\" = "
-        "adds the fast-reacting current-season-own-rate blend at its v1 default "
-        "(current_season_matches_threshold=4). Both arms already include minutes_model.run()'s "
+        "Full M7 walk-forward (`backtest.run()`), both historical seasons. \"off\" = the live "
+        "model without the current-season role blend (current_season_role_params_version=None); "
+        "\"on\" = the live model, with the blend at its v1 default (current_season_matches_threshold=4, "
+        "live since 2026-10-08). Both arms carry the live current-season P(60+ | started) blend "
+        "and minutes_model.run()'s "
         "own unconditional lookback_seasons fix (provably backtest-neutral, not what this "
         "study is testing).", "",
     ]
@@ -113,9 +114,9 @@ def main() -> None:
     else:
         md.append("_One or both arms missing -- no comparison possible._")
     md += [
-        "", "_This is evidence, not a decision. current_season_role_params_version stays "
-        "unwired-by-default at both backtest.py call sites until the project owner reviews "
-        "this and explicitly opts a caller in._",
+        "", "_This is evidence, not a decision. The blend went live on 2026-10-08 through the "
+        "breakout plan's walk-forward rule (docs/reports/2026-10_breakout_players.md), together "
+        "with the P(60+ | started) blend._",
     ]
     (OUT_DIR / "SUMMARY.md").write_text("\n".join(md))
 

@@ -197,6 +197,10 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         # The team-strength guard (docs/reports/2026-10_promoted_club_strength.md), live since
         # 2026-10-06; None (the unguarded fit from before) when `active` doesn't carry it.
         "team_strength_guard_params_version": active.get("team_strength_guard_params_version"),
+        # The current-season minutes blends (docs/reports/2026-10_breakout_players.md), live
+        # since 2026-10-08; None (the multi-season rates alone) when `active` doesn't carry them.
+        "current_season_role_params_version": active.get("current_season_role_params_version"),
+        "current_season_minutes_params_version": active.get("current_season_minutes_params_version"),
         # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
         "chip_wait_params_version": active.get("chip_wait_params_version"),
         # Opt-in two-transfer moves and hits (docs/reports/2026-10_open_issues.md, issue 0);
@@ -382,7 +386,9 @@ def run_forward_season_sim(
                                 versions["adjustment_params_version"], versions["shrinkage_params_version"],
                                 versions["fact_multiplier_params_version"],
                                 minutes_bounds_params_version=versions["minutes_bounds_params_version"],
-                                start_prior_params_version=versions["minutes_start_prior_params_version"])
+                                start_prior_params_version=versions["minutes_start_prior_params_version"],
+                                current_season_role_params_version=versions["current_season_role_params_version"],
+                                current_season_minutes_params_version=versions["current_season_minutes_params_version"])
         ep0 = expected_points.run(con, asof, target_season, start_gameweek, ts0, mm0,
                                   versions["scoring_params_version"], versions["bps_params_version"],
                                   versions["tau_params_version"],
@@ -417,7 +423,9 @@ def run_forward_season_sim(
                                       versions["adjustment_params_version"], versions["shrinkage_params_version"],
                                       versions["fact_multiplier_params_version"],
                                       minutes_bounds_params_version=versions["minutes_bounds_params_version"],
-                                      start_prior_params_version=versions["minutes_start_prior_params_version"])
+                                      start_prior_params_version=versions["minutes_start_prior_params_version"],
+                                      current_season_role_params_version=versions["current_season_role_params_version"],
+                                      current_season_minutes_params_version=versions["current_season_minutes_params_version"])
             plan_run_id = transfer_planner.run(
                 con, asof, target_season, gw, state_version, ts_mv, mm_mv,
                 versions["horizon_params_version"], versions["scoring_params_version"], versions["bps_params_version"],

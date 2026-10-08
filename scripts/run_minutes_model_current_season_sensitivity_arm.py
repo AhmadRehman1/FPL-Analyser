@@ -14,15 +14,15 @@ Runs ONE full M7 walk-forward pass (backtest.run(), the same mechanism scripts/
 run_squad_optimizer_wiring_sensitivity_arm.py already uses) over both historical seasons, at
 one of two fixed arms:
 
-  "off" -- current_season_role_params_version=None. Current production behavior (the
-           lookback_seasons default fix is unconditional and applies to both arms equally --
-           this study isolates ONLY the opt-in fast-reacting blend's own marginal effect).
-  "on"  -- current_season_role_params_version=1 (current_season_matches_threshold=4).
+  "off" -- current_season_role_params_version=None (the lookback_seasons default fix is
+           unconditional and applies to both arms equally -- this study isolates ONLY the
+           fast-reacting blend's own marginal effect).
+  "on"  -- current_season_role_params_version=1 (current_season_matches_threshold=4), live
+           since 2026-10-08 (docs/reports/2026-10_breakout_players.md).
 
-Both arms hold every OTHER param version fixed (the same active_recalibratable_versions()
-base every other walk-forward caller uses). This is the walk-forward comparison required
-before current_season_role_params_version could ever default on anywhere: "must not regress
-the headline beats_crowd_points_delta metric" -- same bar item 2's own study used.
+Both arms hold every OTHER param version fixed at the same active_recalibratable_versions()
+base every other walk-forward caller uses, which includes the live current-season
+P(60+ | started) blend.
 
 This writes NOTHING to any committed param file and activates NO version -- same "immutable
 versioning, promotion stays a human gate" property as every other sensitivity script here.
@@ -63,9 +63,9 @@ def main() -> None:
         ownership_params_version=1,
         notes=f"minutes-model-current-season-sensitivity arm={arm}",
     )
-    if arm == "on":
-        mm.seed_current_season_role_params(con)
-        kwargs["current_season_role_params_version"] = 1
+    # the live base carries the role blend; this arm sets it explicitly either way
+    mm.seed_current_season_role_params(con)
+    base_versions["current_season_role_params_version"] = 1 if arm == "on" else None
 
     t0 = time.time()
     backtest_run_id = backtest.run(con, **base_versions, n_antithetic_pairs=5000, run_monte_carlo=True, **kwargs)
@@ -90,7 +90,7 @@ def main() -> None:
         "arm": arm,
         "backtest_run_id": backtest_run_id,
         "base_param_versions": base_versions,
-        "current_season_role_params_version": kwargs.get("current_season_role_params_version"),
+        "current_season_role_params_version": base_versions["current_season_role_params_version"],
         "beats_crowd_points_delta_by_tier": beats_crowd_by_tier,
         "minutes_calibration": minutes_calibration,
         "wall_seconds": round(wall, 1),
