@@ -46,3 +46,34 @@ Oct 8, 2026 · draft, filled in as the plan's phases finish (docs/plans/2026-10_
 
 Declared at 18:23 UTC on 2026-10-08, after reading the phase 1 diagnosis and before any of the
 18:11 UTC batch (control, A1-A3) was read.
+
+## Arms A1-A3 (phase 3)
+
+The 18:11 UTC batch on master (merge commit 9bb8ba4) ran on one cached DB (`duckdb-37798981174`),
+and every run completed. Run ids: control 37822413654, A1 37822417305, A2 37822421212,
+A3 37822425829.
+
+**Stop conditions: passed.** Control's 2025-26 breakout group has 3,493 player-steps, and the
+model under-predicts it by +0.272 points per player-week (MAE 1.84). Players at promoted clubs,
+reported apart, are under-predicted by +0.186 (1,235 player-steps).
+
+**Sanity read.** Control's sample mixes real breakouts (Diego Gómez, McAtee, Barry) with a
+few players who were regulars the season before (Kilman). Those most likely reach the group
+through gaps in the 2024-25 match data. That dilutes the measure but doesn't bias it, because
+every arm is scored on the same group.
+
+| arm | breakout mean resid | 2025-26 EP MAE | 2025-26 squad pts vs control | 2024-25 squad pts | R4 |
+|---|---|---|---|---|---|
+| control | +0.272 | 1.0825 | — | 63.00 | — |
+| A1 role blend (`--role-matches-threshold 4`) | **−0.004** ✔ | 1.1044 ✘ (+0.022) | −1.35 ± 1.41 ✘ (16 better, 18 worse) | 63.59 | FAIL |
+| A2 recency (`--rate-current-season-weight 2 --rate-season-decay 0.5`) | +0.275 ✘ | 1.0816 ✔ | −0.24 ± 1.23 ✔ | 63.54 | FAIL |
+| A3 both | **−0.002** ✔ | 1.1034 ✘ | −1.87 ± 1.56 ✘ | 64.84 | FAIL |
+
+- **The role blend fixes the breakout group and overshoots everyone else.** The overall mean
+  residual goes from −0.103 to −0.177 in 2025-26, so the model now over-predicts. Any player
+  who started 3-4 of the last matches is treated as nailed on, and many of them are then
+  rotated or injured. Squad points fall, because the optimizer buys those players.
+- **Recency on scoring rates doesn't touch the group.** It changes nothing for breakout players
+  and stays level elsewhere, which fits the diagnosis: their gap is minutes, not rates.
+- **2024-25 is not comparable.** That season has no earlier one, so its breakout block is null.
+  A1's and A3's 2024-25 squad points rise, but that season doesn't decide.
