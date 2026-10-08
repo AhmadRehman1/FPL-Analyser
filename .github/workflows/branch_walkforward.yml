@@ -65,6 +65,9 @@ jobs:
           PYTHONPATH=src python scripts/run_walkforward.py --max-minutes 300 ${ARGS}
 
       - name: Scoreboard
+        env:
+          # which cached DB this arm ran on: scripts/compare_arms.py only compares runs on the same one
+          DB_CACHE_KEY: ${{ steps.cache.outputs.cache-matched-key }}
         run: |
           PYTHONPATH=src python scripts/walkforward_summary.py | tee walkforward_summary.json
           echo '```json' >> "$GITHUB_STEP_SUMMARY"

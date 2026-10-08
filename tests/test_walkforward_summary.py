@@ -120,3 +120,57 @@ def test_promoted_club_cuts_read_the_segment_metrics_by_season():
         "promoted_team": {"ep_total_calibration_mean_resid": -0.5},
         "vs_promoted_team": {"ep_total_calibration_mae": 2.5},
     }}
+
+
+def test_breakout_cuts_measure_the_group_at_each_step(monkeypatch):
+    """The breakout block (docs/plans/2026-10_breakout_players.md, R2): realized minus predicted
+    for the group at each step; promoted-club players apart; a season with no earlier season null."""
+    from test_breakout import SEASON, _deadline_after, _seed
+
+    from fpl_quant import breakout
+
+    con = duckdb.connect(":memory:")
+    db.apply_schema(con)
+    _seed(con)
+    monkeypatch.setattr(breakout, "build_club_spells", lambda con, seasons: None)  # _seed made the spells
+    monkeypatch.setattr(wfs.backtest, "gameweek_deadline", lambda con, season, gw: _deadline_after(gw - 1))
+    ts_mv = con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2025-09-01', 0.2, 1, 1, 'team_a') RETURNING model_version"
+    ).fetchone()[0]
+    mm_mv = con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2025-09-01', ?, 1, 1, 1, 1, '[]') RETURNING model_version", [SEASON],
+    ).fetchone()[0]
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    for gw in (5, 6):  # GW5: only 4 club matches before it (all started); GW6: 5
+        ep_mv = con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2025-09-01', ?, ?, ?, 1, 1, 1) RETURNING model_version", [SEASON, ts_mv, mm_mv],
+        ).fetchone()[0]
+        con.execute(
+            "INSERT INTO backtest_gameweek_steps (backtest_run_id, season, gameweek, tier, data_asof, ep_model_version) "
+            "VALUES (?, ?, ?, 'mature', '2025-09-01', ?)", [run_id, SEASON, gw, ep_mv],
+        )
+        fixture = "ab_5" if gw == 5 else "ab_4"  # any real match id; ep_outputs only needs one
+        for uid, predicted, realized in (("new", 2.0, 5), ("backup", 3.0, 4), ("regular", 4.0, 4), ("promoted", 1.0, 6)):
+            con.execute(
+                "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+                "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+                "ep_total, expected_bps) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0)",
+                [ep_mv, uid, fixture, predicted],
+            )
+            con.execute(
+                "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, _ingested_at) "
+                "VALUES (?, ?, ?, ?, current_timestamp)", [uid, SEASON, gw, realized],
+            )
+
+    out = wfs.breakout_cuts(con, run_id)[SEASON]
+
+    # both steps: new (+3) and backup (+1) are breakout; regular never; promoted apart (+5)
+    assert out["breakout"] == {"n_player_steps": 4, "mean_resid": 2.0, "mae": 2.0}
+    assert out["breakout_promoted"] == {"n_player_steps": 2, "mean_resid": 5.0, "mae": 5.0}
+    assert out["breakout_widened"]["n_player_steps"] == 4
+    assert {s["player"] for s in out["sample"]} == {"new", "backup"}
