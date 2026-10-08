@@ -1,72 +1,43 @@
 {
-  "action": "transfer_in:player_antonin_kinsky->player_bernd_leno",
-  "action_display": "Anton\u00edn Kinsky -> Bernd Leno",
+  "action": "transfer_in:player_ezri_konsa_ngoyo->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+  "action_display": "Ezri Konsa Ngoyo -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
   "data_asof": "2026-10-08",
   "downside_ci": [
-    -5.303612019176416,
-    109.29936796307601
+    6.902003814285571,
+    120.01724405583909
   ],
   "entry_id": 1305242,
-  "ep_lift": 15.96306493489025,
+  "ep_lift": 11.762462171686447,
   "gw": 6,
   "price_hint": {
     "confidence": 0.0,
     "delta_pence": 0,
     "direction": "stable",
     "estimated_date": null,
-    "player_name": "Bernd Leno",
-    "player_uid": "player_bernd_leno"
+    "player_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+    "player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva"
   },
   "provenance": {
     "data_asof": "2026-10-08",
-    "model_version": "ep_v2/un_v2/plan_run7"
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
-  "runner_up": {
-    "action": "transfer_in:player_antonin_kinsky->player_or_e_petrovic",
-    "action_display": "Anton\u00edn Kinsky -> \u0110or\u0111e Petrovi\u0107",
-    "downside_ci": [
-      0.0,
-      0.0
-    ],
-    "ep_lift": 15.778449917236793,
-    "provenance": {
-      "data_asof": "2026-10-08",
-      "model_version": "ep_v2/un_v2/plan_run7"
-    },
-    "runner_up": null,
-    "sensitivity": [],
-    "swaps": [
-      {
-        "delta_ep": 15.778449917236793,
-        "in_name": "\u0110or\u0111e Petrovi\u0107",
-        "in_player_uid": "player_or_e_petrovic",
-        "out_name": "Anton\u00edn Kinsky",
-        "out_player_uid": "player_antonin_kinsky",
-        "reason": "model-ranked transfer"
-      }
-    ],
-    "track_record": {
-      "optimal_in_n_of_71": null,
-      "pattern": "action_kind:transfer_in",
-      "sample_size": 0
-    }
-  },
+  "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": 7.199607354984755,
-      "if_condition": "player_erling_haaland ruled out",
-      "if_condition_display": "Erling Haaland ruled out",
-      "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
-      "then_action_display": "Erling Haaland -> Igor Thiago Nascimento Rodrigues"
+      "delta_ep": 4.670755492326169,
+      "if_condition": "player_bukayo_saka ruled out",
+      "if_condition_display": "Bukayo Saka ruled out",
+      "then_action": "free_hit",
+      "then_action_display": "free_hit"
     }
   ],
   "swaps": [
     {
-      "delta_ep": 15.96306493489025,
-      "in_name": "Bernd Leno",
-      "in_player_uid": "player_bernd_leno",
-      "out_name": "Anton\u00edn Kinsky",
-      "out_player_uid": "player_antonin_kinsky",
+      "delta_ep": 11.762462171686447,
+      "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+      "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+      "out_name": "Ezri Konsa Ngoyo",
+      "out_player_uid": "player_ezri_konsa_ngoyo",
       "reason": "model-ranked transfer"
     }
   ],
