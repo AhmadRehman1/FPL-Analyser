@@ -1,6 +1,6 @@
 # Breakout players: why the live model under-ranks them, and what was tested
 
-Oct 8, 2026 · draft, filled in as the plan's phases finish (docs/plans/2026-10_breakout_players.md)
+Oct 8, 2026 · final: every phase of docs/plans/2026-10_breakout_players.md is done
 
 ## Diagnosis (phase 1)
 
@@ -172,4 +172,28 @@ price-anchored model without the blends.
 | Bruno Fernandes (reference) | 6.16 (#1) | 44.97 |
 | Mbeumo (reference) | 5.34 (#2) | 37.80 |
 
-After: filled in once the pipeline has run on the merged change.
+After: `projections_latest.json` generated 2026-10-08 22:39 UTC (commit 65055b4), by
+`scheduled_pipeline.yml` run 37853008108. That was the first full run with the blends: the
+19:25 run (37831796170) stopped at the squad grade, fixed in #247. The table compares the same
+GW6-13. Net = the player's change minus the two reference starters' average change
+(+0.44 in GW6, +3.20 over GW6-13).
+
+| player | GW6 EP (rank) after | GW6 change (net) | GW6-13 EP after | GW6-13 change (net) |
+|---|---|---|---|---|
+| Groß | 4.18 (#38) | +1.68 (+1.23) | 32.95 | +13.22 (+10.03) |
+| Kinsky | 3.04 (#127) | +2.25 (+1.80) | 28.31 | +21.10 (+17.91) |
+| Kostoulas | 3.50 (#87) | +1.90 (+1.45) | 27.34 | +14.76 (+11.56) |
+| De Cuyper | 4.35 (#20) | +2.00 (+1.55) | 32.47 | +14.68 (+11.48) |
+| Bruno Fernandes (reference) | 6.69 (#1) | +0.53 | 48.88 | +3.91 |
+| Mbeumo (reference) | 5.70 (#3) | +0.36 | 40.27 | +2.48 |
+
+**All four rise, net of the reference starters.** Groß and De Cuyper are outside the measured
+group, but they move the same way, because the blends act on anyone starting every match this
+season.
+
+Across all 667 players the mean GW6 change is +0.05. The biggest risers are other every-match
+starters (McAtee +2.98, Buendía +2.60, Bobb +2.28). The biggest fallers are of two kinds:
+- players new on FPL's injury list since the morning run (Scott, Ballard, Brobbey), which is news,
+  not the blends;
+- players without a start this season (Eze, Smith Rowe, Wood, Kudus), whom the role blend now
+  marks down.
