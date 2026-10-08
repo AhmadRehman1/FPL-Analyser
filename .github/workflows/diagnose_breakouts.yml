@@ -1,0 +1,63 @@
+name: Diagnose breakout players (live DB)
+
+# docs/plans/2026-10_breakout_players.md, Phase 1: where does the live model lose this season's
+# breakout players? Splits the next gameweek's live EP of the named players into minutes, scoring
+# rates and club strength against what they are doing this season, on the most recent cached
+# ingested DB (the same restore as branch_walkforward.yml). Uploads the JSON; commits nothing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      players:
+        description: 'Space-separated player_uids (empty = the plan''s four named players + two reference starters).'
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      - name: Fail if no cached DB was restored
+        if: ${{ steps.cache.outputs.cache-matched-key == '' }}
+        run: |
+          echo "::error::no cached DB to diagnose"
+          exit 1
+
+      - name: Diagnose
+        env:
+          PLAYERS: ${{ inputs.players }}
+        run: |
+          echo "db cache: ${{ steps.cache.outputs.cache-matched-key }}" >> "$GITHUB_STEP_SUMMARY"
+          # word-splitting of PLAYERS is intended: one argument per player_uid
+          PYTHONPATH=src python scripts/diagnose_breakouts.py ${PLAYERS} > diagnose_breakouts.json
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat diagnose_breakouts.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: diagnose-breakouts
+          path: diagnose_breakouts.json
