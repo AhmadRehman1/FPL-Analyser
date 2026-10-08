@@ -4,7 +4,10 @@ Headline beats-avg-manager, price-band / position ep_total residuals, minutes lo
 captain stats (the walk-forward XI's own captain: points per GW before doubling, how often
 that captain was a defender or goalkeeper, and how often it was the XI's top-EP player), and
 captain counterfactuals: what the same XI's captain would have scored under other picking rules
-(highest P95, mean + half a standard deviation) and with hindsight.
+(highest P95, mean + half a standard deviation) and with hindsight. The breakout group
+(fpl_quant.breakout, docs/plans/2026-10_breakout_players.md) gets its own residual per season,
+and db_cache_key (env DB_CACHE_KEY, the restored cache) lets scripts/compare_arms.py refuse to
+compare runs made on different DBs.
 
 Usage (from repo root, after scripts/run_walkforward.py):
     PYTHONPATH=src python scripts/walkforward_summary.py [backtest_run_id]
@@ -12,13 +15,14 @@ Usage (from repo root, after scripts/run_walkforward.py):
 
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest, db  # noqa: E402
+from fpl_quant import backtest, breakout, db  # noqa: E402
 
 
 HEADLINE_METRICS = (
@@ -205,6 +209,88 @@ def captain_counterfactuals(con, run_id) -> dict:
     return captain_rule_points(list(steps.values()))
 
 
+BREAKOUT_SAMPLE_SIZE = 10
+
+
+def _residual_block(resid: list[float]) -> dict:
+    n = len(resid)
+    return {
+        "n_player_steps": n,
+        "mean_resid": round(sum(resid) / n, 4) if n else None,
+        "mae": round(sum(abs(r) for r in resid) / n, 4) if n else None,
+    }
+
+
+def breakout_cuts(con, run_id) -> dict:
+    """{season: None | {label: {n_player_steps, mean_resid, mae}, "sample": [...]}} -- realized
+    event_points minus predicted ep_total (the step's own ep_gameweek_outputs, so a double
+    gameweek is summed and a blank one drops out) for the breakout group at each step. Labels:
+    breakout / breakout_promoted (the rule as declared) and the same with _widened (the one
+    declared fallback, 2 of the last 3). None for a season with no earlier loaded season."""
+    steps = con.execute(
+        "SELECT season, gameweek, ep_model_version FROM backtest_gameweek_steps "
+        "WHERE backtest_run_id = ? AND ep_model_version IS NOT NULL ORDER BY season, gameweek", [run_id],
+    ).fetchall()
+    if not steps:
+        return {}
+    loaded = tuple(r[0] for r in con.execute(
+        "SELECT DISTINCT season FROM fact_match WHERE competition = ? ORDER BY season", [backtest.PL],
+    ).fetchall())
+    breakout.build_club_spells(con, loaded)
+    memo: dict = {}
+    resid: dict = {}
+    samples: dict = {}
+    for season, gw, ep_mv in steps:
+        deadline = backtest.gameweek_deadline(con, season, gw)
+        for suffix, rule in (("", {}), ("_widened", breakout.WIDENED)):
+            groups = breakout.classify(con, season, gw, deadline, promoted_memo=memo, **rule)
+            if groups is None:  # depends on the season alone: no earlier loaded season
+                resid[season] = None
+                continue
+            by_season = resid.setdefault(season, {})
+            for label in (breakout.BREAKOUT, breakout.PROMOTED):
+                by_season.setdefault(label + suffix, [])
+            if not groups:
+                continue
+            rows = con.execute(
+                "SELECT e.player_uid, dp.canonical_name, e.ep_total, f.event_points "
+                "FROM ep_gameweek_outputs e "
+                "JOIN fact_player_season_stats f ON f.player_uid = e.player_uid AND f.season = ? AND f.gw = ? "
+                "JOIN dim_player dp ON dp.player_uid = e.player_uid "
+                "WHERE e.model_version = ? AND f.event_points IS NOT NULL "
+                "AND e.player_uid IN (SELECT unnest(?::VARCHAR[])) ORDER BY e.player_uid",
+                [season, gw, ep_mv, list(groups)],
+            ).fetchall()
+            for uid, name, predicted, realized in rows:
+                by_season[groups[uid] + suffix].append(realized - predicted)
+                if groups[uid] == breakout.BREAKOUT:
+                    samples.setdefault((season, suffix), []).append(
+                        {"gw": gw, "player": name, "predicted": round(predicted, 3), "realized": realized}
+                    )
+    out: dict = {}
+    for season, by_label in resid.items():
+        if by_label is None:
+            out[season] = None
+            continue
+        out[season] = {label: _residual_block(values) for label, values in sorted(by_label.items())}
+        for suffix in ("", "_widened"):
+            out[season]["sample" + suffix] = _spread_sample(samples.get((season, suffix), []))
+    return out
+
+
+def _spread_sample(rows: list[dict]) -> list[dict]:
+    """Up to BREAKOUT_SAMPLE_SIZE player-steps for a sanity read: one per player (his first
+    step in the group), evenly spaced across the season rather than the first gameweek's."""
+    first: dict = {}
+    for row in sorted(rows, key=lambda r: (r["gw"], r["player"])):
+        first.setdefault(row["player"], row)
+    picks = sorted(first.values(), key=lambda r: (r["gw"], r["player"]))
+    if len(picks) <= BREAKOUT_SAMPLE_SIZE:
+        return picks
+    step = len(picks) / BREAKOUT_SAMPLE_SIZE
+    return [picks[int(i * step)] for i in range(BREAKOUT_SAMPLE_SIZE)]
+
+
 def summarize(con, run_id: int) -> dict:
     # steps planned vs scored: a run stopped by its time budget averages fewer gameweeks
     out = {"backtest_run_id": run_id, "progress": backtest.walk_forward_progress(con, run_id),
@@ -232,6 +318,8 @@ def summarize(con, run_id: int) -> dict:
         out["position"][pos] = _mean_metric(con, run_id, f"ep_total_calibration_mean_resid:position={pos}")[0]
     out["captain"] = captain_stats(con, run_id)
     out["captain_counterfactuals"] = captain_counterfactuals(con, run_id)
+    out["breakout"] = breakout_cuts(con, run_id)
+    out["db_cache_key"] = os.environ.get("DB_CACHE_KEY") or None
     # per-gameweek rows so two arms can be compared on the SAME scored steps (an arm can lose
     # steps, e.g. to the optimizer's divergence check at very low lambda)
     out["per_gameweek"] = [

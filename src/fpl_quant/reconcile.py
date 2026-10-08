@@ -46,9 +46,11 @@ def _season_root_table(con: duckdb.DuckDBPyConnection, season: str, filename: st
 def _ensure_id_macro(con: duckdb.DuckDBPyConnection) -> None:
     # Raw numeric-ish ID columns sometimes arrive float-formatted ('3.0') from the CSV
     # pipeline; normalize before joining so a format quirk never silently drops a join.
+    # TEMP: every caller creates it before use, and a read-only connection (the walk-forward
+    # scoreboard's) can't write a persistent one. It shadows the copy older DBs stored.
     con.execute(
         """
-        CREATE OR REPLACE MACRO norm_id(x) AS
+        CREATE OR REPLACE TEMP MACRO norm_id(x) AS
             CASE WHEN x IS NULL OR trim(x) = '' THEN NULL
                  ELSE CAST(CAST(TRY_CAST(x AS DOUBLE) AS BIGINT) AS VARCHAR)
             END
