@@ -148,8 +148,28 @@ like the start prior and the floor, so it stays comparable with earlier recalibr
 - **Scoring rates.** The rate gap is the same for established starters (Mbeumo +0.61), so it is
   a separate problem from breakouts. A2's recency weights didn't move it.
 - **Groß and De Cuyper are outside the group** (real starting records last season), so R4
-  never measured them. Their live move is below.
+  never measured them. Their live move is in the live check below.
 - **January movers in 2024-25.** A move between two Premier League clubs that season loses the
   first club's starts (`breakout.py`'s known simplification).
 - **No standard error on the breakout cut.** R4(iii) compares two group means. Both arms score
   the same 3,493 player-steps, so a paired per-step comparison could put an SE on the cut.
+
+## Live check (phase 5)
+
+This compares the same gameweeks before and after the first pipeline run with the blends. Each
+named player's change is taken net of the two reference starters' average change, so new
+results and news over the same hours don't count as the fix. This is a check, not a target.
+
+Before: `projections_latest.json` generated 2026-10-08 13:01 UTC (commit 061c81f), the
+price-anchored model without the blends.
+
+| player | GW6 EP (rank) before | GW6-13 EP before |
+|---|---|---|
+| Groß | 2.51 (#127) | 19.72 |
+| Kinsky | 0.79 (#394) | 7.21 |
+| Kostoulas | 1.60 (#265) | 12.58 |
+| De Cuyper | 2.35 (#151) | 17.80 |
+| Bruno Fernandes (reference) | 6.16 (#1) | 44.97 |
+| Mbeumo (reference) | 5.34 (#2) | 37.80 |
+
+After: filled in once the pipeline has run on the merged change.
