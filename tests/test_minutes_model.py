@@ -1035,3 +1035,38 @@ def test_the_two_price_priors_are_alternatives(con):
             shrinkage_params_version=1, fact_multiplier_params_version=1,
             lookback_seasons=("2024-2025", "2025-2026"), price_prior_params_version=1, start_prior_params_version=1,
         )
+
+
+def test_current_season_minutes_blend_lifts_a_new_90_minute_starter(con):
+    """docs/plans/2026-10_breakout_players.md, arm A4: P(60+ | started) from every season keeps
+    a player taken off early last season low after he becomes a 90-minute starter."""
+    _seed_league(con)
+    now = datetime.now(timezone.utc)
+    for i in range(20):  # _seed_league: m0-m9 are 2024-25, m10-m19 2025-26
+        season, minutes = ("2024-2025", 45) if i < 10 else ("2025-2026", 90)
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+            "minutes_played, _ingested_at) VALUES ('p2', ?, ?, 0, ?, ?, ?)",
+            [f"m{i}", season, minutes, minutes, now],
+        )
+    params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+    params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
+    params.write_param(con, "current_season_minutes_params", 1, "2026-10-08", "starts_threshold", value_numeric=4)
+    run = dict(
+        decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1,
+        fact_multiplier_params_version=1, lookback_seasons=("2024-2025", "2025-2026"),
+    )
+    base = mm.run(con, date(2026, 8, 10), "2025-2026", **run)
+    blended = mm.run(con, date(2026, 8, 10), "2025-2026", current_season_minutes_params_version=1, **run)
+
+    def p60(model_version, uid):
+        return con.execute(
+            "SELECT p_60plus_min FROM minutes_model_outputs WHERE model_version = ? AND player_uid = ?",
+            [model_version, uid],
+        ).fetchone()[0]
+
+    # all-season P(60+ | started) is 10/20; this season's 10 starts of 90 take it to 1.0
+    assert p60(blended, "p2") > p60(base, "p2") + 0.2
+    # an established 90-minute starter is unchanged
+    assert p60(blended, "p1") == pytest.approx(p60(base, "p1"))

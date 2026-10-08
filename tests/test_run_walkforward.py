@@ -122,3 +122,12 @@ def test_k_minutes_flag_maps_to_a_rate_shrinkage_version(con):
     out = rw._experiment_versions(con, rw._parse_args(["--k-minutes", "450"]))
     k, _ = params_mod.resolve_param(con, "rate_shrinkage_params", "k_minutes", out["rate_shrinkage_params_version"])
     assert k == 450.0
+
+
+def test_role_minutes_blend_flag_maps_to_a_current_season_minutes_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--role-matches-threshold", "4", "--role-minutes-blend"]))
+    assert set(out) == {"current_season_role_params_version", "current_season_minutes_params_version"}
+    threshold, _ = params_mod.resolve_param(
+        con, "current_season_minutes_params", "starts_threshold", out["current_season_minutes_params_version"],
+    )
+    assert threshold == 4.0

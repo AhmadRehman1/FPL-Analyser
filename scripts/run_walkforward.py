@@ -20,8 +20,8 @@ Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py
     PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
 
-The experiment flags (--lambda, --role-matches-threshold, --assist-prior-xa, --finishing-prior-xg,
---minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior) each swap one
+The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, --assist-prior-xa,
+--finishing-prior-xg, --minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior) each swap one
 setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
@@ -103,6 +103,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="shrink thin minutes histories toward the player's own record (this season, "
                              "then earlier ones), then a start rate rising with price; each level counts "
                              "the next as this many matches (live: 5)")
+    parser.add_argument("--role-minutes-blend", action="store_true",
+                        help="blend this season's own P(60+ | started) in at weight min(1, starts/4); "
+                             "the breakout plan's A4, used with --role-matches-threshold 4")
     parser.add_argument("--no-minutes-start-prior", action="store_true",
                         help="shrink thin minutes histories toward the position average, as before 2026-10-04")
     parser.add_argument("--team-strength", choices=[*sorted(team_strength.GUARD_ARMS), "off"], default=None,
@@ -151,6 +154,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
     if getattr(args, "finishing_prior_xg", None) is not None:
         out["finishing_skill_params_version"] = params_mod.get_or_create_version(
             con, "finishing_skill_params", "prior_xg", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.finishing_prior_xg,
+        )
+    if getattr(args, "role_minutes_blend", False):
+        out["current_season_minutes_params_version"] = params_mod.get_or_create_version(
+            con, "current_season_minutes_params", "starts_threshold", EXPERIMENT_EFFECTIVE_DATE, value_numeric=4.0,
         )
     if getattr(args, "minutes_price_prior", None) is not None:
         out["minutes_price_prior_params_version"] = params_mod.get_or_create_version(

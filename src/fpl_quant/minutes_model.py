@@ -417,7 +417,9 @@ def compute_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.Data
     ).fetchdf().set_index("position")
 
 
-def compute_player_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+def compute_player_conditional_minutes_rates(
+    con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...] | None = None,
+) -> pd.DataFrame:
     """Per-player raw counts behind P(60+ | started) and P(60+ | subbed on), so each player's
     own conditional rate can be blended toward the position average by sample size.
 
@@ -428,17 +430,21 @@ def compute_player_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> 
     propagated into an understated p_60plus, e_min_played (via expected_points) and p_played.
     Same shrink-own-toward-position-average idea, and the same sample-size threshold param,
     as p_start_historical_final above. Reads fact_player_match_stats by bare name so it
-    inherits any active backtest.asof_scope() shadow, exactly like the position version."""
+    inherits any active backtest.asof_scope() shadow, exactly like the position version.
+    seasons (None = every season) limits the counts to those seasons."""
+    where = "" if seasons is None else f"WHERE pmst.season IN ({','.join(['?'] * len(seasons))})"
     return con.execute(
-        """
+        f"""
         SELECT pmst.player_uid,
             sum(CASE WHEN pmst.start_min = 0 THEN 1 ELSE 0 END) AS n_started,
             sum(CASE WHEN pmst.start_min = 0 AND pmst.minutes_played >= 60 THEN 1 ELSE 0 END) AS n_started_60plus,
             sum(CASE WHEN pmst.start_min > 0 AND pmst.minutes_played > 0 THEN 1 ELSE 0 END) AS n_subbed_on,
             sum(CASE WHEN pmst.start_min > 0 AND pmst.minutes_played >= 60 THEN 1 ELSE 0 END) AS n_subbed_on_60plus
         FROM fact_player_match_stats pmst
+        {where}
         GROUP BY pmst.player_uid
-        """
+        """,
+        list(seasons or ()),
     ).fetchdf().set_index("player_uid")
 
 
@@ -1056,6 +1062,7 @@ def run(
     minutes_bounds_params_version: int | None = None,
     price_prior_params_version: int | None = None,
     start_prior_params_version: int | None = None,
+    current_season_minutes_params_version: int | None = None,
 ) -> int:
     """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
@@ -1097,6 +1104,14 @@ def run(
     a real walk-forward comparison (see scripts/run_minutes_model_current_season_sensitivity_
     arm.py) rather than defaulting on.
 
+    current_season_minutes_params_version (opt-in, None is the prior behavior;
+    docs/plans/2026-10_breakout_players.md, arm A4): the same fast current-season blend for
+    P(60+ | started). That rate otherwise comes from every season's starts, so a player who
+    used to be taken off early (a youngster, a rotation starter) keeps a low P(60+) after he
+    becomes a 90-minute starter -- Kostoulas started 4 of 5 in 2026-27 with P(60+) 0.16. This
+    season's own rate is blended in at weight min(1, this season's starts /
+    current_season_minutes_params.starts_threshold).
+
     price_prior_params_version (opt-in, None is the prior behavior): the start prior a thin
     history shrinks toward becomes the (position, price band) start rate instead of the
     position average -- see compute_price_band_start_priors().
@@ -1130,6 +1145,12 @@ def run(
     position_rates = compute_position_rates(con, per_player)  # merges position internally
     conditional_rates = compute_conditional_minutes_rates(con)
     player_conditional = compute_player_conditional_minutes_rates(con)
+    current_conditional, current_starts_threshold = None, None
+    if current_season_minutes_params_version is not None:
+        current_starts_threshold, _ = params_mod.resolve_param(
+            con, "current_season_minutes_params", "starts_threshold", current_season_minutes_params_version,
+        )
+        current_conditional = compute_player_conditional_minutes_rates(con, (target_season,))
     availability = live_availability_by_player(con, target_season)
     price_priors: dict[tuple[str, str], float] = {}
     prices: dict[str, float] = {}
@@ -1274,6 +1295,12 @@ def run(
         p_60_subbed = _shrunk_conditional_rate(
             player_conditional, player_uid, "n_subbed_on", "n_subbed_on_60plus", pos_p60_subbed, threshold
         )
+        if current_conditional is not None and player_uid in current_conditional.index and current_starts_threshold:
+            current_starts = float(current_conditional.loc[player_uid, "n_started"] or 0.0)
+            if current_starts > 0:
+                current_rate = float(current_conditional.loc[player_uid, "n_started_60plus"] or 0.0) / current_starts
+                weight_current = min(1.0, current_starts / current_starts_threshold)
+                p_60_started = weight_current * current_rate + (1.0 - weight_current) * p_60_started
 
         p_0 = (1 - p_start_final) * (1 - p_sub_used_eff)
         p_60plus = p_start_final * p_60_started + (1 - p_start_final) * p_sub_used_eff * p_60_subbed
