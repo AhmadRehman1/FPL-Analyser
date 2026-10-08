@@ -10,6 +10,10 @@ Real, disclosed simplification: grades against the FIXED 100.0 budget squad_opti
 always uses (squad_optimizer.BUDGET), not the manager's own current total squad value, which
 can differ slightly from 100.0 due to price rises/falls since the season started -- the same
 budget basis Wildcard/Free Hit evaluation elsewhere in this project already grades against.
+The reference is also one gameweek's risk-adjusted solve, scored here on all 15 players'
+horizon EP, so a real squad can out-project it. points_gap is then negative and graded "A",
+reported as is: raising instead stopped the whole scheduled pipeline on 2026-10-08 (entry
+7139944, squad value 100.5, points_gap -9.69).
 """
 
 from dataclasses import dataclass
@@ -25,13 +29,6 @@ from . import transfer_planner as tp
 # -- an invented v1 default like every other unpinned magnitude in this project, flagged for
 # the same eventual recalibration-against-real-backtest-distribution treatment.
 GRADE_BANDS = [(2.0, "A"), (5.0, "B"), (10.0, "C")]
-
-
-class SquadGradeInvariantError(Exception):
-    """points_gap came out negative -- the user's squad scored MORE than the proven-optimal
-    solve at the same fixed budget, which should be structurally impossible unless the
-    user's real squad value exceeds that budget (price rises since the season started).
-    Raised rather than silently clipped to 0, so this gets investigated, not hidden."""
 
 
 @dataclass(frozen=True)
@@ -143,13 +140,8 @@ def grade_squad(
     optimal_ep = sum(horizon_ep_map.get(uid, {}).get("total_ep", 0.0) for uid in optimal_uids)
     user_squad_ep = sum(horizon_ep_map.get(uid, {}).get("total_ep", 0.0) for uid in user_uids)
 
+    # negative when the user's squad out-projects the reference (module docstring): kept, not clipped
     points_gap = optimal_ep - user_squad_ep
-    if points_gap < 0:
-        raise SquadGradeInvariantError(
-            f"points_gap={points_gap:.2f} < 0 for entry_id={entry_id}: the user's squad scored "
-            f"more than the proven-optimal solve at the standard {so_mod.BUDGET} budget -- their "
-            f"real squad value most likely exceeds that budget (price rises since the season started)."
-        )
 
     top_swaps = _find_top_swaps(user_uids, optimal_uids, horizon_ep_map, n=3)
 

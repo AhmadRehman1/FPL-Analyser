@@ -4254,7 +4254,7 @@ function squadGradeCard() {
         <div style="font-family:'Anton',sans-serif;font-size:28px;color:${gradeColor};line-height:1;">${g.grade}</div>
       </div>
       <div class="stat-list" style="margin-bottom:${g.top_swaps.length ? "12px" : "0"};">
-        <div class="sl-row"><div class="sl-label">Points behind optimal</div><div class="sl-value">${g.points_gap.toFixed(1)}</div></div>
+        <div class="sl-row"><div class="sl-label">${g.points_gap < 0 ? "Points ahead of optimal" : "Points behind optimal"}</div><div class="sl-value">${Math.abs(g.points_gap).toFixed(1)}</div></div>
         <div class="sl-row"><div class="sl-label">Your squad EP</div><div class="sl-value">${g.user_squad_ep.toFixed(1)}</div></div>
         <div class="sl-row"><div class="sl-label">Optimal squad EP</div><div class="sl-value">${g.optimal_ep.toFixed(1)}</div></div>
       </div>

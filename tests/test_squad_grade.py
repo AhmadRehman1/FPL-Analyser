@@ -218,3 +218,27 @@ def test_find_top_swaps_never_reuses_a_player_across_multiple_swaps():
     }
     swaps = sg._find_top_swaps({"out1", "out2"}, {"in1"}, horizon_ep_map, n=3)
     assert len(swaps) == 1  # only one swap possible -- in1 can't be used twice
+
+
+def test_a_squad_that_out_projects_the_reference_is_graded_not_raised(con):
+    """The reference is one gameweek's risk-adjusted, club-capped solve, so a squad of the
+    best 15 by EP (here 4 from clubB, over the cap) out-projects it. That is graded "A" with the
+    negative gap kept; raising it stopped the whole scheduled pipeline on 2026-10-08."""
+    scenario = _seed_squad_grade_scenario(con)
+    by_pos = {}
+    for c in scenario["pool"]:
+        by_pos.setdefault(c["position"], []).append(c)
+    quota = {"Goalkeeper": 2, "Defender": 5, "Midfielder": 5, "Forward": 3}
+    holdings = [
+        {"player_uid": c["player_uid"], "in_xi": True, "is_captain": False, "is_vice": False}
+        for pos, n in quota.items() for c in sorted(by_pos[pos], key=lambda c: -c["ep"])[:n]
+    ]
+
+    grade = sg.grade_squad(
+        con, entry_id=123, calibration_asof_date=date(2026, 8, 24), target_season="2026-2027",
+        target_gameweek=2, current_holdings=holdings, horizon_ep_versions=scenario["gw"],
+        lambda_params_version=1, guardrail_params_version=1,
+    )
+    assert grade.user_squad_ep > grade.optimal_ep
+    assert grade.points_gap == pytest.approx(grade.optimal_ep - grade.user_squad_ep)
+    assert grade.grade == "A"

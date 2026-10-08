@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from fpl_quant import backtest, db, ingest_fpl_entry_picks as ifp, reporting, squad_grade as sg, transfer_planner as tp  # noqa: E402
+from fpl_quant import squad_optimizer as so  # noqa: E402
 
 TARGET_SEASON = "2026-2027"
 DASHBOARD_DIR = REPO_ROOT / "data" / "dashboard"
@@ -126,6 +127,11 @@ def main() -> None:
     )
     for s in grade.top_swaps:
         print(f"  swap: {s.out_player_uid} -> {s.in_player_uid} (+{s.delta_ep:.2f} ep, {s.reason})")
+    if grade.points_gap < 0:
+        print(
+            f"[grade_squad] note: entry_id={entry_id} out-projects the reference squad by {-grade.points_gap:.2f} "
+            f"(the reference is one gameweek's risk-adjusted solve at the standard {so.BUDGET} budget)"
+        )
 
     con.close()
 
