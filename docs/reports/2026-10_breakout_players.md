@@ -284,3 +284,29 @@ cached DB.
 - (iv) the 2025-26 minutes log score is better than control's.
 
 The 9.0m+ band is reported, not gated.
+
+### Result: A6 fails (log score), A4 stays
+
+The batch ran at 01:21 UTC on 2026-10-09 on commit 7d575e3, all three runs on one cached DB
+(`duckdb-37854139013`), and every run completed. Run ids:
+- control 37869353190;
+- before fix 37869355341;
+- A6 37869357654.
+
+| 2025-26 | before fix | control (A4, live) | A6 league-only |
+|---|---|---|---|
+| squad pts vs control (m ± SE a GW) | — | — | −0.24 ± 0.69 ✔ (4 better, 4 worse) |
+| EP MAE | 1.0825 | 1.0665 | 1.0636 ✔ (−0.003) |
+| breakout mean resid (limit +0.182) | +0.272 | +0.108 | +0.130 ✔ |
+| minutes log score | −0.5308 | −0.5347 | −0.5377 ✘ |
+| overall mean resid | −0.103 | −0.099 | −0.092 |
+| 9.0m+ band mean resid | +0.069 | +0.175 | +0.165 |
+
+- **It fails (iv).** Counting league matches alone gives the P(60+) counts fewer matches, and
+  the minutes log score is a little worse. EP error is a little better.
+- **Its points are just below control.** Even with (iv) passed, m < 0 would have needed the
+  owner's sign-off under the plan.
+- **Cups are not why the 9.0m+ band moved** (+0.175 → +0.165). That gap is still open.
+- **Live, A4 stays as it is.** Haaland's P(60+) keeps counting the Community Shield start, a
+  known quirk until a league-only version passes. The switch stays in the code
+  (`--league-only-minutes-rates`).
