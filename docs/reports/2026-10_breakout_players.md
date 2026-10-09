@@ -218,3 +218,34 @@ starts / (starts + K). The start-rate blend stays as it is live (threshold 4).
 - (iv) Its 2025-26 minutes log score is better than control's, which is the reason for the arm.
 
 If both arms pass, the one with the better log score goes live. If neither passes, A4 stays.
+
+### Result: neither passes, A4 stays
+
+The batch ran at 00:11 UTC on 2026-10-09 on commit 2bb5a09, all four runs on one cached DB
+(`duckdb-37854139013`), and every run completed. Run ids:
+- control 37863448353;
+- before fix 37863450360;
+- A5a 37863452720;
+- A5b 37863455375.
+
+| 2025-26 | before fix | control (A4, live) | A5a K = 2 | A5b K = 4 |
+|---|---|---|---|---|
+| squad pts vs control (m ± SE a GW) | — | — | −1.19 ± 0.69 ✘ (3 better, 6 worse) | −0.76 ± 0.66 ✘ (5 better, 6 worse) |
+| EP MAE | 1.0827 | 1.0663 | 1.0710 ✘ (+0.005) | 1.0768 ✘ (+0.011) |
+| breakout mean resid (limit +0.182) | +0.272 | +0.108 | +0.084 ✔ | +0.069 ✔ |
+| minutes log score | −0.5308 | −0.5347 | −0.5283 ✔ | −0.5275 ✔ |
+| overall mean resid | −0.103 | −0.098 | −0.110 | −0.122 |
+| 9.0m+ band mean resid | +0.069 | +0.175 | +0.164 | +0.155 |
+
+- **The gentler blend wins back the log score, but over-predicts.** A4's hard switch drops a
+  starter who keeps coming off before 60 minutes to his raw rate. Shrinking that rate toward
+  the multi-season one keeps those players' expected minutes up. The overall residual moves
+  further from zero, EP error rises, and squad points fall: in the few gameweeks the squads
+  differ, the optimizer buys those players.
+- **It doesn't fix the 9.0m+ band either** (+0.175 → +0.155 at best). The premium-band gap
+  needs its own diagnosis.
+- **A4 replicates on the newer DB.** Against the before-fix model it passes R4 again: squad
+  points +0.19 ± 1.63, EP MAE 1.0827 → 1.0663, breakout +0.272 → +0.108.
+
+The pseudo-count form stays in the code as an opt-in (`--role-minutes-pseudo-starts`), and
+`compare_arms.py --baseline` keeps the follow-up rule for the next arm.
