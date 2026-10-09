@@ -399,12 +399,19 @@ def record_start_rate(record: pd.Series | None, base: float, pseudo_matches: flo
     return (float(record["weighted_starts"]) + pseudo_matches * base) / (total + pseudo_matches)
 
 
-def compute_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+def _league_only_join(league_only: bool) -> str:
+    """fact_player_match_stats holds every competition from 2025-26 on (cups, the Community
+    Shield, friendlies); FPL scores the league alone."""
+    return f"JOIN fact_match lm ON lm.match_id = pmst.match_id AND lm.competition = '{PL}'" if league_only else ""
+
+
+def compute_conditional_minutes_rates(con: duckdb.DuckDBPyConnection, league_only: bool = False) -> pd.DataFrame:
     """Empirical P(60+ | started) and P(60+ | subbed on), per position. P(1-59 | .) is the
     complement in both cases -- a featuring player (started or subbed on) always has >0
-    minutes by construction, so those two conditionals only ever split {1-59, 60+}."""
+    minutes by construction, so those two conditionals only ever split {1-59, 60+}.
+    league_only counts Premier League matches alone (see _league_only_join)."""
     return con.execute(
-        """
+        f"""
         SELECT dp.position,
             avg(CASE WHEN pmst.start_min = 0 AND pmst.minutes_played >= 60 THEN 1.0
                      WHEN pmst.start_min = 0 THEN 0.0 END) AS p_60plus_given_started,
@@ -412,13 +419,14 @@ def compute_conditional_minutes_rates(con: duckdb.DuckDBPyConnection) -> pd.Data
                      WHEN pmst.start_min > 0 AND pmst.minutes_played > 0 THEN 0.0 END) AS p_60plus_given_subbed_on
         FROM fact_player_match_stats pmst
         JOIN dim_player dp ON dp.player_uid = pmst.player_uid
+        {_league_only_join(league_only)}
         GROUP BY dp.position
         """
     ).fetchdf().set_index("position")
 
 
 def compute_player_conditional_minutes_rates(
-    con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...] | None = None,
+    con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...] | None = None, league_only: bool = False,
 ) -> pd.DataFrame:
     """Per-player raw counts behind P(60+ | started) and P(60+ | subbed on), so each player's
     own conditional rate can be blended toward the position average by sample size.
@@ -431,7 +439,8 @@ def compute_player_conditional_minutes_rates(
     Same shrink-own-toward-position-average idea, and the same sample-size threshold param,
     as p_start_historical_final above. Reads fact_player_match_stats by bare name so it
     inherits any active backtest.asof_scope() shadow, exactly like the position version.
-    seasons (None = every season) limits the counts to those seasons."""
+    seasons (None = every season) limits the counts to those seasons; league_only to Premier
+    League matches (see _league_only_join)."""
     where = "" if seasons is None else f"WHERE pmst.season IN ({','.join(['?'] * len(seasons))})"
     return con.execute(
         f"""
@@ -441,6 +450,7 @@ def compute_player_conditional_minutes_rates(
             sum(CASE WHEN pmst.start_min > 0 AND pmst.minutes_played > 0 THEN 1 ELSE 0 END) AS n_subbed_on,
             sum(CASE WHEN pmst.start_min > 0 AND pmst.minutes_played >= 60 THEN 1 ELSE 0 END) AS n_subbed_on_60plus
         FROM fact_player_match_stats pmst
+        {_league_only_join(league_only)}
         {where}
         GROUP BY pmst.player_uid
         """,
@@ -1080,6 +1090,7 @@ def run(
     price_prior_params_version: int | None = None,
     start_prior_params_version: int | None = None,
     current_season_minutes_params_version: int | None = None,
+    minutes_rates_scope_params_version: int | None = None,
 ) -> int:
     """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
@@ -1134,6 +1145,14 @@ def run(
     rate toward the multi-season one as if the latter were that many extra starts: weight
     starts / (starts + pseudo_starts), so the rate never jumps to a raw 0 or 1 at 4 starts.
 
+    minutes_rates_scope_params_version (opt-in, None is the prior behavior; the breakout
+    report's arm A6): P(60+ | started) and P(60+ | subbed on) -- per position, per player and
+    this season's blend -- count Premier League matches alone when league_only is 1. From
+    2025-26 fact_player_match_stats also holds cups, the Community Shield and friendlies, where
+    regulars are rested or taken off early: Haaland, 5 league starts of 90 minutes in 2026-27,
+    had P(60+) 0.83 from a 53-minute Community Shield start. The start rate already counts
+    league matches alone (_team_match_weights).
+
     price_prior_params_version (opt-in, None is the prior behavior): the start prior a thin
     history shrinks toward becomes the (position, price band) start rate instead of the
     position average -- see compute_price_band_start_priors().
@@ -1165,8 +1184,13 @@ def run(
     # (_build_player_season_team_map()), so none is dropped from the fit any more.
     per_player = compute_player_historical_components(con, lookback_seasons, calibration_asof_date, xi)
     position_rates = compute_position_rates(con, per_player)  # merges position internally
-    conditional_rates = compute_conditional_minutes_rates(con)
-    player_conditional = compute_player_conditional_minutes_rates(con)
+    league_only = False
+    if minutes_rates_scope_params_version is not None:
+        league_only = bool(params_mod.resolve_param(
+            con, "minutes_rates_scope_params", "league_only", minutes_rates_scope_params_version,
+        )[0])
+    conditional_rates = compute_conditional_minutes_rates(con, league_only)
+    player_conditional = compute_player_conditional_minutes_rates(con, league_only=league_only)
     current_conditional, current_starts_threshold, current_pseudo_starts = None, None, None
     if current_season_minutes_params_version is not None:
         try:
@@ -1177,7 +1201,7 @@ def run(
             current_starts_threshold, _ = params_mod.resolve_param(
                 con, "current_season_minutes_params", "starts_threshold", current_season_minutes_params_version,
             )
-        current_conditional = compute_player_conditional_minutes_rates(con, (target_season,))
+        current_conditional = compute_player_conditional_minutes_rates(con, (target_season,), league_only)
     availability = live_availability_by_player(con, target_season)
     price_priors: dict[tuple[str, str], float] = {}
     prices: dict[str, float] = {}

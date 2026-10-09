@@ -56,6 +56,19 @@ def _one(con, uid, ep_mv, mm_mv, ts_mv, gameweek, deadline, groups, projected) -
     ).fetchone()
     row["minutes_model"] = None if mins is None else dict(zip(("p_start_final", "p_60plus_min", "p_1_59min", "weight_own"), mins))
 
+    # the match-level record the minutes model's current-season blends read (every competition
+    # in fact_player_match_stats), which can differ from FPL's league totals in this_season
+    matches = con.execute(
+        "SELECT m.competition, m.gameweek, s.start_min, s.minutes_played FROM fact_player_match_stats s "
+        "JOIN fact_match m ON m.match_id = s.match_id WHERE s.player_uid = ? AND s.season = ? "
+        "ORDER BY m.kickoff_time", [uid, TARGET_SEASON],
+    ).fetchall()
+    row["match_stats_this_season"] = {
+        "starts": sum(1 for _, _, start, _ in matches if start == 0),
+        "starts_60plus": sum(1 for _, _, start, played in matches if start == 0 and (played or 0) >= 60),
+        "matches": [{"competition": c, "gw": g, "start_min": start, "minutes": played} for c, g, start, played in matches],
+    }
+
     ep = con.execute("SELECT * FROM ep_gameweek_outputs WHERE model_version = ? AND player_uid = ?", [ep_mv, uid]).fetchdf()
     row["ep"] = None if ep.empty else {k: (float(v) if k.startswith(("ep_", "expected_")) else v)
                                        for k, v in ep.iloc[0].to_dict().items() if k not in ("model_version", "player_uid")}
