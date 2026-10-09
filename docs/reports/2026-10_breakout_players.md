@@ -242,8 +242,12 @@ The batch ran at 00:11 UTC on 2026-10-09 on commit 2bb5a09, all four runs on one
   the multi-season one keeps those players' expected minutes up. The overall residual moves
   further from zero, EP error rises, and squad points fall: in the few gameweeks the squads
   differ, the optimizer buys those players.
-- **It doesn't fix the 9.0m+ band either** (+0.175 → +0.155 at best). The premium-band gap
-  needs its own diagnosis.
+- **It doesn't fix the 9.0m+ band either** (+0.175 → +0.155 at best). That gap comes mostly
+  from the P(60+) blend, not the start-rate blend: the band reads +0.069 before the fix, +0.098
+  with the start-rate blend alone (A1, run 37822417305), and +0.175 with both (A4). It shows up
+  in predicted goals (that component's residual goes −0.224 → −0.177): a lower P(60+) for a
+  premium cuts his expected goals. The next step is to find which premiums' P(60+) this season
+  sits below their multi-season rate, and why, before any arm targets it.
 - **A4 replicates on the newer DB.** Against the before-fix model it passes R4 again: squad
   points +0.19 ± 1.63, EP MAE 1.0827 → 1.0663, breakout +0.272 → +0.108.
 
