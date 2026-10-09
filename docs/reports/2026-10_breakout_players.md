@@ -197,3 +197,59 @@ starters (McAtee +2.98, Buendía +2.60, Bobb +2.28). The biggest fallers are of 
   not the blends;
 - players without a start this season (Eze, Smith Rowe, Wood, Kudus), whom the role blend now
   marks down.
+
+## Follow-up: a gentler P(60+) blend (declared 2026-10-09, before any of its results)
+
+A4's P(60+ | started) blend switches to this season's raw rate after 4 starts. That raw rate
+can be 0 or 1, which is the likely reason the minutes log score got worse. The follow-up
+shrinks this season's rate toward the multi-season rate instead, by pseudo-counts: weight
+starts / (starts + K). The start-rate blend stays as it is live (threshold 4).
+
+**Arms**, in one batch on the same cached DB:
+- **control:** the live model (A4), no flags.
+- **before fix:** the model before A4, `--no-current-season-blend`.
+- **A5a:** `--role-minutes-pseudo-starts 2`.
+- **A5b:** `--role-minutes-pseudo-starts 4`.
+
+**Rule** (`compare_arms.py control arm --baseline before_fix`):
+- (i) and (ii) are R4's, against control.
+- (iii) The arm keeps the breakout fix: its breakout residual is at most two thirds of the
+  before-fix model's. This is the cut A4 was promoted on.
+- (iv) Its 2025-26 minutes log score is better than control's, which is the reason for the arm.
+
+If both arms pass, the one with the better log score goes live. If neither passes, A4 stays.
+
+### Result: neither passes, A4 stays
+
+The batch ran at 00:11 UTC on 2026-10-09 on commit 2bb5a09, all four runs on one cached DB
+(`duckdb-37854139013`), and every run completed. Run ids:
+- control 37863448353;
+- before fix 37863450360;
+- A5a 37863452720;
+- A5b 37863455375.
+
+| 2025-26 | before fix | control (A4, live) | A5a K = 2 | A5b K = 4 |
+|---|---|---|---|---|
+| squad pts vs control (m ± SE a GW) | — | — | −1.19 ± 0.69 ✘ (3 better, 6 worse) | −0.76 ± 0.66 ✘ (5 better, 6 worse) |
+| EP MAE | 1.0827 | 1.0663 | 1.0710 ✘ (+0.005) | 1.0768 ✘ (+0.011) |
+| breakout mean resid (limit +0.182) | +0.272 | +0.108 | +0.084 ✔ | +0.069 ✔ |
+| minutes log score | −0.5308 | −0.5347 | −0.5283 ✔ | −0.5275 ✔ |
+| overall mean resid | −0.103 | −0.098 | −0.110 | −0.122 |
+| 9.0m+ band mean resid | +0.069 | +0.175 | +0.164 | +0.155 |
+
+- **The gentler blend wins back the log score, but over-predicts.** A4's hard switch drops a
+  starter who keeps coming off before 60 minutes to his raw rate. Shrinking that rate toward
+  the multi-season one keeps those players' expected minutes up. The overall residual moves
+  further from zero, EP error rises, and squad points fall: in the few gameweeks the squads
+  differ, the optimizer buys those players.
+- **It doesn't fix the 9.0m+ band either** (+0.175 → +0.155 at best). That gap comes mostly
+  from the P(60+) blend, not the start-rate blend: the band reads +0.069 before the fix, +0.098
+  with the start-rate blend alone (A1, run 37822417305), and +0.175 with both (A4). It shows up
+  in predicted goals (that component's residual goes −0.224 → −0.177): a lower P(60+) for a
+  premium cuts his expected goals. The next step is to find which premiums' P(60+) this season
+  sits below their multi-season rate, and why, before any arm targets it.
+- **A4 replicates on the newer DB.** Against the before-fix model it passes R4 again: squad
+  points +0.19 ± 1.63, EP MAE 1.0827 → 1.0663, breakout +0.272 → +0.108.
+
+The pseudo-count form stays in the code as an opt-in (`--role-minutes-pseudo-starts`), and
+`compare_arms.py --baseline` keeps the follow-up rule for the next arm.
