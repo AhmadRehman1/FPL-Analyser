@@ -3,11 +3,11 @@
   "action_display": "Jo\u00e3o Pedro Junqueira de Jesus -> Gonzalo Garc\u00eda",
   "data_asof": "2026-10-09",
   "downside_ci": [
-    5.2024256886727684,
-    129.69914087496716
+    8.803349627809066,
+    133.26808601249292
   ],
   "entry_id": 7139944,
-  "ep_lift": 9.33707683832024,
+  "ep_lift": 4.9799570199987535,
   "gw": 6,
   "price_hint": {
     "confidence": 1.0,
@@ -19,29 +19,29 @@
   },
   "provenance": {
     "data_asof": "2026-10-09",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": {
-    "action": "transfer_in:player_joao_pedro_junqueira_de_jesus->player_dominic_calvert_lewin",
-    "action_display": "Jo\u00e3o Pedro Junqueira de Jesus -> Dominic Calvert-Lewin",
+    "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+    "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
     "downside_ci": [
       0.0,
       0.0
     ],
-    "ep_lift": 8.877236978696093,
+    "ep_lift": 4.903990496124091,
     "provenance": {
       "data_asof": "2026-10-09",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "model_version": "ep_v2/un_v2/plan_run3"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 8.877236978696093,
-        "in_name": "Dominic Calvert-Lewin",
-        "in_player_uid": "player_dominic_calvert_lewin",
-        "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",
-        "out_player_uid": "player_joao_pedro_junqueira_de_jesus",
+        "delta_ep": 4.903990496124091,
+        "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+        "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+        "out_name": "Lewis Hall",
+        "out_player_uid": "player_lewis_hall",
         "reason": "model-ranked transfer"
       }
     ],
@@ -53,16 +53,16 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 16.37715876847356,
-      "if_condition": "player_bukayo_saka ruled out",
-      "if_condition_display": "Bukayo Saka ruled out",
-      "then_action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
-      "then_action_display": "Bukayo Saka -> Bryan Mbeumo"
+      "delta_ep": 20.75205652066412,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
     }
   ],
   "swaps": [
     {
-      "delta_ep": 9.33707683832024,
+      "delta_ep": 4.9799570199987535,
       "in_name": "Gonzalo Garc\u00eda",
       "in_player_uid": "player_gonzalo_garcia",
       "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",

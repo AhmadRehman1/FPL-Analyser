@@ -3,11 +3,11 @@
   "action_display": "Ezri Konsa Ngoyo -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
   "data_asof": "2026-10-09",
   "downside_ci": [
-    6.902000131145498,
-    120.01806941404877
+    8.712680586633384,
+    121.82831888466077
   ],
   "entry_id": 1305242,
-  "ep_lift": 11.762915109441034,
+  "ep_lift": 11.736213160386567,
   "gw": 6,
   "price_hint": {
     "confidence": 0.0,
@@ -19,21 +19,21 @@
   },
   "provenance": {
     "data_asof": "2026-10-09",
-    "model_version": "ep_v2/un_v2/plan_run7"
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
   "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": 4.66117354896137,
-      "if_condition": "player_bukayo_saka ruled out",
-      "if_condition_display": "Bukayo Saka ruled out",
-      "then_action": "free_hit",
-      "then_action_display": "free_hit"
+      "delta_ep": 13.995800380276306,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
     }
   ],
   "swaps": [
     {
-      "delta_ep": 11.762915109441034,
+      "delta_ep": 11.736213160386567,
       "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
       "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
       "out_name": "Ezri Konsa Ngoyo",
