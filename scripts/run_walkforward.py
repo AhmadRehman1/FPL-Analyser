@@ -21,8 +21,8 @@ Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
 
 The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, --role-minutes-pseudo-starts,
---no-current-season-blend, --assist-prior-xa, --finishing-prior-xg, --minutes-price-prior, --minutes-start-prior,
---no-minutes-start-prior) each swap one setting for a fresh or existing param version, so an arm runs from master via
+--no-current-season-blend, --league-only-minutes-rates, --assist-prior-xa, --finishing-prior-xg,
+--minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior) each swap one setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
 Bonus model (docs/reports/2026-10_open_issues.md, issue 6: premiums get more bonus than their
@@ -109,6 +109,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--role-minutes-pseudo-starts", type=float, default=None, metavar="K",
                         help="shrink this season's own P(60+ | started) toward the multi-season rate as if "
                              "that were K extra starts, instead of the live hard switch at 4 starts")
+    parser.add_argument("--league-only-minutes-rates", action="store_true",
+                        help="count P(60+ | started / subbed on) on Premier League matches alone, not cups, "
+                             "the Community Shield and friendlies")
     parser.add_argument("--no-current-season-blend", action="store_true",
                         help="the minutes model without this season's own start rate and P(60+ | started) "
                              "blends, as before 2026-10-08")
@@ -169,6 +172,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         out["current_season_minutes_params_version"] = params_mod.get_or_create_bundle_version(
             con, "current_season_minutes_params", {"pseudo_starts": args.role_minutes_pseudo_starts},
             EXPERIMENT_EFFECTIVE_DATE,
+        )
+    if getattr(args, "league_only_minutes_rates", False):
+        out["minutes_rates_scope_params_version"] = params_mod.get_or_create_version(
+            con, "minutes_rates_scope_params", "league_only", EXPERIMENT_EFFECTIVE_DATE, value_numeric=1.0,
         )
     if getattr(args, "no_current_season_blend", False):
         out["current_season_role_params_version"] = None

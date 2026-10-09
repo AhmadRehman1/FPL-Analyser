@@ -151,3 +151,10 @@ def test_current_season_blend_flags_find_the_live_v1_or_switch_it_off(con):
     assert version not in (None, 1)
     assert params_mod.resolve_param(con, "current_season_minutes_params", "pseudo_starts", version)[0] == 4.0
     assert rw._experiment_versions(con, rw._parse_args(["--role-minutes-pseudo-starts", "4"])) == out
+
+
+def test_league_only_minutes_rates_flag_maps_to_a_scope_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--league-only-minutes-rates"]))
+    assert set(out) == {"minutes_rates_scope_params_version"}
+    value, _ = params_mod.resolve_param(con, "minutes_rates_scope_params", "league_only", out["minutes_rates_scope_params_version"])
+    assert value == 1.0

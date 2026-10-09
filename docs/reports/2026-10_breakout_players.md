@@ -253,3 +253,34 @@ The batch ran at 00:11 UTC on 2026-10-09 on commit 2bb5a09, all four runs on one
 
 The pseudo-count form stays in the code as an opt-in (`--role-minutes-pseudo-starts`), and
 `compare_arms.py --baseline` keeps the follow-up rule for the next arm.
+
+## Follow-up 2: P(60+) counts every competition (declared 2026-10-09, before any of its results)
+
+**Diagnosis.** On the live DB (`diagnose_breakouts.yml` runs 37867262308 and 37868412600):
+
+| player | live P(60+) | league starts | rows the P(60+) counts read |
+|---|---|---|---|
+| Bruno Fernandes | 0.99 | 5 × 90 | + a friendly and an EFL Cup sub appearance |
+| Saka | 0.99 | 5 | + a Community Shield sub and an unused EFL Cup tie |
+| Haaland | **0.83** | 5 × 90 | + a 53-minute Community Shield **start** |
+
+- **Palmer and Isak** are at P(start) 0.75 because FPL flags both at 75%, which is correct.
+- **Haaland's 0.83** is 5 of 6 starts lasting 60 minutes: the Community Shield counts as a start.
+- **Where the extra rows come from.** From 2025-26 the source is split by tournament.
+  `fact_player_match_stats` holds cups, the Community Shield and friendlies, and P(60+ | started)
+  counts all of them: per position, per player, and in A4's current-season blend. The start
+  rate already counts league matches alone. Regulars are rested or taken off early in cups, and
+  premiums most of all, which may explain why A4 under-predicts the 9.0m+ band more.
+
+**Arm A6:** `--league-only-minutes-rates`. P(60+ | started) and P(60+ | subbed on) count
+Premier League matches alone, at every level (position, player, current season).
+
+**Batch:** control (live, no flags), before fix (`--no-current-season-blend`) and A6, on one
+cached DB.
+
+**Rule:** the follow-up rule above (`compare_arms.py control a6 --baseline before_fix`):
+- (i) and (ii) are R4's, against control;
+- (iii) the breakout residual is at most two thirds of the before-fix model's;
+- (iv) the 2025-26 minutes log score is better than control's.
+
+The 9.0m+ band is reported, not gated.

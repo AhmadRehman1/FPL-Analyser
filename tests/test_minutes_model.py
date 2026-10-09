@@ -1076,3 +1076,41 @@ def test_current_season_minutes_blend_lifts_a_new_90_minute_starter(con):
     shrunk = mm.run(con, date(2026, 8, 10), "2025-2026", current_season_minutes_params_version=2, **run)
     assert p60(base, "p2") + 0.1 < p60(shrunk, "p2") < p60(blended, "p2") - 0.05
     assert p60(shrunk, "p1") == pytest.approx(p60(base, "p1"))
+
+
+def test_league_only_minutes_rates_ignore_cup_matches(con):
+    """The breakout report's arm A6: from 2025-26 fact_player_match_stats also holds cups; a
+    regular taken off at 45 in the cup must not lower his league P(60+)."""
+    _seed_league(con)
+    params.write_param(con, "minutes_model_decay_params", 1, "2026-08-10", "xi", value_numeric=0.0018)
+    params.write_param(con, "minutes_adjustment_params", 1, "2026-08-10", "cap", value_numeric=6.0, dimensions={"scope": "global"})
+    params.write_param(con, "minutes_model_shrinkage_params", 1, "2026-08-10", "competitive_matches_threshold", value_numeric=10)
+    params.write_param(con, "minutes_rates_scope_params", 1, "2026-10-09", "league_only", value_numeric=1)
+    run = dict(
+        decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1,
+        fact_multiplier_params_version=1, lookback_seasons=("2024-2025", "2025-2026"),
+    )
+
+    def p60(model_version, uid="p1"):
+        return con.execute(
+            "SELECT p_60plus_min FROM minutes_model_outputs WHERE model_version = ? AND player_uid = ?",
+            [model_version, uid],
+        ).fetchone()[0]
+
+    league = p60(mm.run(con, date(2026, 8, 10), "2025-2026", **run))
+    now = datetime.now(timezone.utc)
+    for i in range(6):  # p1 starts six cup ties and comes off at 45
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, finished, competition, "
+            "kickoff_time, _ingested_at) VALUES (?, '2025-2026', 'team_a', 'team_b', TRUE, 'EFL Cup', ?, ?)",
+            [f"cup{i}", datetime(2026, 1, 2), now],
+        )
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, "
+            "minutes_played, _ingested_at) VALUES ('p1', ?, '2025-2026', 0, 45, 45, ?)",
+            [f"cup{i}", now],
+        )
+    every_competition = p60(mm.run(con, date(2026, 8, 10), "2025-2026", **run))
+    league_only = p60(mm.run(con, date(2026, 8, 10), "2025-2026", minutes_rates_scope_params_version=1, **run))
+    assert every_competition < league - 0.05
+    assert league_only == pytest.approx(league)
