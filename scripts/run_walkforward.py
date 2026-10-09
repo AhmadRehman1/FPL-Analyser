@@ -20,9 +20,9 @@ Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py
     PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
 
-The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, --no-current-season-blend,
---assist-prior-xa, --finishing-prior-xg, --minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior)
-each swap one setting for a fresh or existing param version, so an arm runs from master via
+The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, --role-minutes-pseudo-starts,
+--no-current-season-blend, --assist-prior-xa, --finishing-prior-xg, --minutes-price-prior, --minutes-start-prior,
+--no-minutes-start-prior) each swap one setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
 Bonus model (docs/reports/2026-10_open_issues.md, issue 6: premiums get more bonus than their
@@ -106,6 +106,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--role-minutes-blend", action="store_true",
                         help="blend this season's own P(60+ | started) in at weight min(1, starts/4) "
                              "(live since 2026-10-08)")
+    parser.add_argument("--role-minutes-pseudo-starts", type=float, default=None, metavar="K",
+                        help="shrink this season's own P(60+ | started) toward the multi-season rate as if "
+                             "that were K extra starts, instead of the live hard switch at 4 starts")
     parser.add_argument("--no-current-season-blend", action="store_true",
                         help="the minutes model without this season's own start rate and P(60+ | started) "
                              "blends, as before 2026-10-08")
@@ -161,6 +164,11 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
     if getattr(args, "role_minutes_blend", False):
         out["current_season_minutes_params_version"] = params_mod.get_or_create_version(
             con, "current_season_minutes_params", "starts_threshold", EXPERIMENT_EFFECTIVE_DATE, value_numeric=4.0,
+        )
+    if getattr(args, "role_minutes_pseudo_starts", None) is not None:
+        out["current_season_minutes_params_version"] = params_mod.get_or_create_bundle_version(
+            con, "current_season_minutes_params", {"pseudo_starts": args.role_minutes_pseudo_starts},
+            EXPERIMENT_EFFECTIVE_DATE,
         )
     if getattr(args, "no_current_season_blend", False):
         out["current_season_role_params_version"] = None

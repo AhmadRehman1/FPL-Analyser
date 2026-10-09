@@ -197,3 +197,24 @@ starters (McAtee +2.98, Buendía +2.60, Bobb +2.28). The biggest fallers are of 
   not the blends;
 - players without a start this season (Eze, Smith Rowe, Wood, Kudus), whom the role blend now
   marks down.
+
+## Follow-up: a gentler P(60+) blend (declared 2026-10-09, before any of its results)
+
+A4's P(60+ | started) blend switches to this season's raw rate after 4 starts. That raw rate
+can be 0 or 1, which is the likely reason the minutes log score got worse. The follow-up
+shrinks this season's rate toward the multi-season rate instead, by pseudo-counts: weight
+starts / (starts + K). The start-rate blend stays as it is live (threshold 4).
+
+**Arms**, in one batch on the same cached DB:
+- **control:** the live model (A4), no flags.
+- **before fix:** the model before A4, `--no-current-season-blend`.
+- **A5a:** `--role-minutes-pseudo-starts 2`.
+- **A5b:** `--role-minutes-pseudo-starts 4`.
+
+**Rule** (`compare_arms.py control arm --baseline before_fix`):
+- (i) and (ii) are R4's, against control.
+- (iii) The arm keeps the breakout fix: its breakout residual is at most two thirds of the
+  before-fix model's. This is the cut A4 was promoted on.
+- (iv) Its 2025-26 minutes log score is better than control's, which is the reason for the arm.
+
+If both arms pass, the one with the better log score goes live. If neither passes, A4 stays.

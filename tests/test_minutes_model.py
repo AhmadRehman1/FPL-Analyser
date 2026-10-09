@@ -1070,3 +1070,9 @@ def test_current_season_minutes_blend_lifts_a_new_90_minute_starter(con):
     assert p60(blended, "p2") > p60(base, "p2") + 0.2
     # an established 90-minute starter is unchanged
     assert p60(blended, "p1") == pytest.approx(p60(base, "p1"))
+
+    # the gentler form: this season's 10 starts against 4 pseudo-starts at the all-season rate
+    params.write_param(con, "current_season_minutes_params", 2, "2026-10-09", "pseudo_starts", value_numeric=4)
+    shrunk = mm.run(con, date(2026, 8, 10), "2025-2026", current_season_minutes_params_version=2, **run)
+    assert p60(base, "p2") + 0.1 < p60(shrunk, "p2") < p60(blended, "p2") - 0.05
+    assert p60(shrunk, "p1") == pytest.approx(p60(base, "p1"))

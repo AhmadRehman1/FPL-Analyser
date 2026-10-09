@@ -1129,7 +1129,10 @@ def run(
     becomes a 90-minute starter -- Kostoulas started 4 of 5 in 2026-27 with P(60+) 0.16 -- and
     a starter now taken off early keeps a high one. This season's own rate is blended in at
     weight min(1, this season's starts / current_season_minutes_params.starts_threshold).
-    Live since 2026-10-08 (v1, threshold 4) with the role blend above.
+    Live since 2026-10-08 (v1, threshold 4) with the role blend above. A version holding
+    pseudo_starts instead (opt-in, the breakout report's follow-up arm) shrinks this season's
+    rate toward the multi-season one as if the latter were that many extra starts: weight
+    starts / (starts + pseudo_starts), so the rate never jumps to a raw 0 or 1 at 4 starts.
 
     price_prior_params_version (opt-in, None is the prior behavior): the start prior a thin
     history shrinks toward becomes the (position, price band) start rate instead of the
@@ -1164,11 +1167,16 @@ def run(
     position_rates = compute_position_rates(con, per_player)  # merges position internally
     conditional_rates = compute_conditional_minutes_rates(con)
     player_conditional = compute_player_conditional_minutes_rates(con)
-    current_conditional, current_starts_threshold = None, None
+    current_conditional, current_starts_threshold, current_pseudo_starts = None, None, None
     if current_season_minutes_params_version is not None:
-        current_starts_threshold, _ = params_mod.resolve_param(
-            con, "current_season_minutes_params", "starts_threshold", current_season_minutes_params_version,
-        )
+        try:
+            current_pseudo_starts, _ = params_mod.resolve_param(
+                con, "current_season_minutes_params", "pseudo_starts", current_season_minutes_params_version,
+            )
+        except params_mod.ParamNotFoundError:  # v1: the hard threshold
+            current_starts_threshold, _ = params_mod.resolve_param(
+                con, "current_season_minutes_params", "starts_threshold", current_season_minutes_params_version,
+            )
         current_conditional = compute_player_conditional_minutes_rates(con, (target_season,))
     availability = live_availability_by_player(con, target_season)
     price_priors: dict[tuple[str, str], float] = {}
@@ -1314,11 +1322,16 @@ def run(
         p_60_subbed = _shrunk_conditional_rate(
             player_conditional, player_uid, "n_subbed_on", "n_subbed_on_60plus", pos_p60_subbed, threshold
         )
-        if current_conditional is not None and player_uid in current_conditional.index and current_starts_threshold:
+        if current_conditional is not None and player_uid in current_conditional.index and (
+            current_starts_threshold or current_pseudo_starts is not None
+        ):
             current_starts = float(current_conditional.loc[player_uid, "n_started"] or 0.0)
             if current_starts > 0:
                 current_rate = float(current_conditional.loc[player_uid, "n_started_60plus"] or 0.0) / current_starts
-                weight_current = min(1.0, current_starts / current_starts_threshold)
+                if current_pseudo_starts is not None:
+                    weight_current = current_starts / (current_starts + current_pseudo_starts)
+                else:
+                    weight_current = min(1.0, current_starts / current_starts_threshold)
                 p_60_started = weight_current * current_rate + (1.0 - weight_current) * p_60_started
 
         p_0 = (1 - p_start_final) * (1 - p_sub_used_eff)

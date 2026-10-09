@@ -145,3 +145,9 @@ def test_current_season_blend_flags_find_the_live_v1_or_switch_it_off(con):
     assert rw._experiment_versions(con, rw._parse_args(["--no-current-season-blend"])) == {
         "current_season_role_params_version": None, "current_season_minutes_params_version": None,
     }
+    # the gentler P(60+) form is its own version, holding only pseudo_starts
+    out = rw._experiment_versions(con, rw._parse_args(["--role-minutes-pseudo-starts", "4"]))
+    version = out["current_season_minutes_params_version"]
+    assert version not in (None, 1)
+    assert params_mod.resolve_param(con, "current_season_minutes_params", "pseudo_starts", version)[0] == 4.0
+    assert rw._experiment_versions(con, rw._parse_args(["--role-minutes-pseudo-starts", "4"])) == out

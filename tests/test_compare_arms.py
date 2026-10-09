@@ -14,11 +14,11 @@ import compare_arms as ca  # noqa: E402
 S = "2025-2026"
 
 
-def _run(beats_real, mae=1.08, resid=0.60, n=300, widened_n=400, key="duckdb-1"):
+def _run(beats_real, mae=1.08, resid=0.60, n=300, widened_n=400, key="duckdb-1", log=-0.53):
     return {
         "progress": {"complete": True},
         "db_cache_key": key,
-        "headline_by_season": {S: {"ep_total_calibration_mae": mae}},
+        "headline_by_season": {S: {"ep_total_calibration_mae": mae, "log_score_minutes_mean": log}},
         "per_gameweek": [{"season": S, "gw": gw, "beats_real": v} for gw, v in enumerate(beats_real, start=1)]
         + [{"season": "2024-2025", "gw": 5, "beats_real": None}],
         "breakout": {S: {
@@ -95,3 +95,41 @@ def test_cli_exit_codes(tmp_path, capsys):
     assert ca.main([str(control), str(arm)]) == 2
     arm.write_text(json.dumps({**_run(CONTROL), "headline_by_season": {}}))
     assert ca.main([str(control), str(arm)]) == 2
+
+
+# the follow-up rule: control is the live model (breakout fixed), baseline the model before the fix
+BEFORE_FIX = _run(CONTROL, resid=0.30)
+
+
+def test_follow_up_passes_when_it_keeps_the_fix_and_improves_the_log_score():
+    out = ca.compare(_run(CONTROL, resid=0.10), _run(CONTROL, resid=0.15, log=-0.52), BEFORE_FIX)
+    assert out["verdict"] == "PASS"
+    assert out["checks"]["breakout"]["limit"] == pytest.approx(0.2)
+    assert out["checks"]["log_score"]["delta"] == pytest.approx(0.01)
+
+
+@pytest.mark.parametrize("arm, failing", [
+    (_run(CONTROL, resid=0.25, log=-0.52), "breakout"),  # gives back more than the rule allows
+    (_run(CONTROL, resid=0.15, log=-0.53), "log_score"),  # no better than control
+    (_run([9.0, 11.0, 7.0, 10.0], resid=0.15, log=-0.52), "points"),
+])
+def test_follow_up_failing_reasons(arm, failing):
+    out = ca.compare(_run(CONTROL, resid=0.10), arm, BEFORE_FIX)
+    assert [k for k, c in out["checks"].items() if not c["pass"]] == [failing]
+
+
+def test_follow_up_refuses_a_baseline_on_another_db():
+    with pytest.raises(ca.Refused, match="different cached DBs"):
+        ca.compare(_run(CONTROL), _run(CONTROL), _run(CONTROL, key="duckdb-2"))
+
+
+def test_cli_baseline_flag(tmp_path, capsys):
+    import json
+    files = {}
+    for name, run in (("c", _run(CONTROL, resid=0.10)), ("a", _run(CONTROL, resid=0.15, log=-0.52)), ("b", BEFORE_FIX)):
+        files[name] = tmp_path / f"{name}.json"
+        files[name].write_text(json.dumps(run))
+    assert ca.main([str(files["c"]), str(files["a"]), "--baseline", str(files["b"])]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("PASS") and "before fix" in out and "(iv)" in out
+    assert ca.main([str(files["c"]), str(files["a"]), "--baseline"]) == 2
