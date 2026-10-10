@@ -1,6 +1,6 @@
 {
   "season": "2026-2027",
-  "current_gameweek": 5,
+  "current_gameweek": 6,
   "ledger": [
     {
       "gameweek": 1,
@@ -377,6 +377,119 @@
       "simulated": false,
       "realized_final": true,
       "scoring_version": 2
+    },
+    {
+      "gameweek": 6,
+      "projected_points": 53.4,
+      "band_low": 38.6,
+      "band_high": 68.19,
+      "action": "transfer",
+      "action_detail": "player_igor_jesus_maciel_da_cruz -> player_igor_thiago_nascimento_rodrigues (net +24.88)",
+      "wildcard_gain": 35.93,
+      "wildcard_recommended": true,
+      "squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers"
+      ],
+      "formation_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers"
+      ],
+      "captain_uid": "player_bruno_borges_fernandes",
+      "vice_captain_uid": "player_igor_thiago_nascimento_rodrigues",
+      "realized_points": null,
+      "current_squad_horizon_value": 232.79,
+      "chips_used": [
+        "free_hit",
+        "triple_captain"
+      ],
+      "free_hit_gain": 18.91,
+      "free_hit_recommended": true,
+      "free_hit_threshold": null,
+      "free_hit_fresh_run_id": null,
+      "carryforward_squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_ollie_watkins",
+        "player_pascal_struijk"
+      ],
+      "carryforward_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers"
+      ],
+      "carryforward_captain_uid": "player_bruno_borges_fernandes",
+      "carryforward_vice_captain_uid": "player_igor_thiago_nascimento_rodrigues",
+      "transfers": [
+        {
+          "out_uid": "player_igor_jesus_maciel_da_cruz",
+          "in_uid": "player_igor_thiago_nascimento_rodrigues",
+          "net": 24.88
+        }
+      ],
+      "bench_order": {
+        "player_bernd_leno": 1,
+        "player_pascal_struijk": 2,
+        "player_ollie_watkins": 3,
+        "player_cody_gakpo": 4
+      },
+      "hit_cost": 0.0,
+      "entry_label": "FPL Quant Model Team",
+      "simulated": false
     }
   ],
   "chips_used_set1": [

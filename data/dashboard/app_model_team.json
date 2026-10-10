@@ -1,7 +1,7 @@
 {
   "ready": true,
   "season": "2026-2027",
-  "current_gameweek": 5,
+  "current_gameweek": 6,
   "n_gameweeks_scored": 5,
   "n_gameweeks_simulated": 1,
   "total_realized_points": 302.0,
@@ -80,6 +80,20 @@
       "delta_vs_field": -2.0,
       "cumulative_points": 302.0,
       "cumulative_vs_field": 3.0
+    },
+    {
+      "gameweek": 6,
+      "simulated": false,
+      "action": "transfer",
+      "action_detail": "player_igor_jesus_maciel_da_cruz -> player_igor_thiago_nascimento_rodrigues (net +24.88)",
+      "projected_points": 53.4,
+      "realized_points": null,
+      "hit_cost": 0.0,
+      "provisional": false,
+      "field_average": null,
+      "delta_vs_field": null,
+      "cumulative_points": null,
+      "cumulative_vs_field": null
     }
   ],
   "free_hit_audit": {
@@ -97,18 +111,18 @@
   "current_squad": [
     {
       "name": "Bart Verbruggen",
-      "in_xi": false,
+      "in_xi": true,
       "is_captain": false
     },
     {
       "name": "Bernd Leno",
-      "in_xi": true,
+      "in_xi": false,
       "is_captain": false
     },
     {
       "name": "Bruno Borges Fernandes",
       "in_xi": true,
-      "is_captain": false
+      "is_captain": true
     },
     {
       "name": "Cody Gakpo",
@@ -136,8 +150,8 @@
       "is_captain": false
     },
     {
-      "name": "Igor Jesus Maciel da Cruz",
-      "in_xi": false,
+      "name": "Igor Thiago Nascimento Rodrigues",
+      "in_xi": true,
       "is_captain": false
     },
     {
@@ -153,29 +167,29 @@
     {
       "name": "Marcos Senesi Bar\u00f3n",
       "in_xi": true,
-      "is_captain": true
+      "is_captain": false
     },
     {
       "name": "Morgan Rogers",
-      "in_xi": false,
+      "in_xi": true,
       "is_captain": false
     },
     {
       "name": "Ollie Watkins",
-      "in_xi": true,
+      "in_xi": false,
       "is_captain": false
     },
     {
       "name": "Pascal Struijk",
-      "in_xi": true,
+      "in_xi": false,
       "is_captain": false
     }
   ],
   "next_decision": {
-    "gameweek": 5,
+    "gameweek": 6,
     "action": "transfer",
-    "detail": "player_nathan_collins -> player_marc_guehi (net +26.90)"
+    "detail": "player_igor_jesus_maciel_da_cruz -> player_igor_thiago_nascimento_rodrigues (net +24.88)"
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-10-10T10:27:51.477232+00:00"
+  "generated_at": "2026-10-10T12:13:30.657611+00:00"
 }
