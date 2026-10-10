@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 55.5,
-    "estimated_rank": 4919059
+    "percentile": 45.5,
+    "estimated_rank": 6026270
   },
   "fixtures": [
     {
@@ -173,6 +173,23 @@
         "short_name": "BHA",
         "name": "Brighton",
         "score": 2
+      }
+    },
+    {
+      "id": 59,
+      "kickoff": "2026-10-10T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 1
+      },
+      "away": {
+        "short_name": "TOT",
+        "name": "Spurs",
+        "score": 1
       }
     }
   ],
@@ -386,12 +403,44 @@
       "fixture_id": 51
     },
     {
+      "player_id": 427,
+      "web_name": "Mbeumo",
+      "team": 16,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 59
+    },
+    {
+      "player_id": 428,
+      "web_name": "Cunha",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 59
+    },
+    {
       "player_id": 452,
       "web_name": "Bruno G.",
       "team": 1,
       "event": "goal",
       "count": 1,
       "fixture_id": 51
+    },
+    {
+      "player_id": 455,
+      "web_name": "Tonali",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 59
+    },
+    {
+      "player_id": 526,
+      "web_name": "Solanke",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 59
     },
     {
       "player_id": 583,
@@ -418,5 +467,5 @@
       "fixture_id": 60
     }
   ],
-  "generated_at": "2026-10-10T16:10:46.398548+00:00"
+  "generated_at": "2026-10-10T20:06:25.172246+00:00"
 }
