@@ -1,36 +1,43 @@
 {
-  "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
-  "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+  "action": "transfer_in:player_joao_pedro_junqueira_de_jesus->player_dominic_calvert_lewin",
+  "action_display": "Jo\u00e3o Pedro Junqueira de Jesus -> Dominic Calvert-Lewin",
   "data_asof": "2026-10-10",
   "downside_ci": [
-    7.764500261388888,
-    129.7242456363405
+    3.0635205115151547,
+    126.10083579236928
   ],
   "entry_id": 7139944,
-  "ep_lift": 6.646446110494853,
+  "ep_lift": 8.684194095052886,
   "gw": 7,
-  "price_hint": null,
+  "price_hint": {
+    "confidence": 0.0,
+    "delta_pence": 0,
+    "direction": "stable",
+    "estimated_date": null,
+    "player_name": "Dominic Calvert-Lewin",
+    "player_uid": "player_dominic_calvert_lewin"
+  },
   "provenance": {
     "data_asof": "2026-10-10",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": 18.54621032161284,
+      "delta_ep": 15.371954673557427,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
-      "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
-      "then_action_display": "Erling Haaland -> Igor Thiago Nascimento Rodrigues"
+      "then_action": "transfer_in:player_erling_haaland->player_dominic_calvert_lewin",
+      "then_action_display": "Erling Haaland -> Dominic Calvert-Lewin"
     }
   ],
   "swaps": [
     {
-      "delta_ep": 6.646446110494853,
-      "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-      "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
-      "out_name": "Lewis Hall",
-      "out_player_uid": "player_lewis_hall",
+      "delta_ep": 8.684194095052886,
+      "in_name": "Dominic Calvert-Lewin",
+      "in_player_uid": "player_dominic_calvert_lewin",
+      "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+      "out_player_uid": "player_joao_pedro_junqueira_de_jesus",
       "reason": "model-ranked transfer"
     }
   ],
