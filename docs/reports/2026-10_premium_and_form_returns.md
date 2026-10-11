@@ -1,6 +1,6 @@
 # Premium and in-form attacking returns: where the error is, and what was tested
 
-Oct 11, 2026 · in progress: Phase 1 done; B2 declared (Phase 2 of docs/plans/2026-10_premium_and_form_returns.md)
+Oct 11, 2026 · final: every phase of docs/plans/2026-10_premium_and_form_returns.md is done; no arm passed, the live model is unchanged
 
 ## Rule R5 (agreed 2026-10-11, before any B2 result)
 
@@ -219,3 +219,69 @@ conversion (`--band-conversion 20`, `conversion_params` / `pseudo_xg`).
 - **Batch:** control and `--band-conversion 20`, `--seasons 2025-2026`, one cached DB.
 - **Target:** 9.0m+, judged with `compare_arms.py --rule r5 --target price_band=9.0+`.
 - **In-form:** it is reported but does not decide.
+
+### Result: B3 fails; nothing goes live this round
+
+**The batch.** It ran at 10:40 UTC on 2026-10-11 on master cd3c624, on cached DB
+`duckdb-38085065975`. Both runs completed. Run ids: control 38132767767, `--band-conversion 20`
+38132769976, each mapped by the `ARGS:` log line.
+
+| 2025-26 | control | band conversion |
+|---|---|---|
+| (i) squad pts vs control (m ± SE a GW) | — | **−2.27 ± 0.97** ✘ (10 better, 15 worse) |
+| (ii) EP MAE | 1.0663 | 1.0670 ✔ |
+| (iii) 9.0m+ component sum (limit 0.441) | 0.662 | 0.629 ✘ |
+| (iv) breakout residual (limit +0.182) | +0.108 | +0.107 ✔ |
+| 9.0m+ goals / assists / other | −0.267 / +0.227 / +0.158 | **−0.322** / +0.156 / +0.141 |
+| £7.0-9.0m goals / assists | +0.011 / +0.088 | −0.061 / +0.053 |
+| in-form residual (component sum) | +0.195 (0.343) | +0.154 (0.309) |
+| captain pts/GW | 5.89 | 5.49 |
+
+- **Why it lost.** 2024-25's conversion is above 1 for goals at £7.0m+ (1.05 at 9.0m+, 1.11 at
+  £7.0-9.0m). So the lever raised premium goals, which the model already over-predicts. Captaincy
+  followed those goals, and points fell by about two a gameweek.
+- **What it did fix.** It lifted assists where they were short (9.0m+ +0.227 → +0.156) and cut
+  cheap players' goal over-prediction a little. That wasn't enough.
+
+## Conclusion (Phase 5)
+
+No arm passed rule R5, so **the live model is unchanged**.
+
+Every arm, and why it failed:
+
+| batch | arm | target | failed on |
+|---|---|---|---|
+| B1 | `--bps-calibration-k 450` | 9.0m+ | (iii) |
+| B1 | `--bps-tau 7` | 9.0m+ | (i) −1.03, (iii) |
+| B2 | `--finishing-prior-xg 10` | 9.0m+ | (i) −0.70, (iii) |
+| B2 | `--assist-prior-xa 30` | 9.0m+ | (ii) +0.008, (iii) |
+| B2 | `--no-rate-price-anchor` | 9.0m+ | (ii) +0.011, (iii) — points **+1.32 ± 1.01** |
+| B2 | recency (weight 2, decay 0.5) | in_form | (i) −0.30, (iii) |
+| B2 | `--k-minutes 450` | in_form | (iii) |
+| B3 | `--band-conversion 20` | 9.0m+ | (i) −2.27, (iii) |
+
+**What the round established:**
+- **The premium error is three model errors that partly cancel:**
+  - goals over-predicted by −0.27, mostly the price anchor (−0.10 without it);
+  - assists under-predicted by +0.23, because FPL awards 1.3-1.6 assists per xA and the model is
+    built on xA;
+  - bonus under-predicted by +0.16.
+- **A lever that fixes one of them alone moves the ranking the wrong way.**
+  - More bonus or more goals for premiums over-ranks premium forwards, and captaincy loses
+    (bps-tau 7, band conversion).
+  - Fewer premium goals (no anchor) gains points, but leaves assists and bonus short.
+- **The in-form gap is real.** The residual is +0.195 over 434 player-steps: assists +0.13,
+  goals +0.07. Recency closes the goals part.
+- **The match feed's assists equal FPL's in 2025-26**, so the realized split is sound.
+
+**The next round's best candidate** (not run; it needs its own declaration and the owner's go-ahead,
+because this round's batch budget is spent):
+- Turn the price anchor off for goals only, keeping it for assists.
+- Pair that with the position-pooled assist calibration.
+- Each half fixed its own component in B2: goals −0.27 → −0.10 without the anchor, assists
+  +0.23 → +0.09 with the calibration.
+- The open question is whether the two together keep the cheap bands and EP MAE in check.
+
+**A note on the rule.** The model over-predicts cheap players (−0.16 below £5.0m, −0.10 overall).
+So any lever that lifts predictions broadly raises MAE even when it fixes an under-predicted group.
+A future rule might pair MAE with a mean-bias check by band.
