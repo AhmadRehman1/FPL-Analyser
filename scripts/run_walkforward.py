@@ -25,6 +25,12 @@ The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, 
 --minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior) each swap one setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
+Pooled band conversion (docs/plans/2026-10_premium_and_form_returns.md, Phase 4: FPL awards more
+assists than xA implies in every price band, most at 9.0m+):
+    --band-conversion 20       scale each position and price band's goal and assist rates by that
+                               band's (goals + K) / (xG + K) and (assists + K) / (xA + K) in the
+                               seasons before the one predicted
+
 Bonus model (docs/reports/2026-10_open_issues.md, issue 6: premiums get more bonus than their
 estimated BPS implies):
     --bps-calibration-k 450    add each player's BPS the estimate's terms miss, from his real
@@ -97,6 +103,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="turn on the FPL/xA assist calibration with this prior pseudo-count")
     parser.add_argument("--finishing-prior-xg", type=float, default=None,
                         help="turn on per-player finishing skill: (goals + p) / (xG + p), same for assists/xA")
+    parser.add_argument("--band-conversion", type=float, default=None, metavar="K",
+                        help="turn on the pooled band conversion: each position and price band's goals per xG "
+                             "and assists per xA in earlier seasons, (sum + K) / (sum expected + K)")
     parser.add_argument("--minutes-price-prior", type=float, default=None, metavar="MIN_BAND_WEIGHT",
                         help="shrink thin minutes histories toward the (position, price band) start rate")
     parser.add_argument("--minutes-start-prior", type=float, default=None, metavar="PSEUDO_MATCHES",
@@ -163,6 +172,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
     if getattr(args, "finishing_prior_xg", None) is not None:
         out["finishing_skill_params_version"] = params_mod.get_or_create_version(
             con, "finishing_skill_params", "prior_xg", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.finishing_prior_xg,
+        )
+    if getattr(args, "band_conversion", None) is not None:
+        out["conversion_params_version"] = params_mod.get_or_create_version(
+            con, "conversion_params", "pseudo_xg", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.band_conversion,
         )
     if getattr(args, "role_minutes_blend", False):
         out["current_season_minutes_params_version"] = params_mod.get_or_create_version(
