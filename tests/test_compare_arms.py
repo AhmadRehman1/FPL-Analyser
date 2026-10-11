@@ -133,3 +133,111 @@ def test_cli_baseline_flag(tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.startswith("PASS") and "before fix" in out and "(iv)" in out
     assert ca.main([str(files["c"]), str(files["a"]), "--baseline"]) == 2
+
+
+# ---- rule R5 (docs/plans/2026-10_premium_and_form_returns.md): the target group's component sum ----
+
+def _r5(beats_real, *, prem=None, form=None, form_n=300, form_widened_n=400, breakout_resid=0.10, **kw):
+    run = _run(beats_real, resid=breakout_resid, **kw)
+    prem = prem or {"appearance": 0.0, "goals": -0.27, "assists": 0.23, "cleansheet": -0.01, "other": 0.16}
+    run["price_band"] = {"9.0+": {**prem, "total": sum(prem.values())}}
+    form = form or {"appearance": 0.05, "goals": 0.20, "assists": 0.10, "cleansheet": 0.0, "other": 0.05}
+    run["form_groups"] = {S: {
+        "in_form": {"n_player_steps": form_n, "components": form,
+                    "component_abs_sum": round(sum(abs(v) for v in form.values()), 4)},
+        "in_form_widened": {"n_player_steps": form_widened_n, "components": form,
+                            "component_abs_sum": round(sum(abs(v) for v in form.values()), 4)},
+    }, "2024-2025": None}
+    return run
+
+
+def test_r5_passes_on_the_component_sum_not_the_total():
+    # premium errors that cancel: control's sum is 0.67; the arm fixes goals and assists
+    fixed = {"appearance": 0.0, "goals": -0.05, "assists": 0.05, "cleansheet": -0.01, "other": 0.16}
+    out = ca.compare(_r5(CONTROL), _r5(CONTROL, prem=fixed), rule="r5", target="price_band=9.0+")
+    assert out["verdict"] == "PASS"
+    assert out["checks"]["target"]["control"] == pytest.approx(0.67)
+    assert out["checks"]["target"]["limit"] == pytest.approx(0.67 * 2 / 3)
+    # moving one component until the total looks fixed is not enough (bps-tau 7 in batch B1)
+    bonus_only = {"appearance": 0.0, "goals": -0.27, "assists": 0.23, "cleansheet": -0.01, "other": 0.03}
+    assert not ca.compare(_r5(CONTROL), _r5(CONTROL, prem=bonus_only), rule="r5", target="price_band=9.0+")["checks"]["target"]["pass"]
+
+
+@pytest.mark.parametrize("arm, failing", [
+    (_r5([9.0, 11.0, 7.0, 10.0], form={"goals": 0.05}), "points"),
+    (_r5(CONTROL, mae=1.0825, form={"appearance": 0.0, "goals": 0.05, "assists": 0.0, "cleansheet": 0.0, "other": 0.0}), "mae"),
+    (_r5(CONTROL), "target"),  # in_form sum unchanged
+    (_r5(CONTROL, breakout_resid=0.19, form={"appearance": 0.0, "goals": 0.05, "assists": 0.0, "cleansheet": 0.0, "other": 0.0}),
+     "breakout_limit"),
+])
+def test_r5_each_failing_reason(arm, failing):
+    out = ca.compare(_r5(CONTROL), arm, rule="r5", target="in_form")
+    assert out["verdict"] == "FAIL"
+    assert [k for k, c in out["checks"].items() if not c["pass"]] == [failing]
+
+
+def test_r5_in_form_uses_the_widening_when_the_group_is_small_then_stops():
+    small = _r5(CONTROL, form_n=100)
+    out = ca.compare(small, _r5(CONTROL, form_n=100), rule="r5", target="in_form")
+    assert out["checks"]["target"]["group"] == "in_form_widened (n=400)"
+    tiny = _r5(CONTROL, form_n=100, form_widened_n=120)
+    out = ca.compare(tiny, tiny, rule="r5", target="in_form")
+    assert not out["checks"]["target"]["pass"] and "too small" in out["checks"]["target"]["reason"]
+    # a summary written before the form_groups block existed fails with a reason, not a crash
+    old = _r5(CONTROL)
+    del old["form_groups"]
+    assert "missing" in ca.compare(old, old, rule="r5", target="in_form")["checks"]["target"]["reason"]
+
+
+def test_r5_reads_a_split_block_without_its_sum():
+    """B1's summaries predate component_abs_sum; the sum comes from the components."""
+    assert ca.component_sum({"appearance": -0.0036, "goals": -0.2671, "assists": 0.2267, "cleansheet": -0.0066,
+                             "other": 0.1576, "total": 0.107}) == pytest.approx(0.6616)
+    assert ca.component_sum({"goals": 0.1}) is None
+
+
+def test_r5_needs_a_target_and_no_baseline():
+    with pytest.raises(ca.Refused):
+        ca.compare(_r5(CONTROL), _r5(CONTROL), rule="r5", target="9.0+")
+    with pytest.raises(ca.Refused):
+        ca.compare(_r5(CONTROL), _r5(CONTROL), _r5(CONTROL), rule="r5", target="in_form")
+
+
+def test_cli_rule_r5(tmp_path, capsys):
+    import json
+
+    fixed = {"appearance": 0.0, "goals": -0.05, "assists": 0.05, "cleansheet": -0.01, "other": 0.16}
+    c, a = tmp_path / "c.json", tmp_path / "a.json"
+    c.write_text(json.dumps(_r5(CONTROL)))
+    a.write_text(json.dumps(_r5(CONTROL, prem=fixed)))
+    assert ca.main([str(c), str(a), "--rule", "r5", "--target", "price_band=9.0+"]) == 0
+    assert "(iii) target  pass" in capsys.readouterr().out
+    assert ca.main([str(c), str(a), "--rule", "r5", "--target", "in_form"]) == 1
+    assert ca.main([str(c), str(a), "--rule", "r5"]) == 2
+    assert ca.main([str(c), str(a), "--rule", "r9", "--target", "in_form"]) == 2
+
+
+def test_r5_in_form_pass_and_refusals():
+    better = {"appearance": 0.05, "goals": 0.05, "assists": 0.05, "cleansheet": 0.0, "other": 0.05}
+    out = ca.compare(_r5(CONTROL), _r5(CONTROL, form=better), rule="r5", target="in_form")
+    assert out["verdict"] == "PASS" and out["checks"]["target"]["group"] == "in_form (n=300)"
+    with pytest.raises(ca.Refused, match="different cached DBs"):
+        ca.compare(_r5(CONTROL), _r5(CONTROL, form=better, key="duckdb-2"), rule="r5", target="in_form")
+    # a target without rule r5 would quietly be judged under R4
+    with pytest.raises(ca.Refused, match="--rule r5"):
+        ca.compare(_r5(CONTROL), _r5(CONTROL), target="in_form")
+
+
+def test_r5_price_band_needs_a_2025_26_only_run():
+    both = _r5(CONTROL)
+    both["headline_by_season"]["2024-2025"] = both["headline_by_season"][S]
+    with pytest.raises(ca.Refused, match="pools seasons"):
+        ca.compare(_r5(CONTROL), both, rule="r5", target="price_band=9.0+")
+    # the in-form block is per season already
+    assert ca.compare(_r5(CONTROL), both, rule="r5", target="in_form")["verdict"] == "FAIL"
+
+
+def test_r5_breakout_limit_is_on_the_declared_group():
+    out = ca.compare(_r5(CONTROL, n=100), _r5(CONTROL, n=100), rule="r5", target="in_form")
+    assert not out["checks"]["breakout_limit"]["pass"]
+    assert "declared breakout group too small" in out["checks"]["breakout_limit"]["reason"]

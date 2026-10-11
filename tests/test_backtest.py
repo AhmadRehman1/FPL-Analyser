@@ -775,6 +775,34 @@ def test_score_gameweek_ep_component_residuals_decompose_the_total(con):
     assert rows["ep_other_calibration_mean_resid:price_band=9.0+"] == pytest.approx(1.7)
 
 
+def test_realized_components_reproduce_the_stored_component_metrics(con):
+    """walkforward_summary.py recomputes a group's component split after the walk with
+    realized_components() (docs/plans/2026-10_premium_and_form_returns.md, RQ2); grouped by price
+    band it must give back exactly what score_gameweek stored."""
+    backtest_run_id, ep_mv, ts_mv = _seed_score_gameweek_segment_scenario(con)
+    bt.score_gameweek(
+        con, backtest_run_id, "2025-2026", 10, ep_mv, 1, ts_mv, 1,
+        compute_segments=True, set_piece_params_version=1,
+    )
+    rows = dict(con.execute(
+        "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ?", [backtest_run_id]
+    ).fetchall())
+    split = bt.realized_components(con, "2025-2026", 10, ep_mv, 1)
+    price_of = dict(con.execute(
+        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = '2025-2026' AND gw = 10"
+    ).fetchall())
+    by_band: dict = {}
+    for uid, components in split.items():
+        by_band.setdefault(bt._price_band(price_of.get(uid)), []).append(components)
+    assert by_band and "9.0+" in by_band
+    for band, members in by_band.items():
+        for key in bt.COMPONENTS:
+            mean = sum(m[key] for m in members) / len(members)
+            assert abs(mean - rows[f"ep_{key}_calibration_mean_resid:price_band={band}"]) < 1e-9
+    # player_uids narrows the split without changing it
+    assert bt.realized_components(con, "2025-2026", 10, ep_mv, 1, player_uids=["p2"]) == {"p2": split["p2"]}
+
+
 def test_price_band_boundaries():
     assert bt._price_band(None) == "unknown"
     assert bt._price_band(4.9) == "<5.0"

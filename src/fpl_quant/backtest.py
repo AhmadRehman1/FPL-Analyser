@@ -551,6 +551,72 @@ def _realized_player_match_outcome(con: duckdb.DuckDBPyConnection, player_uid: s
     }
 
 
+COMPONENTS = ("goals", "assists", "appearance", "cleansheet", "other")
+
+
+def realized_components(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, ep_model_version: int, scoring_params_version: int,
+    *, player_uids=None,
+) -> dict[str, dict[str, float]]:
+    """{player_uid: {component: realized - predicted}} for this gameweek, for every player with EP
+    outputs under ep_model_version (or those of player_uids) and a non-null event_points. Taken
+    once per player against the gameweek sums (ep_gameweek_outputs), so a double gameweek's
+    fixtures are summed on both sides. Realized appearance, goals, assists and clean sheet come
+    from the match feed fixture by fixture, scored with the scoring matrix; "other" is the rest
+    of event_points (bonus, DefCon, goals conceded, saves, cards), and on the predicted side the
+    rest of ep_total, so the five sum back to the ep_total residual.
+
+    Shared by score_gameweek()'s component calibration metrics and walkforward_summary.py's group
+    cuts, which recompute a group's split after the walk (only per-gameweek segment means are
+    stored) -- docs/plans/2026-10_premium_and_form_returns.md, RQ2."""
+    wanted = None if player_uids is None else set(player_uids)
+    fixtures_of: dict[str, list[str]] = {}
+    position_of: dict[str, str] = {}
+    for player_uid, position, match_id in con.execute(
+        "SELECT o.player_uid, dp.position, o.fixture_match_id "
+        "FROM ep_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid WHERE o.model_version = ?",
+        [ep_model_version],
+    ).fetchall():
+        if wanted is not None and player_uid not in wanted:
+            continue
+        fixtures_of.setdefault(player_uid, []).append(match_id)
+        position_of[player_uid] = position
+    event_points_of = dict(con.execute(
+        "SELECT player_uid, event_points FROM fact_player_season_stats "
+        "WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+        [season, gameweek],
+    ).fetchall())
+    gw_pred = {r[0]: r[1:] for r in con.execute(
+        "SELECT player_uid, ep_total, ep_appearance, ep_goals, ep_assists, ep_clean_sheet "
+        "FROM ep_gameweek_outputs WHERE model_version = ?", [ep_model_version],
+    ).fetchall()}
+    out: dict[str, dict[str, float]] = {}
+    for player_uid, match_ids in fixtures_of.items():
+        realized_pts = event_points_of.get(player_uid)
+        gw_ep_total, gw_ep_app, gw_ep_g, gw_ep_a, gw_ep_cs = gw_pred.get(player_uid, (None,) * 5)
+        if realized_pts is None or gw_ep_total is None:
+            continue
+        position = position_of[player_uid]
+        cs_pts = ep._sm(con, "clean_sheet_points", scoring_params_version, position)
+        goal_pts = ep._sm(con, "goal_points", scoring_params_version, position)
+        assist_pts = ep._sm(con, "assist_points", scoring_params_version)
+        r_app = r_goals = r_assists = r_cs = 0.0
+        for match_id in match_ids:
+            outcome = _realized_player_match_outcome(con, player_uid, match_id)
+            mins = outcome["minutes_played"]
+            r_app += 2.0 if mins >= 60 else (1.0 if mins >= 1 else 0.0)
+            r_goals += outcome["goals"] * (goal_pts or 0.0)
+            r_assists += outcome["assists"] * (assist_pts or 0.0)
+            r_cs += (cs_pts or 0.0) if (outcome["team_goals_conceded"] == 0 and mins >= 60) else 0.0
+        r_other = realized_pts - r_app - r_goals - r_assists - r_cs
+        ep_other = gw_ep_total - gw_ep_app - gw_ep_g - gw_ep_a - gw_ep_cs
+        out[player_uid] = {
+            "goals": r_goals - gw_ep_g, "assists": r_assists - gw_ep_a, "appearance": r_app - gw_ep_app,
+            "cleansheet": r_cs - gw_ep_cs, "other": r_other - ep_other,
+        }
+    return out
+
+
 # ============================================================
 # Priority 9b: segment-tiering. A SEPARATE axis from tier_for()'s time-based cold/warm/mature
 # classification above -- this project's own "realized_goals_assists:{player_uid}" /
@@ -1008,19 +1074,16 @@ def score_gameweek(
     # under-predicts £9.0m+ players by: is it goal rate (shrinkage), bonus (Plackett-Luce spread),
     # or nailed-on minutes? "other" = ep_total - appearance - goals - assists - clean_sheet, i.e.
     # bonus + DefCon + goals-conceded + saves + cards; for a premium attacker it is almost all bonus.
-    comp_resid: dict[str, list[float]] = {k: [] for k in ("goals", "assists", "appearance", "cleansheet", "other")}
+    comp_resid: dict[str, list[float]] = {k: [] for k in COMPONENTS}
     comp_resid_bp: dict[str, list[tuple[str, float]]] = {k: [] for k in comp_resid}
     # event_points is the player's whole gameweek, so the ep_total residual (and its component
-    # split) is taken once per player against the gameweek sums -- a double gameweek's two
-    # fixtures summed on both sides. The per-fixture Bernoulli/Poisson scores below stay per
-    # fixture, each against its own match outcome.
-    fixtures_of_player: dict[str, list[str]] = {}
-    for row in ep_rows:
-        fixtures_of_player.setdefault(row[0], []).append(row[2])
-    gw_pred = {r[0]: r[1:] for r in con.execute(
-        "SELECT player_uid, ep_total, ep_appearance, ep_goals, ep_assists, ep_clean_sheet "
-        "FROM ep_gameweek_outputs WHERE model_version = ?", [ep_model_version],
-    ).fetchall()}
+    # split, realized_components()) is taken once per player against the gameweek sums -- a
+    # double gameweek's two fixtures summed on both sides. The per-fixture Bernoulli/Poisson
+    # scores below stay per fixture, each against its own match outcome.
+    gw_ep_total_of = dict(con.execute(
+        "SELECT player_uid, ep_total FROM ep_gameweek_outputs WHERE model_version = ?", [ep_model_version],
+    ).fetchall())
+    components_of = realized_components(con, season, gameweek, ep_model_version, scoring_params_version)
     residual_done: set[str] = set()
     for player_uid, position, match_id, ep_cs, ep_g, ep_a, ep_total, ep_app in ep_rows:
         outcome = _realized_player_match_outcome(con, player_uid, match_id)
@@ -1030,7 +1093,7 @@ def score_gameweek(
         assist_pts = ep._sm(con, "assist_points", scoring_params_version)
 
         realized_pts = event_points_of.get(player_uid)
-        gw_ep_total, gw_ep_app, gw_ep_g, gw_ep_a, gw_ep_cs = gw_pred.get(player_uid, (None,) * 5)
+        gw_ep_total = gw_ep_total_of.get(player_uid)
         if realized_pts is not None and gw_ep_total is not None and player_uid not in residual_done:
             residual_done.add(player_uid)
             resid = realized_pts - gw_ep_total
@@ -1038,23 +1101,9 @@ def score_gameweek(
             ep_abs.append(abs(resid))
             ep_resid_bp.append((player_uid, resid))
             ep_abs_bp.append((player_uid, abs(resid)))
-
-            r_app = r_goals = r_assists = r_cs = 0.0
-            for fixture_id in fixtures_of_player[player_uid]:
-                fixture_outcome = outcome if fixture_id == match_id else _realized_player_match_outcome(con, player_uid, fixture_id)
-                mins = fixture_outcome["minutes_played"]
-                r_app += 2.0 if mins >= 60 else (1.0 if mins >= 1 else 0.0)
-                r_goals += fixture_outcome["goals"] * (goal_pts or 0.0)
-                r_assists += fixture_outcome["assists"] * (assist_pts or 0.0)
-                r_cs += (cs_pts or 0.0) if (fixture_outcome["team_goals_conceded"] == 0 and mins >= 60) else 0.0
-            r_other = realized_pts - r_app - r_goals - r_assists - r_cs
-            ep_other = gw_ep_total - gw_ep_app - gw_ep_g - gw_ep_a - gw_ep_cs
-            for key, rv, pv in (
-                ("goals", r_goals, gw_ep_g), ("assists", r_assists, gw_ep_a),
-                ("appearance", r_app, gw_ep_app), ("cleansheet", r_cs, gw_ep_cs), ("other", r_other, ep_other),
-            ):
-                comp_resid[key].append(rv - pv)
-                comp_resid_bp[key].append((player_uid, rv - pv))
+            for key, value in components_of[player_uid].items():
+                comp_resid[key].append(value)
+                comp_resid_bp[key].append((player_uid, value))
 
         if cs_pts:
             p_cs = ep_cs / cs_pts

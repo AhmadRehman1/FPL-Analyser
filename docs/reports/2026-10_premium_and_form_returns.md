@@ -1,6 +1,6 @@
 # Premium and in-form attacking returns: where the error is, and what was tested
 
-Oct 11, 2026 · in progress: Phase 1 of docs/plans/2026-10_premium_and_form_returns.md
+Oct 11, 2026 · in progress: Phase 1 done; B2 declared (Phase 2 of docs/plans/2026-10_premium_and_form_returns.md)
 
 ## Rule R5 (agreed 2026-10-11, before any B2 result)
 
@@ -76,4 +76,69 @@ The bonus arms from `docs/reports/2026-10_open_issues.md` (issue 6) were never j
 
 ## Phase 1 results
 
-_Pending the diagnostic run._
+`diagnose_premium_returns.yml`, on the cached DB, ran twice:
+- **run 38128184580** (master), which had defenders in the in-form group;
+- **run 38128511323** (this branch), with midfielders and forwards only. See the group change below.
+
+**H3 is killed, so RQ2b is not applied.** In 2025-26 the match feed's assists equal FPL's exactly.
+- Every band matches, with no player differing; at 9.0m+ both count 57.
+- FPL's per-gameweek counts match the feed on 100% of the 9.0m+ player-gameweeks played (182 of
+  182). Shifting by a week either way drops the match to 66-68%.
+- So the 9.0m+ "other" residual is not FPL-only assists, and the realized split stays on the
+  match feed.
+- **The live 2026-27 season does differ.** FPL counts 1.5x the feed's assists, and per-gameweek
+  agreement is 98%. GW6 is part-played at the data cutoff (6 of 10 matches). The judging season
+  isn't affected, and the live projections read FPL's own season totals.
+
+**H2 holds.** In 2025-26, among players with ≥ 900 minutes, FPL assists per xA were:
+
+| price band | <£5.0m | £5.0-7.0m | £7.0-9.0m | £9.0m+ |
+|---|---|---|---|---|
+| 2025-26 assists / xA | 1.31 | 1.36 | 1.41 | **1.63** (56 / 34.4) |
+| 2025-26 goals / xG | 0.83 | 0.96 | 1.10 | **1.00** (85 / 85.0) |
+| 2024-25 assists / xA (match feed) | 1.05 | 1.15 | 1.21 | 1.38 |
+| 2024-25 goals / xG (match feed) | 0.83 | 1.00 | 1.11 | 1.05 |
+
+- FPL awards more assists than xA in every band, and most for premiums. The model's assist rate
+  is built on xA, which fits the assists residual rising with price (+0.006 / +0.038 / +0.088 /
+  +0.227 in B1's control).
+
+**H1, first half: premiums convert their xG.** Their goals per xG is 1.00 (1.05 in 2024-25), so
+the −0.27 goals residual at 9.0m+ is the model predicting more than xG, not premiums finishing
+badly. B2's `--no-rate-price-anchor` arm decides whether the price anchor is why.
+
+**Bonus is in the raw data.**
+- 2025-26 has a per-gameweek `bonus` column (`By Gameweek/GW*/playerstats.csv` and
+  `player_gameweek_stats.csv`); 2024-25 has it per season only.
+- This round keeps "other" as a residual, as planned. A bonus / non-bonus split is possible later.
+
+**The in-form group, fixed before any arm (2026-10-11).**
+- **Why it changed:** the first run's live group was mostly defenders whose (xG + xA) per 90 rose
+  from about 0.03 to 0.10. That is a ratio of noise on a rate that barely moves their points.
+- **The change:** the group is now midfielders and forwards only (`form_groups.py`, clause c).
+- **2025-26 sizes:** 434 in-form player-steps (592 widened) and 735 cooling (884 widened). The
+  **declared** group is judged.
+- **Live, GW7, in form:** Brobbey, Barry, Le Fée, Xhaka, Rogers, Lewis-Potter, Ødegaard, Groß,
+  Gibbs-White, Sadiki, Mainoo.
+- **Live, GW7, cooling:** among others Palmer, Rice, Wirtz, Semenyo, Havertz and Cunha.
+
+## Batch B2: the existing levers (declared 2026-10-11, before any of its results)
+
+**Batch:** six runs of `branch_walkforward.yml`, all with `--seasons 2025-2026`, on one cached DB.
+Each arm is judged with `compare_arms.py control arm --rule r5 --target <its target>`. RQ2b does
+not apply, so the control is the live model.
+
+| arm | flags | target |
+|---|---|---|
+| control | none | — |
+| finishing prior | `--finishing-prior-xg 10` | 9.0m+ |
+| assist prior | `--assist-prior-xa 30` | 9.0m+ |
+| no anchor | `--no-rate-price-anchor` | 9.0m+ |
+| recency | `--rate-current-season-weight 2 --rate-season-decay 0.5` | in_form |
+| k 450 | `--k-minutes 450` | in_form |
+
+- Every arm also reports the other group and the cooling group.
+- **H1** is decided by the no-anchor arm. **H4** is killed if control's in-form component sum is
+  below 0.15.
+- **If no arm passes,** Phase 4 builds the pooled band conversion (`--band-conversion 20`),
+  since H2 holds.

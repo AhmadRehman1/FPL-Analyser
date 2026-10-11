@@ -17,11 +17,20 @@ the breakout fix, on the same cached DB. (i) and (ii) as above against control; 
 keeps the fix: its breakout residual at most two thirds of the baseline's; (iv) its 2025-26
 minutes log score is better than control's.
 
+With --rule r5 --target <price_band=9.0+ | in_form> (rule R5, docs/plans/
+2026-10_premium_and_form_returns.md, agreed with the project owner 2026-10-11): (i) and (ii) as
+above against control; (iii) the target group's component sum (|appearance| + |goals| +
+|assists| + |clean sheet| + |other|, so errors that cancel still count) at most two thirds of
+control's -- the 9.0m+ price band, or the in-form group (fpl_quant.form_groups: declared, or its
+one widening when control has fewer than form_groups.MIN_GROUP_SIZE player-steps); (iv) the
+breakout group's residual stays at or below BREAKOUT_LIMIT, so the breakout fix isn't undone.
+
 Refuses (exit 2) when any run is incomplete or they weren't made on the same cached DB.
 
 Usage:
     python scripts/compare_arms.py control/walkforward_summary.json arm/walkforward_summary.json [--json]
     python scripts/compare_arms.py control.json arm.json --baseline before_fix.json [--json]
+    python scripts/compare_arms.py control.json arm.json --rule r5 --target in_form [--json]
 """
 
 import json
@@ -32,12 +41,18 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import breakout  # noqa: E402
+from fpl_quant import breakout, form_groups  # noqa: E402
 
 DECIDING_SEASON = "2025-2026"
 POINTS_FLOOR = -0.25
 MAE_TOLERANCE = 0.002
 BREAKOUT_CUT = 2.0 / 3.0
+# R5 (iv): two thirds of the before-fix model's breakout residual, +0.272
+# (docs/reports/2026-10_breakout_players.md, follow-up 2).
+BREAKOUT_LIMIT = 0.182
+TARGET_CUT = 2.0 / 3.0
+TARGETS = ("price_band=9.0+", "in_form")
+COMPONENTS = ("appearance", "goals", "assists", "cleansheet", "other")
 
 
 class Refused(ValueError):
@@ -98,8 +113,72 @@ def _breakout_check(reference: dict, arm: dict) -> dict:
             "control": r_c, "arm": r_a, "limit": BREAKOUT_CUT * r_c}
 
 
-def compare(control: dict, arm: dict, baseline: dict | None = None) -> dict:
+def component_sum(block: dict | None) -> float | None:
+    """A split block's component_abs_sum, or the same sum from its components (summaries written
+    before that key existed carry the components alone)."""
+    if not block:
+        return None
+    if block.get("component_abs_sum") is not None:
+        return block["component_abs_sum"]
+    parts = block.get("components") or block
+    values = [parts.get(c) for c in COMPONENTS]
+    return None if any(v is None for v in values) else sum(abs(v) for v in values)
+
+
+def _target_block(run: dict, target: str, label: str | None = None) -> dict | None:
+    if target == "price_band=9.0+":
+        return (run.get("price_band") or {}).get("9.0+")
+    return ((run.get("form_groups") or {}).get(DECIDING_SEASON) or {}).get(label)
+
+
+def _form_label(control: dict) -> tuple[str | None, str]:
+    """The in-form group to judge on: declared, or its one widening (the group is defined by the
+    data, so its size is the same in every run)."""
+    block = (control.get("form_groups") or {}).get(DECIDING_SEASON) or {}
+    for label in (form_groups.IN_FORM, form_groups.IN_FORM + "_widened"):
+        n = (block.get(label) or {}).get("n_player_steps") or 0
+        if n >= form_groups.MIN_GROUP_SIZE:
+            return label, f"{label} (n={n})"
+    return None, f"in-form group missing or too small in control (< {form_groups.MIN_GROUP_SIZE} even widened)"
+
+
+def _target_check(control: dict, arm: dict, target: str) -> dict:
+    """R5(iii): the target group's component sum at most two thirds of control's."""
+    label, group = None, target
+    if target == "in_form":
+        label, group = _form_label(control)
+        if label is None:
+            return {"pass": False, "group": group, "reason": group}
+    s_c, s_a = component_sum(_target_block(control, target, label)), component_sum(_target_block(arm, target, label))
+    if s_c is None or s_c <= 0:
+        return {"pass": False, "group": group, "reason": f"no component split for {group} in control"}
+    return {"pass": s_a is not None and s_a <= TARGET_CUT * s_c, "group": group,
+            "control": s_c, "arm": s_a, "limit": TARGET_CUT * s_c}
+
+
+def _breakout_limit_check(control: dict, arm: dict) -> dict:
+    """R5(iv): the arm's breakout residual at most BREAKOUT_LIMIT, on the declared breakout group
+    (the limit was set from that group's before-fix residual, so no widening here)."""
+    label = breakout.BREAKOUT
+    n = ((((control.get("breakout") or {}).get(DECIDING_SEASON) or {}).get(label)) or {}).get("n_player_steps") or 0
+    if n < breakout.MIN_GROUP_SIZE:
+        return {"pass": False, "reason": f"declared breakout group too small in control (n={n} < {breakout.MIN_GROUP_SIZE})"}
+    r_a = ((arm.get("breakout") or {}).get(DECIDING_SEASON) or {}).get(label, {}).get("mean_resid")
+    return {"pass": r_a is not None and r_a <= BREAKOUT_LIMIT, "group": f"{label} (n={n})", "arm": r_a, "limit": BREAKOUT_LIMIT}
+
+
+def compare(control: dict, arm: dict, baseline: dict | None = None, *, rule: str = "r4", target: str | None = None) -> dict:
+    if rule == "r5" and (baseline is not None or target not in TARGETS):
+        raise Refused(f"rule r5 takes --target {' or '.join(TARGETS)} and no --baseline")
+    if rule != "r5" and target is not None:
+        raise Refused("--target is rule r5's: pass --rule r5")
     _check_comparable(control, arm, baseline)
+    if target == "price_band=9.0+":
+        # price_band pools every season the run scored: it is 2025-26's only on a 2025-26 run
+        for name, run in (("control", control), ("arm", arm)):
+            other = sorted(set(run.get("headline_by_season") or {}) - {DECIDING_SEASON})
+            if other:
+                raise Refused(f"{name} run also scored {', '.join(other)}: price_band pools seasons; run with --seasons 2025-2026")
     checks = {}
 
     pts = paired_points(control, arm)
@@ -109,6 +188,11 @@ def compare(control: dict, arm: dict, baseline: dict | None = None) -> dict:
     mae_c, mae_a = _headline(control, "ep_total_calibration_mae"), _headline(arm, "ep_total_calibration_mae")
     checks["mae"] = {"pass": mae_a <= mae_c + MAE_TOLERANCE + 1e-12, "control": mae_c, "arm": mae_a,
                      "delta": mae_a - mae_c}
+
+    if rule == "r5":
+        checks["target"] = _target_check(control, arm, target)
+        checks["breakout_limit"] = _breakout_limit_check(control, arm)
+        return {"verdict": "PASS" if all(c["pass"] for c in checks.values()) else "FAIL", "checks": checks}
 
     # R4 judges the cut against control; the follow-up rule against the model before the fix
     checks["breakout"] = _breakout_check(control if baseline is None else baseline, arm)
@@ -131,6 +215,21 @@ def _fmt(result: dict) -> str:
     )
     m = c["mae"]
     lines.append(f"  (ii)  EP MAE  {'pass' if m['pass'] else 'FAIL'}: {m['control']:.4f} -> {m['arm']:.4f} ({m['delta']:+.4f})")
+    if "target" in c:
+        t = c["target"]
+        if "limit" in t:
+            arm_s = "missing" if t["arm"] is None else f"{t['arm']:.4f}"
+            lines.append(f"  (iii) target  {'pass' if t['pass'] else 'FAIL'}: {t['group']} component sum "
+                         f"{t['control']:.4f} -> {arm_s} (limit {t['limit']:.4f})")
+        else:
+            lines.append(f"  (iii) target  FAIL: {t['reason']}")
+        b = c["breakout_limit"]
+        if "limit" in b:
+            arm_r = "missing" if b["arm"] is None else f"{b['arm']:+.4f}"
+            lines.append(f"  (iv)  breakout {'pass' if b['pass'] else 'FAIL'}: {b['group']}: arm {arm_r} (limit {b['limit']:+.4f})")
+        else:
+            lines.append(f"  (iv)  breakout FAIL: {b['reason']}")
+        return "\n".join(lines)
     b = c["breakout"]
     if "limit" in b:
         arm_r = "missing" if b["arm"] is None else f"{b['arm']:+.4f}"
@@ -155,14 +254,23 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         baseline_path = args[i + 1]
         del args[i:i + 2]
+    opts = {}
+    for flag in ("--rule", "--target"):
+        if flag in args:
+            i = args.index(flag)
+            if i + 1 >= len(args):
+                print(__doc__)
+                return 2
+            opts[flag[2:]] = args[i + 1]
+            del args[i:i + 2]
     paths = [a for a in args if a != "--json"]
-    if len(paths) != 2:
+    if len(paths) != 2 or opts.get("rule", "r4") not in ("r4", "r5"):
         print(__doc__)
         return 2
     try:
         control, arm = (json.loads(Path(p).read_text()) for p in paths)
         baseline = json.loads(Path(baseline_path).read_text()) if baseline_path else None
-        result = compare(control, arm, baseline)
+        result = compare(control, arm, baseline, rule=opts.get("rule", "r4"), target=opts.get("target"))
     except Refused as e:
         print(f"REFUSED: {e}")
         return 2
