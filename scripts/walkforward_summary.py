@@ -480,14 +480,19 @@ def summarize(con, run_id: int) -> dict:
     out["form_groups"] = form_group_cuts(con, run_id)
     out["db_cache_key"] = os.environ.get("DB_CACHE_KEY") or None
     # per-gameweek rows so two arms can be compared on the SAME scored steps (an arm can lose
-    # steps, e.g. to the optimizer's divergence check at very low lambda)
+    # steps, e.g. to the optimizer's divergence check at very low lambda). squad_points is the
+    # model squad's own score: beats_real needs the real average manager, which 2024-25 lacks,
+    # so a two-season comparison pairs on squad_points (the same difference where both exist).
     out["per_gameweek"] = [
         {"season": s, "gw": g, "beats_crowd": round(v, 3), "beats_real": None if r is None else round(r, 3),
-         "match_log_lik": None if ll is None else round(ll, 4)}
-        for s, g, v, r, ll in con.execute(
-            "SELECT c.season, c.gameweek, c.metric_value, r.metric_value, ll.metric_value FROM backtest_metrics c "
+         "squad_points": None if sp is None else round(sp, 3), "match_log_lik": None if ll is None else round(ll, 4)}
+        for s, g, v, r, sp, ll in con.execute(
+            "SELECT c.season, c.gameweek, c.metric_value, r.metric_value, sp.metric_value, ll.metric_value "
+            "FROM backtest_metrics c "
             "LEFT JOIN backtest_metrics r ON r.backtest_run_id = c.backtest_run_id AND r.season = c.season "
             "AND r.gameweek = c.gameweek AND r.metric_name = 'beats_real_avg_points_delta' "
+            "LEFT JOIN backtest_metrics sp ON sp.backtest_run_id = c.backtest_run_id AND sp.season = c.season "
+            "AND sp.gameweek = c.gameweek AND sp.metric_name = 'model_squad_realized_points' "
             "LEFT JOIN backtest_metrics ll ON ll.backtest_run_id = c.backtest_run_id AND ll.season = c.season "
             "AND ll.gameweek = c.gameweek AND ll.metric_name = 'match_score_log_lik_mean' "
             "WHERE c.backtest_run_id = ? AND c.metric_name = 'beats_crowd_points_delta' "
