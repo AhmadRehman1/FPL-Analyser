@@ -158,3 +158,9 @@ def test_league_only_minutes_rates_flag_maps_to_a_scope_version(con):
     assert set(out) == {"minutes_rates_scope_params_version"}
     value, _ = params_mod.resolve_param(con, "minutes_rates_scope_params", "league_only", out["minutes_rates_scope_params_version"])
     assert value == 1.0
+
+
+def test_band_conversion_flag_maps_to_a_param_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--band-conversion", "20"]))
+    k, _ = params_mod.resolve_param(con, "conversion_params", "pseudo_xg", out["conversion_params_version"])
+    assert k == 20.0
