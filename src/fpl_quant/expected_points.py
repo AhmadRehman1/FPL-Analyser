@@ -339,6 +339,11 @@ def _memo_get(memo: dict | None, key: tuple, compute):
 #                          player's pool, so this season's evidence counts for more
 #   season_decay           the weight of each season further back (0.5: last season half, the
 #                          one before a quarter)
+#   anchor_goals           optional (a bundle without it reads 1): 0 keeps the price anchor for
+#                          assists but shrinks goals toward the position average. The 2026-10
+#                          premium round found the anchor over-predicts premium goals (-0.27 a
+#                          player-gameweek at 9.0m+; -0.10 with no anchor) while assists stay short
+#                          (docs/reports/2026-10_premium_and_form_returns.md)
 # Live since 2026-10-07 as v1: the price anchor alone (docs/reports/2026-10_rate_prior.md). In the
 # walk-forward it cut the EP error (2025-26 MAE 1.093 -> 1.083, the 9.0+ under-prediction +0.54 ->
 # +0.07) and kept the squad's points (+0.59 +/- 0.71 a gameweek against FPL's real average). The
@@ -366,11 +371,17 @@ def resolve_rate_prior(con: duckdb.DuckDBPyConnection, rate_prior_params_version
         key: params_mod.resolve_param(con, "rate_prior_params", key, rate_prior_params_version)[0]
         for key in RATE_PRIOR_KEYS
     }
-    return {
+    out = {
         "price_anchor": bool(values["price_anchor"]),
         "current_season_weight": float(values["current_season_weight"]),
         "season_decay": float(values["season_decay"]),
     }
+    try:
+        anchor_goals, _ = params_mod.resolve_param(con, "rate_prior_params", "anchor_goals", rate_prior_params_version)
+    except params_mod.ParamNotFoundError:  # a bundle written before the key existed: goals anchored
+        return out
+    out["anchor_goals"] = bool(anchor_goals)
+    return out
 
 
 def season_weights_for(season_priority: list[str], rate_prior: dict | None) -> dict[str, float] | None:
@@ -446,6 +457,8 @@ def player_rates_shrunk(
         price = _memo_get(memo, ("latest_prices",), lambda: minutes_mod.latest_price_by_player(con)).get(player_uid)
         if fits is not None and price is not None:
             for key, (intercept, slope, pivot) in fits.items():
+                if key == "expected_goals_per_90" and not rate_prior.get("anchor_goals", True):
+                    continue  # goals keep the position average
                 anchor[key] = max(intercept + slope * (price - pivot), 0.0)
     k = _resolve_shrinkage_k(con, rate_shrinkage_params_version)
     rates = {

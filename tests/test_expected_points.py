@@ -1103,3 +1103,33 @@ def test_resolve_band_conversion_is_none_when_off(con):
     ep.params_mod.write_param(con, "conversion_params", 1, "2026-10-11", "pseudo_xg", value_numeric=20.0)
     assert ep.resolve_band_conversion(con, 1) == 20.0
     assert "conversion_params_version" in ep.RECIPE_KEYS
+
+
+def test_goals_only_anchor_off_keeps_the_assist_anchor(con):
+    """anchor_goals 0 (round 2 of docs/reports/2026-10_premium_and_form_returns.md): goals shrink
+    toward the position average as with no anchor, assists keep the price anchor."""
+    for uid, r90, price in (("f5", 0.20, 5.0), ("f6", 0.30, 6.0), ("f8", 0.45, 8.0), ("f12", 0.80, 12.0)):
+        _priced_forward(con, uid, xg=r90 * 3000 / 90, minutes=3000, price=price)
+        con.execute("UPDATE fact_player_season_stats SET expected_assists = expected_goals / 2, "
+                    "expected_assists_per_90 = expected_goals_per_90 / 2 WHERE player_uid = ?", [uid])
+    _priced_forward(con, "thin_premium", xg=2.5, minutes=450, price=12.5)
+    con.execute("UPDATE fact_player_season_stats SET expected_assists = 1.25, expected_assists_per_90 = 0.25 "
+                "WHERE player_uid = 'thin_premium'")
+    seasons = ["2025-2026"]
+    off = ep.player_rates_shrunk(con, "thin_premium", "Forward", seasons)
+    on = ep.player_rates_shrunk(con, "thin_premium", "Forward", seasons, rate_prior=_ANCHOR)
+    goals_off = ep.player_rates_shrunk(con, "thin_premium", "Forward", seasons, rate_prior={**_ANCHOR, "anchor_goals": False})
+    assert goals_off["expected_goals_per_90"] == pytest.approx(off["expected_goals_per_90"])
+    assert goals_off["expected_assists_per_90"] == pytest.approx(on["expected_assists_per_90"])
+    assert on["expected_assists_per_90"] != pytest.approx(off["expected_assists_per_90"])
+
+
+def test_resolve_rate_prior_reads_anchor_goals_only_when_the_bundle_has_it(con):
+    v1 = params_mod.get_or_create_bundle_version(con, "rate_prior_params", ep.LIVE_RATE_PRIOR, "2026-10-07")
+    assert "anchor_goals" not in ep.resolve_rate_prior(con, v1)
+    v2 = params_mod.get_or_create_bundle_version(
+        con, "rate_prior_params", {**ep.LIVE_RATE_PRIOR, "anchor_goals": 0.0}, "2026-10-11",
+    )
+    assert v2 != v1
+    assert ep.resolve_rate_prior(con, v2) == {"price_anchor": True, "current_season_weight": 1.0,
+                                              "season_decay": 1.0, "anchor_goals": False}
