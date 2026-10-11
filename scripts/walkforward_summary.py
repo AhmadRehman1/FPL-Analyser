@@ -9,7 +9,9 @@ captain counterfactuals: what the same XI's captain would have scored under othe
 as do the in-form and cooling groups (fpl_quant.form_groups, docs/plans/
 2026-10_premium_and_form_returns.md) split by component, and every split block carries a
 component_abs_sum (|appearance| + |goals| + |assists| + |clean sheet| + |other|, the sum rule R5
-judges in scripts/compare_arms.py). db_cache_key (env DB_CACHE_KEY, the restored cache) lets scripts/compare_arms.py refuse to
+judges in scripts/compare_arms.py). minutes_states_by_price_band sets the minutes model's states
+(start, substitute appearance, 1-59, 60+) against what happened, by price band and start
+probability. db_cache_key (env DB_CACHE_KEY, the restored cache) lets scripts/compare_arms.py refuse to
 compare runs made on different DBs.
 
 Usage (from repo root, after scripts/run_walkforward.py):
@@ -58,6 +60,12 @@ def _mean_metric(con, run_id, name, tier=None, season=None):
     return (round(avg, 4) if avg is not None else None), n
 
 
+_BAND_SQL = (
+    "CASE WHEN f.now_cost < 5.0 THEN '<5.0' WHEN f.now_cost < 7.0 THEN '5.0-7.0' "
+    "WHEN f.now_cost < 9.0 THEN '7.0-9.0' ELSE '9.0+' END"
+)
+
+
 def minutes_prior_by_price_band(con, run_id) -> dict:
     """{season: {tier: {band: {...}}}}: the minutes model's mean start prior
     (p_start_historical_final, before evidence and fitness), its final p_start, and the share
@@ -65,10 +73,9 @@ def minutes_prior_by_price_band(con, run_id) -> dict:
     whether a start prior sits where it should, e.g. premiums at the 2024-25 cold start
     (docs/reports/2026-10_open_issues.md, issue 4: Salah at 0.57)."""
     rows = con.execute(
-        """
+        f"""
         SELECT s.season, s.tier,
-               CASE WHEN f.now_cost < 5.0 THEN '<5.0' WHEN f.now_cost < 7.0 THEN '5.0-7.0'
-                    WHEN f.now_cost < 9.0 THEN '7.0-9.0' ELSE '9.0+' END AS band,
+               {_BAND_SQL} AS band,
                avg(m.p_start_historical_final), avg(m.p_start_final),
                avg(CASE WHEN EXISTS (
                    SELECT 1 FROM fact_player_match_stats pm JOIN fact_match fm ON fm.match_id = pm.match_id
@@ -90,6 +97,77 @@ def minutes_prior_by_price_band(con, run_id) -> dict:
             "p_start_prior": round(prior, 3), "p_start_final": round(final, 3),
             "started_share": round(started, 3), "n": n,
         }
+    return out
+
+
+# p_start_final buckets for minutes_states_by_price_band: squad players who rarely start, rotation
+# players, regular starters.
+START_BUCKETS = (("<0.1", 0.0, 0.1), ("0.1-0.5", 0.1, 0.5), ("0.5+", 0.5, 1.01))
+
+
+def minutes_states_by_price_band(con, run_id) -> dict:
+    """{season: {band: {bucket: {...}}}}: the minutes model's states against what happened, one row
+    per player-fixture the step predicted (ep_outputs), by price band and by p_start_final bucket
+    (START_BUCKETS, plus "all"). EP's appearance points are 1 x p_1_59 + 2 x p_60plus, so
+    appearance_resid (realized minus predicted appearance points) says which state carries a
+    band's appearance error. p_sub is p_used_as_sub_given_not_started over the fixtures the
+    player did not start, against the share of those he came on in. A fixture with no match row
+    is 0 minutes (an unused or absent player), as the backtest scores it."""
+    rows = con.execute(
+        f"""
+        WITH fx AS (
+            SELECT s.season, {_BAND_SQL} AS band, m.p_start_final AS p_start,
+                   m.p_used_as_sub_given_not_started AS p_sub, m.p_1_59min AS p1, m.p_60plus_min AS p2,
+                   coalesce(pm.start_min = 0, FALSE) AS started,
+                   coalesce(pm.minutes_played, 0) AS mins
+            FROM backtest_gameweek_steps s
+            JOIN ep_outputs o ON o.model_version = s.ep_model_version
+            JOIN minutes_model_outputs m ON m.model_version = s.mm_model_version AND m.player_uid = o.player_uid
+            JOIN fact_player_season_stats f ON f.player_uid = o.player_uid AND f.season = s.season AND f.gw = s.gameweek
+            LEFT JOIN fact_player_match_stats pm ON pm.player_uid = o.player_uid AND pm.match_id = o.fixture_match_id
+            WHERE s.backtest_run_id = ? AND f.now_cost IS NOT NULL
+        )
+        SELECT season, band, p_start, p_sub, p1, p2, started, mins FROM fx
+        """,
+        [run_id],
+    ).fetchall()
+    sums: dict = {}
+    for season, band, p_start, p_sub, p1, p2, started, mins in rows:
+        bucket = next(name for name, lo, hi in START_BUCKETS if lo <= p_start < hi)
+        realized_1_59 = 0 < mins < 60
+        realized_60 = mins >= 60
+        for key in (bucket, "all"):
+            acc = sums.setdefault(season, {}).setdefault(band, {}).setdefault(key, {
+                "n": 0, "p_start": 0.0, "started": 0, "p_1_59": 0.0, "share_1_59": 0, "p_60plus": 0.0,
+                "share_60plus": 0, "appearance_resid": 0.0, "n_not_started": 0, "p_sub": 0.0, "sub_share": 0,
+            })
+            acc["n"] += 1
+            acc["p_start"] += p_start
+            acc["started"] += started
+            acc["p_1_59"] += p1
+            acc["share_1_59"] += realized_1_59
+            acc["p_60plus"] += p2
+            acc["share_60plus"] += realized_60
+            acc["appearance_resid"] += (realized_1_59 + 2 * realized_60) - (p1 + 2 * p2)
+            if not started:
+                acc["n_not_started"] += 1
+                acc["p_sub"] += p_sub
+                acc["sub_share"] += mins > 0
+    out: dict = {}
+    for season, bands in sums.items():
+        for band, buckets in bands.items():
+            for key, acc in buckets.items():
+                n, n_ns = acc["n"], acc["n_not_started"]
+                out.setdefault(season, {}).setdefault(band, {})[key] = {
+                    "n": n,
+                    "p_start": round(acc["p_start"] / n, 3), "started_share": round(acc["started"] / n, 3),
+                    "p_1_59": round(acc["p_1_59"] / n, 3), "share_1_59": round(acc["share_1_59"] / n, 3),
+                    "p_60plus": round(acc["p_60plus"] / n, 3), "share_60plus": round(acc["share_60plus"] / n, 3),
+                    "appearance_resid": round(acc["appearance_resid"] / n, 4),
+                    "n_not_started": n_ns,
+                    "p_sub": round(acc["p_sub"] / n_ns, 3) if n_ns else None,
+                    "sub_share": round(acc["sub_share"] / n_ns, 3) if n_ns else None,
+                }
     return out
 
 
@@ -392,6 +470,7 @@ def summarize(con, run_id: int) -> dict:
         out["price_band"][band]["brier_minutes"] = _mean_metric(con, run_id, f"brier_minutes_mean:price_band={band}")[0]
         out["price_band"][band]["component_abs_sum"] = component_abs_sum(out["price_band"][band])
     out["minutes_prior_by_price_band"] = minutes_prior_by_price_band(con, run_id)
+    out["minutes_states_by_price_band"] = minutes_states_by_price_band(con, run_id)
     out["promoted_clubs"] = promoted_club_cuts(con, run_id)
     for pos in ("Goalkeeper", "Defender", "Midfielder", "Forward"):
         out["position"][pos] = _mean_metric(con, run_id, f"ep_total_calibration_mean_resid:position={pos}")[0]
