@@ -1,0 +1,55 @@
+name: Diagnose premium and in-form returns (cached DB)
+
+# docs/plans/2026-10_premium_and_form_returns.md, Phase 1: FPL vs match-feed assists, goals per xG
+# and assists per xA by price band, raw bonus columns, in-form / cooling group sizes and the
+# per-gameweek assist alignment check, on the most recent cached ingested DB (the same restore as
+# branch_walkforward.yml). Uploads the JSON; commits nothing.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      - name: Fail if no cached DB was restored
+        if: ${{ steps.cache.outputs.cache-matched-key == '' }}
+        run: |
+          echo "::error::no cached DB to diagnose"
+          exit 1
+
+      - name: Diagnose
+        run: |
+          set -o pipefail
+          echo "db cache: ${{ steps.cache.outputs.cache-matched-key }}" >> "$GITHUB_STEP_SUMMARY"
+          PYTHONPATH=src python scripts/diagnose_premium_returns.py | tee diagnose_premium_returns.json
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat diagnose_premium_returns.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: diagnose-premium-returns
+          path: diagnose_premium_returns.json
