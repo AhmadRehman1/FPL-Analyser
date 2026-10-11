@@ -428,7 +428,7 @@ def price_anchor_fits(
 def player_rates_shrunk(
     con: duckdb.DuckDBPyConnection, player_uid: str, position: str, season_priority: list[str],
     rate_shrinkage_params_version: int | None = None, finishing_prior_xg: float | None = None,
-    *, memo: dict | None = None, rate_prior: dict | None = None,
+    *, memo: dict | None = None, rate_prior: dict | None = None, band_conversion_k: float | None = None,
 ) -> dict:
     seasons = list(season_priority)
     weights = season_weights_for(seasons, rate_prior)
@@ -459,7 +459,85 @@ def player_rates_shrunk(
         )
         rates["expected_goals_per_90"] *= goal_ratio
         rates["expected_assists_per_90"] *= assist_ratio
+    if band_conversion_k is not None:
+        earlier = sorted(set(seasons), reverse=True)[1:]
+        ratios = _memo_get(
+            memo, ("band_conversion", tuple(earlier), band_conversion_k),
+            lambda: band_conversion_ratios(con, earlier, band_conversion_k),
+        )
+        price = _memo_get(memo, ("latest_prices",), lambda: minutes_mod.latest_price_by_player(con)).get(player_uid)
+        goal_ratio, assist_ratio = ratios.get((position, minutes_mod.price_band(price)), (1.0, 1.0))
+        rates["expected_goals_per_90"] *= goal_ratio
+        rates["expected_assists_per_90"] *= assist_ratio
     return rates
+
+
+# Pooled band conversion (docs/plans/2026-10_premium_and_form_returns.md, Phase 4; opt-in,
+# conversion_params / pseudo_xg, None = off). FPL awards more assists than xA implies in every
+# price band, most at 9.0m+ (2025-26: 1.31 to 1.63), and goals per xG run from 0.83 below 5.0m to
+# 1.10 at 7.0-9.0m. Each position and band's goal and assist rates are scaled by its pooled
+# conversion in the seasons before the one being predicted:
+#     r_goals = (sum FPL goals + K) / (sum xG + K),  r_assists = (sum FPL assists + K) / (sum xA + K)
+# Pooling a whole band, not a player (finishing_ratios), keeps one premium's small sample from
+# driving it; fpl_assist_ratio_by_position (--assist-prior-xa) pools a whole position, so it
+# raises cheap players' assists as much as premiums'.
+
+
+def band_conversion_ratios(
+    con: duckdb.DuckDBPyConnection, seasons: list[str], pseudo_xg: float,
+) -> dict[tuple[str, str], tuple[float, float]]:
+    """{(position, price band): (r_goals, r_assists)} over `seasons`. Each player counts once per
+    season, from his last row: FPL season totals where the season has them (2025-26 onward);
+    2024-25's rows carry per-90 rates only, so its goals and assists come from the match feed and
+    its xG / xA from the per-90 rates times match-feed minutes, as finishing_ratios() reads them.
+    The band is the player's price on that row. A band with no players is absent (ratio 1)."""
+    sums: dict[tuple[str, str], list[float]] = {}
+    for season in seasons:
+        rows = con.execute(
+            "SELECT f.player_uid, dp.position, f.now_cost, f.minutes, f.goals_scored, f.assists, f.expected_goals, "
+            "f.expected_assists, f.expected_goals_per_90, f.expected_assists_per_90 "
+            "FROM fact_player_season_stats f JOIN dim_player dp ON dp.player_uid = f.player_uid "
+            "WHERE f.season = ? QUALIFY row_number() OVER (PARTITION BY f.player_uid ORDER BY f.gw DESC) = 1",
+            [season],
+        ).fetchall()
+        feed = None
+        for uid, position, cost, minutes, goals, assists, xg, xa, xg90, xa90 in rows:
+            band = minutes_mod.price_band(cost)
+            if position not in POSITIONS or band is None:
+                continue
+            if goals is not None and xg is not None:
+                g, a, eg, ea = float(goals), float(assists or 0), float(xg), float(xa or 0.0)
+            elif xg90 is not None or xa90 is not None:
+                if feed is None:
+                    feed = {r[0]: r[1:] for r in con.execute(
+                        "SELECT player_uid, sum(coalesce(minutes_played, 0)), sum(coalesce(goals, 0)), "
+                        "sum(coalesce(assists, 0)) FROM fact_player_match_stats WHERE season = ? GROUP BY player_uid",
+                        [season],
+                    ).fetchall()}
+                mins, fg, fa = feed.get(uid, (0, 0, 0))
+                if not mins:
+                    continue
+                g, a = float(fg), float(fa)
+                eg, ea = (xg90 or 0.0) * float(mins) / 90.0, (xa90 or 0.0) * float(mins) / 90.0
+            else:
+                continue
+            acc = sums.setdefault((position, band), [0.0, 0.0, 0.0, 0.0])
+            acc[0] += g
+            acc[1] += eg
+            acc[2] += a
+            acc[3] += ea
+    return {
+        key: ((g + pseudo_xg) / (eg + pseudo_xg), (a + pseudo_xg) / (ea + pseudo_xg))
+        for key, (g, eg, a, ea) in sums.items()
+    }
+
+
+def resolve_band_conversion(con: duckdb.DuckDBPyConnection, conversion_params_version: int | None) -> float | None:
+    """The band conversion's pseudo-count K, or None when off."""
+    if conversion_params_version is None:
+        return None
+    value, _ = params_mod.resolve_param(con, "conversion_params", "pseudo_xg", conversion_params_version)
+    return float(value)
 
 
 def defcon_in_force(season: str | None) -> bool:
@@ -1162,10 +1240,11 @@ def compute_player_fixture_components(
     memo: dict | None = None,
     bps_calibration_k: float | None = None,
     rate_prior: dict | None = None,
+    band_conversion_k: float | None = None,
 ) -> dict:
     rates = player_rates_shrunk(
         con, player_uid, position, season_priority, rate_shrinkage_params_version, finishing_prior_xg=finishing_prior_xg,
-        memo=memo, rate_prior=rate_prior,
+        memo=memo, rate_prior=rate_prior, band_conversion_k=band_conversion_k,
     )
     def_rates = _defensive_action_rates_per_90(
         con, player_uid, position, season_priority, rate_shrinkage_params_version, memo=memo,
@@ -1292,6 +1371,7 @@ RECIPE_KEYS = (
     "set_piece_params_version", "fixture_params_version",
     "rate_shrinkage_params_version", "assist_calibration_params_version",
     "finishing_skill_params_version", "bps_calibration_params_version", "rate_prior_params_version",
+    "conversion_params_version",
 )
 
 
@@ -1328,7 +1408,10 @@ def run(
     memo: dict | None = None,
     bps_calibration_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
+    conversion_params_version: int | None = None,
 ) -> int:
+    # conversion_params_version (opt-in, None = off): the pooled band conversion -- see
+    # band_conversion_ratios().
     # rate_prior_params_version (None = off; live since 2026-10-07, every caller passes
     # active_recalibratable_versions()'s): the price anchor and season recency on each player's
     # goal/assist rates -- see the rate prior block above player_rates_shrunk().
@@ -1357,6 +1440,7 @@ def run(
     finishing_prior_xg = resolve_finishing_prior(con, finishing_skill_params_version)
     bps_calibration_k = resolve_bps_calibration(con, bps_calibration_params_version)
     rate_prior = resolve_rate_prior(con, rate_prior_params_version)
+    band_conversion_k = resolve_band_conversion(con, conversion_params_version)
     # end-of-day, not start-of-day: same "as of this date" convention minutes_model.run()
     # already established -- a claim ingested at 09:34 on the asof date itself is legitimately
     # knowable "as of" that date. Only used when set_piece_params_version opts the uplift in.
@@ -1384,15 +1468,15 @@ def run(
              scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
              assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-             rate_prior_params_version, recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             rate_prior_params_version, conversion_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version,
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
          assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-         rate_prior_params_version],
+         rate_prior_params_version, conversion_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -1434,6 +1518,7 @@ def run(
                     memo=memo,
                     bps_calibration_k=bps_calibration_k,
                     rate_prior=rate_prior,
+                    band_conversion_k=band_conversion_k,
                 )
                 comp["player_uid"] = player_uid
                 fixture_rows.append(comp)

@@ -398,7 +398,7 @@ Count: 4 of 14.
       Covers lines to a blind critic (fresh sub-agent if available, else a fresh-eyes reread).
       The critic defaults to FAIL and returns PASS/FAIL, strengths, weaknesses and fixes. Apply
       blocker fixes and repeat, max 3 rounds. Done only on PASS.
-- [ ] Phase 3: Batch B2 - existing levers
+- [x] Phase 3: Batch B2 - existing levers
       Done when: all 6 runs complete on one `db_cache_key` with `progress.complete`. Each arm is
       judged with `compare_arms.py --rule r5`, and the report has the table plus the H1 and H4
       verdicts.
@@ -426,8 +426,9 @@ Count: 4 of 14.
         - Formula: for position p and price band b, over earlier loaded seasons' players in (p, b),
           `r_goals = (Σ FPL goals + K) / (Σ xG + K)` and `r_assists = (Σ FPL assists + K) / (Σ xA + K)`.
         - Applied after shrinkage: `e_goals *= r_goals`, `e_assists *= r_assists`.
-        - How it differs from `--assist-prior-xa`: it pools a whole band, so one premium's small
-          sample can't drive it, and it moves goals and assists together.
+        - How it differs from `--assist-prior-xa`, which pools a whole position (B2 showed it lifts
+          cheap players' assists as much as premiums'): it pools each price band within a position,
+          and it moves goals and assists together.
         - Inputs per earlier season are read the way `finishing_ratios()` reads them:
           - **2025-26+:** FPL season totals.
           - **2024-25:** match-feed goals and assists, and per-90 xG/xA × match minutes. That

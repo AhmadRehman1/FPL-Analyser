@@ -142,3 +142,80 @@ not apply, so the control is the live model.
   below 0.15.
 - **If no arm passes,** Phase 4 builds the pooled band conversion (`--band-conversion 20`),
   since H2 holds.
+
+### Result: no B2 arm passes R5
+
+**The batch.** It ran at 09:57 UTC on 2026-10-11 on master 1fc1bba. All six runs used cached DB
+`duckdb-38085065975` (the same as B1), all were complete (38 of 38 steps), and each was mapped to
+its arm by the `ARGS:` log line. Run ids:
+- control: 38130203928
+- finishing prior: 38130205472
+- assist prior: 38130206727
+- no anchor: 38130208017
+- recency: 38130209466
+- k 450: 38130210836
+
+| 2025-26 | control | finishing prior | assist prior | no anchor | recency | k 450 |
+|---|---|---|---|---|---|---|
+| target | — | 9.0m+ | 9.0m+ | 9.0m+ | in_form | in_form |
+| (i) squad pts vs control (m ± SE a GW) | — | −0.70 ± 1.21 ✘ | −0.03 ± 0.59 ✔ | **+1.32 ± 1.01** ✔ | −0.30 ± 1.51 ✘ | −0.22 ± 0.83 ✔ |
+| (ii) EP MAE (limit 1.0685) | 1.0665 | 1.0679 ✔ | 1.0748 ✘ | 1.0771 ✘ | 1.0656 ✔ | 1.0671 ✔ |
+| (iii) target component sum | 9.0m+ 0.661, in_form 0.343 | 0.591 ✘ (limit 0.441) | 0.521 ✘ | 0.564 ✘ | 0.281 ✘ (limit 0.229) | 0.375 ✘ |
+| (iv) breakout residual (limit +0.182) | +0.108 | +0.102 ✔ | +0.064 ✔ | +0.086 ✔ | +0.111 ✔ | +0.099 ✔ |
+| overall mean residual | −0.099 | −0.104 | −0.122 | −0.114 | −0.097 | −0.101 |
+| captain pts/GW | 5.89 | 5.46 | 5.97 | 5.84 | 5.87 | 5.68 |
+
+Where each arm moved the error (residual = realized − predicted; one component per row):
+
+| 2025-26 residual | control | finishing | assist | no anchor | recency | k 450 |
+|---|---|---|---|---|---|---|
+| 9.0m+ goals | −0.267 | −0.285 | −0.267 | **−0.102** | −0.260 | −0.261 |
+| 9.0m+ assists | +0.227 | +0.151 | **+0.094** | +0.265 | +0.244 | +0.228 |
+| 9.0m+ other (bonus etc.) | +0.157 | +0.145 | +0.150 | +0.187 | +0.150 | +0.158 |
+| in-form goals | +0.073 | +0.076 | +0.073 | +0.070 | **−0.013** | +0.084 |
+| in-form assists | +0.133 | +0.124 | **+0.044** | +0.131 | +0.117 | +0.134 |
+| price band <5.0 total | −0.164 | −0.163 | −0.173 | −0.188 | −0.166 | −0.167 |
+| price band 5.0-7.0 total | −0.013 | −0.019 | −0.054 | −0.028 | −0.007 | −0.018 |
+
+**H1 holds: the price anchor overshoots premium goals.**
+- Removing the anchor cuts the 9.0m+ goals over-prediction from −0.27 to −0.10, and squad points
+  rise +1.32 ± 1.01 a gameweek.
+- But premium assists and bonus get worse, and cheap players are over-predicted more. So the EP
+  error rises (+0.011) and the arm fails (ii) and (iii).
+- The anchor tilts goals too steeply and assists too gently.
+
+**H4 holds: in-form starters are under-predicted.** Control's in-form residual is +0.195 (component
+sum 0.343, above 0.15). Assists are +0.133, goals +0.073 and appearance +0.063.
+- Recency removes the in-form goals part (+0.073 → −0.013), but not the assists, and its points
+  are just below the floor.
+- k 450 changes almost nothing for this group.
+
+**The assist calibration fixes assists everywhere but lifts everyone.**
+- `--assist-prior-xa 30` pools FPL assists per xA by position (1.3-1.6 in every band), not per
+  player as the plan's text said.
+- It cuts the assist error at 9.0m+ (+0.227 → +0.094), in form (+0.133 → +0.044) and in the
+  breakout group (+0.108 → +0.064).
+- But it also raises cheap players' assists, and the model already over-predicts them (<£5.0m
+  −0.164, overall −0.099). EP MAE rises by 0.008.
+
+**What this says about the next lever.**
+- The model has to move *by price*: more for 7.0m+ players, less for cheap ones. A uniform lift
+  (assist prior) or a uniform cut (finishing prior) loses on MAE.
+- MAE also penalizes any mean-correcting lift in a skewed points distribution, which the rule
+  should keep in mind.
+
+## Phase 4, batch B3 (declared 2026-10-11, before any of its results)
+
+No B2 arm passed and H1 and H2 hold, so the plan's Phase 4 lever is built: the pooled band
+conversion (`--band-conversion 20`, `conversion_params` / `pseudo_xg`).
+- **What it does:** each position and price band's goal and assist rates are scaled by that band's
+  `(goals + 20) / (xG + 20)` and `(assists + 20) / (xA + 20)` in the seasons before the one
+  predicted.
+- **Inputs:** FPL totals from 2025-26 onward. 2024-25 uses the match feed and per-90 xG/xA ×
+  match minutes, and a test checks the ratio isn't stuck at 1.
+- **For 2025-26 steps** the earlier season is 2024-25, whose ratios are goals/xG 0.83 (<£5.0m) to
+  1.11 (£7.0-9.0m) and assists/xA 1.05 to 1.38. So it lowers cheap players' goals and lifts
+  premium assists most: the tilt B2 points to.
+- **Batch:** control and `--band-conversion 20`, `--seasons 2025-2026`, one cached DB.
+- **Target:** 9.0m+, judged with `compare_arms.py --rule r5 --target price_band=9.0+`.
+- **In-form:** it is reported but does not decide.

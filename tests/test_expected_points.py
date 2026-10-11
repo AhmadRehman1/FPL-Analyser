@@ -119,7 +119,7 @@ def test_non_double_counting_audit_covers_cbi_per_spec_example():
 # (grepped the whole src/ tree before wiring this in).
 # ============================================================
 
-from datetime import date, datetime, timezone  # noqa: E402
+from datetime import date, datetime, timedelta, timezone  # noqa: E402
 
 
 def _seed_source_and_claim(con, player_uid, duty, order, observed_date=date(2026, 8, 1)):
@@ -1026,3 +1026,80 @@ def test_finishing_ratio_report_counts_players_on_the_clamp(con):
     assert report["goals"]["at_cap"] == 1 and report["goals"]["capped_players"] == ["hot"]
     assert report["goals"]["at_floor"] == 1               # (0 + 2) / (20 + 2) is under 1/2
     assert report["assists"]["n"] == 0
+
+
+# ---- pooled band conversion (docs/plans/2026-10_premium_and_form_returns.md, Phase 4) ----
+
+def _band_row(con, uid, position, season, cost, **cols):
+    con.execute(
+        "INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+        [uid, uid, position],
+    )
+    names = ["player_uid", "season", "gw", "now_cost", "_ingested_at", *cols]
+    con.execute(
+        f"INSERT INTO fact_player_season_stats ({', '.join(names)}) VALUES ({', '.join('?' * len(names))})",
+        [uid, season, 38, cost, datetime(2026, 1, 1), *cols.values()],
+    )
+
+
+def _old_season_feed(con, uid, goals, assists, matches=20):
+    """2024-25's real shape: the match feed holds the goals, assists and minutes."""
+    for team in ("team_a", "team_b"):
+        con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?) ON CONFLICT DO NOTHING", [team, team])
+    for i in range(matches):
+        mid = f"old_{uid}_{i}"
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, home_score, "
+            "away_score, finished, competition, _ingested_at) VALUES (?, '2024-2025', ?, ?, 'team_a', 'team_b', 1, 0, TRUE, "
+            "'Premier League', ?)", [mid, i + 1, datetime(2024, 8, 17) + timedelta(days=7 * i), datetime(2026, 1, 1)],
+        )
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, minutes_played, goals, assists, "
+            "_ingested_at) VALUES (?, ?, '2024-2025', 0, 90, ?, ?, ?)",
+            [uid, mid, int(i < goals), int(i < assists), datetime(2026, 1, 1)],
+        )
+
+
+def test_band_conversion_ratios_use_fpl_totals_and_rebuild_2024_25_from_the_feed(con):
+    _band_row(con, "prem", "Forward", "2025-2026", 10.0, minutes=3000, goals_scored=20, expected_goals=20.0,
+              assists=15, expected_assists=10.0)
+    _band_row(con, "cheap", "Defender", "2025-2026", 4.5, minutes=3000, goals_scored=1, expected_goals=2.0,
+              assists=3, expected_assists=2.0)
+    out = ep.band_conversion_ratios(con, ["2025-2026"], 10.0)
+    assert out[("Forward", "9.0+")] == pytest.approx((30 / 30, 25 / 20))
+    assert out[("Defender", "<5.0")] == pytest.approx((11 / 12, 13 / 12))
+    assert ("Midfielder", "9.0+") not in out
+    # 2024-25: NULL totals. Goals and assists from the feed (14 and 10 over 20 x 90 minutes), xG and
+    # xA from the per-90 rates x those minutes (10 and 5). A literal read of the NULL totals would
+    # give K / K = 1: a lever that silently does nothing.
+    _band_row(con, "old", "Forward", "2024-2025", 9.5, expected_goals_per_90=0.5, expected_assists_per_90=0.25)
+    _old_season_feed(con, "old", goals=14, assists=10)
+    g, a = ep.band_conversion_ratios(con, ["2024-2025"], 10.0)[("Forward", "9.0+")]
+    assert (g, a) == pytest.approx((24 / 20, 20 / 15))
+    assert g != 1.0 and a != 1.0
+
+
+def test_player_rates_shrunk_applies_the_band_conversion_from_earlier_seasons(con):
+    _band_row(con, "old", "Forward", "2024-2025", 9.5, expected_goals_per_90=0.5, expected_assists_per_90=0.25)
+    _old_season_feed(con, "old", goals=14, assists=10)
+    _band_row(con, "old", "Forward", "2025-2026", 9.5, minutes=900, goals_scored=5, expected_goals=4.0,
+              assists=2, expected_assists=2.0)
+    seasons = ["2025-2026", "2024-2025"]
+    off = ep.player_rates_shrunk(con, "old", "Forward", seasons)
+    on = ep.player_rates_shrunk(con, "old", "Forward", seasons, band_conversion_k=10.0)
+    # the ratios come from the seasons before the newest (2024-25 here), for his band (9.0+)
+    assert on["expected_goals_per_90"] == pytest.approx(off["expected_goals_per_90"] * 24 / 20)
+    assert on["expected_assists_per_90"] == pytest.approx(off["expected_assists_per_90"] * 20 / 15)
+    assert on["saves_per_90"] == off["saves_per_90"]
+    # a band with no earlier players is left alone
+    _band_row(con, "keeper", "Goalkeeper", "2025-2026", 4.0, minutes=900, goals_scored=0, expected_goals=0.0,
+              assists=0, expected_assists=0.0)
+    assert ep.player_rates_shrunk(con, "keeper", "Goalkeeper", seasons, band_conversion_k=10.0) == \
+        ep.player_rates_shrunk(con, "keeper", "Goalkeeper", seasons)
+
+
+def test_resolve_band_conversion_is_none_when_off(con):
+    assert ep.resolve_band_conversion(con, None) is None
+    ep.params_mod.write_param(con, "conversion_params", 1, "2026-10-11", "pseudo_xg", value_numeric=20.0)
+    assert ep.resolve_band_conversion(con, 1) == 20.0
+    assert "conversion_params_version" in ep.RECIPE_KEYS
