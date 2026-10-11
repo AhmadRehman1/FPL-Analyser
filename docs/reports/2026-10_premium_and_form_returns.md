@@ -318,3 +318,59 @@ fix premiums without lifting cheap players.
   - The combined arm also needs `assist_calibration_params` wired into the live call sites, as
     Phase 5 of the plan lists.
 - **If m < 0,** the owner signs off first.
+
+### Result: neither C1 arm passes; the live model is unchanged
+
+**The batch.** It ran at 17:39 UTC on 2026-10-11 on master 4c275eb, on cached DB
+`duckdb-38148073054`. All three runs completed. Run ids: control 38160537244, `--no-goal-anchor`
+38160539088, `--no-goal-anchor --assist-prior-xa 30` 38160540950, each mapped by the `ARGS:` log
+line.
+
+| 2025-26 | control | goal anchor off | goal anchor off + assist calibration |
+|---|---|---|---|
+| (i) squad pts vs control (m ± SE a GW) | — | +1.00 ± 0.83 ✔ (9 better, 7 worse) | **−1.03 ± 0.77** ✘ (7 better, 11 worse) |
+| (ii) EP MAE (limit 1.0683) | 1.0663 | 1.0745 ✘ | 1.0831 ✘ |
+| (iii) 9.0m+ component sum (limit 0.441) | 0.662 | 0.523 ✘ | 0.382 ✔ |
+| (iv) breakout residual (limit +0.182) | +0.108 | +0.090 ✔ | +0.046 ✔ |
+| 9.0m+ goals / assists / other | −0.267 / +0.227 / +0.158 | −0.102 / +0.227 / +0.184 | −0.102 / +0.094 / +0.176 |
+| £7.0-9.0m goals / assists | +0.011 / +0.088 | +0.058 / +0.088 | +0.058 / +0.004 |
+| <£5.0m total (goals) | −0.164 (−0.022) | −0.182 (−0.040) | −0.192 (−0.040) |
+| overall mean residual | −0.098 | −0.110 | −0.134 |
+| in-form residual (component sum) | +0.195 (0.343) | +0.197 (0.337) | +0.105 (0.251) |
+| captain pts/GW | 5.89 | 5.62 | 6.05 |
+
+**Why each arm failed.**
+- **Goal anchor off.** It fixed premium goals (−0.27 → −0.10), as in B2. But the anchor was
+  right below £9.0m:
+  - with it off, £7.0-9.0m goals went from +0.01 to +0.06 short;
+  - cheap players' goals went from −0.02 to −0.04 over.
+  
+  That cost MAE, and premium assists and bonus stayed short, so (iii) fell short too.
+- **Combined.** It passed (iii), the first arm in either round to do so, and nearly halved the
+  in-form residual. But the position-pooled assist lift raised every band, including the cheap
+  players the model already over-predicts:
+  - the overall mean residual went from −0.10 to −0.13;
+  - MAE rose by 0.017;
+  - squad points fell by about one a gameweek.
+
+**What round 2 adds.**
+- The price anchor for goals is a linear fit that is right below £9.0m and overshoots above it.
+  Switching it off wholesale trades a premium error for a mid-price and cheap-player one.
+- The two halves fix the premium component split together, but not without a broad lift.
+- The largest systematic error in the table is not at the top: cheap players (<£5.0m) are
+  over-predicted by 0.16 points a player-gameweek, and they are most of the player-steps (about
+  19,000 of the summary's minutes table).
+  - Most of it, −0.11, is appearance points.
+  - Their start probability is calibrated (predicted 0.26 against 0.27 started, from the
+    summary's `minutes_prior_by_price_band`). So the excess is in the appearance points
+    themselves. The hypothesis, not yet measured, is the chance of a substitute appearance for
+    players who don't start.
+
+**Next: measure the cheap-player appearance error before building anything.**
+- `walkforward_summary.py` gains `minutes_states_by_price_band`. For each predicted
+  player-fixture it sets the minutes model's states against what happened: start, substitute
+  appearance among non-starts, 1-59 and 60+ minutes, and the appearance-point residual.
+- The block splits by price band and by start probability (<0.1, 0.1-0.5, 0.5+).
+- A control run on master reports it. Nothing live changes.
+- An arm comes only after it shows which state carries the −0.11. That arm will need its own
+  declaration.

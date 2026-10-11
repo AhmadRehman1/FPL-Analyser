@@ -100,6 +100,88 @@ def test_summarize_reports_each_season_and_the_minutes_prior_by_price_band():
     assert prior["2025-2026"]["mature"]["<5.0"]["started_share"] == 0.0
 
 
+
+def test_minutes_states_by_price_band_scores_each_predicted_fixture():
+    """One 2025-26 step. reg (10.0m) starts and plays 90. fringe and cameo (4.5m, p_start 0.05)
+    don't start: fringe has no match row (0 minutes), cameo comes on for 20. dgw (4.0m, p_start
+    0.3) has two fixtures: starts and plays 90 in one, absent from the other. Each fixture is a row."""
+    con = duckdb.connect(":memory:")
+    db.apply_schema(con)
+    season, gw = "2025-2026", 10
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('a', 'A'), ('b', 'B')")
+    ts_mv = con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2025-09-01', 0.2, 1, 1, 'a') RETURNING model_version"
+    ).fetchone()[0]
+    mm_mv = con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2025-09-01', ?, 1, 1, 1, 1, '[]') RETURNING model_version", [season],
+    ).fetchone()[0]
+    ep_mv = con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2025-09-01', ?, ?, ?, 1, 1, 1) RETURNING model_version", [season, ts_mv, mm_mv],
+    ).fetchone()[0]
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    con.execute(
+        "INSERT INTO backtest_gameweek_steps (backtest_run_id, season, gameweek, tier, data_asof, mm_model_version, "
+        "ep_model_version) VALUES (?, ?, ?, 'mature', '2025-09-01', ?, ?)", [run_id, season, gw, mm_mv, ep_mv],
+    )
+    for mid in ("m1", "m2"):
+        con.execute(
+            "INSERT INTO fact_match (match_id, season, gameweek, home_team_uid, away_team_uid, finished, competition, "
+            "kickoff_time, _ingested_at) VALUES (?, ?, ?, 'a', 'b', TRUE, 'Premier League', '2026-01-01', current_timestamp)",
+            [mid, season, gw],
+        )
+    # uid: (cost, p_start, p_sub, p_1_59, p_60plus, fixtures)
+    players = {
+        "reg": (10.0, 0.9, 0.5, 0.1, 0.85, ("m1",)),
+        "fringe": (4.5, 0.05, 0.4, 0.38, 0.04, ("m1",)),
+        "cameo": (4.5, 0.05, 0.4, 0.38, 0.04, ("m1",)),
+        "dgw": (4.0, 0.3, 0.2, 0.2, 0.25, ("m1", "m2")),
+    }
+    for uid, (cost, p_start, p_sub, p1, p2, fixtures) in players.items():
+        con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, 'Midfielder')", [uid, uid])
+        con.execute(
+            "INSERT INTO minutes_model_outputs (model_version, player_uid, position, p_start_historical_position_avg, "
+            "weight_own, p_start_historical_final, logit_adjustment_total, p_start_final, "
+            "p_used_as_sub_given_not_started, p_0min, p_1_59min, p_60plus_min, competitive_matches_last_2_seasons) "
+            "VALUES (?, ?, 'Midfielder', 0.5, 0.0, 0.5, 0.0, ?, ?, ?, ?, ?, 0)",
+            [mm_mv, uid, p_start, p_sub, 1 - p1 - p2, p1, p2],
+        )
+        con.execute(
+            "INSERT INTO fact_player_season_stats (player_uid, season, gw, now_cost, _ingested_at) "
+            "VALUES (?, ?, ?, ?, current_timestamp)", [uid, season, gw, cost],
+        )
+        for mid in fixtures:
+            con.execute(
+                "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+                "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+                "ep_total, expected_bps) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)",
+                [ep_mv, uid, mid],
+            )
+    for uid, start_min, minutes in (("reg", 0, 90), ("cameo", 70, 20), ("dgw", 0, 90)):
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, "
+            "_ingested_at) VALUES (?, 'm1', ?, ?, 90, ?, current_timestamp)", [uid, season, start_min, minutes],
+        )
+
+    out = wfs.minutes_states_by_price_band(con, run_id)[season]
+
+    # fringe: predicted appearance 0.38 + 2 x 0.04 = 0.46, realized 0; cameo: realized 1
+    assert out["<5.0"]["<0.1"] == {
+        "n": 2, "p_start": 0.05, "started_share": 0.0, "p_1_59": 0.38, "share_1_59": 0.5, "p_60plus": 0.04,
+        "share_60plus": 0.0, "appearance_resid": 0.04, "n_not_started": 2, "p_sub": 0.4, "sub_share": 0.5,
+    }
+    # dgw: 2 - 0.7 in m1, 0 - 0.7 in m2; only m2 is a non-start
+    dgw = out["<5.0"]["0.1-0.5"]
+    assert (dgw["n"], dgw["started_share"], dgw["appearance_resid"], dgw["n_not_started"], dgw["sub_share"]) == (2, 0.5, 0.3, 1, 0.0)
+    assert out["<5.0"]["all"]["n"] == 4
+    reg = out["9.0+"]["0.5+"]
+    assert (reg["n"], reg["started_share"], reg["appearance_resid"], reg["p_sub"]) == (1, 1.0, 0.2, None)
+    assert set(out) == {"<5.0", "9.0+"}
+
 def test_promoted_club_cuts_read_the_segment_metrics_by_season():
     con = duckdb.connect(":memory:")
     db.apply_schema(con)
