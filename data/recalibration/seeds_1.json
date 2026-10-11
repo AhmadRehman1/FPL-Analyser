@@ -43,6 +43,26 @@
     },
     {
       "dimensions": null,
+      "grid_max": 0.5,
+      "grid_min": 0.0,
+      "holdout_metric_after": null,
+      "holdout_metric_before": null,
+      "metric_after": 61.83582089552239,
+      "metric_before": 60.014925373134325,
+      "metric_name": "mean_realized_points",
+      "new_params_version": 21,
+      "new_value": 0.1,
+      "old_params_version": 20,
+      "old_value": 0.0,
+      "param_family": "risk_aversion_params",
+      "param_key": "lambda_value",
+      "proposal_id": 3,
+      "reviewed_at": null,
+      "reviewed_by": null,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
       "metric_after": 1.1453659985877347,
       "metric_before": 1.1456995269035073,
       "metric_name": "ep_total_calibration_mae",
@@ -207,5 +227,5 @@
       "status": "confirmed"
     }
   ],
-  "written_at": "2026-10-11T15:44:04.731946+00:00"
+  "written_at": "2026-10-11T16:46:30.078227+00:00"
 }
