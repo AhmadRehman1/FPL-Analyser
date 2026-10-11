@@ -29,6 +29,7 @@ def _seed_team_and_player(con, uid, name, position, team_code="1"):
 
 def _seed_league_with_gameweeks(con):
     con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a','A'), ('team_b','B')")
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('opp_keeper', 'Opp', 'Goalkeeper')")
     for season in ("2024-2025", "2025-2026"):
         table = f"raw_{season.replace('-', '_')}_teams"
         con.execute(f'CREATE TABLE "{table}" (code VARCHAR, name VARCHAR)')
@@ -44,6 +45,9 @@ def _seed_league_with_gameweeks(con):
                 "'Premier League', ?, ?)",
                 [f"{season}-m{gw}", season, gw, datetime(2025 if season == "2024-2025" else 2026, 1, gw), NOW],
             )
+            # A real finished match always has player rows (both XIs). The minutes model leaves out
+            # a match with none yet (the live feed lagging), so give each one an opposition starter.
+            _played(con, "opp_keeper", season, gw)
 
 
 def _played(con, uid, season, gw, minutes=90, start_min=0):
