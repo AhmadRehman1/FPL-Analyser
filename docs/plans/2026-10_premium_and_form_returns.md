@@ -168,11 +168,17 @@ Count: 4 of 14.
     player's last `fact_player_season_stats` row) vs the sum of match-feed assists. Give the ratio
     and the count of players who differ.
   - (b) **Conversion.** For 2025-26 (and 2024-25 reported), per price band, players with ≥ 900 league
-    minutes: pooled FPL goals/xG and assists/xA.
+    minutes: pooled goals/xG and assists/xA. Each season's inputs are read the way
+    `finishing_ratios()` reads them (`expected_points.py:476-520`):
+    - **2025-26+:** FPL season totals.
+    - **2024-25:** that season's `goals_scored` and `expected_goals` are NULL
+      (`reconcile.py:461-465`), so use match-feed goals/assists and per-90 xG/xA × match minutes,
+      labelled "match feed" in the JSON.
   - (c) **Bonus column.** Every `raw_*` table named in `fact_raw_ingestion_log.raw_table_name` that
     has a column whose name contains `bonus`, with the column names.
   - (d) **Group sizes.** In-form/cooling sizes (declared and widened) per season, and the live
-    season's current members.
+    season's current members. Count only player-steps the judge can see: the player has a fixture
+    in G and a non-null `event_points`, as `walkforward_summary.py` counts them.
 
   The band is set by the player's `now_cost` on his last row that season, using the existing band
   edges <5.0 / 5.0-7.0 / 7.0-9.0 / 9.0+. Acceptance: a synthetic-DB test checks (a), (b) and (d) by
@@ -197,6 +203,11 @@ Count: 4 of 14.
   between gw G and his previous row. It applies to 2025-26+; 2024-25 keeps the match feed. It
   becomes the default for the backtest metrics and the summary. The B2 control then runs with it,
   so every later comparison is consistent.
+
+  Acceptance, as an alignment check on the real cached DB (in the Phase 1 diagnostic):
+  - each player's per-gameweek differences sum to his season total;
+  - they agree with the match feed on at least 95% of 9.0m+ player-gameweeks, so a one-gameweek
+    shift would show.
 - **RQ3. Summary blocks.** WHEN `walkforward_summary.py` summarises a run THE SYSTEM SHALL add:
   - `form_groups` → `{season: {in_form, in_form_widened, cooling, cooling_widened: {n_player_steps,
     mean_resid, components: {…5…}, component_abs_sum}}}`;
@@ -316,7 +327,8 @@ Count: 4 of 14.
   Phase 1 separates measurement error from model error.
 - **Realized assists come from the match feed** → if Phase 1 finds a gap over 3% at 9.0m+, RQ2b
   switches to FPL's count before B2. That is a declared action, not a judgement call.
-- **Two candidate levers aren't on the live path** (`finishing_skill_params`, any new lever) →
+- **Three candidate levers aren't on the live path** (`finishing_skill_params`,
+  `assist_calibration_params`, any new lever) →
   Phase 5 has an explicit wiring step with a call-site list and a live-EP Done-when.
 - **2024-25 has only per-90 rows** → in-form "earlier" rates come from `_player_rate_pool`, with a
   test of that shape.
@@ -400,6 +412,8 @@ Count: 4 of 14.
       Done when: the B3 batch (control + arm) is judged and recorded. Or: the report says why no
       single cause was named, and the phase is skipped.
       Steps:
+      - If exactly one B2 arm passed: skip this phase and go to Phase 5. The new lever waits for
+        the next round, which runs against the new live model.
       - If two B2 arms passed: B3 = control + their combined flags. Stop there.
       - Else if H1 or H2 holds: build the **pooled band conversion** lever as an opt-in
         `conversion_params` version with key `pseudo_xg`, flag `--band-conversion K` (K = 20
@@ -409,6 +423,13 @@ Count: 4 of 14.
         - Applied after shrinkage: `e_goals *= r_goals`, `e_assists *= r_assists`.
         - How it differs from `--assist-prior-xa`: it pools a whole band, so one premium's small
           sample can't drive it, and it moves goals and assists together.
+        - Inputs per earlier season are read the way `finishing_ratios()` reads them:
+          - **2025-26+:** FPL season totals.
+          - **2024-25:** match-feed goals and assists, and per-90 xG/xA × match minutes. That
+            season's `goals_scored`/`expected_goals` are NULL, and a literal sum would give
+            r = K/K = 1, a lever that silently does nothing.
+          - Each player's band comes from `now_cost` on his last row of that season.
+        - Its test uses a 2024-25-shaped earlier season and asserts r ≠ 1.
       - Else if B2's recency or k arm fails only (i), and only by m + SE < 0, B3 = that arm plus
         `--bps-tau 7`.
       - Write the failing test first, then the flag in `run_walkforward.py`. Declare the arm and
@@ -422,9 +443,12 @@ Count: 4 of 14.
       Steps:
       - If m < 0, ask the owner before anything else.
       - Wire the winner's version:
-        - **`k_minutes`, recency, or no-anchor:** already wired (RATE/PRIOR). Seed the new live
-          version only.
-        - **`finishing_skill_params` or `conversion_params`:**
+        - **`k_minutes` or recency:** already wired (RATE/PRIOR). Seed the new live version only.
+        - **No-anchor:** the arm runs with `rate_prior_params_version = None`. Promote it as a new
+          `rate_prior_params` bundle {price_anchor 0, current_season_weight 1, season_decay 1}.
+          That bundle is equivalent to None, since `LIVE_RATE_PRIOR`'s other two keys are 1
+          (`expected_points.py:352`).
+        - **`finishing_skill_params`, `assist_calibration_params` or `conversion_params`:**
           - add the kwarg to `expected_points.run`'s callers: `projections.build_projections`,
             `transfer_planner.compute_horizon_ep`, `transfer_planner.run`,
             `decision_engine.recommend_best_move`, `backtest.run`, `backtest.run_season_simulation`;
