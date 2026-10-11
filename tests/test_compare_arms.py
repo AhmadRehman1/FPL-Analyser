@@ -215,3 +215,29 @@ def test_cli_rule_r5(tmp_path, capsys):
     assert ca.main([str(c), str(a), "--rule", "r5", "--target", "in_form"]) == 1
     assert ca.main([str(c), str(a), "--rule", "r5"]) == 2
     assert ca.main([str(c), str(a), "--rule", "r9", "--target", "in_form"]) == 2
+
+
+def test_r5_in_form_pass_and_refusals():
+    better = {"appearance": 0.05, "goals": 0.05, "assists": 0.05, "cleansheet": 0.0, "other": 0.05}
+    out = ca.compare(_r5(CONTROL), _r5(CONTROL, form=better), rule="r5", target="in_form")
+    assert out["verdict"] == "PASS" and out["checks"]["target"]["group"] == "in_form (n=300)"
+    with pytest.raises(ca.Refused, match="different cached DBs"):
+        ca.compare(_r5(CONTROL), _r5(CONTROL, form=better, key="duckdb-2"), rule="r5", target="in_form")
+    # a target without rule r5 would quietly be judged under R4
+    with pytest.raises(ca.Refused, match="--rule r5"):
+        ca.compare(_r5(CONTROL), _r5(CONTROL), target="in_form")
+
+
+def test_r5_price_band_needs_a_2025_26_only_run():
+    both = _r5(CONTROL)
+    both["headline_by_season"]["2024-2025"] = both["headline_by_season"][S]
+    with pytest.raises(ca.Refused, match="pools seasons"):
+        ca.compare(_r5(CONTROL), both, rule="r5", target="price_band=9.0+")
+    # the in-form block is per season already
+    assert ca.compare(_r5(CONTROL), both, rule="r5", target="in_form")["verdict"] == "FAIL"
+
+
+def test_r5_breakout_limit_is_on_the_declared_group():
+    out = ca.compare(_r5(CONTROL, n=100), _r5(CONTROL, n=100), rule="r5", target="in_form")
+    assert not out["checks"]["breakout_limit"]["pass"]
+    assert "declared breakout group too small" in out["checks"]["breakout_limit"]["reason"]

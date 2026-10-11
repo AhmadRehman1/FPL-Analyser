@@ -157,18 +157,28 @@ def _target_check(control: dict, arm: dict, target: str) -> dict:
 
 
 def _breakout_limit_check(control: dict, arm: dict) -> dict:
-    """R5(iv): the arm's breakout residual at most BREAKOUT_LIMIT."""
-    label, why = _group(control)
-    if label is None:
-        return {"pass": False, "reason": why}
+    """R5(iv): the arm's breakout residual at most BREAKOUT_LIMIT, on the declared breakout group
+    (the limit was set from that group's before-fix residual, so no widening here)."""
+    label = breakout.BREAKOUT
+    n = ((((control.get("breakout") or {}).get(DECIDING_SEASON) or {}).get(label)) or {}).get("n_player_steps") or 0
+    if n < breakout.MIN_GROUP_SIZE:
+        return {"pass": False, "reason": f"declared breakout group too small in control (n={n} < {breakout.MIN_GROUP_SIZE})"}
     r_a = ((arm.get("breakout") or {}).get(DECIDING_SEASON) or {}).get(label, {}).get("mean_resid")
-    return {"pass": r_a is not None and r_a <= BREAKOUT_LIMIT, "group": why, "arm": r_a, "limit": BREAKOUT_LIMIT}
+    return {"pass": r_a is not None and r_a <= BREAKOUT_LIMIT, "group": f"{label} (n={n})", "arm": r_a, "limit": BREAKOUT_LIMIT}
 
 
 def compare(control: dict, arm: dict, baseline: dict | None = None, *, rule: str = "r4", target: str | None = None) -> dict:
     if rule == "r5" and (baseline is not None or target not in TARGETS):
         raise Refused(f"rule r5 takes --target {' or '.join(TARGETS)} and no --baseline")
+    if rule != "r5" and target is not None:
+        raise Refused("--target is rule r5's: pass --rule r5")
     _check_comparable(control, arm, baseline)
+    if target == "price_band=9.0+":
+        # price_band pools every season the run scored: it is 2025-26's only on a 2025-26 run
+        for name, run in (("control", control), ("arm", arm)):
+            other = sorted(set(run.get("headline_by_season") or {}) - {DECIDING_SEASON})
+            if other:
+                raise Refused(f"{name} run also scored {', '.join(other)}: price_band pools seasons; run with --seasons 2025-2026")
     checks = {}
 
     pts = paired_points(control, arm)

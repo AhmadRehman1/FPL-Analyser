@@ -204,7 +204,13 @@ def test_form_group_cuts_split_each_group_by_component(monkeypatch):
     # minutes without a goal or assist in ab_5 (realized appearance 2). Realized event_points:
     # hot 6 (in form), warm 3 (in form only widened), cold 1 (cooling).
     realized = {"hot": 6, "warm": 3, "steady": 3, "cold": 1, "keeper": 3, "fullback": 3, "new": 3}
+    # warm's GW5 row drops his rate to 1.1x: he is in the widened group at GW5 (GW4's row) but not
+    # at GW6, so the widened group has two members one week and one the next
+    con.execute("UPDATE fact_player_season_stats SET expected_goals = 0.44 * 5 * 2 / 3, expected_assists = 0.44 * 5 / 3 "
+                "WHERE player_uid = 'warm' AND season = ? AND gw = 5", [SEASON])
     for gw in (5, 6):
+        if gw == 6:
+            realized["hot"] = 8
         ep_mv = con.execute(
             "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
             "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
@@ -233,12 +239,15 @@ def test_form_group_cuts_split_each_group_by_component(monkeypatch):
     out = wfs.form_group_cuts(con, run_id)
 
     assert PRIOR not in out  # the run has no 2024-25 steps
-    hot = {"goals": -0.5, "assists": -0.2, "appearance": 0.5, "cleansheet": 0.0, "other": 3.2}
-    assert out[SEASON]["in_form"] == {"n_player_steps": 2, "mean_resid": 3.0, "components": hot, "component_abs_sum": 4.4}
+    # hot: "other" 6 - 2 - 0.8 = 3.2 at GW5, 8 - 2 - 0.8 = 5.2 at GW6
+    hot = {"goals": -0.5, "assists": -0.2, "appearance": 0.5, "cleansheet": 0.0, "other": 4.2}
+    assert out[SEASON]["in_form"] == {"n_player_steps": 2, "mean_resid": 4.0, "components": hot, "component_abs_sum": 5.4}
     cooling = out[SEASON]["cooling"]
     assert (cooling["n_player_steps"], cooling["mean_resid"], cooling["component_abs_sum"]) == (2, -2.0, 3.0)
-    widened = out[SEASON]["in_form_widened"]  # hot and warm: other (3.2 + 0.2) / 2
-    assert (widened["n_player_steps"], widened["components"]["other"], widened["mean_resid"]) == (4, 1.7, 1.5)
+    # widened: GW5 hot and warm, other (3.2 + 0.2) / 2 = 1.7; GW6 hot alone, 5.2. The mean of the
+    # gameweek means is 3.45 (a pooled mean over the three player-steps would be 2.87)
+    widened = out[SEASON]["in_form_widened"]
+    assert (widened["n_player_steps"], widened["components"]["other"], widened["mean_resid"]) == (3, 3.45, 3.25)
 
 
 def test_component_abs_sum():
