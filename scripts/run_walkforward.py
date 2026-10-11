@@ -25,6 +25,11 @@ The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, 
 --minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior) each swap one setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
+Goals-only anchor off (docs/reports/2026-10_premium_and_form_returns.md, round 2: the price anchor
+over-predicts premium goals while assists stay short):
+    --no-goal-anchor           the live rate prior with anchor_goals 0: goals shrink toward the
+                               position average, assists keep the price anchor
+
 Pooled band conversion (docs/plans/2026-10_premium_and_form_returns.md, Phase 4: FPL awards more
 assists than xA implies in every price band, most at 9.0m+):
     --band-conversion 20       scale each position and price band's goal and assist rates by that
@@ -103,6 +108,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="turn on the FPL/xA assist calibration with this prior pseudo-count")
     parser.add_argument("--finishing-prior-xg", type=float, default=None,
                         help="turn on per-player finishing skill: (goals + p) / (xG + p), same for assists/xA")
+    parser.add_argument("--no-goal-anchor", action="store_true",
+                        help="keep the price anchor for assists but shrink goals toward the position average")
     parser.add_argument("--band-conversion", type=float, default=None, metavar="K",
                         help="turn on the pooled band conversion: each position and price band's goals per xG "
                              "and assists per xA in earlier seasons, (sum + K) / (sum expected + K)")
@@ -225,7 +232,8 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         )
     weight, decay = getattr(args, "rate_current_season_weight", None), getattr(args, "rate_season_decay", None)
     no_anchor = getattr(args, "no_rate_price_anchor", False)
-    if weight is not None or decay is not None:
+    no_goal_anchor = getattr(args, "no_goal_anchor", False) and not no_anchor
+    if weight is not None or decay is not None or no_goal_anchor:
         # the live bundle with these knobs changed
         bundle = dict(ep.LIVE_RATE_PRIOR)
         if no_anchor:
@@ -234,6 +242,8 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
             bundle["current_season_weight"] = weight
         if decay is not None:
             bundle["season_decay"] = decay
+        if no_goal_anchor:
+            bundle["anchor_goals"] = 0.0
         out["rate_prior_params_version"] = params_mod.get_or_create_bundle_version(
             con, "rate_prior_params", bundle, EXPERIMENT_EFFECTIVE_DATE,
         )

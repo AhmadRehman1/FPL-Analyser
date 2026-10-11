@@ -164,3 +164,13 @@ def test_band_conversion_flag_maps_to_a_param_version(con):
     out = rw._experiment_versions(con, rw._parse_args(["--band-conversion", "20"]))
     k, _ = params_mod.resolve_param(con, "conversion_params", "pseudo_xg", out["conversion_params_version"])
     assert k == 20.0
+
+
+def test_no_goal_anchor_flag_mints_a_bundle_with_anchor_goals_off(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--no-goal-anchor"]))
+    prior = rw.ep.resolve_rate_prior(con, out["rate_prior_params_version"])
+    assert prior == {"price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0, "anchor_goals": False}
+    # with the whole anchor off, the goals-only switch has nothing left to do
+    assert rw._experiment_versions(con, rw._parse_args(["--no-goal-anchor", "--no-rate-price-anchor"])) == {
+        "rate_prior_params_version": None,
+    }

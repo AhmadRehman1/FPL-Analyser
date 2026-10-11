@@ -285,3 +285,36 @@ because this round's batch budget is spent):
 **A note on the rule.** The model over-predicts cheap players (−0.16 below £5.0m, −0.10 overall).
 So any lever that lifts predictions broadly raises MAE even when it fixes an under-predicted group.
 A future rule might pair MAE with a mean-bias check by band.
+
+## Round 2: goals-only anchor off, with the assist calibration (declared 2026-10-11, before any of its results)
+
+**Go-ahead.** The owner started this round on 2026-10-11. It runs under the same rule R5, and the
+target is the 9.0m+ component sum.
+
+**Why this pair.** Each half fixed its own component in B2. The pairing tests whether together they
+fix premiums without lifting cheap players.
+- Switching the price anchor off took premium goals from −0.27 to −0.10, but it also moved assists.
+- The position-pooled assist calibration took premium assists from +0.23 to +0.09.
+
+**The new switch.** `anchor_goals` is an optional key in the `rate_prior_params` bundle.
+- At 0, goals shrink toward the position average, while assists keep the price anchor.
+- A bundle without the key (live v1) reads 1, so nothing live changes.
+- The flag is `run_walkforward.py --no-goal-anchor`.
+
+**Batch C1.** Three runs on one cached DB, all with `--seasons 2025-2026`:
+
+| arm | flags | target |
+|---|---|---|
+| control | none | — |
+| goal anchor off | `--no-goal-anchor` | 9.0m+ |
+| goal anchor off + assist calibration | `--no-goal-anchor --assist-prior-xa 30` | 9.0m+ |
+
+- Each arm is judged with `compare_arms.py control arm --rule r5 --target price_band=9.0+`. The
+  in-form group is reported but does not decide.
+- **If both arms pass,** the one with the larger m is promoted.
+- **Promotion paths:**
+  - The goals-only arm promotes as a new `rate_prior_params` bundle, which is already on the live
+    path.
+  - The combined arm also needs `assist_calibration_params` wired into the live call sites, as
+    Phase 5 of the plan lists.
+- **If m < 0,** the owner signs off first.

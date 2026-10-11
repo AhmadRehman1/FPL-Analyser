@@ -248,6 +248,54 @@ def test_fetch_calibration_rows_component_residuals_sum_to_total(con):
         assert comp_sum == pytest.approx(r["residual"], abs=1e-9)
 
 
+def test_fetch_calibration_rows_scores_a_double_gameweek_once_against_the_whole_gameweek(con):
+    """A double gameweek is one row per player: both fixtures summed on both sides against his
+    whole-gameweek event_points, as backtest.realized_component_pairs() scores it. (A copy of the
+    split kept here used to score each fixture against the whole gameweek: two rows, the realized
+    points counted twice.)"""
+    backtest_run_id = _seed_two_gameweek_scenario(con)
+    ep_mv = con.execute(
+        "SELECT ep_model_version FROM backtest_gameweek_steps WHERE backtest_run_id = ? AND gameweek = 10",
+        [backtest_run_id],
+    ).fetchone()[0]
+    # p3 (Forward) plays a second GW10 fixture and scores in it; his GW10 total is 10 points
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "home_score, away_score, finished, competition, _ingested_at) VALUES "
+        "('m10b', '2025-2026', 10, ?, 'team_b', 'team_a', 0, 1, TRUE, 'Premier League', ?)",
+        [datetime(2025, 11, 12, 20, 0), datetime.now()],
+    )
+    con.execute(
+        "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, "
+        "goals, assists, team_goals_conceded, _ingested_at) VALUES ('p3', 'm10b', '2025-2026', 0, 90, 90, 1, 0, 0, ?)",
+        [datetime.now()],
+    )
+    con.execute(
+        "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+        "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+        "ep_total, expected_bps) VALUES (?, 'p3', 'm10b', 1.0, 0.5, 0.2, 0, 0, 0, 0.3, 0, 0, 0, 0, 2.0, 20.0)",
+        [ep_mv],
+    )
+    con.execute("UPDATE fact_player_season_stats SET event_points = 10 WHERE player_uid = 'p3' AND gw = 10")
+
+    rows, missing = cd.fetch_calibration_rows(con, backtest_run_id, tier="mature")
+    p3 = [r for r in rows if (r["player_uid"], r["gameweek"]) == ("p3", 10)]
+    assert len(p3) == 1 and len(rows) == 8
+    assert missing["missing_realized_or_predicted"] == 0
+    row = p3[0]
+    assert (row["realized"], row["predicted"], row["residual"]) == pytest.approx((10.0, 4.0, 6.0))
+    assert row["components"]["goals"] == pytest.approx((4.0, 1.0))        # one forward's goal, 0.5 a fixture
+    assert row["components"]["appearance"] == pytest.approx((4.0, 2.0))   # 90 minutes twice
+    # every row agrees with the backtest's own split for its step
+    for r in rows:
+        step_ep = con.execute(
+            "SELECT ep_model_version FROM backtest_gameweek_steps WHERE backtest_run_id = ? AND gameweek = ?",
+            [backtest_run_id, r["gameweek"]],
+        ).fetchone()[0]
+        split = bt.realized_components(con, "2025-2026", r["gameweek"], step_ep, 1)[r["player_uid"]]
+        assert {k: rp - pp for k, (rp, pp) in r["components"].items()} == pytest.approx(split)
+
+
 def test_price_band_calibration_report_matches_hand_computed_band_means(con):
     backtest_run_id = _seed_two_gameweek_scenario(con)
     report = cd.price_band_calibration_report(con, backtest_run_id, tier="mature", n_boot=200, seed=0)
