@@ -264,11 +264,13 @@ P = "2024-2025"
 
 
 def _two_seasons(prior_points, points, mae_prior=1.10, mae=1.07, resid=0.10, key="duckdb-1"):
+    """2025-26 rows carry beats_real (squad points less a real average of 50); 2024-25 rows have
+    no real average manager, so squad_points alone, as in the data."""
     run = _run(points, mae=mae, resid=resid, key=key)
     run["headline_by_season"][P] = {"ep_total_calibration_mae": mae_prior, "log_score_minutes_mean": -0.6}
-    run["per_gameweek"] = [r for r in run["per_gameweek"] if r["season"] == S] + [
-        {"season": P, "gw": gw, "beats_real": v} for gw, v in enumerate(prior_points, start=1)
-    ]
+    run["per_gameweek"] = [
+        {**r, "squad_points": r["beats_real"] + 50.0} for r in run["per_gameweek"] if r["season"] == S
+    ] + [{"season": P, "gw": gw, "beats_real": None, "squad_points": v} for gw, v in enumerate(prior_points, start=1)]
     return run
 
 
@@ -304,6 +306,13 @@ def test_confirm_refusals():
         ca.compare(two, _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL, key="duckdb-2"), rule="confirm")
     with pytest.raises(ca.Refused, match="--rule r5"):
         ca.compare(two, two, rule="confirm", target="in_form")
+    # a summary written before per-gameweek squad_points: 2024-25 can't be paired, so refuse
+    # rather than judge 2025-26 alone
+    old = _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL)
+    for r in old["per_gameweek"]:
+        r.pop("squad_points")
+    with pytest.raises(ca.Refused, match="2024-2025: 0 gameweeks"):
+        ca.compare(old, old, rule="confirm")
 
 
 def test_cli_rule_confirm(tmp_path, capsys):

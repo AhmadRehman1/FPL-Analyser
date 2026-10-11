@@ -26,8 +26,9 @@ one widening when control has fewer than form_groups.MIN_GROUP_SIZE player-steps
 breakout group's residual stays at or below BREAKOUT_LIMIT, so the breakout fix isn't undone.
 
 With --rule confirm (round 3's confirmation, docs/reports/2026-10_premium_and_form_returns.md,
-declared 2026-10-11 before any of its results): two runs over every season. (i) paired points
-over every gameweek of every season, the same floor as above; (ii) EP MAE no worse than
+declared 2026-10-11 before any of its results): two runs over every season. (i) paired squad
+points over every gameweek of every season (per_gameweek squad_points: beats_real needs the real
+average manager, which 2024-25 lacks), the same floor as above; refuses a season it can't pair; (ii) EP MAE no worse than
 control's in each season on its own, with no tolerance; (iii) the declared breakout group's
 2025-26 residual at most BREAKOUT_LIMIT, as R5 (iv).
 
@@ -78,11 +79,12 @@ def _check_comparable(control: dict, arm: dict, baseline: dict | None = None) ->
         raise Refused(f"different cached DBs: {' vs '.join(run['db_cache_key'] for _, run in runs)}")
 
 
-def paired_points(control: dict, arm: dict, season: str | None = DECIDING_SEASON) -> dict:
-    """Paired beats_real differences over one season's gameweeks, or every season's (None)."""
+def paired_points(control: dict, arm: dict, season: str | None = DECIDING_SEASON, key: str = "beats_real") -> dict:
+    """Paired per-gameweek differences of `key` over one season's gameweeks, or every season's
+    (None). beats_real and squad_points give the same difference wherever both exist."""
     def by_step(run):
-        return {(r["season"], r["gw"]): r["beats_real"] for r in run["per_gameweek"]
-                if (season is None or r["season"] == season) and r["beats_real"] is not None}
+        return {(r["season"], r["gw"]): r.get(key) for r in run["per_gameweek"]
+                if (season is None or r["season"] == season) and r.get(key) is not None}
     c, a = by_step(control), by_step(arm)
     diffs = [a[k] - c[k] for k in sorted(set(c) & set(a))]
     n = len(diffs)
@@ -185,8 +187,15 @@ def _confirm(control: dict, arm: dict, baseline: dict | None) -> dict:
     seasons = sorted(control.get("headline_by_season") or {})
     if len(seasons) < 2 or seasons != sorted(arm.get("headline_by_season") or {}):
         raise Refused("rule confirm needs two runs over the same seasons, more than one (run without --seasons)")
+    # every season must pair: beats_real is missing where the data has no real average manager
+    # (2024-25), so the rule pairs the squad's own points, and refuses a summary without them
+    for season in seasons:
+        n = paired_points(control, arm, season=season, key="squad_points")["n"]
+        if n < 2:
+            raise Refused(f"{season}: {n} gameweeks with squad_points in both runs; rule confirm pairs every "
+                          "season (summaries written before per-gameweek squad_points can't be judged by it)")
     checks = {}
-    pts = paired_points(control, arm, season=None)
+    pts = paired_points(control, arm, season=None, key="squad_points")
     checks["points"] = {"pass": pts["mean"] is not None and pts["mean"] >= POINTS_FLOOR and pts["mean"] + pts["se"] >= 0,
                         **pts}
     by_season = {}

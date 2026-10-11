@@ -84,6 +84,11 @@ def _seed_two_season_run(con):
             "INSERT INTO backtest_metrics (backtest_run_id, season, gameweek, tier, metric_name, metric_value) "
             "VALUES (?, ?, ?, ?, 'beats_real_avg_points_delta', ?)", [run_id, season, gw, tier, beats_real],
         )
+        for name, value in (("beats_crowd_points_delta", beats_real - 1.0), ("model_squad_realized_points", 55.0 + gw)):
+            con.execute(
+                "INSERT INTO backtest_metrics (backtest_run_id, season, gameweek, tier, metric_name, metric_value) "
+                "VALUES (?, ?, ?, ?, ?, ?)", [run_id, season, gw, tier, name, value],
+            )
     return run_id
 
 
@@ -98,6 +103,10 @@ def test_summarize_reports_each_season_and_the_minutes_prior_by_price_band():
     prior = out["minutes_prior_by_price_band"]
     assert prior["2024-2025"]["cold"]["9.0+"] == {"p_start_prior": 0.9, "p_start_final": 0.9, "started_share": 1.0, "n": 1}
     assert prior["2025-2026"]["mature"]["<5.0"]["started_share"] == 0.0
+    # each gameweek carries the squad's own points next to beats_real
+    assert [(r["season"], r["gw"], r["beats_real"], r["squad_points"]) for r in out["per_gameweek"]] == [
+        ("2024-2025", 6, -1.0, 61.0), ("2025-2026", 20, 2.0, 75.0),
+    ]
 
 
 
