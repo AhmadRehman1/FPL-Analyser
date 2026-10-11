@@ -1157,3 +1157,35 @@ def test_own_sub_rate_replaces_the_position_rate_for_a_player_with_a_record(con)
     assert own["p2"][1] > pooled["p2"][1] and own["p3"][1] < pooled["p3"][1]
     # no non-starts to go on: the position rate
     assert own["p1"][0] == pytest.approx(pooled["p1"][0])
+
+
+def test_a_finished_match_without_player_rows_yet_is_not_a_non_start(con):
+    """Live, the match feed can lag FPL: a finished fixture is in fact_match before its player
+    rows arrive (2026-10-11: Man City's GW6, Haaland's P(start) 1.0 -> 0.82). Until any player row
+    for the match exists, it says nothing about who started, so it is not counted."""
+    _seed_league(con)
+    _write_base_params(con)
+    run = dict(
+        decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1,
+        fact_multiplier_params_version=1, lookback_seasons=("2024-2025", "2025-2026"),
+    )
+
+    def p_start_own(model_version):
+        return con.execute(
+            "SELECT p_start_historical_own FROM minutes_model_outputs WHERE model_version = ? AND player_uid = 'p1'",
+            [model_version],
+        ).fetchone()[0]
+
+    before = p_start_own(mm.run(con, date(2026, 8, 10), "2025-2026", **run))
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, home_team_uid, away_team_uid, finished, competition, "
+        "kickoff_time, _ingested_at) VALUES ('late', '2025-2026', 'team_a', 'team_b', TRUE, 'Premier League', ?, ?)",
+        [datetime(2026, 1, 2), datetime.now(timezone.utc)],
+    )
+    assert p_start_own(mm.run(con, date(2026, 8, 10), "2025-2026", **run)) == pytest.approx(before) == pytest.approx(1.0)
+    # once the feed has the match, p1's absence from it is a real non-start
+    con.execute(
+        "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, "
+        "_ingested_at) VALUES ('p2', 'late', '2025-2026', 0, 90, 90, ?)", [datetime.now(timezone.utc)],
+    )
+    assert p_start_own(mm.run(con, date(2026, 8, 10), "2025-2026", **run)) < before
