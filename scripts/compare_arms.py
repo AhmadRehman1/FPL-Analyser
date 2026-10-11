@@ -17,11 +17,11 @@ the breakout fix, on the same cached DB. (i) and (ii) as above against control; 
 keeps the fix: its breakout residual at most two thirds of the baseline's; (iv) its 2025-26
 minutes log score is better than control's.
 
-With --rule r5 --target <price_band=9.0+ | in_form> (rule R5, docs/plans/
+With --rule r5 --target <price_band=9.0+ | price_band=<5.0 | in_form> (rule R5, docs/plans/
 2026-10_premium_and_form_returns.md, agreed with the project owner 2026-10-11): (i) and (ii) as
 above against control; (iii) the target group's component sum (|appearance| + |goals| +
 |assists| + |clean sheet| + |other|, so errors that cancel still count) at most two thirds of
-control's -- the 9.0m+ price band, or the in-form group (fpl_quant.form_groups: declared, or its
+control's -- a price band (9.0m+, or below 5.0m for the round-3 minutes arm), or the in-form group (fpl_quant.form_groups: declared, or its
 one widening when control has fewer than form_groups.MIN_GROUP_SIZE player-steps); (iv) the
 breakout group's residual stays at or below BREAKOUT_LIMIT, so the breakout fix isn't undone.
 
@@ -51,7 +51,7 @@ BREAKOUT_CUT = 2.0 / 3.0
 # (docs/reports/2026-10_breakout_players.md, follow-up 2).
 BREAKOUT_LIMIT = 0.182
 TARGET_CUT = 2.0 / 3.0
-TARGETS = ("price_band=9.0+", "in_form")
+TARGETS = ("price_band=9.0+", "price_band=<5.0", "in_form")
 COMPONENTS = ("appearance", "goals", "assists", "cleansheet", "other")
 
 
@@ -126,8 +126,8 @@ def component_sum(block: dict | None) -> float | None:
 
 
 def _target_block(run: dict, target: str, label: str | None = None) -> dict | None:
-    if target == "price_band=9.0+":
-        return (run.get("price_band") or {}).get("9.0+")
+    if target.startswith("price_band="):
+        return (run.get("price_band") or {}).get(target.split("=", 1)[1])
     return ((run.get("form_groups") or {}).get(DECIDING_SEASON) or {}).get(label)
 
 
@@ -173,7 +173,7 @@ def compare(control: dict, arm: dict, baseline: dict | None = None, *, rule: str
     if rule != "r5" and target is not None:
         raise Refused("--target is rule r5's: pass --rule r5")
     _check_comparable(control, arm, baseline)
-    if target == "price_band=9.0+":
+    if target is not None and target.startswith("price_band="):
         # price_band pools every season the run scored: it is 2025-26's only on a 2025-26 run
         for name, run in (("control", control), ("arm", arm)):
             other = sorted(set(run.get("headline_by_season") or {}) - {DECIDING_SEASON})

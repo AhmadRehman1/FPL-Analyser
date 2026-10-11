@@ -196,6 +196,21 @@ def test_r5_reads_a_split_block_without_its_sum():
     assert ca.component_sum({"goals": 0.1}) is None
 
 
+
+def test_r5_cheap_band_target():
+    """Round 3 (docs/reports/2026-10_premium_and_form_returns.md): the <5.0m band, whose error is
+    mostly appearance points."""
+    cheap = {"appearance": -0.11, "goals": -0.02, "assists": 0.01, "cleansheet": -0.03, "other": -0.01}
+    fixed = {**cheap, "appearance": -0.03}
+    control, arm = _r5(CONTROL), _r5(CONTROL)
+    control["price_band"]["<5.0"] = {**cheap, "total": sum(cheap.values())}
+    arm["price_band"]["<5.0"] = {**fixed, "total": sum(fixed.values())}
+    out = ca.compare(control, arm, rule="r5", target="price_band=<5.0")
+    assert out["checks"]["target"]["control"] == pytest.approx(0.18)
+    assert out["checks"]["target"]["arm"] == pytest.approx(0.10) and out["verdict"] == "PASS"
+    # the 9.0m+ block is untouched, so judged on it the same arm fails (iii)
+    assert ca.compare(control, arm, rule="r5", target="price_band=9.0+")["verdict"] == "FAIL"
+
 def test_r5_needs_a_target_and_no_baseline():
     with pytest.raises(ca.Refused):
         ca.compare(_r5(CONTROL), _r5(CONTROL), rule="r5", target="9.0+")

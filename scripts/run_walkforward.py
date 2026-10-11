@@ -21,7 +21,7 @@ Usage (from repo root):
     PYTHONPATH=src python scripts/run_walkforward.py --lambda 0.10    # an experiment arm
 
 The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, --role-minutes-pseudo-starts,
---no-current-season-blend, --league-only-minutes-rates, --assist-prior-xa, --finishing-prior-xg,
+--no-current-season-blend, --league-only-minutes-rates, --own-sub-rate, --assist-prior-xa, --finishing-prior-xg,
 --minutes-price-prior, --minutes-start-prior, --no-minutes-start-prior) each swap one setting for a fresh or existing param version, so an arm runs from master via
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
@@ -128,6 +128,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--league-only-minutes-rates", action="store_true",
                         help="count P(60+ | started / subbed on) on Premier League matches alone, not cups, "
                              "the Community Shield and friendlies")
+    parser.add_argument("--own-sub-rate", action="store_true",
+                        help="P(used as a substitute | not started) from the player's own record, shrunk "
+                             "toward the position rate, instead of the position rate for everyone")
     parser.add_argument("--no-current-season-blend", action="store_true",
                         help="the minutes model without this season's own start rate and P(60+ | started) "
                              "blends, as before 2026-10-08")
@@ -196,6 +199,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
     if getattr(args, "league_only_minutes_rates", False):
         out["minutes_rates_scope_params_version"] = params_mod.get_or_create_version(
             con, "minutes_rates_scope_params", "league_only", EXPERIMENT_EFFECTIVE_DATE, value_numeric=1.0,
+        )
+    if getattr(args, "own_sub_rate", False):
+        out["sub_rate_params_version"] = params_mod.get_or_create_version(
+            con, "minutes_sub_rate_params", "own_rate", EXPERIMENT_EFFECTIVE_DATE, value_numeric=1.0,
         )
     if getattr(args, "no_current_season_blend", False):
         out["current_season_role_params_version"] = None
