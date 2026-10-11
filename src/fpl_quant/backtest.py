@@ -556,21 +556,23 @@ def _realized_player_match_outcome(con: duckdb.DuckDBPyConnection, player_uid: s
 COMPONENTS = ("goals", "assists", "appearance", "cleansheet", "other")
 
 
-def realized_components(
+def realized_component_pairs(
     con: duckdb.DuckDBPyConnection, season: str, gameweek: int, ep_model_version: int, scoring_params_version: int,
     *, player_uids=None,
-) -> dict[str, dict[str, float]]:
-    """{player_uid: {component: realized - predicted}} for this gameweek, for every player with EP
+) -> dict[str, dict]:
+    """{player_uid: {"realized": event_points, "predicted": ep_total,
+    "components": {component: (realized, predicted)}}} for this gameweek, for every player with EP
     outputs under ep_model_version (or those of player_uids) and a non-null event_points. Taken
     once per player against the gameweek sums (ep_gameweek_outputs), so a double gameweek's
     fixtures are summed on both sides. Realized appearance, goals, assists and clean sheet come
     from the match feed fixture by fixture, scored with the scoring matrix; "other" is the rest
     of event_points (bonus, DefCon, goals conceded, saves, cards), and on the predicted side the
-    rest of ep_total, so the five sum back to the ep_total residual.
+    rest of ep_total, so the five residuals sum back to the ep_total residual.
 
-    Shared by score_gameweek()'s component calibration metrics and walkforward_summary.py's group
-    cuts, which recompute a group's split after the walk (only per-gameweek segment means are
-    stored) -- docs/plans/2026-10_premium_and_form_returns.md, RQ2."""
+    The one place the component split is defined: score_gameweek()'s component calibration
+    metrics, walkforward_summary.py's group cuts (only per-gameweek segment means are stored, so
+    they recompute a group's split after the walk) and calibration_diagnostics.py's raw rows all
+    read it -- docs/plans/2026-10_premium_and_form_returns.md, RQ2."""
     wanted = None if player_uids is None else set(player_uids)
     fixtures_of: dict[str, list[str]] = {}
     position_of: dict[str, str] = {}
@@ -592,7 +594,7 @@ def realized_components(
         "SELECT player_uid, ep_total, ep_appearance, ep_goals, ep_assists, ep_clean_sheet "
         "FROM ep_gameweek_outputs WHERE model_version = ?", [ep_model_version],
     ).fetchall()}
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict] = {}
     for player_uid, match_ids in fixtures_of.items():
         realized_pts = event_points_of.get(player_uid)
         gw_ep_total, gw_ep_app, gw_ep_g, gw_ep_a, gw_ep_cs = gw_pred.get(player_uid, (None,) * 5)
@@ -613,10 +615,26 @@ def realized_components(
         r_other = realized_pts - r_app - r_goals - r_assists - r_cs
         ep_other = gw_ep_total - gw_ep_app - gw_ep_g - gw_ep_a - gw_ep_cs
         out[player_uid] = {
-            "goals": r_goals - gw_ep_g, "assists": r_assists - gw_ep_a, "appearance": r_app - gw_ep_app,
-            "cleansheet": r_cs - gw_ep_cs, "other": r_other - ep_other,
+            "realized": realized_pts, "predicted": gw_ep_total,
+            "components": {
+                "goals": (r_goals, gw_ep_g), "assists": (r_assists, gw_ep_a), "appearance": (r_app, gw_ep_app),
+                "cleansheet": (r_cs, gw_ep_cs), "other": (r_other, ep_other),
+            },
         }
     return out
+
+
+def realized_components(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, ep_model_version: int, scoring_params_version: int,
+    *, player_uids=None,
+) -> dict[str, dict[str, float]]:
+    """{player_uid: {component: realized - predicted}}: realized_component_pairs() as residuals."""
+    return {
+        uid: {key: r - p for key, (r, p) in row["components"].items()}
+        for uid, row in realized_component_pairs(
+            con, season, gameweek, ep_model_version, scoring_params_version, player_uids=player_uids,
+        ).items()
+    }
 
 
 # ============================================================

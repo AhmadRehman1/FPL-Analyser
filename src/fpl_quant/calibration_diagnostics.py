@@ -17,11 +17,12 @@ scripts/diagnose_ep_calibration.py's SQL-side CASE expressions are a separate, p
 duplication this module does not touch, since consolidating a live nightly-reporting script is
 out of scope for a new diagnostics module -- see the docs note above).
 
-Component-residual formulas (r_app/r_goals/r_assists/r_cs/r_other, ep_other) are a deliberate
-mirror of the identical inline computation in `backtest.score_gameweek()` (lines ~807-819 as of
-this writing) -- not re-derived independently, to avoid the two ever silently disagreeing about
-what "the goals component" means. `tests/test_calibration_diagnostics.py`'s reconciliation test
-is the guard against drift between the two copies.
+Component residuals come from `backtest.realized_component_pairs()`, the one definition the
+backtest's own calibration metrics and the walk-forward summary also read, so the three can't
+disagree about what "the goals component" means. Like the backtest, each row is one player's
+gameweek: a double gameweek's fixtures are summed on both sides against his whole-gameweek
+event_points (a copy kept here used to score each fixture against the whole gameweek, counting
+a double gameweek's realized points twice).
 """
 
 from __future__ import annotations
@@ -36,13 +37,11 @@ from pathlib import Path
 import duckdb
 
 from . import backtest as bt
-from . import expected_points as ep
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The five components a step's ep_total/realized_pts residual decomposes into, matching
-# backtest.score_gameweek()'s own comp_resid dict keys exactly.
-COMPONENTS = ("goals", "assists", "appearance", "cleansheet", "other")
+# The five components a step's ep_total/realized_pts residual decomposes into.
+COMPONENTS = bt.COMPONENTS
 
 
 def _git_sha() -> str | None:
@@ -162,57 +161,32 @@ def fetch_calibration_rows(
     missing_position = 0
 
     for season, gameweek, step_tier, ep_mv in steps:
-        ep_rows = con.execute(
-            "SELECT o.player_uid, dp.position, o.fixture_match_id, o.ep_clean_sheet, o.ep_goals, "
-            "o.ep_assists, o.ep_total, o.ep_appearance "
+        position_of = dict(con.execute(
+            "SELECT DISTINCT o.player_uid, dp.position "
             "FROM ep_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid WHERE o.model_version = ?",
             [ep_mv],
-        ).fetchall()
-        event_points_of = dict(con.execute(
-            "SELECT player_uid, event_points FROM fact_player_season_stats "
-            "WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
-            [season, gameweek],
         ).fetchall())
         price_of = dict(con.execute(
             "SELECT player_uid, now_cost FROM fact_player_season_stats "
             "WHERE season = ? AND gw = ? AND now_cost IS NOT NULL",
             [season, gameweek],
         ).fetchall())
+        split = bt.realized_component_pairs(con, season, gameweek, ep_mv, scoring_params_version)
+        missing_realized_or_predicted += len(position_of) - len(split)
 
-        for player_uid, position, match_id, ep_cs, ep_g, ep_a, ep_total, ep_app in ep_rows:
-            realized_pts = event_points_of.get(player_uid)
-            if realized_pts is None or ep_total is None:
-                missing_realized_or_predicted += 1
-                continue
+        for player_uid, scored in split.items():
+            position = position_of[player_uid]
             now_cost = price_of.get(player_uid)
             if now_cost is None:
                 missing_price += 1
             if position is None:
                 missing_position += 1
-
-            # Mirrors backtest.score_gameweek()'s inline component computation exactly -- see
-            # module docstring. `ep_other`/`r_other` are residual-of-total by construction, so
-            # the five components always sum back to `realized - predicted` algebraically.
-            outcome = bt._realized_player_match_outcome(con, player_uid, match_id)
-            cs_pts = ep._sm(con, "clean_sheet_points", scoring_params_version, position)
-            goal_pts = ep._sm(con, "goal_points", scoring_params_version, position)
-            assist_pts = ep._sm(con, "assist_points", scoring_params_version)
-            mins = outcome["minutes_played"]
-            r_app = 2.0 if mins >= 60 else (1.0 if mins >= 1 else 0.0)
-            r_goals = outcome["goals"] * (goal_pts or 0.0)
-            r_assists = outcome["assists"] * (assist_pts or 0.0)
-            r_cs = (cs_pts or 0.0) if (outcome["team_goals_conceded"] == 0 and mins >= 60) else 0.0
-            r_other = realized_pts - r_app - r_goals - r_assists - r_cs
-            ep_other = ep_total - ep_app - ep_g - ep_a - ep_cs
-
             rows.append({
                 "player_uid": player_uid, "season": season, "gameweek": gameweek, "tier": step_tier,
                 "position": position, "price_band": bt._price_band(now_cost), "now_cost": now_cost,
-                "realized": realized_pts, "predicted": ep_total, "residual": realized_pts - ep_total,
-                "components": {
-                    "goals": (r_goals, ep_g), "assists": (r_assists, ep_a),
-                    "appearance": (r_app, ep_app), "cleansheet": (r_cs, ep_cs), "other": (r_other, ep_other),
-                },
+                "realized": scored["realized"], "predicted": scored["predicted"],
+                "residual": scored["realized"] - scored["predicted"],
+                "components": scored["components"],
             })
 
     missing = {
