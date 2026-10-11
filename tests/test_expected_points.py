@@ -734,7 +734,7 @@ def test_recipe_of_reads_back_what_run_recorded(con):
         "set_piece_params_version": 1, "fixture_params_version": None,
         "rate_shrinkage_params_version": 8, "assist_calibration_params_version": None,
         "finishing_skill_params_version": None, "bps_calibration_params_version": 3,
-        "rate_prior_params_version": None,
+        "rate_prior_params_version": None, "conversion_params_version": None,
     }
 
 
