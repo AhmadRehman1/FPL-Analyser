@@ -507,3 +507,50 @@ price-band blocks pool the two seasons.
 - **Pass with m ≥ 0:** the arm goes live by the promotion path declared for D1.
 - **Pass with m < 0:** the owner signs off first.
 - **Fail:** the switch stays off.
+
+### Result: D2 passes; the own substitute rate goes live
+
+**The batch.** It ran at 19:21 UTC on 2026-10-11 on master 60d3e0e, on cached DB
+`duckdb-38148073054`. Both runs walked both seasons, 75 of 75 steps. Run ids: control
+38167650902, `--own-sub-rate` 38167653259, each mapped by the `ARGS:` log line.
+
+| | control | own substitute rate |
+|---|---|---|
+| (ii) EP MAE 2024-25 | 1.0544 | **1.0385** ✔ |
+| (ii) EP MAE 2025-26 | 1.0665 | **1.0452** ✔ |
+| (iii) breakout residual 2025-26 (limit +0.182) | +0.108 | +0.100 ✔ |
+| minutes log score 2024-25 / 2025-26 | −0.544 / −0.535 | **−0.498 / −0.510** |
+| minutes Brier 2024-25 / 2025-26 | 0.298 / 0.294 | **0.267 / 0.279** |
+| squad pts/GW 2024-25 / 2025-26 | 63.54 / 60.16 | 63.43 / 60.11 |
+
+**(i) points, and a caveat on how it was measured.** The rule paired squad points over every
+gameweek of both seasons. But the summary's per-gameweek points measure, `beats_real`, needs the
+real average manager's score, and the data has none for 2024-25. So `compare_arms.py --rule
+confirm` paired 2025-26 alone, and its PASS rests on that. The sample did not double, as the
+declaration expected. All three readings of (i) the summaries allow pass:
+
+| reading of (i) | gameweeks | m ± SE | m + SE |
+|---|---|---|---|
+| 2025-26 alone (what the tool computed) | 37 | −0.05 ± 0.74 | +0.69 ✔ |
+| both seasons, 2024-25 by `beats_crowd` | 74 | −0.22 ± 0.39 | +0.18 ✔ |
+| both seasons, 2024-25 by `beats_crowd` less the benchmark's mean shift | 74 | −0.08 ± 0.39 | +0.31 ✔ |
+
+- **The `beats_crowd` reading is conservative.** The crowd benchmark itself rises under the arm
+  (+0.28 a gameweek in 2024-25). The 2024-25 squad points mean moves by −0.11 a gameweek.
+- **The verdict is a pass, and the owner had already approved promoting a pass (2026-10-11).**
+- **Not explained:** the arm's 2025-26 squads differ between D1 and D2 (6 and 5 changed
+  gameweeks, m −0.30 and −0.05), while the control's are identical. Squad choices near a tie
+  move with small changes in EP, and the arm's EP for fringe players is new. The points estimate
+  for this arm is noisy either way.
+- **Follow-up for the tooling:** the summary will carry each gameweek's squad points, so a
+  two-season rule can pair 2024-25 directly. `--rule confirm` will refuse a season it can't pair
+  instead of dropping it.
+
+**Promotion (2026-10-11).**
+- `minutes_sub_rate_params` v1 (`own_rate` 1) is seeded by `materialize_confirmed_seeds()` and
+  `run_ingestion.py`.
+- `sub_rate_params_version` joins `RECALIBRATABLE_VERSION_ARGS`, so every caller reads it from
+  `active_recalibratable_versions()`.
+- Every `minutes_model.run()` call site passes it: the backtest's, `forward_season_sim`, and
+  `run_ingestion.py`. `tests/test_live_switch_wiring.py` requires it.
+- `run_walkforward.py --no-own-sub-rate` gives the old position rate for comparisons.

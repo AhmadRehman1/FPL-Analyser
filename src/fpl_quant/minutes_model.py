@@ -955,6 +955,11 @@ def seed_current_season_minutes_params(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def seed_sub_rate_params(con: duckdb.DuckDBPyConnection) -> None:
+    """minutes_sub_rate_params v1 = the live own substitute rate (run()'s sub_rate_params_version)."""
+    params_mod.write_param(con, "minutes_sub_rate_params", 1, "2026-10-11", "own_rate", value_numeric=1.0)
+
+
 def p_start_final_by_player(con: duckdb.DuckDBPyConnection, model_version: int, player_uids: list[str]) -> dict[str, float]:
     """Priority 2 addition: bulk p_start_final lookup for a specific list of players at one
     minutes_model_versions run. squad_optimizer.fetch_candidate_pool already has its own
@@ -1154,7 +1159,8 @@ def run(
     had P(60+) 0.83 from a 53-minute Community Shield start. The start rate already counts
     league matches alone (_team_match_weights).
 
-    sub_rate_params_version (opt-in, None is the prior behavior; docs/reports/
+    sub_rate_params_version (None is the behavior before 2026-10-11; live since then, v1, every
+    caller passes active_recalibratable_versions()'s; docs/reports/
     2026-10_premium_and_form_returns.md, round 3): P(used as a substitute | not started) becomes
     the player's own rate -- his substitute appearances over the club's matches he didn't start
     (compute_player_historical_components()'s raw counts) -- weighted against the position rate
@@ -1162,6 +1168,8 @@ def run(
     and P(60+ | subbed on) already use. The position rate alone gave every non-starter the same
     chance: in the 2025-26 walk-forward cheap players with p_start under 0.1 were given 0.195
     and came on in 0.6% of their non-starts, while regular starters left out came on in 36%.
+    Walk-forward, both seasons: EP MAE 1.054 -> 1.039 (2024-25) and 1.067 -> 1.045 (2025-26),
+    minutes log score better in both, squad points level.
 
     price_prior_params_version (opt-in, None is the prior behavior): the start prior a thin
     history shrinks toward becomes the (position, price band) start rate instead of the

@@ -201,6 +201,7 @@ def _resolve_versions(con: duckdb.DuckDBPyConnection, active: dict) -> dict:
         # since 2026-10-08; None (the multi-season rates alone) when `active` doesn't carry them.
         "current_season_role_params_version": active.get("current_season_role_params_version"),
         "current_season_minutes_params_version": active.get("current_season_minutes_params_version"),
+        "sub_rate_params_version": active.get("sub_rate_params_version"),
         # Opt-in "wait for a better week" for TC/BB; None until a season-sim arm justifies it.
         "chip_wait_params_version": active.get("chip_wait_params_version"),
         # Opt-in two-transfer moves and hits (docs/reports/2026-10_open_issues.md, issue 0);
@@ -388,7 +389,8 @@ def run_forward_season_sim(
                                 minutes_bounds_params_version=versions["minutes_bounds_params_version"],
                                 start_prior_params_version=versions["minutes_start_prior_params_version"],
                                 current_season_role_params_version=versions["current_season_role_params_version"],
-                                current_season_minutes_params_version=versions["current_season_minutes_params_version"])
+                                current_season_minutes_params_version=versions["current_season_minutes_params_version"],
+                                sub_rate_params_version=versions["sub_rate_params_version"])
         ep0 = expected_points.run(con, asof, target_season, start_gameweek, ts0, mm0,
                                   versions["scoring_params_version"], versions["bps_params_version"],
                                   versions["tau_params_version"],
@@ -425,7 +427,8 @@ def run_forward_season_sim(
                                       minutes_bounds_params_version=versions["minutes_bounds_params_version"],
                                       start_prior_params_version=versions["minutes_start_prior_params_version"],
                                       current_season_role_params_version=versions["current_season_role_params_version"],
-                                      current_season_minutes_params_version=versions["current_season_minutes_params_version"])
+                                      current_season_minutes_params_version=versions["current_season_minutes_params_version"],
+                                      sub_rate_params_version=versions["sub_rate_params_version"])
             plan_run_id = transfer_planner.run(
                 con, asof, target_season, gw, state_version, ts_mv, mm_mv,
                 versions["horizon_params_version"], versions["scoring_params_version"], versions["bps_params_version"],

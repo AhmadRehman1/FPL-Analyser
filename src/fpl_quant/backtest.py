@@ -1767,6 +1767,7 @@ def run_season_simulation(
     rate_prior_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
     current_season_minutes_params_version: int | None = None,
+    sub_rate_params_version: int | None = None,
     on_gameweek: Callable[[dict], None] | None = None,
 ) -> dict:
     """Bootstraps a real M5 squad at start_gameweek, then walks forward to end_gameweek making
@@ -1856,7 +1857,7 @@ def run_season_simulation(
     real versions, compare beats_crowd_points_delta.
 
     captain_risk_params_version/minutes_bounds_params_version/minutes_start_prior_params_version/
-    current_season_role_params_version/current_season_minutes_params_version:
+    current_season_role_params_version/current_season_minutes_params_version/sub_rate_params_version:
     threaded to every squad_optimizer.run()/transfer_planner.run() and minutes_model.run() call
     this walk makes (None keeps each one's old behavior). Callers pass
     active_recalibratable_versions()'s.
@@ -1896,6 +1897,7 @@ def run_season_simulation(
             start_prior_params_version=minutes_start_prior_params_version,
             current_season_role_params_version=current_season_role_params_version,
             current_season_minutes_params_version=current_season_minutes_params_version,
+            sub_rate_params_version=sub_rate_params_version,
         )
         bootstrap_memo = ep.new_memo()
         ep_mv = ep.run(
@@ -1971,6 +1973,7 @@ def run_season_simulation(
                     start_prior_params_version=minutes_start_prior_params_version,
                     current_season_role_params_version=current_season_role_params_version,
                     current_season_minutes_params_version=current_season_minutes_params_version,
+                    sub_rate_params_version=sub_rate_params_version,
                 )
                 plan_run_id = transfer_planner.run(
                     con, calibration_asof_date, season, gw, state_version, ts_mv, mm_mv,
@@ -2284,6 +2287,7 @@ def beats_baseline(
     rate_prior_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
     current_season_minutes_params_version: int | None = None,
+    sub_rate_params_version: int | None = None,
 ) -> dict:
     """Scores three model-free baselines over [start_gameweek, end_gameweek] using the SAME
     asof_scope() discipline every other walk-forward step in this module uses, then compares
@@ -2334,6 +2338,7 @@ def beats_baseline(
                 start_prior_params_version=minutes_start_prior_params_version,
                 current_season_role_params_version=current_season_role_params_version,
                 current_season_minutes_params_version=current_season_minutes_params_version,
+                sub_rate_params_version=sub_rate_params_version,
             )
             ep_mv = ep.run(
                 con, calibration_asof_date, season, gw, ts_mv, mm_mv,
@@ -2685,6 +2690,9 @@ RECALIBRATABLE_VERSION_ARGS: dict[str, tuple[str, str | tuple[str, ...]]] = {
     # matches/starts. Squad points level in 2025-26, EP error down, breakout players' gap cut.
     "current_season_role_params_version": ("current_season_role_params", "current_season_matches_threshold"),
     "current_season_minutes_params_version": ("current_season_minutes_params", "starts_threshold"),
+    # Each player's own substitute rate (docs/reports/2026-10_premium_and_form_returns.md, round
+    # 3), live since 2026-10-11 after the two-season confirmation.
+    "sub_rate_params_version": ("minutes_sub_rate_params", "own_rate"),
 }
 
 
@@ -2798,6 +2806,7 @@ def materialize_confirmed_seeds(con: duckdb.DuckDBPyConnection, seed_dir: Path |
     ep.seed_rate_prior_params(con)
     minutes_model.seed_current_season_role_params(con)
     minutes_model.seed_current_season_minutes_params(con)
+    minutes_model.seed_sub_rate_params(con)
     return len(seeds)
 
 
@@ -2957,6 +2966,7 @@ def _minutes_log_score_for_step(
             start_prior_params_version=None,
             current_season_role_params_version=None,
             current_season_minutes_params_version=None,
+            sub_rate_params_version=None,
         )
     ep_fixture_of = dict(con.execute(
         "SELECT player_uid, fixture_match_id FROM ep_outputs WHERE model_version = ?", [ep_model_version]
