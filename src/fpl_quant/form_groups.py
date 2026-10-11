@@ -12,8 +12,11 @@ A player-step (season S, gameweek G) is IN_FORM when, using only rows from befor
       seasons'. S is read from his latest fact_player_season_stats row with gw < G (row G already
       holds G's own matches); the earlier seasons from expected_points._player_rate_pool(), which
       rebuilds 2024-25's per-90-only rows from match minutes;
-  (c) he is not a goalkeeper, and not in the breakout group (breakout.classify, declared rule,
-      either label): those players have no earlier record to be in form against.
+  (c) he is a midfielder or forward (fixed 2026-10-11 in Phase 1, before any arm: with defenders
+      in, the live group was mostly defenders whose (xG + xA) per 90 went from 0.03 to 0.10, a
+      ratio of noise on a scoring rate that barely moves their points), and not in the breakout
+      group (breakout.classify, declared rule, either label): those players have no earlier
+      record to be in form against.
 COOLING is the same with the ratio at most 1 / RATIO. An earlier rate of 0 classifies nobody.
 A season with no earlier loaded season returns None.
 
@@ -85,7 +88,7 @@ def classify(
         WITH {breakout.RECENT_STARTS_CTES}
         SELECT r.player_uid FROM recent r
         JOIN dim_player dp ON dp.player_uid = r.player_uid
-        WHERE r.n_played >= ? AND r.recent_starts >= ? AND coalesce(dp.position, '') <> 'Goalkeeper'
+        WHERE r.n_played >= ? AND r.recent_starts >= ? AND dp.position IN ('Midfielder', 'Forward')
         ORDER BY r.player_uid
         """,
         [season, gameweek, gameweek, season, backtest.PL, deadline, recent_matches,

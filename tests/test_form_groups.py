@@ -5,14 +5,16 @@ from fpl_quant import form_groups
 NOW = datetime(2026, 1, 1)
 PRIOR, SEASON = "2024-2025", "2025-2026"
 # (xG + xA) per 90: (2024-25, 2025-26). hot 2x, warm 1.25x, steady 1.1x, cold 0.5x; the keeper's
-# ratio is 4x but keepers are never classified.
+# and the defender's ratios are 4x, but only midfielders and forwards are classified.
 RATES = {
     "hot": (0.30, 0.60),
     "warm": (0.40, 0.50),
     "steady": (0.40, 0.44),
     "cold": (0.60, 0.30),
     "keeper": (0.05, 0.20),
+    "fullback": (0.05, 0.20),
 }
+POSITION = {"keeper": "Goalkeeper", "fullback": "Defender", "cold": "Forward"}
 
 
 def _match(con, mid, season, gw, home, away, kickoff):
@@ -47,9 +49,10 @@ def _seed(con):
     new -- at A, no earlier league minutes: a breakout player, never in form."""
     for team in ("team_a", "team_b"):
         con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES (?, ?)", [team, team])
-    players = {"hot": "team_a", "warm": "team_a", "steady": "team_a", "cold": "team_b", "keeper": "team_b", "new": "team_a"}
+    players = {"hot": "team_a", "warm": "team_a", "steady": "team_a", "cold": "team_b", "keeper": "team_b",
+               "fullback": "team_b", "new": "team_a"}
     for uid in players:
-        position = "Goalkeeper" if uid == "keeper" else "Midfielder"
+        position = POSITION.get(uid, "Midfielder")
         con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES (?, ?, ?)", [uid, uid, position])
     con.execute(
         "CREATE OR REPLACE TEMP TABLE _player_season_team "
@@ -86,7 +89,8 @@ def test_in_form_and_cooling_from_a_per_90_only_earlier_season(con):
     _seed(con)
     out = form_groups.classify(con, SEASON, 6, _deadline_after(5))
     # the earlier season has NULL minutes and totals; its rate comes from per-90 x match minutes.
-    # warm (1.25x) and steady (1.1x) are in neither group, the keeper never is, new is a breakout
+    # warm (1.25x) and steady (1.1x) are in neither group, the keeper and the defender never are,
+    # new is a breakout
     assert out == {"hot": form_groups.IN_FORM, "cold": form_groups.COOLING}
 
 
@@ -129,7 +133,7 @@ def test_details_and_memo(con):
     form_groups.classify(con, SEASON, 6, _deadline_after(5), memo=memo, details=details)
     assert details["hot"]["ratio"] == 2.0
     assert details["hot"]["earlier_minutes"] == 1800.0
-    assert "keeper" not in details and "new" not in details
+    assert "keeper" not in details and "fullback" not in details and "new" not in details
     # the earlier-season pool is reused across steps
     assert ("hot", (PRIOR,)) in memo["earlier"]
 
