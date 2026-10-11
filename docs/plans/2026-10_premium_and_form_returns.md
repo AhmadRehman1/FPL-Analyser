@@ -413,7 +413,7 @@ Count: 4 of 14.
       - Map runs to arms by the `ARGS:` log line, never by dispatch order.
       - Record both groups and the cooling group for every arm.
       Covers: RQ5, RQ7; checks: A5, A6
-- [ ] Phase 4: One diagnosis-led lever, or the combined run
+- [x] Phase 4: One diagnosis-led lever, or the combined run
       Done when: the B3 batch (control + arm) is judged and recorded. Or: the report says why no
       single cause was named, and the phase is skipped.
       Steps:
@@ -441,7 +441,7 @@ Count: 4 of 14.
       - Write the failing test first, then the flag in `run_walkforward.py`. Declare the arm and
         target in the report before dispatch.
       Covers: RQ5, RQ7
-- [ ] Phase 5: Wire, promote, or stop
+- [x] Phase 5: Wire, promote, or stop (stopped: no arm passed; see the report's conclusion)
       Done when: either (a) the winner is live, the wiring test is green, the PR is merged,
       `scheduled_pipeline.yml` has run, and the named players' EP changed in
       `projections_latest.json` (recorded); or (b) the report's conclusion lists every arm and why it
