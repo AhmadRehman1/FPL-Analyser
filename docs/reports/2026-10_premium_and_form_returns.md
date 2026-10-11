@@ -480,3 +480,30 @@ P(60+ | subbed on) with the same weight. So the arm adds no new tuned number.
 **Verdict.** Under R5, D1 fails on (i) and (iii), so the live model is unchanged. The arm improves
 every calibration measure and leaves points within noise. Promoting it anyway is the owner's
 call, not the rule's.
+
+## Round 3 confirmation: the own substitute rate on both seasons (declared 2026-10-11, before any of its results)
+
+**Go-ahead.** On 2026-10-11 the owner chose a confirmation run over promoting D1 or dropping it.
+D1's points test rested on the 6 of 37 gameweeks where the squads differed. Walking 2024-25 as
+well roughly doubles the sample, and it tests the arm on the cold start.
+
+**Batch D2.** Two runs on one cached DB, both walking every season (no `--seasons`):
+
+| arm | flags |
+|---|---|
+| control | none |
+| own substitute rate | `--own-sub-rate` |
+
+**Rule (judged with `compare_arms.py control arm --rule confirm`).** The arm goes live only if all
+of these hold:
+- (i) paired squad points over every gameweek of both seasons: m ≥ −0.25 and m + SE ≥ 0;
+- (ii) EP MAE no worse than control's in each season on its own (no tolerance);
+- (iii) the declared breakout group's 2025-26 residual at or below +0.182, as in R5 (iv).
+
+There is no target-group check. D1 already measured the <£5.0m split on 2025-26, and the
+price-band blocks pool the two seasons.
+
+**Outcomes.**
+- **Pass with m ≥ 0:** the arm goes live by the promotion path declared for D1.
+- **Pass with m < 0:** the owner signs off first.
+- **Fail:** the switch stays off.
