@@ -119,6 +119,7 @@ def main() -> None:
     expected_points.seed_rate_prior_params(con)  # v1 = the live price-anchored rate prior
     minutes_model.seed_current_season_role_params(con)  # v1 = the live current-season start-rate blend
     minutes_model.seed_current_season_minutes_params(con)  # v1 = the live current-season P(60+) blend
+    minutes_model.seed_sub_rate_params(con)  # v1 = each player's own substitute rate
     expected_points.seed_v1_params(con)
     uncertainty.seed_v1_params(con)
     squad_optimizer.seed_v1_params(con)
@@ -241,6 +242,9 @@ def main() -> None:
         # breakout players' under-prediction +0.27 -> +0.11; docs/reports/2026-10_breakout_players.md).
         current_season_role_params_version=ACTIVE["current_season_role_params_version"],
         current_season_minutes_params_version=ACTIVE["current_season_minutes_params_version"],
+        # Switched on 2026-10-11: P(used as a sub | not started) from the player's own record,
+        # not one rate per position (docs/reports/2026-10_premium_and_form_returns.md, round 3).
+        sub_rate_params_version=ACTIVE["sub_rate_params_version"],
     )
     n_players = con.execute(
         "SELECT count(*) FROM minutes_model_outputs WHERE model_version = ?", [mm_model_version]

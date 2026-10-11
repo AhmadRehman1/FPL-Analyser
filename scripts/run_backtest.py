@@ -58,6 +58,7 @@ def _param_versions(active: dict) -> dict:
         rate_prior_params_version=active["rate_prior_params_version"],
         current_season_role_params_version=active["current_season_role_params_version"],
         current_season_minutes_params_version=active["current_season_minutes_params_version"],
+        sub_rate_params_version=active["sub_rate_params_version"],
     )
 
 # Modest, explicit blocks for the M2 coordinate descent -- kept small deliberately (this runs

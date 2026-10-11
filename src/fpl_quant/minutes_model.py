@@ -955,6 +955,11 @@ def seed_current_season_minutes_params(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def seed_sub_rate_params(con: duckdb.DuckDBPyConnection) -> None:
+    """minutes_sub_rate_params v1 = the live own substitute rate (run()'s sub_rate_params_version)."""
+    params_mod.write_param(con, "minutes_sub_rate_params", 1, "2026-10-11", "own_rate", value_numeric=1.0)
+
+
 def p_start_final_by_player(con: duckdb.DuckDBPyConnection, model_version: int, player_uids: list[str]) -> dict[str, float]:
     """Priority 2 addition: bulk p_start_final lookup for a specific list of players at one
     minutes_model_versions run. squad_optimizer.fetch_candidate_pool already has its own

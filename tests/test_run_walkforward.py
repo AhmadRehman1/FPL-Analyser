@@ -181,3 +181,7 @@ def test_own_sub_rate_flag_maps_to_a_sub_rate_version(con):
     assert set(out) == {"sub_rate_params_version"}
     value, _ = params_mod.resolve_param(con, "minutes_sub_rate_params", "own_rate", out["sub_rate_params_version"])
     assert value == 1.0
+
+
+def test_no_own_sub_rate_flag_turns_the_live_switch_off(con):
+    assert rw._experiment_versions(con, rw._parse_args(["--no-own-sub-rate"])) == {"sub_rate_params_version": None}

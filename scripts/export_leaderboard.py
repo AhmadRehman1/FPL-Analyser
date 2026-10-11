@@ -102,6 +102,7 @@ def _param_versions(active: dict) -> dict:
         team_strength_guard_params_version=active["team_strength_guard_params_version"],
         current_season_role_params_version=active["current_season_role_params_version"],
         current_season_minutes_params_version=active["current_season_minutes_params_version"],
+        sub_rate_params_version=active["sub_rate_params_version"],
     )
 
 # beats_baseline() only takes the M1-M3 subset of PARAM_VERSIONS (the baselines never touch
@@ -112,7 +113,7 @@ _BASELINE_VERSION_KEYS = (
     "bps_params_version", "tau_params_version", "minutes_bounds_params_version",
     "rate_shrinkage_params_version", "minutes_start_prior_params_version",
     "team_strength_guard_params_version", "rate_prior_params_version",
-    "current_season_role_params_version", "current_season_minutes_params_version",
+    "current_season_role_params_version", "current_season_minutes_params_version", "sub_rate_params_version",
 )
 
 _BASELINE_DISPLAY_NAMES = {
