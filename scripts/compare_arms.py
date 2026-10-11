@@ -25,12 +25,19 @@ control's -- a price band (9.0m+, or below 5.0m for the round-3 minutes arm), or
 one widening when control has fewer than form_groups.MIN_GROUP_SIZE player-steps); (iv) the
 breakout group's residual stays at or below BREAKOUT_LIMIT, so the breakout fix isn't undone.
 
+With --rule confirm (round 3's confirmation, docs/reports/2026-10_premium_and_form_returns.md,
+declared 2026-10-11 before any of its results): two runs over every season. (i) paired points
+over every gameweek of every season, the same floor as above; (ii) EP MAE no worse than
+control's in each season on its own, with no tolerance; (iii) the declared breakout group's
+2025-26 residual at most BREAKOUT_LIMIT, as R5 (iv).
+
 Refuses (exit 2) when any run is incomplete or they weren't made on the same cached DB.
 
 Usage:
     python scripts/compare_arms.py control/walkforward_summary.json arm/walkforward_summary.json [--json]
     python scripts/compare_arms.py control.json arm.json --baseline before_fix.json [--json]
     python scripts/compare_arms.py control.json arm.json --rule r5 --target in_form [--json]
+    python scripts/compare_arms.py control.json arm.json --rule confirm [--json]
 """
 
 import json
@@ -71,10 +78,13 @@ def _check_comparable(control: dict, arm: dict, baseline: dict | None = None) ->
         raise Refused(f"different cached DBs: {' vs '.join(run['db_cache_key'] for _, run in runs)}")
 
 
-def paired_points(control: dict, arm: dict, season: str = DECIDING_SEASON) -> dict:
-    c = {r["gw"]: r["beats_real"] for r in control["per_gameweek"] if r["season"] == season and r["beats_real"] is not None}
-    a = {r["gw"]: r["beats_real"] for r in arm["per_gameweek"] if r["season"] == season and r["beats_real"] is not None}
-    diffs = [a[gw] - c[gw] for gw in sorted(set(c) & set(a))]
+def paired_points(control: dict, arm: dict, season: str | None = DECIDING_SEASON) -> dict:
+    """Paired beats_real differences over one season's gameweeks, or every season's (None)."""
+    def by_step(run):
+        return {(r["season"], r["gw"]): r["beats_real"] for r in run["per_gameweek"]
+                if (season is None or r["season"] == season) and r["beats_real"] is not None}
+    c, a = by_step(control), by_step(arm)
+    diffs = [a[k] - c[k] for k in sorted(set(c) & set(a))]
     n = len(diffs)
     if n < 2:
         return {"n": n, "mean": None, "se": None, "wins": None, "losses": None}
@@ -167,11 +177,36 @@ def _breakout_limit_check(control: dict, arm: dict) -> dict:
     return {"pass": r_a is not None and r_a <= BREAKOUT_LIMIT, "group": f"{label} (n={n})", "arm": r_a, "limit": BREAKOUT_LIMIT}
 
 
+def _confirm(control: dict, arm: dict, baseline: dict | None) -> dict:
+    """--rule confirm: both seasons, pooled points, each season's MAE, the breakout limit."""
+    if baseline is not None:
+        raise Refused("rule confirm takes no --baseline")
+    _check_comparable(control, arm)
+    seasons = sorted(control.get("headline_by_season") or {})
+    if len(seasons) < 2 or seasons != sorted(arm.get("headline_by_season") or {}):
+        raise Refused("rule confirm needs two runs over the same seasons, more than one (run without --seasons)")
+    checks = {}
+    pts = paired_points(control, arm, season=None)
+    checks["points"] = {"pass": pts["mean"] is not None and pts["mean"] >= POINTS_FLOOR and pts["mean"] + pts["se"] >= 0,
+                        **pts}
+    by_season = {}
+    for season in seasons:
+        mae_c = control["headline_by_season"][season]["ep_total_calibration_mae"]
+        mae_a = arm["headline_by_season"][season]["ep_total_calibration_mae"]
+        by_season[season] = {"control": mae_c, "arm": mae_a, "delta": None if None in (mae_c, mae_a) else mae_a - mae_c}
+    checks["mae_by_season"] = {"pass": all(v["delta"] is not None and v["delta"] <= 1e-12 for v in by_season.values()),
+                               "seasons": by_season}
+    checks["breakout_limit"] = _breakout_limit_check(control, arm)
+    return {"verdict": "PASS" if all(c["pass"] for c in checks.values()) else "FAIL", "checks": checks}
+
+
 def compare(control: dict, arm: dict, baseline: dict | None = None, *, rule: str = "r4", target: str | None = None) -> dict:
     if rule == "r5" and (baseline is not None or target not in TARGETS):
         raise Refused(f"rule r5 takes --target {' or '.join(TARGETS)} and no --baseline")
     if rule != "r5" and target is not None:
         raise Refused("--target is rule r5's: pass --rule r5")
+    if rule == "confirm":
+        return _confirm(control, arm, baseline)
     _check_comparable(control, arm, baseline)
     if target is not None and target.startswith("price_band="):
         # price_band pools every season the run scored: it is 2025-26's only on a 2025-26 run
@@ -213,6 +248,18 @@ def _fmt(result: dict) -> str:
         + ("no paired gameweeks" if p["mean"] is None else
            f"{p['mean']:+.3f} ± {p['se']:.3f} a gameweek over {p['n']} ({p['wins']} better, {p['losses']} worse)")
     )
+    if "mae_by_season" in c:
+        m = c["mae_by_season"]
+        parts = [f"{season} {v['control']:.4f} -> {v['arm']:.4f} ({v['delta']:+.4f})" if v["delta"] is not None
+                 else f"{season} missing" for season, v in m["seasons"].items()]
+        lines.append(f"  (ii)  EP MAE by season {'pass' if m['pass'] else 'FAIL'}: " + "; ".join(parts))
+        b = c["breakout_limit"]
+        if "limit" in b:
+            arm_r = "missing" if b["arm"] is None else f"{b['arm']:+.4f}"
+            lines.append(f"  (iii) breakout {'pass' if b['pass'] else 'FAIL'}: {b['group']}: arm {arm_r} (limit {b['limit']:+.4f})")
+        else:
+            lines.append(f"  (iii) breakout FAIL: {b['reason']}")
+        return "\n".join(lines)
     m = c["mae"]
     lines.append(f"  (ii)  EP MAE  {'pass' if m['pass'] else 'FAIL'}: {m['control']:.4f} -> {m['arm']:.4f} ({m['delta']:+.4f})")
     if "target" in c:
@@ -264,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
             opts[flag[2:]] = args[i + 1]
             del args[i:i + 2]
     paths = [a for a in args if a != "--json"]
-    if len(paths) != 2 or opts.get("rule", "r4") not in ("r4", "r5"):
+    if len(paths) != 2 or opts.get("rule", "r4") not in ("r4", "r5", "confirm"):
         print(__doc__)
         return 2
     try:

@@ -256,3 +256,62 @@ def test_r5_breakout_limit_is_on_the_declared_group():
     out = ca.compare(_r5(CONTROL, n=100), _r5(CONTROL, n=100), rule="r5", target="in_form")
     assert not out["checks"]["breakout_limit"]["pass"]
     assert "declared breakout group too small" in out["checks"]["breakout_limit"]["reason"]
+
+
+# ---- rule confirm (round 3's confirmation): both seasons, pooled points, each season's MAE ----
+
+P = "2024-2025"
+
+
+def _two_seasons(prior_points, points, mae_prior=1.10, mae=1.07, resid=0.10, key="duckdb-1"):
+    run = _run(points, mae=mae, resid=resid, key=key)
+    run["headline_by_season"][P] = {"ep_total_calibration_mae": mae_prior, "log_score_minutes_mean": -0.6}
+    run["per_gameweek"] = [r for r in run["per_gameweek"] if r["season"] == S] + [
+        {"season": P, "gw": gw, "beats_real": v} for gw, v in enumerate(prior_points, start=1)
+    ]
+    return run
+
+
+def test_confirm_pools_both_seasons_points():
+    # 2025-26 alone: -0.5 a week; with 2024-25's +1.0 a week the pooled mean is +0.25
+    control = _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL)
+    arm = _two_seasons([6.0, 7.0, 8.0, 9.0], [9.5, 11.5, 7.5, 10.5], mae_prior=1.09, mae=1.05)
+    out = ca.compare(control, arm, rule="confirm")
+    assert out["checks"]["points"]["n"] == 8 and out["checks"]["points"]["mean"] == pytest.approx(0.25)
+    assert out["verdict"] == "PASS"
+    assert ca.compare(control, arm, rule="r4")["checks"]["points"]["mean"] == pytest.approx(-0.5)
+
+
+def test_confirm_needs_mae_no_worse_in_each_season():
+    control = _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL)
+    worse_prior = _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL, mae_prior=1.1001, mae=1.0)
+    out = ca.compare(control, worse_prior, rule="confirm")
+    assert out["verdict"] == "FAIL" and [k for k, c in out["checks"].items() if not c["pass"]] == ["mae_by_season"]
+    assert out["checks"]["mae_by_season"]["seasons"][S]["delta"] == pytest.approx(-0.07)
+    high = _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL, resid=0.19)
+    assert [k for k, c in ca.compare(control, high, rule="confirm")["checks"].items() if not c["pass"]] == ["breakout_limit"]
+
+
+def test_confirm_refusals():
+    two = _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL)
+    with pytest.raises(ca.Refused, match="same seasons"):
+        ca.compare(_run(CONTROL), _run(CONTROL), rule="confirm")
+    with pytest.raises(ca.Refused, match="same seasons"):
+        ca.compare(two, _run(CONTROL), rule="confirm")
+    with pytest.raises(ca.Refused, match="no --baseline"):
+        ca.compare(two, two, two, rule="confirm")
+    with pytest.raises(ca.Refused, match="different cached DBs"):
+        ca.compare(two, _two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL, key="duckdb-2"), rule="confirm")
+    with pytest.raises(ca.Refused, match="--rule r5"):
+        ca.compare(two, two, rule="confirm", target="in_form")
+
+
+def test_cli_rule_confirm(tmp_path, capsys):
+    import json
+
+    c, a = tmp_path / "c.json", tmp_path / "a.json"
+    c.write_text(json.dumps(_two_seasons([5.0, 6.0, 7.0, 8.0], CONTROL)))
+    a.write_text(json.dumps(_two_seasons([6.0, 7.0, 8.0, 9.0], [9.5, 11.5, 7.5, 10.5], mae_prior=1.09, mae=1.05)))
+    assert ca.main([str(c), str(a), "--rule", "confirm"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("PASS") and "EP MAE by season pass" in out and "2024-2025 1.1000 -> 1.0900" in out
