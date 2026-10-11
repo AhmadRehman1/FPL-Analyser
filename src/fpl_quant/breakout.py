@@ -40,6 +40,34 @@ BREAKOUT = "breakout"
 PROMOTED = "breakout_promoted"
 
 
+# Clause (a)'s counting, shared with form_groups: the player's club at G (cur), that club's league
+# matches before the deadline (club_matches), and his starts in the last `recent_matches` of them
+# (recent: player_uid, team_uid, n_played, recent_starts). Parameters, in order: season, gameweek,
+# gameweek, season, PL, deadline, recent_matches.
+RECENT_STARTS_CTES = """
+        cur AS (
+            SELECT player_uid, team_uid FROM _player_season_team
+            WHERE season = ? AND first_gw <= ? AND last_gw >= ?
+            QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY first_gw DESC) = 1
+        ),
+        club_matches AS (
+            SELECT t.team_uid, m.match_id,
+                   row_number() OVER (PARTITION BY t.team_uid ORDER BY m.kickoff_time DESC) AS rn,
+                   count(*) OVER (PARTITION BY t.team_uid) AS n_played
+            FROM (SELECT DISTINCT team_uid FROM cur) t
+            JOIN fact_match m ON t.team_uid IN (m.home_team_uid, m.away_team_uid)
+            WHERE m.season = ? AND m.competition = ? AND m.kickoff_time < ? AND m.home_score IS NOT NULL
+        ),
+        recent AS (
+            SELECT c.player_uid, c.team_uid, max(cm.n_played) AS n_played,
+                   count(pms.match_id) FILTER (WHERE pms.start_min = 0) AS recent_starts
+            FROM cur c
+            JOIN club_matches cm ON cm.team_uid = c.team_uid AND cm.rn <= ?
+            LEFT JOIN fact_player_match_stats pms ON pms.player_uid = c.player_uid AND pms.match_id = cm.match_id
+            GROUP BY c.player_uid, c.team_uid
+        )"""
+
+
 def build_club_spells(con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...]) -> None:
     """(Re)creates the _player_season_team temp table classify() reads, for these seasons."""
     minutes_model._build_player_season_team_map(con, tuple(seasons))
@@ -65,28 +93,8 @@ def classify(
     if not earlier:
         return None
     rows = con.execute(
-        """
-        WITH cur AS (
-            SELECT player_uid, team_uid FROM _player_season_team
-            WHERE season = ? AND first_gw <= ? AND last_gw >= ?
-            QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY first_gw DESC) = 1
-        ),
-        club_matches AS (
-            SELECT t.team_uid, m.match_id,
-                   row_number() OVER (PARTITION BY t.team_uid ORDER BY m.kickoff_time DESC) AS rn,
-                   count(*) OVER (PARTITION BY t.team_uid) AS n_played
-            FROM (SELECT DISTINCT team_uid FROM cur) t
-            JOIN fact_match m ON t.team_uid IN (m.home_team_uid, m.away_team_uid)
-            WHERE m.season = ? AND m.competition = ? AND m.kickoff_time < ? AND m.home_score IS NOT NULL
-        ),
-        recent AS (
-            SELECT c.player_uid, c.team_uid, max(cm.n_played) AS n_played,
-                   count(pms.match_id) FILTER (WHERE pms.start_min = 0) AS recent_starts
-            FROM cur c
-            JOIN club_matches cm ON cm.team_uid = c.team_uid AND cm.rn <= ?
-            LEFT JOIN fact_player_match_stats pms ON pms.player_uid = c.player_uid AND pms.match_id = cm.match_id
-            GROUP BY c.player_uid, c.team_uid
-        ),
+        f"""
+        WITH {RECENT_STARTS_CTES},
         prior_club_matches AS (
             -- the matches minutes_model counts as his history: his clubs' matches during his
             -- spells, less those he missed while injured, suspended or unavailable, or before
