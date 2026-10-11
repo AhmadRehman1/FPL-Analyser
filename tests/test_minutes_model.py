@@ -1114,3 +1114,46 @@ def test_league_only_minutes_rates_ignore_cup_matches(con):
     league_only = p60(mm.run(con, date(2026, 8, 10), "2025-2026", minutes_rates_scope_params_version=1, **run))
     assert every_competition < league - 0.05
     assert league_only == pytest.approx(league)
+
+
+def test_own_sub_rate_replaces_the_position_rate_for_a_player_with_a_record(con):
+    """docs/reports/2026-10_premium_and_form_returns.md, round 3: _seed_league()'s p1 starts all
+    20 and p2 never features; p3 starts none and comes on in all 20. The midfield rate is 20 sub
+    appearances over 40 non-starts, 0.5, which the position rate gives p2 and p3 alike."""
+    _seed_league(con)
+    _write_base_params(con)
+    params.write_param(con, "minutes_sub_rate_params", 1, "2026-10-11", "own_rate", value_numeric=1)
+    now = datetime.now(timezone.utc)
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('p3', 'Player Three', 'Midfielder')")
+    for season in ("2024-2025", "2025-2026"):
+        con.execute(
+            "INSERT INTO player_alias (alias_name, normalized_alias_name, team_code, season, player_uid) "
+            "VALUES ('Player Three', 'player three', '1', ?, 'p3')", [season],
+        )
+    for (match_id, season) in con.execute("SELECT match_id, season FROM fact_match").fetchall():
+        con.execute(
+            "INSERT INTO fact_player_match_stats (player_uid, match_id, season, start_min, finish_min, minutes_played, "
+            "_ingested_at) VALUES ('p3', ?, ?, 70, 90, 20, ?)", [match_id, season, now],
+        )
+    run = dict(
+        decay_params_version=1, adjustment_params_version=1, shrinkage_params_version=1,
+        fact_multiplier_params_version=1, lookback_seasons=("2024-2025", "2025-2026"),
+    )
+
+    def outputs(model_version):
+        return {
+            uid: (p_sub, p_0)
+            for uid, p_sub, p_0 in con.execute(
+                "SELECT player_uid, p_used_as_sub_given_not_started, p_0min FROM minutes_model_outputs "
+                "WHERE model_version = ?", [model_version],
+            ).fetchall()
+        }
+
+    pooled = outputs(mm.run(con, date(2026, 8, 10), "2025-2026", **run))
+    own = outputs(mm.run(con, date(2026, 8, 10), "2025-2026", sub_rate_params_version=1, **run))
+    assert pooled["p2"][0] == pooled["p3"][0] == pytest.approx(0.5)
+    # 20 non-starts each, past the threshold of 10: their own records alone
+    assert own["p2"][0] == pytest.approx(0.0) and own["p3"][0] == pytest.approx(1.0)
+    assert own["p2"][1] > pooled["p2"][1] and own["p3"][1] < pooled["p3"][1]
+    # no non-starts to go on: the position rate
+    assert own["p1"][0] == pytest.approx(pooled["p1"][0])

@@ -374,3 +374,62 @@ line.
 - A control run on master reports it. Nothing live changes.
 - An arm comes only after it shows which state carries the −0.11. That arm will need its own
   declaration.
+
+## Round 3: each player's own substitute rate (declared 2026-10-11, before any of its results)
+
+### What the measurement found
+
+**The run.** Control on master 349adb1, cached DB `duckdb-38148073054` (the same DB as C1), run
+38163333015. The numbers are `minutes_states_by_price_band`, 2025-26, one row per predicted
+player-fixture.
+
+| <£5.0m, by p_start | fixtures | p_start / started | P(sub \| not started): model / actual | 1-59: model / actual | 60+: model / actual | appearance resid |
+|---|---|---|---|---|---|---|
+| <0.1 | 9,762 | 0.019 / 0.018 | 0.195 / **0.006** | 0.066 / 0.010 | 0.021 / 0.005 | −0.089 |
+| 0.1-0.5 | 4,554 | 0.247 / 0.260 | 0.183 / **0.058** | 0.229 / 0.105 | 0.152 / 0.091 | −0.245 |
+| 0.5+ | 4,670 | 0.792 / 0.793 | 0.192 / **0.357** | 0.245 / 0.188 | 0.583 / 0.601 | −0.020 |
+| all | 18,986 | 0.264 / 0.267 | 0.192 / 0.043 | 0.149 / 0.077 | 0.191 / 0.172 | −0.109 |
+
+- The block's −0.109 matches the summary's <£5.0m appearance residual (−0.114), so it covers the
+  same players.
+- Start probability is calibrated in every bucket.
+- The substitute rate is not. It is one rate per position (`compute_position_rates()`), the
+  same for every player:
+  - cheap players who rarely start are given about 0.19 and come on in 0.6% to 6% of their
+    non-starts;
+  - regulars left out come on in 36%.
+  
+  The other bands show the same pattern: £5.0-7.0m with p_start <0.1 are given 0.27 against
+  0.01 actual, and with p_start 0.5+ 0.27 against 0.50.
+- In the 0.1-0.5 bucket, half the error is 60+ minutes: cheap rotation players' starts are
+  shorter than the position's. That is a separate lever, not tested here.
+
+### The arm
+
+**What changes.** `--own-sub-rate` (`minutes_sub_rate_params` / `own_rate`, opt-in). P(used as a
+substitute | not started) becomes:
+- the player's own substitute appearances over the club's league matches he didn't start;
+- weighted against the position rate by min(1, his non-starts / `competitive_matches_threshold`).
+
+The minutes model already counts these (the raw counts in
+`compute_player_historical_components()`) and already shrinks P(60+ | started) and
+P(60+ | subbed on) with the same weight. So the arm adds no new tuned number.
+
+**Batch D1.** Two runs on one cached DB, both with `--seasons 2025-2026`:
+
+| arm | flags | target |
+|---|---|---|
+| control | none | — |
+| own substitute rate | `--own-sub-rate` | <£5.0m |
+
+- **Judged with** `compare_arms.py control arm --rule r5 --target price_band=<5.0`. That's
+  rule R5's four checks, with (iii) on the <£5.0m component sum (0.176 in C1's control, so a limit
+  of about 0.117; the batch's own control sets it).
+- **Reported but not deciding:** the 9.0m+ and in-form blocks, and the minutes states table.
+- **If it passes with m ≥ 0,** it goes live:
+  - a `minutes_sub_rate_params` v1 seed and a `RECALIBRATABLE_VERSION_ARGS` entry;
+  - every `minutes_model.run()` call site passing it (the backtest's, `forward_season_sim`,
+    `run_ingestion.py`);
+  - the live-switch wiring test;
+  - the scheduled pipeline, then a live check.
+- **If m < 0,** the owner signs off first.

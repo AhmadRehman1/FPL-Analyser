@@ -1091,6 +1091,7 @@ def run(
     start_prior_params_version: int | None = None,
     current_season_minutes_params_version: int | None = None,
     minutes_rates_scope_params_version: int | None = None,
+    sub_rate_params_version: int | None = None,
 ) -> int:
     """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
@@ -1153,6 +1154,15 @@ def run(
     had P(60+) 0.83 from a 53-minute Community Shield start. The start rate already counts
     league matches alone (_team_match_weights).
 
+    sub_rate_params_version (opt-in, None is the prior behavior; docs/reports/
+    2026-10_premium_and_form_returns.md, round 3): P(used as a substitute | not started) becomes
+    the player's own rate -- his substitute appearances over the club's matches he didn't start
+    (compute_player_historical_components()'s raw counts) -- weighted against the position rate
+    by min(1, his non-starts / competitive_matches_threshold), the shrinkage P(60+ | started)
+    and P(60+ | subbed on) already use. The position rate alone gave every non-starter the same
+    chance: in the 2025-26 walk-forward cheap players with p_start under 0.1 were given 0.195
+    and came on in 0.6% of their non-starts, while regular starters left out came on in 36%.
+
     price_prior_params_version (opt-in, None is the prior behavior): the start prior a thin
     history shrinks toward becomes the (position, price band) start rate instead of the
     position average -- see compute_price_band_start_priors().
@@ -1188,6 +1198,11 @@ def run(
     if minutes_rates_scope_params_version is not None:
         league_only = bool(params_mod.resolve_param(
             con, "minutes_rates_scope_params", "league_only", minutes_rates_scope_params_version,
+        )[0])
+    own_sub_rate = False
+    if sub_rate_params_version is not None:
+        own_sub_rate = bool(params_mod.resolve_param(
+            con, "minutes_sub_rate_params", "own_rate", sub_rate_params_version,
         )[0])
     conditional_rates = compute_conditional_minutes_rates(con, league_only)
     player_conditional = compute_player_conditional_minutes_rates(con, league_only=league_only)
@@ -1297,6 +1312,11 @@ def run(
             weighted_total = prow["weighted_total"] or 0.0
             p_start_own = float(prow["weighted_starts"] / weighted_total) if weighted_total > 0 else None
             competitive_matches = int(prow["competitive_matches"] or 0)
+            non_starts = float((prow["raw_team_matches"] or 0) - (prow["raw_starts"] or 0))
+            if own_sub_rate and non_starts > 0:
+                own_sub = float(prow["raw_sub_appearances"] or 0) / non_starts
+                weight_sub = min(1.0, non_starts / threshold) if threshold > 0 else 1.0
+                p_sub_used = weight_sub * own_sub + (1 - weight_sub) * p_sub_used
         else:
             p_start_own, competitive_matches = None, 0
 

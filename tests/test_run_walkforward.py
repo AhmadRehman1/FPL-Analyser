@@ -174,3 +174,10 @@ def test_no_goal_anchor_flag_mints_a_bundle_with_anchor_goals_off(con):
     assert rw._experiment_versions(con, rw._parse_args(["--no-goal-anchor", "--no-rate-price-anchor"])) == {
         "rate_prior_params_version": None,
     }
+
+
+def test_own_sub_rate_flag_maps_to_a_sub_rate_version(con):
+    out = rw._experiment_versions(con, rw._parse_args(["--own-sub-rate"]))
+    assert set(out) == {"sub_rate_params_version"}
+    value, _ = params_mod.resolve_param(con, "minutes_sub_rate_params", "own_rate", out["sub_rate_params_version"])
+    assert value == 1.0
