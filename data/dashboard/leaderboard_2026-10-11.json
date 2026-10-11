@@ -1,0 +1,47 @@
+{
+  "data_asof": "2026-10-11",
+  "season": "2026-2027",
+  "status": "ok",
+  "start_gameweek": 2,
+  "end_gameweek": 5,
+  "walked_gameweeks": 4,
+  "rows": [
+    {
+      "name": "FPL-Analyser (model)",
+      "total_points": 241.0,
+      "n_gameweeks": 4,
+      "is_baseline": false
+    },
+    {
+      "name": "recent-points baseline",
+      "total_points": 193.0,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": 48.0,
+      "is_baseline": true
+    },
+    {
+      "name": "price/ownership baseline",
+      "total_points": 266.0,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": -25.0,
+      "is_baseline": true
+    },
+    {
+      "name": "crowd-average baseline",
+      "total_points": 323.1,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": -82.1,
+      "is_baseline": true
+    }
+  ],
+  "honest_losses": [
+    "price/ownership baseline",
+    "crowd-average baseline"
+  ]
+}
