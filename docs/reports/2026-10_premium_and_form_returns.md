@@ -433,3 +433,50 @@ P(60+ | subbed on) with the same weight. So the arm adds no new tuned number.
   - the live-switch wiring test;
   - the scheduled pipeline, then a live check.
 - **If m < 0,** the owner signs off first.
+
+### Result: D1 fails R5 narrowly, with the best calibration gain of the effort; live unchanged pending the owner
+
+**The batch.** It ran at 18:54 UTC on 2026-10-11 on master 60d3e0e, on cached DB
+`duckdb-38148073054`. Both runs completed. Run ids: control 38165761670, `--own-sub-rate`
+38165763612, each mapped by the `ARGS:` log line.
+
+| 2025-26 | control | own substitute rate |
+|---|---|---|
+| (i) squad pts vs control (m ± SE a GW) | — | **−0.30 ± 0.78** ✘ (floor −0.25; 3 better, 3 worse) |
+| (ii) EP MAE (limit 1.0685) | 1.0665 | **1.0450** ✔ (−0.0215) |
+| (iii) <£5.0m component sum (limit 0.117) | 0.176 | 0.139 ✘ |
+| (iv) breakout residual (limit +0.182) | +0.108 | +0.100 ✔ |
+| minutes log score / Brier | −0.535 / 0.294 | **−0.510 / 0.279** |
+| overall mean residual | −0.099 | −0.079 |
+| <£5.0m appearance residual | −0.114 | −0.081 |
+| 9.0m+ component sum | 0.661 | 0.652 |
+| in-form residual (component sum) | +0.195 (0.343) | +0.179 (0.336) |
+| captain pts/GW | 5.89 | 5.89 |
+
+**Points.** Only 6 of the 37 gameweeks differ: −15, +16, −9, −14, +6, +5, for −11 in total.
+- (i) misses its floor by 0.05 on a standard error of 0.78.
+- If an arm's true effect were zero, (i)'s floor would fail it about a third of the time at
+  this standard error.
+
+**Calibration.**
+- EP MAE falls by 0.0215, about three times any earlier arm's gain.
+- The minutes log score improves by 0.025, and the overall over-prediction shrinks by a fifth.
+
+**Why (iii) missed.**
+
+| <£5.0m, by p_start | P(sub \| not started): control → arm (actual) | appearance resid: control → arm |
+|---|---|---|
+| <0.1 | 0.195 → 0.107 (0.006) | −0.089 → −0.039 |
+| 0.1-0.5 | 0.183 → 0.123 (0.058) | −0.245 → −0.203 |
+| 0.5+ | 0.192 → 0.254 (0.357) | −0.020 → −0.033 |
+
+- Every bucket moved the right way on the substitute rate, but only partly. Fringe players' rate
+  is still 0.107 against 0.006 actual.
+- Hypothesis, not measured: many of them have few counted non-starts. The record skips matches
+  before a player's first FPL row in a season, and matches he missed injured or away. So the
+  position rate still carries much of their weight.
+- The 0.1-0.5 bucket's other half, rotation players' P(60+ | started), is untouched, as declared.
+
+**Verdict.** Under R5, D1 fails on (i) and (iii), so the live model is unchanged. The arm improves
+every calibration measure and leaves points within noise. Promoting it anyway is the owner's
+call, not the rule's.
