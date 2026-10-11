@@ -208,6 +208,9 @@ Count: 4 of 14.
   - each player's per-gameweek differences sum to his season total;
   - they agree with the match feed on at least 95% of 9.0m+ player-gameweeks, so a one-gameweek
     shift would show.
+
+  If the alignment check fails, RQ2b is not applied. The report records why, and the match feed
+  stays the measure for this round.
 - **RQ3. Summary blocks.** WHEN `walkforward_summary.py` summarises a run THE SYSTEM SHALL add:
   - `form_groups` → `{season: {in_form, in_form_widened, cooling, cooling_widened: {n_player_steps,
     mean_resid, components: {…5…}, component_abs_sum}}}`;
@@ -369,7 +372,8 @@ Count: 4 of 14.
 ## Build Phases
 
 - [ ] Phase 1: Data diagnostic and the in-form groups
-      Done when: the `diagnose_premium_returns.yml` artifact holds RQ1's four blocks. The report
+      Done when: the `diagnose_premium_returns.yml` artifact holds RQ1's four blocks plus the RQ2b
+      alignment check. The report
       records the H2 and H3 verdicts and whether RQ2b applies. It also fixes the in-form group used
       for judging (declared or widened).
       Steps:
