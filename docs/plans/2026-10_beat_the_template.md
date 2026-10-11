@@ -40,8 +40,18 @@ Questions used: 3 of 14, plus the approval question.
   - **Live.** The live leaderboard gains a "model (oracle)" row (Req 3), so its oracle template
     baselines are compared like for like.
 - **G2 (beat the template by enough to reach the cutoff).** On the two-season oracle walk-forward,
-  model − gated template ≥ M with m − SE > 0. M is computed in Phase 3 by its declared formula:
-  M = max(2.0, cutoff pace + evolving loss + live optimism − gated template pace) [A10].
+  the pooled paired gap m = model − gated template satisfies m ≥ M̄ and m − SE > 0. Phase 3
+  computes M by this declared formula [A10]. All terms are in pts/GW.
+  - Per season s ∈ {2024-25, 2025-26}: M_s = max(2.0, C_s + E + O⁺ − T_s).
+    - **C_s:** season s's real top-100k cutoff pace (rank-100k total ÷ 38, Req 4).
+    - **T_s:** the gated template's mean squad points over season s's walk-forward GWs (Phase 1
+      control).
+    - **E:** the evolving loss, oracle model − season-sim control, both 2025-26. The season sim runs
+      for 2025-26 only, so E is used for both seasons.
+    - **O⁺:** the live optimism O = 2026-27 leaderboard sim pace − live team pace, both over the
+      same GWs. O⁺ = O when O > 2·SE(O), else 0. A noisy or negative O never lowers M.
+  - M̄ is the GW-weighted mean of M_2024-25 and M_2025-26, matching how m pools the two seasons.
+  - M and its inputs are frozen in the Phase 3 commit. Later controls are judged against that M̄.
   - Today the oracle model trails the *synthetic* crowd by 1.15 pts/GW pooled (verified:
     `data/dashboard/app_track_record.json` headline).
   - The oracle model is +10.4 pts/GW over FPL's real 2025-26 average (verified: walk-forward
@@ -62,9 +72,10 @@ Questions used: 3 of 14, plus the approval question.
   - Today: 302 pts over GW1–5, +3 against FPL's average, with Free Hit and Triple Captain used
     (verified: `app_model_team.json`).
 - **Stop rule.**
-  - A lever family is dropped after two arms in a row fail rule R6.
+  - A lever family (one of Z, L1, L2, L3, L4, L5, together with its variants) is dropped after two
+    of its arms in a row fail rule R6.
   - Lever arms in Phases 4–9 count towards a cap of 10. Planner arms (Phase 10) have their own cap
-    of 6.
+    of 6. A replicate (Key Decisions) counts as one arm. Controls do not count.
   - The programme pauses for owner review at any of these:
     - either cap is reached;
     - mean template overlap reaches ≥ 9/11 (Req 9);
@@ -142,14 +153,27 @@ Questions used: 3 of 14, plus the approval question.
   - The rank goal "overall rank top 100k" is declared in `data/dashboard/rank_autopsy.json`.
   - Its `model_optimal` is the from-scratch oracle pick, and `estimated_rank` is a single-GW
     projection.
-  - `fact_rival_squad_sample` stores picks, captain and multiplier only.
+  - `fact_rival_squad_sample` stores per sampled entry: `entry_id`, `league_rank`, picks, captain
+    and multiplier. It has no season totals or history.
   - `rank_tracking.yml` runs `scripts/run_rival_sample_ingestion.py` with no arguments.
     `rival_squad_sample.yml` passes a legacy argument.
   
   (verified: those files and `schema/0017_priority10_phaseA_rival_squad_sample.sql`)
-- **Prerequisites already on master.** PR #260 put per-gameweek `squad_points` in the summary,
-  `--rule confirm` squad-point pairing, and this plan on master (verified: merged 2026-10-11). The
-  own substitute rate is live (PR #259).
+- **Prerequisites on master.**
+  - PR #260 put per-gameweek `squad_points` in the summary and `--rule confirm` squad-point pairing
+    on master (verified: merged 2026-10-11). The own substitute rate is live (PR #259).
+  - PR #260 also carried a *pre-revision draft* of this plan. This revision (critique rounds 2 and 3)
+    lands with PR #261. Phase 0 checks which version the worktree has.
+- **The live from-scratch solve carries an EO template anchor.**
+  - `scripts/run_ingestion.py:300–309` passes `risk_posture_params` v2 (`eo_weight_kappa` 0.12)
+    and `ownership_params` v1 into `squad_optimizer.run`. The live model team's GW1 squad came from
+    that solve (verified: `run_model_team.py` docstring).
+  - The walk-forward's `solve_risk_posture_params_version` defaults to None, so backtests run
+    without it (verified: `backtest.py:1254`).
+  - **Decision:** it stays as is. Phase 3 lists it as a named cause in the chain, since live has it
+    and the harnesses don't. Levers and Req 9 are measured without it, in the walk-forward.
+- **The walk-forward cannot run 2026-27 today.** `ALL_SEASON_GAMEWEEKS` hard-codes 2024-25 and
+  2025-26 (verified: `backtest.py:1228`), so `--seasons 2026-2027` walks zero steps.
 - **mypy is advisory in CI**, with pre-existing errors (verified: `.github/workflows/tests.yml`
   `continue-on-error: true`).
 
@@ -189,16 +213,21 @@ param family and flags in both `run_walkforward.py` and `run_season_sim_arm.py`.
   2025-26 alone they were +1.00 ± 0.83 (MAE +0.008) and +1.32 ± 1.01 (MAE +0.011, above the 0.01
   tolerance) (verified: `docs/reports/2026-10_premium_and_form_returns.md`).
   `run_season_sim_arm.py` needs both flags added.
+- **Where L1–L3 apply.** Inside `expected_points.run()`, after each fixture's components are
+  summed, the adjustment is added to `ep_total` as its own column `ep_crowd_adj` (L1), `ep_band_adj`
+  (L2) or `ep_player_adj` (L3). It is split across a double gameweek's fixtures in proportion to
+  their EP. The goal, assist and appearance components stay untouched. So `ep_outputs.ep_total`,
+  rule R6(ii)'s MAE and the band residuals all see it.
 - **L1, crowd prior.** EP gets a per-gameweek additive adjustment from a ridge regression of
   residuals (realized − pre-adjustment EP) on crowd features.
   - **Features, all from row gw = G−1:**
     - `own_pct`: ownership percentile within position;
     - `log1p(selected_by_percent)`;
     - `xfer_pct`: the percentile of `transfers_in_event − transfers_out_event` among all players in
-      that row;
-    - price-band one-hot main effects (4);
-    - `own_pct` × band and `xfer_pct` × band;
-    - an intercept.
+      that row.
+  - **No band terms and no intercept.** A mean shift per position and band is L2's job. L1 only
+    adds what the crowd knows beyond price. If A3 finds either season lacks transfer columns,
+    `xfer_pct` is dropped from every fold.
   - **Coefficient folds by the season scored or replayed:** 2025-26 steps and 2025-26 replays use
     the 2024-25 fit; 2024-25 steps and replays use the 2025-26 fit. Only 2026-27 (live and the
     kill-switch) uses the both-season fit.
@@ -206,16 +235,25 @@ param family and flags in both `run_walkforward.py` and `run_season_sim_arm.py`.
     bootstrap.
 - **L2, band bias.** An additive mean residual per (position, price band), with the same folds,
   shrunk by n/(n + 500). It is fitted on residuals from the *current* control. If L1 is live, L2 is
-  fitted after L1, so nothing is double-corrected. It differs from B3's failed band *conversion*
+  fitted after L1, so nothing is double-corrected.
+- **Stacked folds.** When a later lever is fitted on season s's residuals, every earlier promoted
+  lever's adjustment in those residuals uses season s's *own* fit, not the fit that scores s. This
+  stops a fit on 2025-26 leaking into 2025-26's scoring through a later lever's training data. The
+  `--export-residuals` artifact writes the pre-adjustment EP and each promoted lever's own-season
+  adjustment separately. It differs from B3's failed band *conversion*
   (−2.27 ± 0.97, scaled goal and assist rates by realized/xG). B3's failure is a stated risk.
 - **L3, per-player residual (conditional).** A player's own mean residual over his last 6 GWs
   before G, shrunk n/(n+6). It needs point-in-time EP history in each harness (Phase 7 defines the
   source or drops L3).
-- **L4, optimizer's curse (conditional).** Before the solve, μ′ = μ − κ·sd·(1 − s), with s = the
-  ownership share within position.
-- **L5, crowd captaincy (conditional).** After the solve, re-pick the captain among the XI's
-  outfield players by argmax(EP + δ·EO/100). It is pre-screened as a free summary counterfactual
-  (Req 2).
+- **L4, optimizer's curse (conditional, flag `--selection-shrink κ`).** Before the solve,
+  μ′ = μ − κ·sd·(1 − s). Here sd is the player's GW points SD from the uncertainty model, and s is
+  his `selected_by_percent` divided by the highest `selected_by_percent` in his position (row G−1),
+  so s ∈ [0, 1].
+- **L5, crowd captaincy (conditional, flag `--crowd-captain δ`).** After the solve, re-pick the
+  captain among the XI's outfield players by argmax(EP + δ·EO/100). It is pre-screened as a free
+  summary counterfactual (Req 2).
+- **Flag names:** `--crowd-prior` (L1), `--band-bias` (L2), `--player-residual` (L3),
+  `--selection-shrink` (L4), `--crowd-captain` (L5), each with `--no-<flag>` once live.
 
 L4 and L5 pull toward the template, so they are risk controls, not the route to the margin. Req 9
 guards every arm against collapsing into the template.
@@ -230,12 +268,21 @@ guards every arm against collapsing into the template.
   batch declaration.
 - One shared apply function reads that file in every harness.
 
-**PROMOTE procedure.** It runs as soon as an arm passes rule R6. If two arms in a batch pass, the
-higher m wins and the other is re-judged against the new control.
+**PROMOTE procedure.** It runs as soon as an arm passes rule R6 and Req 9. If two arms in a batch
+pass, the higher m wins and the other is re-judged against the new control.
 1. Season-sim check (Req 7): control, control_b and the arm in one job on one runner.
 2. If m ≥ 0, apply the live-switch pattern (Req 8). Full suite green, then the PR, merge,
    `scheduled_pipeline.yml`, and a projections before/after diff.
-3. Start the kill-switch clock (Phase 11).
+3. If m < 0, the arm is not promoted. Record it, then ask the owner whether to promote anyway
+   (the owner's standing instruction: ask before merging a winner with m < 0; A8). Meanwhile the
+   programme continues with the next lever.
+4. Start the kill-switch clock (Phase 11).
+
+Plan additions on top of the owner's R6, tagged so the owner can drop them at approval
+[assumed: they protect R6's intent]:
+- the Req 9 template-collapse block;
+- Phase 10's planner rule m − SE ≥ 0 on season-sim net points (R6's season-sim check alone is
+  m ≥ 0, but planner arms have no walk-forward stage before it).
 
 A promoted lever becomes part of every later control.
 
@@ -268,13 +315,27 @@ Executor's choice:
   - realized − projected for the model XI and for the template XI under the model's EP.
   
   Acceptance: unit tests on a seeded run.
-- **Req 3.** WHEN `export_leaderboard.py` runs THE SYSTEM SHALL append a row "model (oracle)" with
-  `is_baseline: true` and `kind: "model_oracle"`, after the existing rows. That keeps the evolving
-  model the first non-baseline row for `index.html:6810`.
-  - Each oracle baseline row gains a new key `oracle_model_beats_baseline_by`. The existing
-    `model_beats_baseline_by` keeps its meaning.
+- **Req 3.** WHEN `export_leaderboard.py` runs THE SYSTEM SHALL append two rows after the existing
+  ones, both with `is_baseline: true`. That keeps the evolving model the first non-baseline row for
+  `index.html:6810`.
+  - **"model (oracle)"**, `kind: "model_oracle"`. For each GW in the window, the model's fresh,
+    hit-free squad: `backtest.run_gameweek_step` with the export's own `param_versions` (the live
+    switches, λ, captain rule and bench floor the season sim gets), scored by
+    `_realized_solve_points`. So it is the walk-forward's model squad, on 2026-27.
+  - **"ownership template (available)"**, `kind: "template_gated"`. Req 1's gated template for the
+    same GWs.
+  - Every `is_baseline` row, including these two, carries numeric `total_points`, `n_gameweeks`,
+    `n_gameweeks_skipped` and `model_beats_baseline_by`. That key keeps its meaning: evolving model
+    total − this row's total. `index.html:6823` calls `.toFixed(1)` on it for every baseline row.
+  - Each oracle baseline row also gains `oracle_model_beats_baseline_by` (model (oracle) total −
+    this row's total).
   - The crowd row's display name becomes "synthetic EO crowd (not FPL's average)".
-  - Acceptance: a unit test on row order and keys, and the next weekly `leaderboard_latest.json`.
+  - Acceptance:
+    - a unit test on row order and keys;
+    - a unit test that every `is_baseline` row has numeric `total_points` and
+      `model_beats_baseline_by`;
+    - the next weekly `leaderboard_latest.json`, rendered by `npm test`'s leaderboard check if one
+      exists, else by loading the page.
 - **Req 4.** WHEN `rank_tracking.yml` runs THE SYSTEM SHALL fetch each sampled entry's FPL
   `entry/{id}/history` and derive, in the job:
   - the 2024-25 and 2025-26 rank-100k season totals, from `past`;
@@ -303,6 +364,9 @@ Executor's choice:
 - **Req 7.** WHEN an arm passes rule R6 THE SYSTEM SHALL run `season_sim_arms.yml` for 2025-26 with
   chunks `2-38` and arms `control:`, `control_b:` and `arm: <flags>`.
   - All arms run in one job on one runner, via a new workflow input `same_runner: true`.
+  - **Runtime:** about 40 min per arm for GW2–38 (two 17–20 min halves). So control, control_b and
+    up to 3 arms take about 200 min, inside the 345-min step limit. A batch never exceeds 5 arms
+    in one job.
   - The check passes on paired net points, arm − control, m ≥ 0, over complete runs only.
   - control_b − control is recorded as the noise floor.
   
@@ -338,7 +402,7 @@ Executor's choice:
   - an identical-adjustment test across the three call paths.
 - **Req 12.** WHEN `run_walkforward.py --export-residuals` runs THE SYSTEM SHALL write
   `residual_features.csv` (per player-GW: season, gw, player_uid, position, price band, realized
-  points, pre-adjustment EP, each feature), and `branch_walkforward.yml` SHALL upload it as
+  points, pre-adjustment EP, each promoted lever's own-season adjustment, each feature), and `branch_walkforward.yml` SHALL upload it as
   `residual-features`. Acceptance: a unit test on a seeded run, and the artifact present on a real
   dispatch.
 
@@ -359,8 +423,14 @@ Executor's choice:
   changing few squads, D2) to about 1.2 (λ arms changing most squads; seeds_lambda note) [A6].
   - Each arm records its changed-GW count and SE.
   - A null arm passes m − SE ≥ 0 with probability ≈ 16%, hence the caps.
-  - When an arm's m − SE is within 0.1 of zero, a replicate arm runs before any verdict. The D1 and
-    D2 arms diverged on the same commit and DB.
+  - **Replicate rule.** When an arm's |m − SE| ≤ 0.1, the control and the arm are each
+    re-dispatched once on the same commit before any verdict.
+    - The verdict is rule R6 on the per-GW mean of the two runs' (arm − control) differences
+      (n = 74 GWs, SE from those means). The MAE check uses the mean of the two runs' MAEs.
+    - The replicate counts as one arm toward the cap; its control does not.
+    - If the two controls' squad points differ, that is recorded as measured nondeterminism.
+  - Why: the same arm gave different 2025-26 results in D1 (`--seasons 2025-2026`) and D2 (both
+    seasons), on one commit and DB. Whether `--seasons` or nondeterminism caused it is unresolved.
 - **Declared hyperparameters** (single values, fixed before any run):
   - **L1:** `ridge_alpha` 10 on standardized features; `min_rows` 2,000 player-GWs per fold; the
     adjustment is clipped to ±1.5 pts/GW; features as in the Approach.
@@ -441,7 +511,7 @@ Executor's choice:
 | ID | Assumption | Basis | Blast radius if wrong | Check |
 |----|------------|-------|-----------------------|-------|
 | A1 | Sampled entries' `entry/{id}/history` `past` arrays give per-season totals and ranks enough to interpolate rank 100k | [assumed: FPL API shape, unverified] | G3 has no target | Phase 2, Req 4 test on a real response |
-| A2 | Row gw = G−1 values (`selected_by_percent`, transfers, `status`) are knowable before G's deadline | [assumed] | L1 and the gate leak; fallback G−2 | Phase 1: snapshot timestamps vs deadlines, plus the Req 11 leak test |
+| A2 | Row gw = G−1 values (`selected_by_percent`, transfers, `status`) are knowable before G's deadline | [assumed] | L1 and the gate leak; fallback G−2 | Phase 1. Historical rows carry no snapshot time, so test on 2026-27, which has the same source semantics. A2 holds if, for each finished 2026-27 GW G with a live pipeline run before G's deadline (`_ingested_at` < deadline), row G−1's values equal that run's bootstrap values for ≥ 95% of players. Fewer than 2 such GWs, or below 95%, means inconclusive: use G−2 everywhere. Plus the Req 11 leak test |
 | A3 | Transfer and `status` columns are populated for 2024-25 and 2025-26 | [assumed] | L1 loses features; the gate is weaker | Phase 1: non-null counts per season |
 | A4 | Dispatching on the pushed worktree branch's ref runs that branch's code | [assumed: standard GitHub behaviour] | Arms run master's code | Phase 1: run `head_sha` equals the branch head |
 | A5 | The template captain is the most-owned outfield XI player | [assumed: `solve` maximises mu with the captain doubled; captain-not-GK verified] | The template baseline is slightly off | Phase 1 unit test |
@@ -450,15 +520,17 @@ Executor's choice:
 | A8 | The executor has the owner's standing authority: merge green PRs; promote an arm that passes rule R6 and the season-sim check; ask the owner before merging any winner with m < 0 | (user) standing instructions | It would need to stop for approval | none |
 | A9 | Walk-forward controls on the same commit, DB and args are deterministic | verified for the controls (D1 and D2 identical); arms diverged once | The noise floor is understated | Replicates near the threshold (Key Decisions) |
 | A10 | "By a lot" means ≥ +2.0 pts/GW over the template, raised to M if the cutoff chain needs more | [assumed: the owner said "by a lot"] | G2's bar | The owner may restate it at approval |
-| A11 | The walk-forward can run `--seasons 2026-2027` for the kill-switch | [assumed] | The kill-switch would use the season sim instead | Phase 11, first use |
+| A11 | The walk-forward can run 2026-27 for the kill-switch | **False today** (verified: `ALL_SEASON_GAMEWEEKS`, `backtest.py:1228`, lists only 2024-25 and 2025-26). [assumed: the cached DB holds settled 2026-27 data, so extending that list is enough] | The kill-switch falls back to the one-runner season sim with control_b | Phase 11, step 1 |
+| A12 | `backtest.run_gameweek_step` can score a 2026-27 GW (for Req 3's oracle row) | [assumed: it takes season and GW as arguments] | The oracle row needs its own step loop | Phase 2, Req 3 test |
 
 ## Open Items (none blocking)
 - **Elite ownership for 2026-27.** Proceed without it.
-- **Showing the crowd adjustment in the app.** EP fields stay unchanged.
+- **Showing the crowd adjustment in the app.** The app's EP field *schema* stays unchanged; its
+  values change with each promotion (hence the projections diff). Proceed without a UI change.
 
 ## Verification
-- `PYTHONPATH=src python -m pytest tests/ -q` is green, `ruff check .` is clean, and `mypy src/`
-  shows no new errors versus master, before every PR.
+- `PYTHONPATH=src python -m pytest tests/ -q` is green, `ruff check .` is clean, `npm test` passes
+  (CI runs it), and `mypy src/` shows no new errors versus master, before every PR.
 - `PYTHONPATH=src python scripts/compare_arms.py control.json arm.json --rule r6` prints PASS/FAIL
   plus the gaps, overlap, `non_template_points` change, changed GWs and SE.
 - Batch sections list the declaration commit, run ids, the `ARGS:` mapping, `db_cache_key`, the
@@ -467,18 +539,24 @@ Executor's choice:
 - Live: a `projections_latest.json` diff per promotion. `app_model_team.json` cumulative points
   against `rank_autopsy.json` `top_100k_cutoff` per GW.
 - The owner confirms done from the report's headline table:
-  - model − gated template against M (G2);
+  - model − gated template against M̄ (G2);
   - season-sim pace against the cutoff pace (G3);
   - live cumulative points against the cutoff (G4).
 
 ## Build Phases
 - [ ] Phase 0: Set up the worktree
       Done when: in `../FPL-Analyser-btt`, branch `claude/beat-template` exists on origin;
-      `grep -n squad_points scripts/walkforward_summary.py` matches; and this plan file exists.
+      `grep -n squad_points scripts/walkforward_summary.py` matches; and
+      `grep -n "Replicate rule" docs/plans/2026-10_beat_the_template.md` matches (this revision,
+      not PR #260's draft).
       Steps:
       - `git fetch origin master && git worktree add ../FPL-Analyser-btt -b claude/beat-template origin/master`
-        (or the host's EnterWorktree), then `git push -u origin claude/beat-template` (a dispatch
-        needs the ref on origin).
+        (or the host's EnterWorktree).
+      - If the plan grep fails, PR #261 has not merged yet. Merge it if green (A8), then
+        `git merge origin/master`. Otherwise run
+        `git checkout origin/claude/sharp-noether-3w5b3t -- docs/plans/2026-10_beat_the_template.md`
+        and commit.
+      - `git push -u origin claude/beat-template` (a dispatch needs the ref on origin).
       - Create `docs/reports/2026-10_beat_the_template.md` with rule R6, G1–G4, the declared
         hyperparameters, the caps and the stop rule, then commit and push.
       Covers: Req 10
@@ -514,28 +592,29 @@ Executor's choice:
         `rank_tracking.yml`'s job), and the `same_runner` input (arms sequential in one job).
       - Dispatch `rank_tracking.yml` and `season_sim_arms.yml` (2025-26, chunks `2-38`,
         `same_runner: true`).
-      Covers: Req 3, Req 4, Req 7; checks: A1, A7
+      Covers: Req 3, Req 4, Req 7; checks: A1, A7, A12
 
 - [ ] Phase 3: Reconcile, set M, decompose, and declare the lever order
       Done when: the report has the following, committed before any lever run:
-      - the chain table per season: oracle model, the season sim (control, control_b), and for
-        2026-27 the leaderboard sim and the live team, each as net pts/GW against FPL's average
-        and against the cutoff pace;
-      - a measured contribution in pts/GW for each named cause of the differences;
-      - the SE of the live 5+ GW sample;
-      - M computed by the G2 formula;
+      - the chain table, each row as net pts/GW against FPL's average and against that season's
+        cutoff pace:
+        - oracle model and gated template, for 2024-25 and 2025-26;
+        - season sim control and control_b, for 2025-26 only;
+        - for 2026-27: the "model (oracle)" row, the leaderboard sim and the live team;
+      - a measured contribution in pts/GW for each named cause of the differences, including the
+        live-only EO anchor (Current State);
+      - the SE of the live 5+ GW sample and of O;
+      - C_s, T_s, E, O, O⁺, M_2024-25, M_2025-26 and M̄ by the G2 formula;
       - the decomposition table;
       - the ordered lever queue.
       Steps:
-      - Compute the evolving loss as oracle model − season sim (2025-26) and the live optimism as
-        season sim − live-comparable pace (2026-27 leaderboard sim vs live team). Then
-        M = max(2.0, cutoff pace + evolving loss + live optimism − gated template pace).
+      - Compute E, O and O⁺ and each M_s exactly as G2 defines them, then M̄.
       - **Branches, declared:**
         - If a cause of backtest optimism is found (e.g. a leak or a free restart), fix it or haircut
           G3 before any lever.
         - If the evolving loss is ≥ 3.0 pts/GW, run Phase 10 now, alongside the lever queue.
-        - If model − gated template ≥ M with m − SE > 0 already, G2 is met: skip Phases 4–9 and go
-          to Phase 10.
+        - If the Phase 1 control already has m ≥ M̄ with m − SE > 0, G2 is met: skip Phases 4–9 and
+          go to Phase 10.
       - **Lever order: Z, then L1, then L2.**
         - L3 only if £9.0m+ realized − projected is still ≥ +0.1 after the levers that passed.
         - L4 only if the model XI's realized − projected is ≤ −0.3 pts/player-GW and the template
@@ -602,13 +681,13 @@ Executor's choice:
 - [ ] Phase 9: Combine plausible levers, then re-check G2
       Done when: the report records (a) either "no combine candidates" or the combined arm's
       verdict (PROMOTE on PASS; on FAIL nothing changes, since every lever that passed alone is
-      already live), and (b) the G2 decision for the current control: model − gated template ≥ M
+      already live), and (b) the G2 decision for the current control: model − gated template m ≥ M̄
       with m − SE > 0 (G2 met), or G2 unmet with the queue exhausted or capped, which triggers owner
       review.
       Steps:
       - The candidates are arms with m > 0 that failed only m − SE ≥ 0. Combine them, declare, run
         against a fresh control, judge, then PROMOTE on PASS. The arm counts towards the lever cap.
-      - Run `--rule r6` on the latest control summary to print the gaps against M, and record the
+      - Run `--rule r6` on the latest control summary to print the gaps against M̄, and record the
         decision.
       Covers: Req 5, Req 7, Req 10
 
@@ -625,16 +704,23 @@ Executor's choice:
 - [ ] Phase 11: Track live, run the kill-switch, and review at GW19 and GW38
       Done when, for each review gameweek N (every 6 live GWs after a promotion, plus GW19 and GW38),
       the report records:
-      - the headline table (G2 gap vs M, G3 pace vs cutoff, G4 cumulative vs cutoff with the live
+      - the headline table (G2 gap vs M̄, G3 pace vs cutoff, G4 cumulative vs cutoff with the live
         sample's SE);
       - for each promoted lever, its 2026-27 comparison against `--no-<lever>` (paired m ± SE over
         GW2–N), and the decision to keep it or roll it back (roll back if m + SE < 0);
-      - G2's 2026-27 confirmation on the oracle row;
+      - G2's 2026-27 check: "model (oracle)" − "ownership template (available)" per GW from the
+        leaderboard (Req 3). Over GW2–N, m − SE > 0 confirms G2 out of sample. m + SE < 0 at GW19
+        or later pauses the programme for owner review. Anything between is recorded as
+        inconclusive.
       - the programme decision for GW N: continue, pause for owner review, or close (GW38 = final
         report).
       Steps:
+      - Step 1 (first use, A11): add the finished 2026-27 GWs to `ALL_SEASON_GAMEWEEKS` (up to the
+        last GW FPL marks finished), with a test that `--seasons 2026-2027` walks ≥ 1 step. If the
+        cached DB can't support it (A11 fails), the kill-switch is the one-runner season sim on
+        2026-27 (`control: ; control_b: ; arm: --no-<lever>`), judged the same way. Record which.
       - After each weekly backtest and rank-tracking run, update the table from
-        `app_model_team.json` and `rank_autopsy.json` `top_100k_cutoff`.
-      - Dispatch the kill-switch comparison: a walk-forward with `--seasons 2026-2027` [A11], or
-        the season sim on 2026-27 if A11 fails.
-      Covers: Req 3, Req 4, Req 8, Req 10
+        `app_model_team.json`, `leaderboard_latest.json` and `rank_autopsy.json`
+        `top_100k_cutoff`.
+      - Dispatch the kill-switch comparison for each promoted lever.
+      Covers: Req 3, Req 4, Req 8, Req 10; checks: A11
