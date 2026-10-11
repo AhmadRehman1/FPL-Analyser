@@ -17,7 +17,7 @@ Parked secondary asks: Haaland's P(60+) Community Shield quirk (see Out of Scope
 - Q2 promotion rule → R4 retargeted, called **rule R5** below (accepted Recommended).
 - Q3 rule R5 check (iii) → the **sum of absolute component residuals**, not the band total (accepted
   Recommended, after batch B1 showed offsetting errors).
-- Q4 approval → see closing turn.
+- Q4 approval → approved as written (2026-10-11).
 Count: 4 of 14.
 
 ## Goal & Success Criteria
@@ -232,8 +232,9 @@ Count: 4 of 14.
     - "earlier" comes from `ep._player_rate_pool(con, uid, earlier_loaded_seasons)`, which handles
       2024-25's per-90-only rows;
     - the earlier seasons must hold ≥ 900 minutes;
-  - (c) he is not a goalkeeper, and not in `breakout` or `breakout_promoted` under the declared
-    (unwidened) breakout rule.
+  - (c) he is a midfielder or forward (fixed in Phase 1: with defenders in, the live group was
+    mostly defenders with tiny (xG+xA) rates), and not in `breakout` or `breakout_promoted` under
+    the declared (unwidened) breakout rule.
 
   The other cases:
   - **COOLING:** the same, with ratio ≤ 1/1.30.
@@ -371,7 +372,7 @@ Count: 4 of 14.
 
 ## Build Phases
 
-- [ ] Phase 1: Data diagnostic and the in-form groups
+- [x] Phase 1: Data diagnostic and the in-form groups
       Done when: the `diagnose_premium_returns.yml` artifact holds RQ1's four blocks plus the RQ2b
       alignment check. The report
       records the H2 and H3 verdicts and whether RQ2b applies. It also fixes the in-form group used

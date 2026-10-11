@@ -174,3 +174,74 @@ def test_breakout_cuts_measure_the_group_at_each_step(monkeypatch):
     assert out["breakout_promoted"] == {"n_player_steps": 2, "mean_resid": 5.0, "mae": 5.0}
     assert out["breakout_widened"]["n_player_steps"] == 4
     assert {s["player"] for s in out["sample"]} == {"new", "backup"}
+
+
+def test_form_group_cuts_split_each_group_by_component(monkeypatch):
+    """The in-form / cooling block (docs/plans/2026-10_premium_and_form_returns.md, RQ3): realized
+    minus predicted per component, recomputed with backtest.realized_components(), the mean over
+    gameweeks of each gameweek's group mean, and its component_abs_sum."""
+    from test_form_groups import PRIOR, SEASON, _deadline_after, _seed
+
+    from fpl_quant import breakout
+
+    con = duckdb.connect(":memory:")
+    db.apply_schema(con)
+    wfs.backtest.ep.seed_v1_params(con)  # base_scoring_matrix: the realized split scores goals etc.
+    _seed(con)
+    monkeypatch.setattr(breakout, "build_club_spells", lambda con, seasons: None)  # _seed made the spells
+    monkeypatch.setattr(wfs.backtest, "gameweek_deadline", lambda con, season, gw: _deadline_after(gw - 1))
+    ts_mv = con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2025-09-01', 0.2, 1, 1, 'team_a') RETURNING model_version"
+    ).fetchone()[0]
+    mm_mv = con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2025-09-01', ?, 1, 1, 1, 1, '[]') RETURNING model_version", [SEASON],
+    ).fetchone()[0]
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    # every player: EP appearance 1.5, goals 0.5, assists 0.2, total 3.0 (so "other" 0.8), and 90
+    # minutes without a goal or assist in ab_5 (realized appearance 2). Realized event_points:
+    # hot 6 (in form), warm 3 (in form only widened), cold 1 (cooling).
+    realized = {"hot": 6, "warm": 3, "steady": 3, "cold": 1, "keeper": 3, "fullback": 3, "new": 3}
+    for gw in (5, 6):
+        ep_mv = con.execute(
+            "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+            "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+            "VALUES ('2025-09-01', ?, ?, ?, 1, 1, 1) RETURNING model_version", [SEASON, ts_mv, mm_mv],
+        ).fetchone()[0]
+        con.execute(
+            "INSERT INTO backtest_gameweek_steps (backtest_run_id, season, gameweek, tier, data_asof, ep_model_version) "
+            "VALUES (?, ?, ?, 'mature', '2025-09-01', ?)", [run_id, SEASON, gw, ep_mv],
+        )
+        for uid, points in realized.items():
+            con.execute(
+                "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+                "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+                "ep_total, expected_bps) VALUES (?, ?, 'ab_5', 1.5, 0.5, 0.2, 0, 0, 0, 0.8, 0, 0, 0, 0, 3.0, 0)",
+                [ep_mv, uid],
+            )
+            if gw == 5:
+                con.execute("UPDATE fact_player_season_stats SET event_points = ? WHERE player_uid = ? AND season = ? AND gw = 5",
+                            [points, uid, SEASON])
+            else:
+                con.execute(
+                    "INSERT INTO fact_player_season_stats (player_uid, season, gw, event_points, _ingested_at) "
+                    "VALUES (?, ?, 6, ?, current_timestamp)", [uid, SEASON, points],
+                )
+
+    out = wfs.form_group_cuts(con, run_id)
+
+    assert PRIOR not in out  # the run has no 2024-25 steps
+    hot = {"goals": -0.5, "assists": -0.2, "appearance": 0.5, "cleansheet": 0.0, "other": 3.2}
+    assert out[SEASON]["in_form"] == {"n_player_steps": 2, "mean_resid": 3.0, "components": hot, "component_abs_sum": 4.4}
+    cooling = out[SEASON]["cooling"]
+    assert (cooling["n_player_steps"], cooling["mean_resid"], cooling["component_abs_sum"]) == (2, -2.0, 3.0)
+    widened = out[SEASON]["in_form_widened"]  # hot and warm: other (3.2 + 0.2) / 2
+    assert (widened["n_player_steps"], widened["components"]["other"], widened["mean_resid"]) == (4, 1.7, 1.5)
+
+
+def test_component_abs_sum():
+    assert wfs.component_abs_sum({"goals": -0.267, "assists": 0.227, "appearance": -0.004, "cleansheet": -0.007,
+                                  "other": 0.158, "total": 0.107}) == 0.663
+    assert wfs.component_abs_sum({"goals": 0.1}) is None

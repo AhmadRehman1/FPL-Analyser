@@ -6,7 +6,10 @@ that captain was a defender or goalkeeper, and how often it was the XI's top-EP 
 captain counterfactuals: what the same XI's captain would have scored under other picking rules
 (highest P95, mean + half a standard deviation) and with hindsight. The breakout group
 (fpl_quant.breakout, docs/plans/2026-10_breakout_players.md) gets its own residual per season,
-and db_cache_key (env DB_CACHE_KEY, the restored cache) lets scripts/compare_arms.py refuse to
+as do the in-form and cooling groups (fpl_quant.form_groups, docs/plans/
+2026-10_premium_and_form_returns.md) split by component, and every split block carries a
+component_abs_sum (|appearance| + |goals| + |assists| + |clean sheet| + |other|, the sum rule R5
+judges in scripts/compare_arms.py). db_cache_key (env DB_CACHE_KEY, the restored cache) lets scripts/compare_arms.py refuse to
 compare runs made on different DBs.
 
 Usage (from repo root, after scripts/run_walkforward.py):
@@ -22,7 +25,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest, breakout, db  # noqa: E402
+from fpl_quant import backtest, breakout, db, form_groups  # noqa: E402
 
 
 HEADLINE_METRICS = (
@@ -291,6 +294,81 @@ def _spread_sample(rows: list[dict]) -> list[dict]:
     return [picks[int(i * step)] for i in range(BREAKOUT_SAMPLE_SIZE)]
 
 
+def component_abs_sum(components: dict) -> float | None:
+    """|appearance| + |goals| + |assists| + |clean sheet| + |other|: errors that cancel in the
+    total still count. None if any component is missing."""
+    values = [components.get(c) for c in backtest.COMPONENTS]
+    if any(v is None for v in values):
+        return None
+    return round(sum(abs(v) for v in values), 4)
+
+
+FORM_LABELS = tuple(f"{label}{suffix}" for label in (form_groups.IN_FORM, form_groups.COOLING) for suffix in ("", "_widened"))
+
+
+def form_group_cuts(con, run_id) -> dict:
+    """{season: None | {label: {n_player_steps, mean_resid, components, component_abs_sum}}} for
+    the in-form and cooling groups, declared and widened (labels FORM_LABELS). Realized minus
+    predicted per component, recomputed at each step with backtest.realized_components() for the
+    step's own EP version (only per-gameweek segment means are stored). Each figure is the mean
+    over gameweeks of that gameweek's group mean, the way price_band's metrics are aggregated;
+    mean_resid is the components' sum. None for a season with no earlier loaded season."""
+    steps = con.execute(
+        "SELECT s.season, s.gameweek, s.ep_model_version, v.scoring_matrix_params_version "
+        "FROM backtest_gameweek_steps s JOIN ep_model_versions v ON v.model_version = s.ep_model_version "
+        "WHERE s.backtest_run_id = ? ORDER BY s.season, s.gameweek", [run_id],
+    ).fetchall()
+    if not steps:
+        return {}
+    loaded = tuple(r[0] for r in con.execute(
+        "SELECT DISTINCT season FROM fact_match WHERE competition = ? ORDER BY season", [backtest.PL],
+    ).fetchall())
+    breakout.build_club_spells(con, loaded)
+    memo: dict = {}
+    per_gw: dict = {}
+    for season, gw, ep_mv, scoring_version in steps:
+        deadline = backtest.gameweek_deadline(con, season, gw)
+        groups = {}
+        for suffix, rule in (("", {}), ("_widened", form_groups.WIDENED)):
+            found = form_groups.classify(con, season, gw, deadline, memo=memo, **rule)
+            if found is None:  # depends on the season alone: no earlier loaded season
+                per_gw[season] = None
+                break
+            groups[suffix] = found
+        if per_gw.get(season, {}) is None:
+            continue
+        by_label = per_gw.setdefault(season, {label: [] for label in FORM_LABELS})
+        members = set().union(*groups.values())
+        if not members:
+            continue
+        split = backtest.realized_components(con, season, gw, ep_mv, scoring_version, player_uids=members)
+        for suffix, found in groups.items():
+            for label in (form_groups.IN_FORM, form_groups.COOLING):
+                rows = [split[uid] for uid, lab in found.items() if lab == label and uid in split]
+                if rows:
+                    by_label[label + suffix].append(
+                        (len(rows), {c: sum(r[c] for r in rows) / len(rows) for c in backtest.COMPONENTS})
+                    )
+    out: dict = {}
+    for season, by_label in per_gw.items():
+        if by_label is None:
+            out[season] = None
+            continue
+        out[season] = {}
+        for label, gameweeks in by_label.items():
+            if not gameweeks:
+                out[season][label] = {"n_player_steps": 0, "mean_resid": None, "components": None, "component_abs_sum": None}
+                continue
+            components = {c: round(sum(g[1][c] for g in gameweeks) / len(gameweeks), 4) for c in backtest.COMPONENTS}
+            out[season][label] = {
+                "n_player_steps": sum(g[0] for g in gameweeks),
+                "mean_resid": round(sum(components.values()), 4),
+                "components": components,
+                "component_abs_sum": component_abs_sum(components),
+            }
+    return out
+
+
 def summarize(con, run_id: int) -> dict:
     # steps planned vs scored: a run stopped by its time budget averages fewer gameweeks
     out = {"backtest_run_id": run_id, "progress": backtest.walk_forward_progress(con, run_id),
@@ -312,6 +390,7 @@ def summarize(con, run_id: int) -> dict:
             for comp in ("total", "appearance", "goals", "assists", "cleansheet", "other")
         }
         out["price_band"][band]["brier_minutes"] = _mean_metric(con, run_id, f"brier_minutes_mean:price_band={band}")[0]
+        out["price_band"][band]["component_abs_sum"] = component_abs_sum(out["price_band"][band])
     out["minutes_prior_by_price_band"] = minutes_prior_by_price_band(con, run_id)
     out["promoted_clubs"] = promoted_club_cuts(con, run_id)
     for pos in ("Goalkeeper", "Defender", "Midfielder", "Forward"):
@@ -319,6 +398,7 @@ def summarize(con, run_id: int) -> dict:
     out["captain"] = captain_stats(con, run_id)
     out["captain_counterfactuals"] = captain_counterfactuals(con, run_id)
     out["breakout"] = breakout_cuts(con, run_id)
+    out["form_groups"] = form_group_cuts(con, run_id)
     out["db_cache_key"] = os.environ.get("DB_CACHE_KEY") or None
     # per-gameweek rows so two arms can be compared on the SAME scored steps (an arm can lose
     # steps, e.g. to the optimizer's divergence check at very low lambda)
