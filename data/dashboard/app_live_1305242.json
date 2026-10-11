@@ -4,7 +4,7 @@
   "gameweek": 6,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 51,
+  "live_total": 63,
   "players": [
     {
       "player_id": 109,
@@ -65,9 +65,9 @@
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 0,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     },
     {
       "player_id": 569,
@@ -79,15 +79,15 @@
     {
       "player_id": 249,
       "web_name": "Barry",
-      "live_points": 0,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 50.0,
-    "estimated_rank": 5529255
+    "percentile": 46.0,
+    "estimated_rank": 5975103
   },
   "fixtures": [
     {
@@ -190,6 +190,57 @@
         "short_name": "TOT",
         "name": "Spurs",
         "score": 1
+      }
+    },
+    {
+      "id": 55,
+      "kickoff": "2026-10-11T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "CRY",
+        "name": "Crystal Palace",
+        "score": 3
+      },
+      "away": {
+        "short_name": "NFO",
+        "name": "Nott'm Forest",
+        "score": 1
+      }
+    },
+    {
+      "id": 56,
+      "kickoff": "2026-10-11T13:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "HUL",
+        "name": "Hull City",
+        "score": 2
+      },
+      "away": {
+        "short_name": "EVE",
+        "name": "Everton",
+        "score": 2
+      }
+    },
+    {
+      "id": 58,
+      "kickoff": "2026-10-11T15:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LIV",
+        "name": "Liverpool",
+        "score": 0
+      },
+      "away": {
+        "short_name": "MCI",
+        "name": "Man City",
+        "score": 3
       }
     }
   ],
@@ -363,12 +414,84 @@
       "fixture_id": 52
     },
     {
+      "player_id": 210,
+      "web_name": "Wharton",
+      "team": 8,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 55
+    },
+    {
+      "player_id": 211,
+      "web_name": "Yeremy",
+      "team": 8,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 55
+    },
+    {
+      "player_id": 213,
+      "web_name": "Lerma",
+      "team": 8,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 55
+    },
+    {
+      "player_id": 214,
+      "web_name": "Kamada",
+      "team": 8,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 55
+    },
+    {
+      "player_id": 222,
+      "web_name": "Strand Larsen",
+      "team": 8,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 55
+    },
+    {
+      "player_id": 236,
+      "web_name": "Dewsbury-Hall",
+      "team": 9,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 56
+    },
+    {
+      "player_id": 236,
+      "web_name": "Dewsbury-Hall",
+      "team": 9,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 56
+    },
+    {
+      "player_id": 249,
+      "web_name": "Barry",
+      "team": 9,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 56
+    },
+    {
       "player_id": 269,
       "web_name": "Sessegnon",
       "team": 10,
       "event": "goal",
       "count": 1,
       "fixture_id": 57
+    },
+    {
+      "player_id": 286,
+      "web_name": "Belloumi",
+      "team": 11,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 56
     },
     {
       "player_id": 304,
@@ -403,6 +526,54 @@
       "fixture_id": 51
     },
     {
+      "player_id": 340,
+      "web_name": "Gelhardt",
+      "team": 11,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 56
+    },
+    {
+      "player_id": 391,
+      "web_name": "Gvardiol",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 58
+    },
+    {
+      "player_id": 399,
+      "web_name": "Cherki",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 58
+    },
+    {
+      "player_id": 400,
+      "web_name": "Doku",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 58
+    },
+    {
+      "player_id": 400,
+      "web_name": "Doku",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 58
+    },
+    {
+      "player_id": 411,
+      "web_name": "Haaland",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 58
+    },
+    {
       "player_id": 427,
       "web_name": "Mbeumo",
       "team": 16,
@@ -435,12 +606,36 @@
       "fixture_id": 59
     },
     {
+      "player_id": 481,
+      "web_name": "Anderson",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 58
+    },
+    {
+      "player_id": 483,
+      "web_name": "Ndoye",
+      "team": 18,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 55
+    },
+    {
       "player_id": 526,
       "web_name": "Solanke",
       "team": 19,
       "event": "goal",
       "count": 1,
       "fixture_id": 59
+    },
+    {
+      "player_id": 576,
+      "web_name": "Stroud",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 56
     },
     {
       "player_id": 583,
@@ -465,7 +660,31 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 60
+    },
+    {
+      "player_id": 642,
+      "web_name": "Thomas",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 56
+    },
+    {
+      "player_id": 644,
+      "web_name": "Timber",
+      "team": 8,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 55
+    },
+    {
+      "player_id": 649,
+      "web_name": "Maitland-Niles",
+      "team": 9,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 56
     }
   ],
-  "generated_at": "2026-10-10T23:33:02.860322+00:00"
+  "generated_at": "2026-10-11T17:25:19.330895+00:00"
 }
