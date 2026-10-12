@@ -134,14 +134,19 @@ def _build_player_season_team_map(con: duckdb.DuckDBPyConnection, seasons: tuple
 
 
 def _team_match_weights(con: duckdb.DuckDBPyConnection, seasons: tuple[str, ...], asof_date: date, xi: float) -> pd.DataFrame:
+    """Every finished league match per team, recency-weighted. A match with no player rows at all
+    is left out: live, the match feed can lag FPL, and a finished fixture whose line-ups haven't
+    arrived would otherwise count as a non-start for the whole squad (2026-10-11: Man City's GW6
+    took Haaland's P(start) from 1.0 to 0.82 until the feed caught up)."""
     placeholders = ",".join(["?"] * len(seasons))
+    has_rows = "EXISTS (SELECT 1 FROM fact_player_match_stats s WHERE s.match_id = fact_match.match_id)"
     df = con.execute(
         f"""
         SELECT home_team_uid AS team_uid, season, match_id, gameweek, kickoff_time FROM fact_match
-        WHERE competition = ? AND finished = TRUE AND season IN ({placeholders})
+        WHERE competition = ? AND finished = TRUE AND season IN ({placeholders}) AND {has_rows}
         UNION ALL
         SELECT away_team_uid AS team_uid, season, match_id, gameweek, kickoff_time FROM fact_match
-        WHERE competition = ? AND finished = TRUE AND season IN ({placeholders})
+        WHERE competition = ? AND finished = TRUE AND season IN ({placeholders}) AND {has_rows}
         """,
         [PL, *seasons, PL, *seasons],
     ).fetchdf()
