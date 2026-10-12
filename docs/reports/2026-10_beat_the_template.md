@@ -140,3 +140,19 @@ the 2025-26 fit, and only 2026-27 uses the both-season fit.
   cutoff by GW, each with its bracket and the number of entries within 2× of the target.
 - **Req 7.** `season_sim_arms.yml` gains `same_runner`: every arm runs one after another in one
   job (`scripts/run_season_sim_batch.py`), at most 5 runs.
+
+## Runs dispatched (2026-10-12)
+
+| run | workflow | ref / commit | args | purpose |
+|---|---|---|---|---|
+| 38228939128 | `branch_walkforward.yml` | branch, 9261170 | `--export-residuals` | Phase 1 control: template gaps, diagnostics, residual export |
+| 38229024307 | `season_sim_arms.yml` | branch, 9261170 | `control: ; control_b:`, 2025-26, chunk `2-38`, `same_runner` | Phase 2: one-runner GW2–38 control and noise floor, chips used (A7) |
+
+- **A4 holds.** Run 38228939128's `head_sha` is the branch head, 9261170: a dispatch on the
+  branch ref runs the branch's code.
+- **A5 holds.** The unit test `test_template_captain_is_the_most_owned_outfield_xi_player`
+  checks that the template captain is the most-owned outfield XI player, never a goalkeeper,
+  even one owned by more managers than anyone else.
+- **Still to run after merge:** `diagnose_crowd_columns.yml` (A2, A3). A workflow must be on the
+  default branch before it can be dispatched. Also `rank_tracking.yml` (Req 4, A1), so its
+  commit goes to master and not to this branch.
