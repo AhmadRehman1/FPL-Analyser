@@ -90,3 +90,45 @@ the 2025-26 fit, and only 2026-27 uses the both-season fit.
 | | lever arms (cap 10) | planner arms (cap 6) |
 |---|---|---|
 | used | 0 | 0 |
+
+## Phase 1: the oracle yardstick, rule R6 and the residual export (built)
+
+- **The template (Req 1).** `backtest.template_squads()` builds `beats_baseline()`'s ownership
+  squad inside each walk-forward step's own as-of scope, twice: with and without the
+  availability gate. `score_gameweek()` scores both like the model squad (auto-subs, the solve's
+  vice). `run_walkforward.py` always turns it on; the model's own numbers are untouched (a test
+  runs the walk-forward with and without it and compares every model metric).
+- **Diagnostics (Req 2).** Per GW, in `backtest_metrics` and the summary's `per_gameweek`:
+  `template_points` (gated) and `template_points_ungated`, `template_xi_overlap`,
+  `non_template_points`, the model's and the template's captain points, the `ep_plus_eo`
+  captain counterfactual, £ per price band for both XIs, and realized − projected for both XIs
+  under the model's EP. The summary's `template` block pools them, overall and by season.
+  - `template_xi_overlap` compares the two XIs as picked.
+  - `non_template_points` sums the model's scoring XI after auto-subs, with the armband, over
+    players outside the template's picked XI.
+  - Captain points are before doubling. EO for `ep_plus_eo` is the latest ownership before the
+    deadline, spread as captaincy over the model's EP (`ownership.compute_eo_for_pool`).
+- **Rule R6 (Req 5, Req 9).** `compare_arms.py --rule r6` returns PASS, FAIL, BLOCKED (R6
+  passes, Req 9 blocks) or REPLICATE (|m − SE| ≤ 0.1; exit code 3). `--replicate c_b a_b`
+  judges the two runs' mean differences and mean MAEs.
+- **Residual export (Req 12).** `run_walkforward.py --export-residuals` writes
+  `residual_features.csv`; `branch_walkforward.yml` uploads it as `residual-features`. The
+  features come from `residual_levers.feature_rows()`, the one reader every harness will share.
+  - `price_band` uses the latest price before the deadline, so 2025-26 GW1 rows have none.
+- **2025-26 GW1** has no row before its deadline, so no template (and no model squad).
+
+## Phase 2: the live yardsticks (built)
+
+- **Req 3.** `export_leaderboard.py` appends "model (oracle)" (`kind: model_oracle`, the
+  walk-forward step on 2026-27 with the export's own live versions, no EO term) and "ownership
+  template (available)" (`kind: template_gated`). Both are `is_baseline` rows after the
+  existing three, so the evolving model stays the first non-baseline row. Every oracle row
+  gains `oracle_model_beats_baseline_by`. The crowd row is renamed "synthetic EO crowd (not
+  FPL's average)". The weekly job's limit goes from 120 to 150 minutes.
+- **Req 4.** `rank_tracking.yml` runs `scripts/derive_rank_cutoff.py` after the autopsy. It
+  fetches `entry/{id}/history` for the sampled entries and interpolates total points against
+  overall rank (linear in log rank) at rank 100,000. It writes `top_100k_cutoff` into
+  `rank_autopsy.json`: the 2024-25 and 2025-26 totals and paces, and the 2026-27 cumulative
+  cutoff by GW, each with its bracket and the number of entries within 2× of the target.
+- **Req 7.** `season_sim_arms.yml` gains `same_runner`: every arm runs one after another in one
+  job (`scripts/run_season_sim_batch.py`), at most 5 runs.

@@ -25,10 +25,11 @@ concurrency:
 
 jobs:
   # run_season_simulation() over the completed gameweeks of the current season is ~minutes
-  # early on, growing to ~1h by late season; 120m is comfortable headroom.
+  # early on, growing to ~1h by late season; the model (oracle) rows add one walk-forward step
+  # per gameweek (~15-20 s each, no Monte Carlo). 150m is comfortable headroom.
   leaderboard:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - name: Checkout FPL-Analyser
         uses: actions/checkout@v7
