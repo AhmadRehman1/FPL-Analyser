@@ -11,6 +11,12 @@ sweep run_season_simulation.py additionally does) -- the dashboard leaderboard o
 beats_baseline comparison, and the sweep is a materially more expensive, separate research
 question (see that function's own docstring).
 
+Two like-for-like rows follow the baselines (docs/plans/2026-10_beat_the_template.md, Req 3):
+"model (oracle)", the walk-forward's fresh hit-free model squad on this season, and "ownership
+template (available)", the availability-gated template it is judged against. Both are oracles,
+like every baseline here; each oracle row carries oracle_model_beats_baseline_by beside the
+evolving model's model_beats_baseline_by.
+
 Usage (from repo root):
     PYTHONPATH=src python scripts/export_leaderboard.py [start_gameweek] [end_gameweek]
 
@@ -27,6 +33,7 @@ scheduled_pipeline.yml's twice-daily cadence for that reason; runs as its own de
 it, so a backtest timeout can't starve this feed -- the failure mode before this).
 """
 
+import inspect
 import json
 import sys
 from datetime import date
@@ -119,8 +126,108 @@ _BASELINE_VERSION_KEYS = (
 _BASELINE_DISPLAY_NAMES = {
     "recent_points": "recent-points baseline",
     "ownership_popularity": "price/ownership baseline",
-    "crowd": "crowd-average baseline",
+    # real points weighted by ownership: far above FPL's own published average
+    "crowd": "synthetic EO crowd (not FPL's average)",
 }
+
+# The like-for-like rows (docs/plans/2026-10_beat_the_template.md, Req 3). Every baseline above
+# is an oracle -- a fresh, hit-free squad each gameweek -- while the model row is the evolving
+# manager. These two put an oracle model beside them: the walk-forward's own fresh model squad
+# on this season, and the availability-gated ownership template it is judged against. Both are
+# is_baseline rows, appended after the others, so the evolving model stays the first
+# non-baseline row the app reads.
+_ORACLE_ROWS = {
+    "model_oracle": "model (oracle)",
+    "template_gated": "ownership template (available)",
+}
+ORACLE_RUN_NOTES = "export_leaderboard.py: the model (oracle) and gated-template rows"
+
+
+def oracle_weeks(con, param_versions: dict, season: str, start_gw: int, end_gw: int) -> dict[str, dict[int, float]]:
+    """{"model_oracle": {gw: pts}, "template_gated": {gw: pts}}: for each gameweek in the window,
+    the walk-forward step itself (backtest.run_gameweek_step with this export's own live
+    versions and the gated template), scored as the walk-forward scores it
+    (backtest.score_gameweek: auto-subs, the solve's vice). A gameweek a row can't score is
+    missing from that row's map."""
+    # the walk-forward's solve: no EO term (the live from-scratch solve's template anchor is a
+    # live-only setting, docs/plans/2026-10_beat_the_template.md "Current State")
+    step_params = set(inspect.signature(backtest.run_gameweek_step).parameters) - {"ownership_params_version"}
+    kwargs = {k: v for k, v in param_versions.items() if k in step_params}
+    run_id = con.execute(
+        "INSERT INTO backtest_runs (warm_up_gameweeks, notes, steps_planned, seasons) VALUES (0, ?, ?, ?) "
+        "RETURNING backtest_run_id",
+        [ORACLE_RUN_NOTES, end_gw - start_gw + 1, json.dumps([season])],
+    ).fetchone()[0]
+    out: dict[str, dict[int, float]] = {"model_oracle": {}, "template_gated": {}}
+    for gw in range(start_gw, end_gw + 1):
+        if not backtest.has_fittable_history(con, season, gw):
+            continue
+        template = backtest.run_gameweek_step(
+            con, run_id, season, gw, run_monte_carlo=False, ownership_params_version=None,
+            template_baseline=True, **kwargs,
+        )
+        ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
+            "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
+            "WHERE backtest_run_id = ? AND season = ? AND gameweek = ?", [run_id, season, gw],
+        ).fetchone()
+        backtest.score_gameweek(
+            con, run_id, season, gw, ep_mv, mm_mv, ts_mv, param_versions["scoring_params_version"],
+            so_run_id=so_run_id, ownership_params_version=1, template=template,
+        )
+        metrics = dict(con.execute(
+            "SELECT metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ? AND season = ? "
+            "AND gameweek = ? AND metric_name IN ('model_squad_realized_points', 'template_squad_realized_points')",
+            [run_id, season, gw],
+        ).fetchall())
+        if "model_squad_realized_points" in metrics:
+            out["model_oracle"][gw] = metrics["model_squad_realized_points"]
+        if "template_squad_realized_points" in metrics:
+            out["template_gated"][gw] = metrics["template_squad_realized_points"]
+    return out
+
+
+def _gap(ref: dict[int, float], row: dict[int, float]) -> tuple[float, float]:
+    """(ref's total, ref - row) over the gameweeks both have."""
+    gws = [gw for gw in row if gw in ref]
+    ref_total = sum(ref[gw] for gw in gws)
+    return ref_total, ref_total - sum(row[gw] for gw in gws)
+
+
+def _weekly(points: dict[int, float]) -> dict[str, float]:
+    return {str(gw): round(pts, 1) for gw, pts in sorted(points.items())}
+
+
+def build_rows(model_weekly: dict[int, float], baselines: dict[str, dict[int, float]],
+               oracle: dict[str, dict[int, float]], window_gameweeks: int,
+               model_hits: dict[int, float] | None = None) -> list[dict]:
+    """The leaderboard rows: the evolving model first, then every baseline (the three existing
+    ones, then the model (oracle) and gated-template rows). model_beats_baseline_by is always the
+    evolving model's total minus the row's, over the gameweeks the row has; the oracle rows and
+    every oracle baseline also carry oracle_model_beats_baseline_by, the model (oracle) total
+    minus the row's on the same terms. Every row carries weekly_points ({gw: points}); the model
+    row also weekly_hits, the transfer hits its gross points don't deduct (the plan's Phase 3
+    pairs it per gameweek with the live team)."""
+    rows = [{
+        "name": "FPL-Analyser (model)", "total_points": round(sum(model_weekly.values()), 1),
+        "n_gameweeks": len(model_weekly), "is_baseline": False,
+        "weekly_points": _weekly(model_weekly), "weekly_hits": _weekly(model_hits or {}),
+    }]
+    model_oracle = oracle.get("model_oracle") or {}
+    entries = [(_BASELINE_DISPLAY_NAMES[k], k, baselines[k]) for k in _BASELINE_DISPLAY_NAMES]
+    entries += [(_ORACLE_ROWS[k], k, oracle.get(k) or {}) for k in _ORACLE_ROWS]
+    for name, kind, weekly in entries:
+        model_same, beats_by = _gap(model_weekly, weekly)
+        row = {
+            "name": name, "kind": kind, "total_points": round(sum(weekly.values()), 1), "n_gameweeks": len(weekly),
+            "n_gameweeks_skipped": window_gameweeks - len(weekly),
+            "model_total_points_same_gameweeks": round(model_same, 1),
+            "model_beats_baseline_by": round(beats_by, 1), "is_baseline": True,
+            "weekly_points": _weekly(weekly),
+        }
+        if kind != "model_oracle":
+            row["oracle_model_beats_baseline_by"] = round(_gap(model_oracle, weekly)[1], 1)
+        rows.append(row)
+    return rows
 
 
 def main() -> None:
@@ -155,24 +262,21 @@ def main() -> None:
         **{k: v for k, v in param_versions.items() if k in _BASELINE_VERSION_KEYS},
     )
 
+    oracle = oracle_weeks(con, param_versions, TARGET_SEASON, start_gw, end_gw)
+    print(f"[oracle rows] model (oracle) {len(oracle['model_oracle'])} GWs, gated template "
+          f"{len(oracle['template_gated'])} GWs")
+
     model_n = beats["model"]["n_gameweeks"]
-    rows = [{
-        "name": "FPL-Analyser (model)", "total_points": round(beats["model"]["total_points"], 1),
-        "n_gameweeks": model_n, "is_baseline": False,
-    }]
-    for key, display_name in _BASELINE_DISPLAY_NAMES.items():
-        b = beats[key]
-        rows.append({
-            "name": display_name, "total_points": round(b["total_points"], 1), "n_gameweeks": b["n_gameweeks"],
-            "n_gameweeks_skipped": b["n_gameweeks_skipped"],
-            "model_total_points_same_gameweeks": round(b["model_total_points_same_gameweeks"], 1),
-            "model_beats_baseline_by": round(b["model_beats_baseline_by"], 1), "is_baseline": True,
-        })
+    rows = build_rows(
+        dict(zip(result["gameweeks"], result["weekly_points"])),
+        {key: beats[key]["weekly"] for key in _BASELINE_DISPLAY_NAMES}, oracle, end_gw - start_gw + 1,
+        model_hits=dict(zip(result["gameweeks"], result["weekly_hits"])),
+    )
     # Reports a baseline win exactly as visibly as a model win -- a leaderboard that only shows
     # wins is not a leaderboard (same disclosure discipline backtest.beats_baseline() itself
-    # documents).
+    # documents). The model (oracle) row is the model itself, so it is no baseline to lose to.
     honest_losses = [
-        _BASELINE_DISPLAY_NAMES[key] for key in _BASELINE_DISPLAY_NAMES if beats[key]["model_beats_baseline_by"] < 0
+        row["name"] for row in rows[1:] if row["kind"] != "model_oracle" and row["model_beats_baseline_by"] < 0
     ]
 
     payload = {

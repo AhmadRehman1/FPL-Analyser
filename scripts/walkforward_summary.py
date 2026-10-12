@@ -12,7 +12,10 @@ component_abs_sum (|appearance| + |goals| + |assists| + |clean sheet| + |other|,
 judges in scripts/compare_arms.py). minutes_states_by_price_band sets the minutes model's states
 (start, substitute appearance, 1-59, 60+) against what happened, by price band and start
 probability. db_cache_key (env DB_CACHE_KEY, the restored cache) lets scripts/compare_arms.py refuse to
-compare runs made on different DBs.
+compare runs made on different DBs. template is the availability-gated ownership template's
+yardstick (docs/plans/2026-10_beat_the_template.md): the model's paired gap to it, XI overlap,
+points from outside the template XI, the captains, spend by price band and realized - projected
+for both XIs, pooled and by season; per_gameweek carries the same rows.
 
 Usage (from repo root, after scripts/run_walkforward.py):
     PYTHONPATH=src python scripts/walkforward_summary.py [backtest_run_id]
@@ -447,6 +450,97 @@ def form_group_cuts(con, run_id) -> dict:
     return out
 
 
+# Per-gameweek template rows (fpl_quant.backtest._score_template_baseline,
+# docs/plans/2026-10_beat_the_template.md Req 1 and Req 2): summary key -> metric name.
+TEMPLATE_GW_METRICS = {
+    "template_points": "template_squad_realized_points",
+    "template_points_ungated": "template_squad_realized_points_ungated",
+    "template_xi_overlap": "template_xi_overlap",
+    "non_template_points": "non_template_points",
+    "model_captain_points": "model_captain_points",
+    "template_captain_points": "template_captain_points",
+    "captain_ep_plus_eo_points": "captain_ep_plus_eo_points",
+    "model_xi_resid": "model_xi_resid",
+    "template_xi_resid": "template_xi_resid",
+}
+PRICE_BANDS = ("<5.0", "5.0-7.0", "7.0-9.0", "9.0+")
+
+
+def template_rows(con, run_id) -> dict:
+    """{(season, gw): {summary key: value}} for the template rows, including
+    model_xi_spend / template_xi_spend as {band: pounds}."""
+    out: dict = {}
+    by_metric = {metric: key for key, metric in TEMPLATE_GW_METRICS.items()}
+    for season, gw, name, value in con.execute(
+        "SELECT season, gameweek, metric_name, metric_value FROM backtest_metrics WHERE backtest_run_id = ? "
+        "AND (metric_name IN (SELECT unnest(?::VARCHAR[])) OR metric_name LIKE 'model\\_xi\\_spend:%' ESCAPE '\\' "
+        "OR metric_name LIKE 'template\\_xi\\_spend:%' ESCAPE '\\')",
+        [run_id, list(by_metric)],
+    ).fetchall():
+        row = out.setdefault((season, gw), {})
+        if ":price_band=" in name:
+            family, band = name.split(":price_band=", 1)
+            row.setdefault(family, {})[band] = round(value, 2)
+        else:
+            row[by_metric[name]] = round(value, 3)
+    return out
+
+
+def _mean(values: list[float]) -> float | None:
+    return round(sum(values) / len(values), 3) if values else None
+
+
+def _paired(rows: list[dict], a: str, b: str) -> dict:
+    """Mean and SE (sample sd / sqrt n) of row[a] - row[b] over the rows that carry both."""
+    d = [r[a] - r[b] for r in rows if r.get(a) is not None and r.get(b) is not None]
+    n = len(d)
+    if n < 2:
+        return {"n": n, "mean": round(d[0], 3) if d else None, "se": None}
+    m = sum(d) / n
+    sd = math.sqrt(sum((x - m) ** 2 for x in d) / (n - 1))
+    return {"n": n, "mean": round(m, 3), "se": round(sd / math.sqrt(n), 3)}
+
+
+def template_block(per_gameweek: list[dict]) -> dict:
+    """The template yardstick over a set of per_gameweek rows: the model's gap to the gated and
+    ungated templates (paired, pts/GW), the template's own mean (T_s in the plan's G2), XI
+    overlap, points from outside the template XI, the captains, spend by price band and
+    realized - projected for both XIs."""
+    rows = [r for r in per_gameweek if r.get("template_points") is not None]
+    if not rows:
+        return {"n": 0}
+
+    def spend(family):
+        return {band: _mean([r[family][band] for r in rows if band in (r.get(family) or {})]) for band in PRICE_BANDS}
+
+    return {
+        "n": len(rows),
+        "model_points_per_gw": _mean([r["squad_points"] for r in rows if r.get("squad_points") is not None]),
+        "template_points_per_gw": _mean([r["template_points"] for r in rows]),
+        "template_points_ungated_per_gw": _mean([r["template_points_ungated"] for r in rows
+                                                 if r.get("template_points_ungated") is not None]),
+        "gap_vs_gated": _paired(rows, "squad_points", "template_points"),
+        "gap_vs_ungated": _paired(rows, "squad_points", "template_points_ungated"),
+        "xi_overlap_mean": _mean([r["template_xi_overlap"] for r in rows if r.get("template_xi_overlap") is not None]),
+        "non_template_points_per_gw": _mean([r["non_template_points"] for r in rows
+                                             if r.get("non_template_points") is not None]),
+        "captain": {
+            "model_points_per_gw": _mean([r["model_captain_points"] for r in rows if r.get("model_captain_points") is not None]),
+            "template_points_per_gw": _mean([r["template_captain_points"] for r in rows
+                                             if r.get("template_captain_points") is not None]),
+            "ep_plus_eo_points_per_gw": _mean([r["captain_ep_plus_eo_points"] for r in rows
+                                               if r.get("captain_ep_plus_eo_points") is not None]),
+            # before doubling: +1 here is +1 squad point a gameweek
+            "ep_plus_eo_vs_model": _paired(rows, "captain_ep_plus_eo_points", "model_captain_points"),
+            "model_vs_template": _paired(rows, "model_captain_points", "template_captain_points"),
+        },
+        "model_xi_spend": spend("model_xi_spend"),
+        "template_xi_spend": spend("template_xi_spend"),
+        "model_xi_resid": _mean([r["model_xi_resid"] for r in rows if r.get("model_xi_resid") is not None]),
+        "template_xi_resid": _mean([r["template_xi_resid"] for r in rows if r.get("template_xi_resid") is not None]),
+    }
+
+
 def summarize(con, run_id: int) -> dict:
     # steps planned vs scored: a run stopped by its time budget averages fewer gameweeks
     out = {"backtest_run_id": run_id, "progress": backtest.walk_forward_progress(con, run_id),
@@ -499,6 +593,26 @@ def summarize(con, run_id: int) -> dict:
             "ORDER BY c.season, c.gameweek", [run_id],
         ).fetchall()
     ]
+    # the template yardstick (docs/plans/2026-10_beat_the_template.md): per gameweek on the same
+    # rows, then by season and pooled
+    templates = template_rows(con, run_id)
+    for row in out["per_gameweek"]:
+        row.update(templates.get((row["season"], row["gw"]), {}))
+    out["template"] = {"pooled": template_block(out["per_gameweek"]), "by_season": {
+        season: template_block([r for r in out["per_gameweek"] if r["season"] == season]) for season in seasons
+    }}
+    seconds = con.execute(
+        "SELECT sum(metric_value) FROM backtest_metrics WHERE backtest_run_id = ? AND metric_name = 'template_solve_seconds'",
+        [run_id],
+    ).fetchone()[0]
+    out["template"]["solve_seconds_total"] = None if seconds is None else round(seconds, 1)
+    # which rows the template read (1: up to G-1; 2: the A2 fallback), so rule R6 never compares
+    # runs judged against different templates
+    lags = sorted(int(r[0]) for r in con.execute(
+        "SELECT DISTINCT metric_value FROM backtest_metrics WHERE backtest_run_id = ? AND metric_name = 'template_lag'",
+        [run_id],
+    ).fetchall())
+    out["template"]["lag"] = lags[0] if len(lags) == 1 else (lags or None)
     return out
 
 

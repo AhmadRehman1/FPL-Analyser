@@ -113,6 +113,14 @@ jobs:
       - name: Run the rank autopsy
         run: PYTHONPATH=src python scripts/rank_autopsy.py
 
+      # docs/plans/2026-10_beat_the_template.md, Req 4: the real top-100k cutoffs (the 2024-25
+      # and 2025-26 rank-100k totals, the 2026-27 cumulative cutoff by gameweek) from the sampled
+      # entries' FPL history, added to rank_autopsy.json as top_100k_cutoff after the autopsy
+      # rewrites it. ~1 request per sampled entry; a failure here never blocks the autopsy commit.
+      - name: Derive the top-100k cutoffs
+        continue-on-error: true
+        run: PYTHONPATH=src python scripts/derive_rank_cutoff.py
+
       # Persist the DB (now carrying the rival sample + fact_squad_rank_score rows) so the next
       # run doesn't re-sample already-sampled gameweeks. Same key family the pipeline uses.
       - name: Cache the updated DB

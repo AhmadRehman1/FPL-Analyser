@@ -345,3 +345,56 @@ def test_component_abs_sum():
     assert wfs.component_abs_sum({"goals": -0.267, "assists": 0.227, "appearance": -0.004, "cleansheet": -0.007,
                                   "other": 0.158, "total": 0.107}) == 0.663
     assert wfs.component_abs_sum({"goals": 0.1}) is None
+
+
+def _template_row(season, gw, squad, template, ungated, overlap, non_template, cap_m, cap_t, cap_eo):
+    return {"season": season, "gw": gw, "squad_points": squad, "template_points": template,
+            "template_points_ungated": ungated, "template_xi_overlap": overlap, "non_template_points": non_template,
+            "model_captain_points": cap_m, "template_captain_points": cap_t, "captain_ep_plus_eo_points": cap_eo,
+            "model_xi_spend": {"<5.0": 9.0, "5.0-7.0": 30.0, "7.0-9.0": 16.0, "9.0+": 28.0},
+            "template_xi_spend": {"<5.0": 13.0, "5.0-7.0": 24.0, "7.0-9.0": 8.0, "9.0+": 40.0},
+            "model_xi_resid": -0.2, "template_xi_resid": 0.1}
+
+
+def test_template_block_pairs_the_model_with_both_templates():
+    rows = [
+        _template_row("2025-2026", 2, 60.0, 55.0, 50.0, 7, 20.0, 6.0, 8.0, 9.0),
+        _template_row("2025-2026", 3, 50.0, 52.0, 52.0, 8, 12.0, 2.0, 2.0, 2.0),
+        {"season": "2025-2026", "gw": 4, "squad_points": 70.0},  # no template that week: left out
+    ]
+    out = wfs.template_block(rows)
+    assert out["n"] == 2
+    assert out["template_points_per_gw"] == 53.5
+    assert out["gap_vs_gated"]["mean"] == 1.5 and out["gap_vs_gated"]["n"] == 2
+    assert out["gap_vs_gated"]["se"] == 3.5  # sd of (5, -2) is 4.95, over sqrt(2)
+    assert out["gap_vs_ungated"]["mean"] == 4.0
+    assert out["xi_overlap_mean"] == 7.5
+    assert out["non_template_points_per_gw"] == 16.0
+    assert out["captain"]["ep_plus_eo_vs_model"]["mean"] == 1.5
+    assert out["captain"]["model_vs_template"]["mean"] == -1.0
+    assert out["model_xi_spend"]["9.0+"] == 28.0
+    assert out["template_xi_resid"] == 0.1
+    assert wfs.template_block([{"season": "2025-2026", "gw": 1, "squad_points": 1.0}]) == {"n": 0}
+
+
+def test_summarize_merges_the_template_rows_into_each_gameweek():
+    con = duckdb.connect(":memory:")
+    db.apply_schema(con)
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    for season, gw, squad, template in (("2024-2025", 5, 60.0, 50.0), ("2025-2026", 5, 40.0, 48.0)):
+        for name, value in (("beats_crowd_points_delta", 1.0), ("model_squad_realized_points", squad),
+                            ("template_squad_realized_points", template), ("template_xi_overlap", 6.0),
+                            ("template_xi_spend:price_band=9.0+", 30.5), ("template_solve_seconds", 2.0),
+                            ("template_lag", 1.0)):
+            con.execute(
+                "INSERT INTO backtest_metrics (backtest_run_id, season, gameweek, tier, metric_name, metric_value) "
+                "VALUES (?, ?, ?, 'mature', ?, ?)", [run_id, season, gw, name, value],
+            )
+    out = wfs.summarize(con, run_id)
+    first = out["per_gameweek"][0]
+    assert first["template_points"] == 50.0 and first["template_xi_overlap"] == 6.0
+    assert first["template_xi_spend"] == {"9.0+": 30.5}
+    assert out["template"]["by_season"]["2024-2025"]["gap_vs_gated"]["mean"] == 10.0
+    assert out["template"]["pooled"]["gap_vs_gated"]["mean"] == 1.0
+    assert out["template"]["solve_seconds_total"] == 4.0
+    assert out["template"]["lag"] == 1

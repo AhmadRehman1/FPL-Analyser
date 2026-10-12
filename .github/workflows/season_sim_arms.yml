@@ -27,6 +27,15 @@ on:
         required: false
         default: "2-19,20-38"
         type: string
+      same_runner:
+        description: >-
+          Run every arm one after another in ONE job on one runner (at most 5 arm x season x
+          chunk runs), so arms are judged against a control that ran beside them. Matrix jobs on
+          different runners have split by +-1.81 pts/GW on the same DB and params
+          (docs/plans/2026-10_beat_the_template.md, Req 7).
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -82,6 +91,7 @@ jobs:
           ARMS: ${{ inputs.arms }}
           SEASONS: ${{ inputs.seasons }}
           CHUNKS: ${{ inputs.chunks }}
+          SAME_RUNNER: ${{ inputs.same_runner }}
         run: |
           python - <<'EOF'
           import json, os, re
@@ -102,8 +112,15 @@ jobs:
                                    "end": end, "tag": f"{label}_{season}_gw{start}-{end}"})
           if not any(a["label"] == "control" for a in arms):
               print("::warning::no arm labelled 'control' -- the summary will have no paired comparison")
+          matrix = arms
+          if os.environ.get("SAME_RUNNER") == "true":
+              if len(arms) > 5:
+                  raise SystemExit(f"::error::same_runner takes at most 5 arm x season x chunk runs, got {len(arms)}")
+              # one job: scripts/run_season_sim_batch.py runs the arms in order on its runner
+              matrix = [{"label": "batch", "flags": "", "season": "", "start": 0, "end": 0,
+                         "tag": "same_runner", "batch": json.dumps(arms)}]
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write("arms=" + json.dumps({"include": arms}) + "\n")
+              f.write("arms=" + json.dumps({"include": matrix}) + "\n")
           print(json.dumps(arms, indent=2))
           EOF
 
@@ -139,7 +156,12 @@ jobs:
           START_GW: ${{ matrix.start }}
           END_GW: ${{ matrix.end }}
           TAG: ${{ matrix.tag }}
+          BATCH: ${{ matrix.batch }}
         run: |
+          if [ -n "$BATCH" ]; then
+            PYTHONPATH=src python scripts/run_season_sim_batch.py "$BATCH"
+            exit $?
+          fi
           # word-splitting of FLAGS is intended: it carries the arm's flags
           PYTHONPATH=src python scripts/run_season_sim_arm.py --label "$LABEL" --season "$SEASON" \
             --start-gw "$START_GW" --end-gw "$END_GW" \
@@ -149,7 +171,8 @@ jobs:
         if: always()
         with:
           name: season-sim-arm-${{ matrix.tag }}
-          path: data/season_sim_arms/${{ matrix.tag }}.json
+          # a same_runner job writes one file per arm; a matrix job, its own tag's
+          path: data/season_sim_arms/*.json
           if-no-files-found: warn
           retention-days: 30
 

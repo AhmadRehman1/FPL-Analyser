@@ -1,4 +1,4 @@
-"""scripts/compare_arms.py: the breakout promotion rule (docs/plans/2026-10_breakout_players.md, R4)."""
+"""scripts/compare_arms.py: the breakout promotion rule (docs/plans/2026-10_breakout_players.md, R4), and rules R5, confirm and R6."""
 
 import copy
 import sys
@@ -324,3 +324,190 @@ def test_cli_rule_confirm(tmp_path, capsys):
     assert ca.main([str(c), str(a), "--rule", "confirm"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("PASS") and "EP MAE by season pass" in out and "2024-2025 1.1000 -> 1.0900" in out
+
+
+# ============================================================
+# rule r6 (docs/plans/2026-10_beat_the_template.md, Req 5 and Req 9)
+# ============================================================
+
+P = "2024-2025"
+
+
+def _r6_run(prior, points, *, mae_prior=1.10, mae=1.07, overlap=6.0, non_template=20.0, key="duckdb-1",
+            template=None):
+    """A two-season summary: per-gameweek squad points, overlap and non-template points."""
+    rows = [{"season": P, "gw": gw, "squad_points": v, "template_xi_overlap": overlap, "non_template_points": non_template}
+            for gw, v in enumerate(prior, start=2)]
+    rows += [{"season": S, "gw": gw, "squad_points": v, "template_xi_overlap": overlap, "non_template_points": non_template}
+             for gw, v in enumerate(points, start=1)]
+    return {
+        "progress": {"complete": True}, "db_cache_key": key,
+        "headline_by_season": {P: {"ep_total_calibration_mae": mae_prior}, S: {"ep_total_calibration_mae": mae}},
+        "per_gameweek": rows,
+        "template": {"pooled": template or {"n": len(rows), "gap_vs_gated": {"mean": -1.0, "se": 0.5, "n": len(rows)},
+                                            "gap_vs_ungated": {"mean": 0.5, "se": 0.5, "n": len(rows)},
+                                            "xi_overlap_mean": overlap, "non_template_points_per_gw": non_template}},
+    }
+
+
+C_PRIOR, C_POINTS = [50.0, 60.0, 55.0], [40.0, 70.0, 52.0]
+
+
+def test_r6_passes_when_m_minus_se_clears_zero_and_mae_is_within_tolerance():
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], mae_prior=1.105, mae=1.079)  # diffs 2 2 2 2 3 2
+    out = ca.compare(_r6_run(C_PRIOR, C_POINTS), arm, rule="r6")
+    assert out["verdict"] == "PASS"
+    pts = out["checks"]["points"]
+    assert pts["n"] == 6 and pts["changed"] == 6
+    assert pts["mean"] == pytest.approx(13 / 6)
+    assert pts["m_minus_se"] > 0.1
+    assert out["checks"]["mae_by_season"]["seasons"][S]["delta"] == pytest.approx(0.009)
+
+
+def test_r6_fails_when_m_minus_se_is_below_zero():
+    arm = _r6_run([52.0, 58.0, 57.0], [42.0, 66.0, 54.0])  # diffs 2 -2 2 2 -4 2: m = 1/3, SE ~ 1.0
+    out = ca.compare(_r6_run(C_PRIOR, C_POINTS), arm, rule="r6")
+    assert out["verdict"] == "FAIL" and not out["checks"]["points"]["pass"]
+
+
+def test_r6_fails_on_mae_in_either_season():
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], mae_prior=1.111)  # 2024-25 +0.011
+    out = ca.compare(_r6_run(C_PRIOR, C_POINTS), arm, rule="r6")
+    assert out["verdict"] == "FAIL"
+    assert not out["checks"]["mae_by_season"]["pass"] and out["checks"]["points"]["pass"]
+
+
+def test_r6_asks_for_a_replicate_near_the_threshold_then_judges_the_mean():
+    near = _r6_run([50.5, 60.4, 55.6], [40.5, 70.4, 52.6])  # diffs .5 .4 .6 .5 .4 .6: m .5, SE ~ .037
+    c = _r6_run(C_PRIOR, C_POINTS)
+    out = ca.compare(c, _r6_run([50.1, 60.0, 55.1], [40.0, 70.1, 52.0]), rule="r6")  # m - SE within 0.1 of 0
+    assert out["verdict"] == "REPLICATE" and out["replicate_required"]
+    rep = ca.compare(c, _r6_run([50.1, 60.0, 55.1], [40.0, 70.1, 52.0]), rule="r6", replicate=(c, near))
+    assert rep["replicated"] and not rep["replicate_required"]
+    assert rep["checks"]["points"]["mean"] == pytest.approx((0.3 + 0.2 + 0.35 + 0.25 + 0.25 + 0.3) / 6)
+    assert rep["verdict"] == "PASS"
+
+
+def test_r6_replicate_uses_the_mean_of_both_runs_maes():
+    c = _r6_run(C_PRIOR, C_POINTS)
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], mae=1.082)       # +0.012 alone
+    arm_b = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], mae=1.076)     # mean +0.009
+    assert ca.compare(c, arm, rule="r6")["verdict"] == "FAIL"
+    assert ca.compare(c, arm, rule="r6", replicate=(c, arm_b))["verdict"] == "PASS"
+
+
+def test_r6_req9_blocks_a_collapse_into_the_template():
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], overlap=7.2, non_template=19.0)
+    out = ca.compare(_r6_run(C_PRIOR, C_POINTS), arm, rule="r6")
+    assert out["checks"]["points"]["pass"]
+    assert out["req9"]["blocks_promotion"] and out["verdict"] == "BLOCKED"
+    assert out["req9"]["overlap_rise"] == pytest.approx(1.2)
+
+
+@pytest.mark.parametrize("overlap, non_template, blocked", [
+    (7.2, 20.5, False),  # overlap up a player, but the points from outside the template rose too
+    (6.9, 19.0, False),  # less than a player more overlap
+    (7.0, 20.0, True),   # exactly one more, no gain outside the template
+])
+def test_r6_req9_branches(overlap, non_template, blocked):
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], overlap=overlap, non_template=non_template)
+    assert ca.compare(_r6_run(C_PRIOR, C_POINTS), arm, rule="r6")["req9"]["blocks_promotion"] is blocked
+
+
+def test_r6_req9_pauses_the_programme_at_nine_of_eleven():
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], overlap=9.0, non_template=8.0)
+    c = _r6_run(C_PRIOR, C_POINTS, overlap=8.5, non_template=7.0)
+    out = ca.compare(c, arm, rule="r6")
+    assert out["req9"]["pause_for_owner"] and not out["req9"]["blocks_promotion"]
+    assert out["verdict"] == "PAUSE"
+    assert "PAUSE FOR OWNER REVIEW" in ca._fmt(out)
+
+
+def test_r6_pauses_when_the_control_itself_has_collapsed_into_the_template():
+    c = _r6_run(C_PRIOR, C_POINTS, overlap=9.2, non_template=5.0)
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], overlap=8.0, non_template=9.0)
+    assert ca.compare(c, arm, rule="r6")["verdict"] == "PAUSE"
+
+
+def test_r6_refuses_summaries_without_the_template_rows_req9_reads():
+    c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    for r in c["per_gameweek"]:
+        del r["template_xi_overlap"], r["non_template_points"]
+    del c["template"]
+    with pytest.raises(ca.Refused, match="Req 9"):
+        ca.compare(c, arm, rule="r6")
+
+
+def test_r6_asks_for_a_replicate_before_an_mae_verdict():
+    # m - SE within 0.1 of zero and MAE just over the tolerance: the replicate's mean MAE decides
+    arm = _r6_run([50.1, 60.0, 55.1], [40.0, 70.1, 52.0], mae=1.0805)
+    assert ca.compare(_r6_run(C_PRIOR, C_POINTS), arm, rule="r6")["verdict"] == "REPLICATE"
+
+
+def test_r6_replicate_reports_drift_between_the_two_controls():
+    c = _r6_run(C_PRIOR, C_POINTS)
+    c_b = _r6_run(C_PRIOR, [40.0, 72.0, 52.0])  # one gameweek differs by 2
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    out = ca.compare(c, arm, rule="r6", replicate=(c_b, arm))
+    assert out["control_drift"] == {"n": 6, "changed": 1, "mean": pytest.approx(2 / 6), "max_abs": 2.0}
+    assert "measured nondeterminism, up to 2.0 pts" in ca._fmt(out)
+
+
+def _drop_season_rows(run, season, keep):
+    rows = [r for r in run["per_gameweek"] if r["season"] == season][:keep]
+    run["per_gameweek"] = [r for r in run["per_gameweek"] if r["season"] != season] + rows
+
+
+@pytest.mark.parametrize("mutate, message", [
+    (lambda c, a: a.update(db_cache_key="duckdb-2"), "different cached DBs"),
+    (lambda c, a: a.update(progress={"complete": False}), "incomplete"),
+    (lambda c, a: a["headline_by_season"].pop(P), "different seasons"),
+    (lambda c, a: [r["headline_by_season"].pop(P) for r in (c, a)], "every season"),
+    (lambda c, a: _drop_season_rows(a, P, 1), "2024-2025: 1 gameweeks"),
+])
+def test_r6_refusals(mutate, message):
+    c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    mutate(c, arm)
+    with pytest.raises(ca.Refused, match=message):
+        ca.compare(c, arm, rule="r6")
+
+
+def test_r6_refuses_runs_whose_templates_read_different_rows():
+    c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    arm["template"]["lag"] = 2
+    with pytest.raises(ca.Refused, match="template lag control 1, arm 2"):
+        ca.compare(c, arm, rule="r6")
+    c["template"]["lag"] = 2
+    assert ca.compare(c, arm, rule="r6")["verdict"] == "PASS"
+
+
+def test_r6_refuses_a_replicate_on_another_db_and_replicate_without_r6():
+    c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    with pytest.raises(ca.Refused, match="different cached DBs"):
+        ca.compare(c, arm, rule="r6", replicate=(c, _r6_run(C_PRIOR, C_POINTS, key="duckdb-9")))
+    with pytest.raises(ca.Refused, match="rule r6's"):
+        ca.compare(c, arm, rule="confirm", replicate=(c, arm))
+
+
+def test_cli_rule_r6(tmp_path, capsys):
+    import json
+
+    c, arm = tmp_path / "c.json", tmp_path / "a.json"
+    c.write_text(json.dumps(_r6_run(C_PRIOR, C_POINTS)))
+    arm.write_text(json.dumps(_r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])))
+    assert ca.main([str(c), str(arm), "--rule", "r6"]) == 0
+    printed = capsys.readouterr().out
+    assert printed.startswith("PASS") and "vs gated template -1.00 ± 0.50" in printed and "6 changed" in printed
+    assert ca.main([str(c), str(arm), "--rule", "r6", "--replicate", str(c), str(arm)]) == 0
+    near = tmp_path / "near.json"
+    near.write_text(json.dumps(_r6_run([50.1, 60.0, 55.1], [40.0, 70.1, 52.0])))
+    assert ca.main([str(c), str(near), "--rule", "r6"]) == 3
+    assert "replicate required" in capsys.readouterr().out
+    assert ca.main([str(c), str(arm), "--rule", "r6", "--replicate", str(c)]) == 2
+
+
+def test_r6_reads_a_summary_without_a_recorded_lag_as_lag_one():
+    c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    c["template"]["lag"] = None  # a control run before the template recorded its lag
+    arm["template"]["lag"] = 1
+    assert ca.compare(c, arm, rule="r6")["verdict"] == "PASS"
