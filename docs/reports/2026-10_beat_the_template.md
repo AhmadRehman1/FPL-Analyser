@@ -270,3 +270,115 @@ How each result is used:
 - **EO anchor.** The paired m enters the chain table as the live anchor's contribution.
 - **A9.** The master pair 38267875032 / 38267878143 (control and control_b, G−1 template) gives
   the across-runner control noise.
+
+## Phase 3: reconcile, set M, decompose, declare the lever order (committed before any lever run)
+
+**Inputs.**
+- Control **38269659997** (`--template-lag 2 --export-residuals`, commit bbf68e9, cached DB
+  duckdb-rank-tracking-38267694488, 75/75 steps). It runs the G−2 template that A2 requires.
+  2024-25 GW2 and 2025-26 GW2 have no row G−2, so they have no template: 72 template GWs.
+- Season sim **38229024307** (2025-26, GW2–38, one runner).
+- Cutoffs from rank tracking **38267694488**: 487 entry histories.
+- Leaderboard from **38267806962** (2026-27 GW2–5) and `app_model_team.json` (GW1–5 settled).
+- Computed by `scripts/beat_template_margin.py`.
+
+### The real top-100k cutoffs (Req 4)
+
+| season | rank-100k total | pace / GW | bracket (ranks) | entries within 2× (better + worse) |
+|---|---|---|---|---|
+| 2024-25 | 2511.9 | 66.10 | 98,417 – 101,280 | 10 + 22 of 380 |
+| 2025-26 | 2326.5 | 61.22 | 98,762 – 101,290 | 6 + 26 of 433 |
+| 2026-27 after GW5 | 377.4 cumulative | 75.48 | 99,310 – 100,399 | 58 + 79 of 487 |
+
+### The chain table (net pts/GW)
+
+| row | season | GWs | pts/GW | vs FPL average | vs cutoff pace |
+|---|---|---|---|---|---|
+| oracle model | 2024-25 | 37 | 63.43 | — (no published average) | −2.67 |
+| gated template (G−2) | 2024-25 | 36 | 53.06 | — | −13.05 |
+| oracle model | 2025-26 | 37 | 60.11 | +10.35 | −1.12 |
+| gated template (G−2) | 2025-26 | 36 | 52.53 | +2.81 | −8.70 |
+| season sim control | 2025-26 | 37 | 57.81 | +8.05 | −3.41 |
+| season sim control_b | 2025-26 | 37 | 57.81 | +8.05 | −3.41 |
+| model (oracle), leaderboard | 2026-27 | 4 (GW2–5) | 63.00 | +0.75 | −12.48 |
+| leaderboard sim (evolving) | 2026-27 | 4 (GW2–5) | 60.25 | −2.00 | −15.23 |
+| live team | 2026-27 | 5 (GW1–5) | 60.40 | +0.60 | −15.08 |
+
+2026-27's cutoff pace is high (75.5/GW) because early-season averages are high and the top
+100k have played their chips well. It can't be compared with a full season's pace yet.
+
+### Each named cause, measured (pts/GW)
+
+| cause | where in the chain | measured | source |
+|---|---|---|---|
+| evolving loss: carrying a squad, hits, chip timing | oracle model → season sim (2025-26) | **E = +2.30 ± 2.12** | paired over 37 GWs, control vs season sim |
+| availability flag read from row G−1 (possible post-deadline information) | inside the oracle backtest | **−0.47 ± 0.79** when read from G−2 instead (MAE +0.04 worse) | run 38269664839 vs control |
+| the live-only EO template anchor (risk posture v2, κ 0.12) | live from-scratch solves only | **−2.96 ± 1.49** (overlap 3.25 → 7.40; non-template points −20.4) | run 38269669897 vs control |
+| backtest sim vs live sim (live optimism O) | 2026-27 leaderboard sim → live team | **O = −1.75 ± 12.66** (4 GWs), so O⁺ = 0 | per-GW pairs |
+| control noise across runners (A9) | any walk-forward comparison | **+0.135 ± 0.125**; 3 of 74 GWs differ | runs 38267875032 / 38267878143, same DB |
+| season-sim noise on one runner | season-sim comparisons | **0.00 ± 0.00** | control vs control_b, run 38229024307 |
+| the synthetic EO crowd is not FPL's average | the old yardstick | 325.4 vs FPL's 249 over GW2–5: **+19.1/GW above the real field** | leaderboard and `app_model_team.json` |
+
+- **SE of the live sample:** the live team's GW1–5 gaps to FPL's average are +4, −19, +16, +4
+  and −2: mean +0.6, **SE 5.7/GW**. After 5 GWs the live record says almost nothing about pace.
+- **The EO anchor touches only from-scratch solves:** the GW1 seed and wildcard or free-hit
+  weeks. Transfers come from the planner, which has no EO term. Its live cost is therefore at
+  most its walk-forward cost in those weeks. Per the plan's Current State decision it stays as
+  is. This is the largest measured cost in the chain, and the owner may want to revisit it.
+- **No cause of backtest optimism was found:** the availability flag is worth less than the
+  declared 1.0 pts/GW trigger, so **G3 is not haircut**.
+
+### G2's margin M, by the declared formula
+
+M_s = max(2.0, C_s + E + O⁺ − T_s), with E = +2.297 (both seasons) and O⁺ = 0:
+
+| season | C_s | T_s | E | O⁺ | M_s | template GWs |
+|---|---|---|---|---|---|---|
+| 2024-25 | 66.103 | 53.056 | 2.297 | 0 | **15.344** | 36 |
+| 2025-26 | 61.224 | 52.528 | 2.297 | 0 | **10.993** | 36 |
+
+**M̄ = 13.169 pts/GW** (GW-weighted). M and its inputs are frozen here, and later controls are
+judged against this M̄.
+
+**G2 today:** the control's pooled gap to the gated template is m = **+9.19 ± 1.93** (72 GWs),
+so G2 is **not met**. The model needs about +4.0 pts/GW more over the template. Equivalently,
+the oracle model must reach C_s + E: 68.4 (2024-25) and 63.5 (2025-26) against today's 63.4
+and 60.1.
+
+**G3 today:** season sim 57.81 against 2025-26's cutoff pace of 61.22: **−3.41/GW, not met**.
+
+**G4 today:** the live team has 302 points after GW5 against the cutoff's 377.4: **75.4 behind**.
+The GW19 review pauses the programme if this exceeds 100.
+
+### The decomposition (control, both seasons pooled, realized − projected per player-GW)
+
+| band | total | appearance | goals | assists | clean sheet | other (bonus …) |
+|---|---|---|---|---|---|---|
+| <£5.0m | −0.131 | −0.056 | −0.020 | +0.003 | −0.037 | −0.021 |
+| £5.0–7.0m | +0.025 | +0.026 | −0.011 | +0.028 | −0.006 | −0.013 |
+| £7.0–9.0m | +0.244 | +0.009 | +0.033 | +0.083 | +0.006 | +0.113 |
+| £9.0m+ | +0.170 | +0.008 | −0.177 | +0.168 | −0.011 | +0.181 |
+
+By position: GK −0.076, DEF −0.115, MID −0.051, FWD +0.031. The model's own XI scores −0.11 per
+player below its projection (2024-25 −0.06, 2025-26 −0.16). The template XI, scored on the same
+EP, is +0.01 (2024-25 −0.15, 2025-26 +0.18).
+
+### The branches (declared in the plan)
+
+- **Backtest optimism:** none found (see above). No fix and no haircut.
+- **Evolving loss ≥ 3.0?** E = 2.30, so no. Phase 10 does not move earlier.
+- **Control already meets G2?** m = 9.19 < M̄ = 13.17, so no. The lever phases run.
+
+### The lever queue (declared before any lever run)
+
+1. **Z** (Phase 4): `--no-goal-anchor` and `--no-rate-price-anchor`, against a fresh G−2 control.
+2. **L1**, the crowd prior (Phase 5). Features from row **G−2** (A2), fitted on this control's
+   residual export.
+3. **L2**, the band bias (Phase 6), fitted after L1 if L1 is promoted.
+4. **L3** only if £9.0m+ realized − projected is still ≥ +0.1 after the levers that passed.
+   Today +0.170, so provisionally queued; re-checked after L2.
+5. **L4, not queued:** the model XI's residual is −0.11, short of the −0.3 trigger.
+6. **L5, not queued:** `ep_plus_eo` − model captain is −0.07 ± 0.13 (trigger ≥ +0.3 with
+   m − SE > 0).
+
+Every lever run from here uses `--template-lag 2`, and R6 refuses mismatched lags.

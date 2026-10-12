@@ -141,8 +141,12 @@ def chain(control: dict, sim: dict | None, sim_b: dict | None, leaderboard: dict
             rows.append(row(name, SIM_SEASON, season_sim_net(s), real))
     if leaderboard and leaderboard.get("status") == "ok":
         live_real = {w["gameweek"]: w.get("field_average") for w in (model_team or {}).get("weeks", [])}
+        settled = [w["gameweek"] for w in (model_team or {}).get("weeks", [])
+                   if not w.get("provisional") and w.get("realized_points") is not None]
         by_gw = (((cutoffs or {}).get("current_season") or {}).get("by_gameweek")) or []
-        live_cut = round(by_gw[-1]["total_points"] / by_gw[-1]["gameweek"], 3) if by_gw else None
+        # the cutoff's pace up to the live team's last settled gameweek (a later, unfinished one is provisional)
+        usable = [g for g in by_gw if not settled or g["gameweek"] <= max(settled)]
+        live_cut = round(usable[-1]["total_points"] / usable[-1]["gameweek"], 3) if usable else None
         for r in leaderboard["rows"]:
             if r.get("kind") == "model_oracle" or not r.get("is_baseline"):
                 weekly = {int(gw): pts for gw, pts in (r.get("weekly_points") or {}).items()}
