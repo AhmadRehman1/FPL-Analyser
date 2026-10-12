@@ -1,0 +1,61 @@
+name: Diagnose crowd columns (A2 / A3, cached DB + source history)
+
+# docs/plans/2026-10_beat_the_template.md, Phase 1: are status, ownership and transfer columns
+# populated per season (A3), and is row gw = G-1 knowable before G's deadline (A2)? A2 reads the
+# FPL-Core-Insights git history, since the cached DB holds a single snapshot of each source file.
+# Uploads the JSON; commits nothing.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.lock
+
+      - name: Restore the most recent ingested DB
+        id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: db/fpl_quant_v2.duckdb
+          key: duckdb-restore-only-no-such-exact-key
+          restore-keys: |
+            duckdb-
+
+      - name: Fail if no cached DB was restored
+        if: ${{ steps.cache.outputs.cache-matched-key == '' }}
+        run: |
+          echo "::error::no cached DB to diagnose"
+          exit 1
+
+      # full history, blobs fetched on demand: each pre-deadline snapshot is one `git show`
+      - name: Clone FPL-Core-Insights with history
+        run: git clone --filter=blob:none https://github.com/olbauday/FPL-Core-Insights.git source-history
+
+      - name: Diagnose
+        env:
+          DB_CACHE_KEY: ${{ steps.cache.outputs.cache-matched-key }}
+        run: |
+          set -o pipefail
+          echo "db cache: ${DB_CACHE_KEY}" >> "$GITHUB_STEP_SUMMARY"
+          PYTHONPATH=src python scripts/diagnose_crowd_columns.py --source-repo source-history | tee diagnose_crowd_columns.json
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat diagnose_crowd_columns.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: diagnose-crowd-columns
+          path: diagnose_crowd_columns.json

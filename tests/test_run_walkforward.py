@@ -185,3 +185,11 @@ def test_own_sub_rate_flag_maps_to_a_sub_rate_version(con):
 
 def test_no_own_sub_rate_flag_turns_the_live_switch_off(con):
     assert rw._experiment_versions(con, rw._parse_args(["--no-own-sub-rate"])) == {"sub_rate_params_version": None}
+
+
+def test_export_residuals_is_not_an_experiment_setting(con):
+    args = rw._parse_args(["--export-residuals"])
+    assert args.export_residuals == "residual_features.csv"
+    assert rw._parse_args(["--export-residuals", "out.csv"]).export_residuals == "out.csv"
+    assert rw._parse_args([]).export_residuals is None
+    assert rw._experiment_versions(con, args) == {}

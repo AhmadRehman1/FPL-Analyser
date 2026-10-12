@@ -74,6 +74,12 @@ no summary):
                                the run incomplete
     --resume RUN_ID            carry on that run in this DB, walking only its unscored steps
     --seasons 2025-2026        walk only these seasons (comma-separated)
+
+Residual export (docs/plans/2026-10_beat_the_template.md, Req 12; not an experiment setting):
+    --export-residuals         after the walk, write residual_features.csv (per player-gameweek:
+                               realized points, the projection before any promoted lever, the
+                               crowd features from row G-1) for the residual-fitted levers;
+                               branch_walkforward.yml uploads it as `residual-features`
 """
 
 import argparse
@@ -84,7 +90,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from fpl_quant import backtest, db  # noqa: E402
+from fpl_quant import backtest, db, residual_levers  # noqa: E402
 from fpl_quant import expected_points as ep  # noqa: E402
 from fpl_quant import params as params_mod  # noqa: E402
 from fpl_quant import team_strength  # noqa: E402
@@ -161,6 +167,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="carry on this backtest_run_id, walking only its steps not yet scored")
     parser.add_argument("--seasons", default=None,
                         help="comma-separated seasons to walk (default: both)")
+    parser.add_argument("--export-residuals", nargs="?", const="residual_features.csv", default=None, metavar="PATH",
+                        help="write the run's per player-gameweek residuals and crowd features as CSV "
+                             "(default path residual_features.csv)")
     return parser.parse_args(argv)
 
 
@@ -296,6 +305,10 @@ def main(argv: list[str] | None = None) -> None:
         # the Track Record headline (BUSINESS_PLAN.md P0) sat null between weekly runs.
         compute_segments=True,
         ownership_params_version=1,
+        # the availability-gated ownership template, the yardstick rule R6's report reads
+        # (docs/plans/2026-10_beat_the_template.md, Req 1): built inside each step's own asof
+        # scope, model-free, so it never changes the model's numbers
+        template_baseline=True,
         **extra,
         # Fix D (captain weight 0) and Fix F (minutes floor 0.005) come in via _param_versions().
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
@@ -312,6 +325,12 @@ def main(argv: list[str] | None = None) -> None:
     ).fetchall()
     for tier, n, n_passed in steps:
         print(f"  tier={tier}: {n} steps, {n_passed} divergence-check passes")
+    template_seconds = con.execute(
+        "SELECT sum(metric_value), count(*) FROM backtest_metrics WHERE backtest_run_id = ? AND metric_name = 'template_solve_seconds'",
+        [backtest_run_id],
+    ).fetchone()
+    if template_seconds[1]:
+        print(f"[template] {template_seconds[0]:.1f}s building the ownership templates over {template_seconds[1]} steps")
 
     metrics = con.execute(
         "SELECT tier, metric_name, count(*), avg(metric_value) FROM backtest_metrics "
@@ -342,6 +361,10 @@ def main(argv: list[str] | None = None) -> None:
         [backtest_run_id],
     ).fetchone()[0]
     print(f"[walk-forward] {n_pred} gameweek steps carry an ep_model_version -- research.ml.experiment can now run")
+
+    if args.export_residuals:
+        n_rows = residual_levers.write_residual_csv(con, backtest_run_id, args.export_residuals)
+        print(f"[residuals] {n_rows} player-gameweek rows -> {args.export_residuals}")
 
     con.close()
 

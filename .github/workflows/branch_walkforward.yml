@@ -79,3 +79,11 @@ jobs:
         with:
           name: walkforward-summary
           path: walkforward_summary.json
+
+      # written only by an arm run with --export-residuals (docs/plans/2026-10_beat_the_template.md,
+      # Req 12): the residual-fitted levers' training data, fitted in the sandbox
+      - uses: actions/upload-artifact@v7
+        with:
+          name: residual-features
+          path: residual_features.csv
+          if-no-files-found: ignore

@@ -32,6 +32,18 @@ average manager, which 2024-25 lacks), the same floor as above; refuses a season
 control's in each season on its own, with no tolerance; (iii) the declared breakout group's
 2025-26 residual at most BREAKOUT_LIMIT, as R5 (iv).
 
+With --rule r6 (docs/plans/2026-10_beat_the_template.md, agreed with the project owner 2026-10-12):
+two runs over every season. (i) paired squad points over every gameweek of every season,
+m - SE >= 0; (ii) each season's EP MAE at most control's + 0.01. Refuses runs on different cached
+DBs or seasons, an incomplete run, or a season with fewer than 2 paired gameweeks. It also prints
+both runs' gaps to the availability-gated and ungated ownership templates, XI overlap with the
+gated template, the change in points from outside it, the gameweeks the arm changed and the SE,
+and applies the plan's Req 9 guard: promotion is BLOCKED when mean overlap rises by >= 1 player a
+gameweek while the paired change in non-template points is <= 0, and mean overlap >= 9/11 pauses
+the programme for the owner. When |m - SE| <= 0.1 the verdict is REPLICATE: re-dispatch control
+and arm once on the same commit and pass them with --replicate, which judges R6 on the per-gameweek
+mean of the two runs' differences and the mean of their MAEs.
+
 Refuses (exit 2) when any run is incomplete or they weren't made on the same cached DB.
 
 Usage:
@@ -39,6 +51,9 @@ Usage:
     python scripts/compare_arms.py control.json arm.json --baseline before_fix.json [--json]
     python scripts/compare_arms.py control.json arm.json --rule r5 --target in_form [--json]
     python scripts/compare_arms.py control.json arm.json --rule confirm [--json]
+    python scripts/compare_arms.py control.json arm.json --rule r6 [--replicate control_b.json arm_b.json] [--json]
+
+Exit codes: 0 PASS, 1 FAIL or BLOCKED, 2 refused, 3 REPLICATE (rule r6 only).
 """
 
 import json
@@ -209,11 +224,154 @@ def _confirm(control: dict, arm: dict, baseline: dict | None) -> dict:
     return {"verdict": "PASS" if all(c["pass"] for c in checks.values()) else "FAIL", "checks": checks}
 
 
-def compare(control: dict, arm: dict, baseline: dict | None = None, *, rule: str = "r4", target: str | None = None) -> dict:
+# Rule R6 (docs/plans/2026-10_beat_the_template.md)
+R6_MAE_TOLERANCE = 0.01
+REPLICATE_BAND = 0.1
+# Req 9, the template-collapse guard
+COLLAPSE_OVERLAP_RISE = 1.0
+PAUSE_OVERLAP = 9.0
+
+
+def _squad_diffs(control: dict, arm: dict) -> dict:
+    """{(season, gw): arm - control squad_points} over the gameweeks both runs scored."""
+    def by_step(run):
+        return {(r["season"], r["gw"]): r["squad_points"] for r in run["per_gameweek"] if r.get("squad_points") is not None}
+    c, a = by_step(control), by_step(arm)
+    return {k: a[k] - c[k] for k in sorted(set(c) & set(a))}
+
+
+def _stats(diffs: list[float]) -> dict:
+    n = len(diffs)
+    if n < 2:
+        return {"n": n, "mean": None, "se": None}
+    m = sum(diffs) / n
+    sd = math.sqrt(sum((d - m) ** 2 for d in diffs) / (n - 1))
+    return {"n": n, "mean": m, "se": sd / math.sqrt(n)}
+
+
+def _template_view(run: dict) -> dict:
+    """The run's own template numbers (walkforward_summary's template block), or {} for a
+    summary written before it existed."""
+    pooled = (run.get("template") or {}).get("pooled") or {}
+    if not pooled.get("n"):
+        return {}
+    return {"gap_vs_gated": pooled.get("gap_vs_gated"), "gap_vs_ungated": pooled.get("gap_vs_ungated"),
+            "xi_overlap_mean": pooled.get("xi_overlap_mean"), "non_template_points_per_gw": pooled.get("non_template_points_per_gw")}
+
+
+def _paired_key(control: dict, arm: dict, key: str) -> dict:
+    """Paired arm - control of a per_gameweek key, every season."""
+    def by_step(run):
+        return {(r["season"], r["gw"]): r[key] for r in run["per_gameweek"] if r.get(key) is not None}
+    c, a = by_step(control), by_step(arm)
+    out = _stats([a[k] - c[k] for k in sorted(set(c) & set(a))])
+    if out["mean"] is None:
+        return out
+    common = sorted(set(c) & set(a))
+    return {**out, "control": sum(c[k] for k in common) / len(common), "arm": sum(a[k] for k in common) / len(common)}
+
+
+def _req9(pairs: list[tuple[dict, dict]]) -> dict:
+    """Req 9 on the first pair (and the replicate's, averaged, when given): mean XI overlap with
+    the gated template, and the paired change in non-template points."""
+    overlaps = [_paired_key(c, a, "template_xi_overlap") for c, a in pairs]
+    non_template = [_paired_key(c, a, "non_template_points") for c, a in pairs]
+    if any(o["mean"] is None for o in overlaps) or any(n["mean"] is None for n in non_template):
+        return {"measured": False, "blocks_promotion": False, "pause_for_owner": False,
+                "reason": "no per-gameweek template overlap in one of the runs (a summary from before the template yardstick)"}
+    rise = sum(o["mean"] for o in overlaps) / len(overlaps)
+    arm_overlap = sum(o["arm"] for o in overlaps) / len(overlaps)
+    change = sum(n["mean"] for n in non_template) / len(non_template)
+    return {
+        "measured": True,
+        "control_overlap": sum(o["control"] for o in overlaps) / len(overlaps), "arm_overlap": arm_overlap,
+        "overlap_rise": rise, "non_template_change": change, "non_template_change_se": non_template[0]["se"],
+        "blocks_promotion": rise >= COLLAPSE_OVERLAP_RISE and change <= 0,
+        "pause_for_owner": arm_overlap >= PAUSE_OVERLAP,
+    }
+
+
+def _r6(control: dict, arm: dict, baseline: dict | None, replicate: tuple[dict, dict] | None) -> dict:
+    """--rule r6: paired squad points over every season (m - SE >= 0), each season's MAE within
+    control + 0.01, Req 9's guard, and the replicate rule."""
+    if baseline is not None:
+        raise Refused("rule r6 takes no --baseline")
+    pairs = [(control, arm)] + ([replicate] if replicate is not None else [])
+    names = [("control", control), ("arm", arm)]
+    if replicate is not None:
+        names += [("control_b", replicate[0]), ("arm_b", replicate[1])]
+    for name, run in names:
+        if not (run.get("progress") or {}).get("complete"):
+            raise Refused(f"{name} run is incomplete (progress.complete is not true)")
+        if not run.get("db_cache_key"):
+            raise Refused(f"{name} run has no db_cache_key")
+    keys = {run["db_cache_key"] for _, run in names}
+    if len(keys) > 1:
+        found = " vs ".join(f"{name} {run['db_cache_key']}" for name, run in names)
+        raise Refused(f"different cached DBs: {found}")
+    seasons = sorted(control.get("headline_by_season") or {})
+    if len(seasons) < 2:
+        raise Refused("rule r6 judges every season: run without --seasons (both seasons)")
+    for name, run in names[1:]:
+        if sorted(run.get("headline_by_season") or {}) != seasons:
+            raise Refused(f"{name} run scored different seasons from control")
+    per_pair = [_squad_diffs(c, a) for c, a in pairs]
+    for i, diffs in enumerate(per_pair):
+        for season in seasons:
+            n = sum(1 for (s_, _gw) in diffs if s_ == season)
+            if n < 2:
+                raise Refused(f"{season}: {n} gameweeks with squad_points in both runs"
+                              + (" of the replicate" if i else "") + "; rule r6 pairs every season")
+    common = sorted(set.intersection(*(set(d) for d in per_pair)))
+    diffs = [sum(d[k] for d in per_pair) / len(per_pair) for k in common]
+    pts = _stats(diffs)
+    pts.update(wins=sum(d > 0 for d in diffs), losses=sum(d < 0 for d in diffs),
+               changed=sum(abs(d) > 1e-9 for d in diffs), m_minus_se=pts["mean"] - pts["se"])
+    checks = {"points": {"pass": pts["m_minus_se"] >= -1e-12, **pts}}
+
+    by_season = {}
+    for season in seasons:
+        mae_c = [c["headline_by_season"][season]["ep_total_calibration_mae"] for c, _ in pairs]
+        mae_a = [a["headline_by_season"][season]["ep_total_calibration_mae"] for _, a in pairs]
+        if None in mae_c or None in mae_a:
+            by_season[season] = {"control": None, "arm": None, "delta": None}
+            continue
+        c_mean, a_mean = sum(mae_c) / len(mae_c), sum(mae_a) / len(mae_a)
+        by_season[season] = {"control": c_mean, "arm": a_mean, "delta": a_mean - c_mean}
+    checks["mae_by_season"] = {
+        "pass": all(v["delta"] is not None and v["delta"] <= R6_MAE_TOLERANCE + 1e-12 for v in by_season.values()),
+        "seasons": by_season, "tolerance": R6_MAE_TOLERANCE,
+    }
+
+    req9 = _req9(pairs)
+    replicate_required = replicate is None and abs(pts["m_minus_se"]) <= REPLICATE_BAND
+    if not checks["mae_by_season"]["pass"]:
+        verdict = "FAIL"
+    elif replicate_required:
+        verdict = "REPLICATE"
+    elif not checks["points"]["pass"]:
+        verdict = "FAIL"
+    elif req9["blocks_promotion"]:
+        verdict = "BLOCKED"
+    else:
+        verdict = "PASS"
+    return {
+        "verdict": verdict, "rule": "r6", "checks": checks, "req9": req9,
+        "replicate_required": replicate_required, "replicated": replicate is not None,
+        "template": {"control": _template_view(control), "arm": _template_view(arm)},
+    }
+
+
+def compare(control: dict, arm: dict, baseline: dict | None = None, *, rule: str = "r4", target: str | None = None,
+            replicate: tuple[dict, dict] | None = None) -> dict:
     if rule == "r5" and (baseline is not None or target not in TARGETS):
         raise Refused(f"rule r5 takes --target {' or '.join(TARGETS)} and no --baseline")
     if rule != "r5" and target is not None:
         raise Refused("--target is rule r5's: pass --rule r5")
+    if replicate is not None and rule != "r6":
+        raise Refused("--replicate is rule r6's: pass --rule r6")
+    if rule == "r6":
+        return _r6(control, arm, baseline, replicate)
     if rule == "confirm":
         return _confirm(control, arm, baseline)
     _check_comparable(control, arm, baseline)
@@ -248,7 +406,50 @@ def compare(control: dict, arm: dict, baseline: dict | None = None, *, rule: str
     return {"verdict": "PASS" if all(c["pass"] for c in checks.values()) else "FAIL", "checks": checks}
 
 
+def _gap(g: dict | None) -> str:
+    if not g or g.get("mean") is None:
+        return "n/a"
+    return f"{g['mean']:+.2f}" + ("" if g.get("se") is None else f" ± {g['se']:.2f}")
+
+
+def _fmt_r6(result: dict) -> str:
+    c = result["checks"]
+    p = c["points"]
+    lines = [result["verdict"] + (" (replicated: means of two runs)" if result["replicated"] else "")]
+    lines.append(
+        f"  (i)   squad points {'pass' if p['pass'] else 'FAIL'}: {p['mean']:+.3f} ± {p['se']:.3f} a gameweek over "
+        f"{p['n']} ({p['wins']} better, {p['losses']} worse, {p['changed']} changed); m - SE {p['m_minus_se']:+.3f}"
+    )
+    m = c["mae_by_season"]
+    parts = [f"{season} {v['control']:.4f} -> {v['arm']:.4f} ({v['delta']:+.4f})" if v["delta"] is not None
+             else f"{season} missing" for season, v in m["seasons"].items()]
+    lines.append(f"  (ii)  EP MAE by season {'pass' if m['pass'] else 'FAIL'} (tolerance +{m['tolerance']}): " + "; ".join(parts))
+    for name in ("control", "arm"):
+        t = result["template"][name]
+        if t:
+            lines.append(f"  {name:<7} vs gated template {_gap(t['gap_vs_gated'])}, ungated {_gap(t['gap_vs_ungated'])} a gameweek; "
+                         f"XI overlap {t['xi_overlap_mean']}, non-template points {t['non_template_points_per_gw']}")
+        else:
+            lines.append(f"  {name:<7} template: not in this summary")
+    r = result["req9"]
+    if not r["measured"]:
+        lines.append(f"  Req 9 not measured: {r['reason']}")
+    else:
+        state = "BLOCKS PROMOTION" if r["blocks_promotion"] else "ok"
+        se = "" if r["non_template_change_se"] is None else f" ± {r['non_template_change_se']:.2f}"
+        lines.append(f"  Req 9 {state}: overlap {r['control_overlap']:.2f} -> {r['arm_overlap']:.2f} ({r['overlap_rise']:+.2f}), "
+                     f"non-template points {r['non_template_change']:+.2f}{se} a gameweek")
+        if r["pause_for_owner"]:
+            lines.append(f"  PAUSE FOR OWNER REVIEW: mean overlap {r['arm_overlap']:.2f} >= {PAUSE_OVERLAP:.0f}/11")
+    if result["replicate_required"]:
+        lines.append(f"  replicate required: |m - SE| = {abs(p['m_minus_se']):.3f} <= {REPLICATE_BAND}; re-dispatch control "
+                     "and arm on the same commit, then pass them with --replicate")
+    return "\n".join(lines)
+
+
 def _fmt(result: dict) -> str:
+    if result.get("rule") == "r6":
+        return _fmt_r6(result)
     c = result["checks"]
     lines = [result["verdict"]]
     p = c["points"]
@@ -310,6 +511,14 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         baseline_path = args[i + 1]
         del args[i:i + 2]
+    replicate_paths = None
+    if "--replicate" in args:
+        i = args.index("--replicate")
+        if i + 2 >= len(args):
+            print(__doc__)
+            return 2
+        replicate_paths = args[i + 1:i + 3]
+        del args[i:i + 3]
     opts = {}
     for flag in ("--rule", "--target"):
         if flag in args:
@@ -320,13 +529,14 @@ def main(argv: list[str] | None = None) -> int:
             opts[flag[2:]] = args[i + 1]
             del args[i:i + 2]
     paths = [a for a in args if a != "--json"]
-    if len(paths) != 2 or opts.get("rule", "r4") not in ("r4", "r5", "confirm"):
+    if len(paths) != 2 or opts.get("rule", "r4") not in ("r4", "r5", "confirm", "r6"):
         print(__doc__)
         return 2
     try:
         control, arm = (json.loads(Path(p).read_text()) for p in paths)
         baseline = json.loads(Path(baseline_path).read_text()) if baseline_path else None
-        result = compare(control, arm, baseline, rule=opts.get("rule", "r4"), target=opts.get("target"))
+        replicate = tuple(json.loads(Path(p).read_text()) for p in replicate_paths) if replicate_paths else None
+        result = compare(control, arm, baseline, rule=opts.get("rule", "r4"), target=opts.get("target"), replicate=replicate)
     except Refused as e:
         print(f"REFUSED: {e}")
         return 2
@@ -334,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"REFUSED: unreadable summary ({type(e).__name__}: {e})")
         return 2
     print(json.dumps(result, indent=2) if as_json else _fmt(result))
-    return 0 if result["verdict"] == "PASS" else 1
+    return {"PASS": 0, "REPLICATE": 3}.get(result["verdict"], 1)
 
 
 if __name__ == "__main__":

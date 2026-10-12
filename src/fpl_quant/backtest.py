@@ -366,7 +366,8 @@ def run_gameweek_step(
     team_strength_guard_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
-) -> None:
+    template_baseline: bool = False,
+) -> dict | None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
     asof-safe, not a parallel asof-aware code path. Two outcomes are caught and recorded rather
@@ -400,7 +401,11 @@ def run_gameweek_step(
     behavior): threaded straight through to minutes_model.run()'s own same-named param -- see
     its docstring for what it does and why it's opt-in there too. minutes_model.run()'s OWN
     lookback_seasons default separately now includes target_season (provably backtest-neutral,
-    unconditional, not gated by this param -- see minutes_model.run()'s own docstring)."""
+    unconditional, not gated by this param -- see minutes_model.run()'s own docstring).
+
+    template_baseline (opt-in, default off): also builds the gated and ungated ownership-template
+    squads inside this step's asof_scope() (template_squads()) and returns them for
+    score_gameweek(); None otherwise. The model's own outputs are untouched either way."""
     tier = tier_for(season, gameweek)
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
@@ -410,6 +415,7 @@ def run_gameweek_step(
     ts_model_version = mm_model_version = ep_model_version = un_model_version = None
     so_run_id = mc_model_version = None
     divergence_passed = None
+    template = None
 
     with asof_scope(con, season, gameweek, backtest_evidence=backtest_evidence):
         # One memo for the step's M3/M4/M6 calls (same asof view), and one lookback for all three
@@ -477,6 +483,12 @@ def run_gameweek_step(
                 n_antithetic_pairs=n_antithetic_pairs, season_priority=lookback, memo=memo,
             )
 
+        if template_baseline:
+            guardrail_cap, _ = params_mod.resolve_param(
+                con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", guardrail_params_version,
+            )
+            template = template_squads(con, season, guardrail_cap)
+
     con.execute(
         """
         INSERT INTO backtest_gameweek_steps
@@ -487,6 +499,7 @@ def run_gameweek_step(
         [backtest_run_id, season, gameweek, tier, deadline, ts_model_version, mm_model_version,
          ep_model_version, un_model_version, so_run_id, mc_model_version, divergence_passed],
     )
+    return template
 
 
 # ============================================================
@@ -890,6 +903,7 @@ def score_gameweek(
     compute_segments: bool = False,
     set_piece_params_version: int | None = None,
     ownership_params_version: int | None = None,
+    template: dict | None = None,
 ) -> None:
     """Scores one already-completed walk-forward step against that gameweek's now-real
     results. Four metric families for this first implementation pass (deliberately scoped --
@@ -941,6 +955,10 @@ def score_gameweek(
     squad to compare against otherwise): records model_squad_realized_points,
     avg_manager_benchmark_points, and their delta (beats_crowd_points_delta, positive = beat
     the synthetic EO-weighted crowd that week) -- see _avg_manager_benchmark_points().
+
+    template (opt-in, run_gameweek_step()'s template_squads() result for this step): scores the
+    availability-gated and ungated ownership templates and, with a model squad, the gap and the
+    diagnostics docs/plans/2026-10_beat_the_template.md asks for (_score_template_baseline()).
     """
     tier = tier_for(season, gameweek)
 
@@ -1184,8 +1202,10 @@ def score_gameweek(
         if row is not None and row[0] is not None:
             _record_metric(con, backtest_run_id, season, gameweek, tier, f"realized_points:{player_uid}", row[0])
 
-    # -------- Priority 9c: beats-the-crowd benchmark --------
-    if so_run_id is not None and ownership_params_version is not None:
+    # -------- Priority 9c: beats-the-crowd benchmark; the template yardstick --------
+    model = None
+    model_contributions: dict[str, float] = {}
+    if so_run_id is not None and (ownership_params_version is not None or template is not None):
         xi_uids = frozenset(r[0] for r in con.execute(
             "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_xi", [so_run_id]
         ).fetchall())
@@ -1201,10 +1221,15 @@ def score_gameweek(
             "SELECT player_uid FROM squad_optimizer_selections WHERE run_id = ? AND in_squad", [so_run_id]
         ).fetchall())
         # Real FPL rules: the bench auto-subs in for a starter who didn't play.
-        model_points = _realized_xi_points(
+        model_contributions = _realized_xi_contributions(
             con, season, gameweek, xi_uids, captain_uid, vice_captain_uid=vice_captain_uid,
             squad_uids=run_squad_uids or None, bench_order=_bench_order_from_squad_optimizer_run(con, so_run_id),
         )
+        model = {"xi": xi_uids, "captain": captain_uid, "contributions": model_contributions}
+    if model is not None and ownership_params_version is not None:
+        model_points = 0.0
+        for pts in model_contributions.values():
+            model_points += pts
         avg_manager_points = _avg_manager_benchmark_points(con, season, gameweek, ep_model_version, ownership_params_version)
         # FPL's real average for the same week, where the season publishes it (step 5 of
         # docs/reports/2026-10_live_path_diagnosis.md). The synthetic proxy above moves with the
@@ -1217,6 +1242,11 @@ def score_gameweek(
             _record_metric(con, backtest_run_id, season, gameweek, tier, "model_squad_realized_points", model_points)
             _record_metric(con, backtest_run_id, season, gameweek, tier, "avg_manager_benchmark_points", avg_manager_points)
             _record_metric(con, backtest_run_id, season, gameweek, tier, "beats_crowd_points_delta", model_points - avg_manager_points)
+
+    if template is not None:
+        _score_template_baseline(
+            con, backtest_run_id, season, gameweek, tier, template, ep_model_version, ownership_params_version, model,
+        )
 
 
 # ============================================================
@@ -1271,6 +1301,7 @@ def run(
     team_strength_guard_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
+    template_baseline: bool = False,
     seasons: tuple[str, ...] | None = None,
     stop_after_seconds: float | None = None,
     resume_backtest_run_id: int | None = None,
@@ -1310,7 +1341,10 @@ def run(
     current_season_role_params_version (2026-09-15 fix, opt-in): threaded straight through to
     run_gameweek_step()'s own same-named param -- see its docstring, and minutes_model.run()'s
     own docstring for the real incident this closes. None (the default) is the exact prior
-    behavior."""
+    behavior.
+
+    template_baseline (opt-in): every step also builds and scores the availability-gated
+    ownership template (run_gameweek_step(), score_gameweek())."""
     if resume_backtest_run_id is not None and seasons is None:
         stored = con.execute("SELECT seasons FROM backtest_runs WHERE backtest_run_id = ?", [resume_backtest_run_id]).fetchone()
         if stored is None:
@@ -1348,7 +1382,7 @@ def run(
                   f"resume with resume_backtest_run_id={backtest_run_id}", flush=True)
             break
         step_started = time.monotonic()
-        run_gameweek_step(
+        template = run_gameweek_step(
             con, backtest_run_id, season, gameweek,
             xi_params_version=xi_params_version, rho_params_version=rho_params_version,
             decay_params_version=decay_params_version, adjustment_params_version=adjustment_params_version,
@@ -1379,6 +1413,7 @@ def run(
             team_strength_guard_params_version=team_strength_guard_params_version,
             rate_prior_params_version=rate_prior_params_version,
             conversion_params_version=conversion_params_version,
+            template_baseline=template_baseline,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -1388,7 +1423,7 @@ def run(
         score_gameweek(
             con, backtest_run_id, season, gameweek, ep_mv, mm_mv, ts_mv, scoring_params_version, so_run_id=so_run_id,
             compute_segments=compute_segments, set_piece_params_version=set_piece_params_version,
-            ownership_params_version=ownership_params_version,
+            ownership_params_version=ownership_params_version, template=template,
         )
         slowest_step = max(slowest_step, time.monotonic() - step_started)
 
@@ -2395,8 +2430,180 @@ def beats_baseline(
             "n_gameweeks_skipped": total_window_gameweeks - len(gws),
             "model_total_points_same_gameweeks": comparable_model_total,
             "model_beats_baseline_by": comparable_model_total - comparable_baseline_total,
+            # per gameweek, so a caller can pair this baseline with another trajectory
+            "weekly": dict(zip(gws, weekly)),
         }
     return summary
+
+
+# ============================================================
+# The availability-gated ownership template: the walk-forward's model-free yardstick
+# (docs/plans/2026-10_beat_the_template.md, Req 1 and Req 2). beats_baseline()'s ownership
+# squad, built at every walk-forward step inside the step's own asof_scope(), minus players FPL
+# flagged unavailable before the deadline. Its points don't depend on the model, so an arm's
+# gap to it moves by exactly the arm's squad-point gain over control.
+# ============================================================
+
+# FPL's availability codes that keep a player out: injured, suspended, unavailable (left the
+# club, on loan) and not in the squad. 'd' (doubtful) and 'a' (available) stay in.
+TEMPLATE_UNAVAILABLE_STATUSES = ("i", "s", "u", "n")
+
+
+def _unavailable_player_uids(con: duckdb.DuckDBPyConnection, target_season: str) -> set[str]:
+    """Players whose latest target-season row has an unavailable status. Reads
+    fact_player_season_stats by bare name, so inside asof_scope() for gameweek G that is the
+    latest row with gw <= G-1. A missing status never excludes a player: no data is not
+    "unavailable"."""
+    placeholders = ",".join("?" * len(TEMPLATE_UNAVAILABLE_STATUSES))
+    return {r[0] for r in con.execute(
+        f"""
+        SELECT player_uid FROM (
+            SELECT player_uid, status FROM fact_player_season_stats WHERE season = ?
+            QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
+        ) WHERE lower(trim(status)) IN ({placeholders})
+        """,
+        [target_season, *TEMPLATE_UNAVAILABLE_STATUSES],
+    ).fetchall()}
+
+
+def _template_solve(pool: list[dict], guardrail_cap: float) -> dict | None:
+    """beats_baseline()'s ownership solve: mu is ownership, no risk term, the live captain rule.
+    None when the pool can't fill a legal squad."""
+    if len(pool) < 15:
+        return None
+    result = squad_optimizer.solve(
+        pool, {}, 0.0, guardrail_cap, captain_variance_multiplier=squad_optimizer.LIVE_CAPTAIN_VARIANCE_MULTIPLIER,
+    )
+    return result if result["status"] in ("optimal", "timelimit") else None
+
+
+def template_squads(con: duckdb.DuckDBPyConnection, target_season: str, guardrail_cap: float) -> dict:
+    """The gated and ungated ownership-template squads for one gameweek. MUST be called inside
+    the same asof_scope() as the model's own candidate pool (see _naive_candidate_pool).
+
+    Returns {"gated": solve | None, "ungated": solve | None, "n_unavailable": int,
+    "solve_seconds": float}. Each solve is squad_optimizer.solve()'s result dict: squad, xi,
+    captain (the most-owned outfield XI player, since mu is ownership and the captain counts
+    double), vice and bench_order."""
+    started = time.monotonic()
+    pool = _naive_candidate_pool(con, target_season, "ownership")
+    unavailable = _unavailable_player_uids(con, target_season)
+    gated_pool = [c for c in pool if c["player_uid"] not in unavailable]
+    return {
+        "gated": _template_solve(gated_pool, guardrail_cap),
+        "ungated": _template_solve(pool, guardrail_cap),
+        "n_unavailable": len(unavailable),
+        "solve_seconds": time.monotonic() - started,
+    }
+
+
+# The captain counterfactual Req 2 asks for: argmax(EP + CAPTAIN_EO_WEIGHT * EO / 100) over the
+# model XI's outfield players (the same delta lever L5 would use).
+CAPTAIN_EO_WEIGHT = 1.0
+
+
+def _latest_before(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, column: str) -> dict[str, float]:
+    """{player_uid: column} from each player's latest row in `season` with gw < gameweek: what the
+    optimizer saw at that deadline. Called after asof_scope() has exited, so the gw filter is
+    explicit."""
+    return dict(con.execute(
+        f"SELECT player_uid, {column} FROM fact_player_season_stats "
+        f"WHERE season = ? AND gw < ? AND {column} IS NOT NULL "
+        "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
+        [season, gameweek],
+    ).fetchall())
+
+
+def _spend_by_band(xi: frozenset, price_of: dict[str, float]) -> dict[str, float]:
+    spend = {band: 0.0 for band in ("<5.0", "5.0-7.0", "7.0-9.0", "9.0+")}
+    for uid in xi:
+        price = price_of.get(uid)
+        if price is not None:
+            spend[_price_band(price)] += price
+    return spend
+
+
+def _xi_resid(xi: frozenset, ep_of: dict[str, float], points_of: dict[str, float]) -> float | None:
+    """Mean realized - projected over the XI players with both a projection and a score."""
+    resid = [points_of[uid] - ep_of[uid] for uid in sorted(xi) if uid in ep_of and uid in points_of]
+    return sum(resid) / len(resid) if resid else None
+
+
+def _score_template_baseline(
+    con: duckdb.DuckDBPyConnection, backtest_run_id: int, season: str, gameweek: int, tier: str,
+    template: dict, ep_model_version: int, ownership_params_version: int | None, model: dict | None,
+) -> None:
+    """Req 1 and Req 2's per-gameweek rows for one scored step. model: the model squad as scored
+    ({"xi", "captain", "contributions"}, contributions per player after auto-subs and with the
+    armband multiplier), or None when the step has no model squad."""
+    gated, ungated = template.get("gated"), template.get("ungated")
+    _record_metric(con, backtest_run_id, season, gameweek, tier, "template_solve_seconds", template.get("solve_seconds") or 0.0)
+    if ungated is not None:
+        _record_metric(con, backtest_run_id, season, gameweek, tier, "template_squad_realized_points_ungated",
+                       _realized_solve_points(con, season, gameweek, ungated))
+    if gated is None:
+        return
+    template_points = _realized_solve_points(con, season, gameweek, gated)
+    _record_metric(con, backtest_run_id, season, gameweek, tier, "template_squad_realized_points", template_points)
+
+    points_of = dict(con.execute(
+        "SELECT player_uid, event_points FROM fact_player_season_stats "
+        "WHERE season = ? AND gw = ? AND event_points IS NOT NULL",
+        [season, gameweek],
+    ).fetchall())
+    ep_of = dict(con.execute(
+        "SELECT player_uid, ep_total FROM ep_gameweek_outputs WHERE model_version = ?", [ep_model_version],
+    ).fetchall())
+    price_of = _latest_before(con, season, gameweek, "now_cost")
+    template_xi = gated["xi"]
+    if gated.get("captain") is not None:
+        _record_metric(con, backtest_run_id, season, gameweek, tier, "template_captain_points",
+                       points_of.get(gated["captain"], 0.0))
+    for band, spend in _spend_by_band(template_xi, price_of).items():
+        _record_metric(con, backtest_run_id, season, gameweek, tier, f"template_xi_spend:price_band={band}", spend)
+    template_resid = _xi_resid(template_xi, ep_of, points_of)
+    if template_resid is not None:
+        _record_metric(con, backtest_run_id, season, gameweek, tier, "template_xi_resid", template_resid)
+
+    if model is None:
+        return
+    model_xi = model["xi"]
+    contributions = model["contributions"]
+    _record_metric(con, backtest_run_id, season, gameweek, tier, "beats_template_points_delta",
+                   sum(contributions.values()) - template_points)
+    _record_metric(con, backtest_run_id, season, gameweek, tier, "template_xi_overlap", len(model_xi & template_xi))
+    _record_metric(con, backtest_run_id, season, gameweek, tier, "non_template_points",
+                   sum(pts for uid, pts in contributions.items() if uid not in template_xi))
+    if model.get("captain") is not None:
+        _record_metric(con, backtest_run_id, season, gameweek, tier, "model_captain_points",
+                       points_of.get(model["captain"], 0.0))
+    for band, spend in _spend_by_band(model_xi, price_of).items():
+        _record_metric(con, backtest_run_id, season, gameweek, tier, f"model_xi_spend:price_band={band}", spend)
+    model_resid = _xi_resid(model_xi, ep_of, points_of)
+    if model_resid is not None:
+        _record_metric(con, backtest_run_id, season, gameweek, tier, "model_xi_resid", model_resid)
+
+    if ownership_params_version is None:
+        return
+    # EO as the field would have it at the deadline: the latest ownership before G, captaincy
+    # spread over the model's own EP (ownership.compute_eo_for_pool, as the solve's EO term)
+    captaincy_concentration, _ = params_mod.resolve_param(
+        con, "ownership_params", "captaincy_concentration", ownership_params_version,
+    )
+    sbp_of = _latest_before(con, season, gameweek, "selected_by_percent")
+    position_of = dict(con.execute(
+        "SELECT o.player_uid, dp.position FROM ep_gameweek_outputs o JOIN dim_player dp ON dp.player_uid = o.player_uid "
+        "WHERE o.model_version = ?", [ep_model_version],
+    ).fetchall())
+    eo_of = ownership_mod.compute_eo_for_pool(
+        [{"player_uid": uid, "position": pos, "mu": ep_of[uid], "selected_by_percent": sbp_of.get(uid)}
+         for uid, pos in position_of.items()],
+        captaincy_concentration,
+    )
+    outfield = [uid for uid in sorted(model_xi) if uid in ep_of and position_of.get(uid) != "Goalkeeper"]
+    if outfield:
+        pick = max(outfield, key=lambda uid: (ep_of[uid] + CAPTAIN_EO_WEIGHT * (eo_of.get(uid) or 0.0) / 100.0, uid))
+        _record_metric(con, backtest_run_id, season, gameweek, tier, "captain_ep_plus_eo_points", points_of.get(pick, 0.0))
 
 
 # ============================================================
@@ -3436,7 +3643,25 @@ def _realized_xi_points(
     captain_multiplier: int = 2, vice_captain_uid: str | None = None,
     squad_uids: frozenset | None = None, bench_order: dict[str, int] | None = None,
 ) -> float:
-    """Real FPL scoring: only the starting XI's points count, and the captain's points double
+    """The squad's realized points: the sum of _realized_xi_contributions() (see there)."""
+    total = 0.0
+    for pts in _realized_xi_contributions(
+        con, season, gameweek, xi_uids, captain_uid, captain_multiplier=captain_multiplier,
+        vice_captain_uid=vice_captain_uid, squad_uids=squad_uids, bench_order=bench_order,
+    ).values():
+        total += pts
+    return total
+
+
+def _realized_xi_contributions(
+    con: duckdb.DuckDBPyConnection, season: str, gameweek: int, xi_uids: frozenset, captain_uid: str | None,
+    captain_multiplier: int = 2, vice_captain_uid: str | None = None,
+    squad_uids: frozenset | None = None, bench_order: dict[str, int] | None = None,
+) -> dict[str, float]:
+    """{player_uid: points} for each player in the final scoring XI (after auto-subs), the
+    armband's multiplier included. Their sum is _realized_xi_points().
+
+    Real FPL scoring: only the starting XI's points count, and the captain's points double
     -- summing the full 15-player squad (bench included) would overstate what a squad actually
     scored. Uses fact_player_season_stats.event_points, the real ground truth, not a
     reconstruction from raw stats. captain_multiplier defaults to 2 (the real rule for every
@@ -3508,11 +3733,11 @@ def _realized_xi_points(
         if captain_minutes == 0:
             armband_uid = vice_captain_uid
 
-    total = 0.0
+    contributions: dict[str, float] = {}
     for player_uid in effective_xi_uids:
         pts = stats.get(player_uid, (0.0, None, None))[0]
-        total += pts * captain_multiplier if player_uid == armband_uid else pts
-    return total
+        contributions[player_uid] = pts * captain_multiplier if player_uid == armband_uid else pts
+    return contributions
 
 
 
