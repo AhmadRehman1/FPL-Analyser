@@ -109,4 +109,8 @@ def test_chain_lists_each_harness_with_its_cutoff():
                       "field_average": 50} for gw in (1, 2, 3)]
     rows = btm.chain(_control(), SIM, SIM, leaderboard, team, CUTOFFS)
     assert next(r for r in rows if r["row"] == "live team")["cutoff_pace"] == pytest.approx(70.0)  # GW1-3: 210 / 3
+    # a row that skips GW2 is set against GW1 and GW3's gains: (80 + 70) / 2
+    team["weeks"] = [w for w in team["weeks"] if w["gameweek"] != 2]
+    rows = btm.chain(_control(), SIM, SIM, leaderboard, team, CUTOFFS)
+    assert next(r for r in rows if r["row"] == "live team")["cutoff_pace"] == pytest.approx(75.0)
     assert by[("leaderboard sim", "2026-2027")]["pts_per_gw"] == 70.0

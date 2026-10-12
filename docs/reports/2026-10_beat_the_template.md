@@ -1,7 +1,8 @@
 # Beat the template, then push toward a top-100k season
 
-Oct 12, 2026 · in progress. Phases 0–2 are built and merged (PR #262, 2dff696). Phase 3 (M̄ =
-13.17 pts/GW, the lever queue) is written and in its critique loop. Phase 4 (lever Z) is next.
+Oct 12, 2026 · in progress. Phases 0–2 are built and merged (PR #262, 2dff696). Phase 3 is done:
+M̄ = 13.17 pts/GW and the lever queue, with the blind critique passed in round 2. Phase 4 (lever Z)
+is declared and running.
 Plan: `docs/plans/2026-10_beat_the_template.md`.
 
 **The headline so far.** Against a legal, availability-gated ownership template, the oracle
@@ -323,7 +324,7 @@ cutoff pace can't be compared with a full season's.
 |---|---|---|---|
 | evolving loss: carrying a squad, hits, chip timing | oracle model → season sim (2025-26) | **E = +2.30 ± 2.12** | paired over 37 GWs, control vs season sim |
 | availability flag read from row G−1 (possible post-deadline information) | inside the oracle backtest | **−0.47 ± 0.79** when read from G−2 instead (MAE +0.04 worse) | run 38269664839 vs control |
-| the live-only EO template anchor (risk posture v2, κ 0.12) | live from-scratch solves only | **−2.96 ± 1.49** (overlap 3.25 → 7.40; non-template points −20.4) | run 38269669897 vs control |
+| the live-only EO template anchor (risk posture v2, κ 0.12) | live from-scratch solves, plus the GW1 seed carried forward | **−2.96 ± 1.49** (overlap 3.25 → 7.40; non-template points −20.4) | run 38269669897 vs control |
 | backtest sim vs live sim (live optimism O) | 2026-27 leaderboard sim → live team | **O = −1.75 ± 12.66** (4 GWs), so O⁺ = 0 | per-GW pairs |
 | control noise across runners (A9) | any walk-forward comparison | **+0.135 ± 0.125**; 3 of 74 GWs differ | runs 38267875032 / 38267878143, same DB |
 | season-sim noise on one runner | season-sim comparisons | **0.00 ± 0.00** | control vs control_b, run 38229024307 |
@@ -338,12 +339,12 @@ cutoff pace can't be compared with a full season's.
   | oracle model | 2025-26 +10.35 ± 2.29 (37 GWs) | +0.75 ± 4.87 | **−9.60 ± 5.38** (1.8 SE) |
   | oracle model, same weeks of the season | 2025-26 GW2–5 +8.75 ± 5.72 | +0.75 ± 4.87 | −8.00 ± 7.51 (1.1 SE) |
   | evolving manager | season sim 2025-26 +8.05 ± 2.01 | leaderboard sim −2.00 ± 5.55 | −10.05 ± 5.90 |
-  | oracle model − gated template | +9.19 ± 1.93 (72 GWs) | −3.50 ± 8.59 | −12.69 ± 8.80 |
+  | oracle model − gated template | +9.19 ± 1.93 (72 GWs, G−2 template) | −3.50 ± 8.59 (leaderboard, G−1 template) | −12.69 ± 8.80 (−10.80 against the G−1 backtest figure, +7.30) |
 
   None of these changes is beyond 2 SE on 4 live GWs. The one candidate tested inside the backtest,
-  the availability flag, is worth −0.47 ± 0.79. Other candidates are named but not measured:
-  the 2026-27 data feed (the match-feed lag found in PR #261), early-season cold starts in team
-  strength, and plain luck. **Decision under the declared branch:** no cause is found, so there
+  the availability flag, is worth −0.47 ± 0.79. An early-season effect is unlikely: the
+  backtest's own GW2–5 of 2025-26 ran at +8.75. The remaining hypotheses are unmeasured: the
+  2026-27 data feed (the match-feed lag found in PR #261), and plain luck. **Decision under the declared branch:** no cause is found, so there
   is no fix and no haircut. The step is an open risk. Phase 11's out-of-sample check (model
   (oracle) − gated template over GW2–N on the weekly leaderboard) re-tests it at the first
   review. If m + SE < 0 by GW19, the programme pauses.
@@ -411,7 +412,8 @@ EP, is +0.01 (2024-25 −0.15, 2025-26 +0.18).
 
 ### The branches (declared in the plan)
 
-- **Backtest optimism:** none found (see above). No fix and no haircut.
+- **Backtest optimism:** none found among the tested candidates, so no fix and no haircut. The
+  backtest → 2026-27 step is an open risk for Phase 11.
 - **Evolving loss ≥ 3.0?** E = 2.30, so no. Phase 10 does not move earlier.
 - **Control already meets G2?** m = 9.19 < M̄ = 13.17, so no. The lever phases run.
 
@@ -428,3 +430,34 @@ EP, is +0.01 (2024-25 −0.15, 2025-26 +0.18).
    m − SE > 0).
 
 Every lever run from here uses `--template-lag 2`, and R6 refuses mismatched lags.
+
+**Phase 3 critique:** FAIL in round 1, with two blockers: the backtest → 2026-27 step was
+unexplained, and E had two values. Both were fixed in 11fc397. PASS in round 2; its five wording
+fixes were applied in the next commit.
+
+## Phase 4: re-judge the near misses (lever Z), batch Z1 (declared 2026-10-12, before dispatch)
+
+- **Arms:** `--no-goal-anchor` and `--no-rate-price-anchor`, each against one control. All three
+  run with `--template-lag 2`, over both seasons (no `--seasons`). They are dispatched
+  back-to-back on this branch at the commit that adds this declaration, through
+  `branch_walkforward.yml`, so they share one cached DB.
+
+  | run | args |
+  |---|---|
+  | control | `--template-lag 2` |
+  | Z-goal | `--template-lag 2 --no-goal-anchor` |
+  | Z-price | `--template-lag 2 --no-rate-price-anchor` |
+
+- **Rule:** R6, via `compare_arms.py control.json arm.json --rule r6`:
+  - (i) paired squad points over 74 GWs with m − SE ≥ 0;
+  - (ii) each season's MAE ≤ control + 0.01;
+  - Req 9's collapse guard;
+  - the replicate rule when |m − SE| ≤ 0.1.
+- **If both pass:** the higher m wins, and the other is re-judged against the new control.
+- **Refusals:** a run on a different DB re-dispatches both.
+- **Background:** in 2025-26 alone the arms were +1.00 ± 0.83 (MAE +0.008) and +1.32 ± 1.01
+  (MAE +0.011) (`docs/reports/2026-10_premium_and_form_returns.md`).
+- **The season-sim check, on a pass (Req 7):** `season_sim_arms.yml`, 2025-26, chunk `2-38`,
+  `same_runner`, with arms `control: ; control_b: ; arm: <flag>`. It passes on paired net points
+  m ≥ 0. Then comes the live switch (Req 8), unless m < 0, which goes to the owner.
+- **Arms used after this batch:** 2 of 10 (family Z).

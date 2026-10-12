@@ -145,15 +145,16 @@ def chain(control: dict, sim: dict | None, sim_b: dict | None, leaderboard: dict
                for g in (((cutoffs or {}).get("current_season") or {}).get("by_gameweek")) or []}
 
         def live_cut(points: dict):
-            """The cutoff's pace over the row's own gameweeks: the cumulative cutoff's gain from the
-            gameweek before the row's first to its last (gameweek 0 is 0 points)."""
-            if not points:
-                return None
-            first, last = min(points), max(points)
-            start = 0.0 if first == 1 else cum.get(first - 1)
-            if last not in cum or start is None:
-                return None
-            return round((cum[last] - start) / (last - first + 1), 3)
+            """The cutoff's pace over the row's own gameweeks: the mean of the cumulative cutoff's
+            gain in each of them (gameweek 0 is 0 points), so a row that skips a gameweek is set
+            against the gameweeks it has."""
+            gains = []
+            for gw in points:
+                before = 0.0 if gw == 1 else cum.get(gw - 1)
+                if gw not in cum or before is None:
+                    return None
+                gains.append(cum[gw] - before)
+            return round(sum(gains) / len(gains), 3) if gains else None
         for r in leaderboard["rows"]:
             if r.get("kind") == "model_oracle" or not r.get("is_baseline"):
                 weekly = {int(gw): pts for gw, pts in (r.get("weekly_points") or {}).items()}
