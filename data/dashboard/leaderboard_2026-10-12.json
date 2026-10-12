@@ -1,0 +1,117 @@
+{
+  "data_asof": "2026-10-12",
+  "season": "2026-2027",
+  "status": "ok",
+  "start_gameweek": 2,
+  "end_gameweek": 5,
+  "walked_gameweeks": 4,
+  "rows": [
+    {
+      "name": "FPL-Analyser (model)",
+      "total_points": 241.0,
+      "n_gameweeks": 4,
+      "is_baseline": false,
+      "weekly_points": {
+        "2": 95.0,
+        "3": 41.0,
+        "4": 60.0,
+        "5": 45.0
+      },
+      "weekly_hits": {
+        "2": 0.0,
+        "3": 0.0,
+        "4": 0.0,
+        "5": 0.0
+      }
+    },
+    {
+      "name": "recent-points baseline",
+      "kind": "recent_points",
+      "total_points": 193.0,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": 48.0,
+      "is_baseline": true,
+      "weekly_points": {
+        "2": 47.0,
+        "3": 29.0,
+        "4": 42.0,
+        "5": 75.0
+      },
+      "oracle_model_beats_baseline_by": 59.0
+    },
+    {
+      "name": "price/ownership baseline",
+      "kind": "ownership_popularity",
+      "total_points": 266.0,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": -25.0,
+      "is_baseline": true,
+      "weekly_points": {
+        "2": 102.0,
+        "3": 46.0,
+        "4": 85.0,
+        "5": 33.0
+      },
+      "oracle_model_beats_baseline_by": -14.0
+    },
+    {
+      "name": "synthetic EO crowd (not FPL's average)",
+      "kind": "crowd",
+      "total_points": 325.4,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": -84.4,
+      "is_baseline": true,
+      "weekly_points": {
+        "2": 94.0,
+        "3": 64.1,
+        "4": 99.8,
+        "5": 67.6
+      },
+      "oracle_model_beats_baseline_by": -73.4
+    },
+    {
+      "name": "model (oracle)",
+      "kind": "model_oracle",
+      "total_points": 252.0,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": -11.0,
+      "is_baseline": true,
+      "weekly_points": {
+        "2": 95.0,
+        "3": 48.0,
+        "4": 60.0,
+        "5": 49.0
+      }
+    },
+    {
+      "name": "ownership template (available)",
+      "kind": "template_gated",
+      "total_points": 266.0,
+      "n_gameweeks": 4,
+      "n_gameweeks_skipped": 0,
+      "model_total_points_same_gameweeks": 241.0,
+      "model_beats_baseline_by": -25.0,
+      "is_baseline": true,
+      "weekly_points": {
+        "2": 102.0,
+        "3": 46.0,
+        "4": 85.0,
+        "5": 33.0
+      },
+      "oracle_model_beats_baseline_by": -14.0
+    }
+  ],
+  "honest_losses": [
+    "price/ownership baseline",
+    "synthetic EO crowd (not FPL's average)",
+    "ownership template (available)"
+  ]
+}
