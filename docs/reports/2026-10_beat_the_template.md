@@ -100,7 +100,7 @@ the 2025-26 fit, and only 2026-27 uses the both-season fit.
 
 | | lever arms (cap 10) | planner arms (cap 6) |
 |---|---|---|
-| used | 0 | 0 |
+| used | 2 (Z: 2) | 0 |
 
 ## Phase 1: the oracle yardstick, rule R6 and the residual export (built)
 
@@ -461,3 +461,28 @@ fixes were applied in the next commit.
   `same_runner`, with arms `control: ; control_b: ; arm: <flag>`. It passes on paired net points
   m ≥ 0. Then comes the live switch (Req 8), unless m < 0, which goes to the owner.
 - **Arms used after this batch:** 2 of 10 (family Z).
+
+### Batch Z1 results (cached DB duckdb-rank-tracking-38267694488, commit 3fcb3c5, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 38275606306 | control, `--template-lag 2` | — | — | 1.0385 / 1.0450 | — | — |
+| 38275613712 | `--no-goal-anchor` | **+0.824 ± 0.655** (28 better, 16 worse) | **+0.169** | 1.0453 (+0.0068) / 1.0513 (+0.0063) | ok: overlap 3.25 → 3.24, non-template +1.44 ± 0.64 | **PASS** |
+| 38275619225 | `--no-rate-price-anchor` | +0.635 ± 0.736 (28 better, 21 worse) | −0.101 | 1.0481 (+0.0096) / 1.0533 (+0.0083) | ok: overlap 3.25 → 3.26, non-template +1.17 ± 0.68 | FAIL (i) |
+
+- **Verdicts:** `--no-goal-anchor` passes R6. Its m − SE (+0.169) is outside the replicate band
+  (≤ 0.1), so no replicate. `--no-rate-price-anchor` fails (i). Its |m − SE| = 0.101 is just
+  outside the band too, so it gets no replicate either. The plan's band is fixed and this is not
+  re-litigated.
+- **Template gap:** the control beats the gated template by +9.06 ± 1.93 pts/GW and Z-goal by
+  +9.92 ± 1.96, against M-bar 13.17. G2 is not met.
+- **Measured nondeterminism:** this control and Phase 3's control 38269659997 have the same args
+  and the same DB, at commits that differ only in reporting code. They differ in 3 of 74 GWs,
+  −0.135 ± 0.125 pts/GW, in line with A9.
+- **Family Z:** one pass and one fail, so the family is not dropped. Only one arm passed, so the
+  tie-break doesn't apply.
+- **PROMOTE, step 1:** the season-sim check declared above, for `--no-goal-anchor`, at the commit
+  that records these results. Alongside it, a walk-forward with
+  `--template-lag 2 --no-goal-anchor --export-residuals` is dispatched. It is not an arm and does
+  not count. If Z-goal is promoted, it is the new control's residual export that L1 is refitted
+  from. If not, L1 is fitted from 38269659997's export.
