@@ -153,7 +153,7 @@ def _metrics(con, run_id):
 TEMPLATE_METRICS = {
     "template_squad_realized_points", "template_squad_realized_points_ungated", "beats_template_points_delta",
     "template_xi_overlap", "non_template_points", "model_captain_points", "template_captain_points",
-    "captain_ep_plus_eo_points", "model_xi_resid", "template_xi_resid", "template_solve_seconds",
+    "captain_ep_plus_eo_points", "model_xi_resid", "template_xi_resid", "template_solve_seconds", "template_lag",
 }
 
 

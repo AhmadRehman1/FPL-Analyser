@@ -606,6 +606,13 @@ def summarize(con, run_id: int) -> dict:
         [run_id],
     ).fetchone()[0]
     out["template"]["solve_seconds_total"] = None if seconds is None else round(seconds, 1)
+    # which rows the template read (1: up to G-1; 2: the A2 fallback), so rule R6 never compares
+    # runs judged against different templates
+    lags = sorted(int(r[0]) for r in con.execute(
+        "SELECT DISTINCT metric_value FROM backtest_metrics WHERE backtest_run_id = ? AND metric_name = 'template_lag'",
+        [run_id],
+    ).fetchall())
+    out["template"]["lag"] = lags[0] if len(lags) == 1 else (lags or None)
     return out
 
 

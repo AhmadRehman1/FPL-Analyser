@@ -384,7 +384,8 @@ def test_summarize_merges_the_template_rows_into_each_gameweek():
     for season, gw, squad, template in (("2024-2025", 5, 60.0, 50.0), ("2025-2026", 5, 40.0, 48.0)):
         for name, value in (("beats_crowd_points_delta", 1.0), ("model_squad_realized_points", squad),
                             ("template_squad_realized_points", template), ("template_xi_overlap", 6.0),
-                            ("template_xi_spend:price_band=9.0+", 30.5), ("template_solve_seconds", 2.0)):
+                            ("template_xi_spend:price_band=9.0+", 30.5), ("template_solve_seconds", 2.0),
+                            ("template_lag", 1.0)):
             con.execute(
                 "INSERT INTO backtest_metrics (backtest_run_id, season, gameweek, tier, metric_name, metric_value) "
                 "VALUES (?, ?, ?, 'mature', ?, ?)", [run_id, season, gw, name, value],
@@ -396,3 +397,4 @@ def test_summarize_merges_the_template_rows_into_each_gameweek():
     assert out["template"]["by_season"]["2024-2025"]["gap_vs_gated"]["mean"] == 10.0
     assert out["template"]["pooled"]["gap_vs_gated"]["mean"] == 1.0
     assert out["template"]["solve_seconds_total"] == 4.0
+    assert out["template"]["lag"] == 1

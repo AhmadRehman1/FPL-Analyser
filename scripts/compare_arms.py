@@ -321,6 +321,10 @@ def _r6(control: dict, arm: dict, baseline: dict | None, replicate: tuple[dict, 
     if len(keys) > 1:
         found = " vs ".join(f"{name} {run['db_cache_key']}" for name, run in names)
         raise Refused(f"different cached DBs: {found}")
+    lags = {name: (run.get("template") or {}).get("lag") or 1 for name, run in names}  # runs before the key: lag 1
+    if len(set(map(str, lags.values()))) > 1:
+        raise Refused("runs built their templates from different rows (template lag "
+                      + ", ".join(f"{name} {lag}" for name, lag in lags.items()) + ")")
     seasons = sorted(control.get("headline_by_season") or {})
     if len(seasons) < 2:
         raise Refused("rule r6 judges every season: run without --seasons (both seasons)")

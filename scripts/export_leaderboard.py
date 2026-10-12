@@ -193,16 +193,24 @@ def _gap(ref: dict[int, float], row: dict[int, float]) -> tuple[float, float]:
     return ref_total, ref_total - sum(row[gw] for gw in gws)
 
 
+def _weekly(points: dict[int, float]) -> dict[str, float]:
+    return {str(gw): round(pts, 1) for gw, pts in sorted(points.items())}
+
+
 def build_rows(model_weekly: dict[int, float], baselines: dict[str, dict[int, float]],
-               oracle: dict[str, dict[int, float]], window_gameweeks: int) -> list[dict]:
+               oracle: dict[str, dict[int, float]], window_gameweeks: int,
+               model_hits: dict[int, float] | None = None) -> list[dict]:
     """The leaderboard rows: the evolving model first, then every baseline (the three existing
     ones, then the model (oracle) and gated-template rows). model_beats_baseline_by is always the
     evolving model's total minus the row's, over the gameweeks the row has; the oracle rows and
     every oracle baseline also carry oracle_model_beats_baseline_by, the model (oracle) total
-    minus the row's on the same terms."""
+    minus the row's on the same terms. Every row carries weekly_points ({gw: points}); the model
+    row also weekly_hits, the transfer hits its gross points don't deduct (the plan's Phase 3
+    pairs it per gameweek with the live team)."""
     rows = [{
         "name": "FPL-Analyser (model)", "total_points": round(sum(model_weekly.values()), 1),
         "n_gameweeks": len(model_weekly), "is_baseline": False,
+        "weekly_points": _weekly(model_weekly), "weekly_hits": _weekly(model_hits or {}),
     }]
     model_oracle = oracle.get("model_oracle") or {}
     entries = [(_BASELINE_DISPLAY_NAMES[k], k, baselines[k]) for k in _BASELINE_DISPLAY_NAMES]
@@ -214,6 +222,7 @@ def build_rows(model_weekly: dict[int, float], baselines: dict[str, dict[int, fl
             "n_gameweeks_skipped": window_gameweeks - len(weekly),
             "model_total_points_same_gameweeks": round(model_same, 1),
             "model_beats_baseline_by": round(beats_by, 1), "is_baseline": True,
+            "weekly_points": _weekly(weekly),
         }
         if kind != "model_oracle":
             row["oracle_model_beats_baseline_by"] = round(_gap(model_oracle, weekly)[1], 1)
@@ -261,6 +270,7 @@ def main() -> None:
     rows = build_rows(
         dict(zip(result["gameweeks"], result["weekly_points"])),
         {key: beats[key]["weekly"] for key in _BASELINE_DISPLAY_NAMES}, oracle, end_gw - start_gw + 1,
+        model_hits=dict(zip(result["gameweeks"], result["weekly_hits"])),
     )
     # Reports a baseline win exactly as visibly as a model win -- a leaderboard that only shows
     # wins is not a leaderboard (same disclosure discipline backtest.beats_baseline() itself

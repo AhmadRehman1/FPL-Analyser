@@ -493,6 +493,7 @@ def run_gameweek_step(
             template = template_squads(
                 con, season, guardrail_cap, max_gw=None if template_lag <= 1 else gameweek - template_lag,
             )
+            template["lag"] = template_lag
 
     con.execute(
         """
@@ -2553,6 +2554,7 @@ def _score_template_baseline(
     armband multiplier), or None when the step has no model squad."""
     gated, ungated = template.get("gated"), template.get("ungated")
     _record_metric(con, backtest_run_id, season, gameweek, tier, "template_solve_seconds", template.get("solve_seconds") or 0.0)
+    _record_metric(con, backtest_run_id, season, gameweek, tier, "template_lag", template.get("lag") or 1)
     if ungated is not None:
         _record_metric(con, backtest_run_id, season, gameweek, tier, "template_squad_realized_points_ungated",
                        _realized_solve_points(con, season, gameweek, ungated))

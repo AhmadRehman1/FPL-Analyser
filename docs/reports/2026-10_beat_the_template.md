@@ -119,6 +119,10 @@ the 2025-26 fit, and only 2026-27 uses the both-season fit.
   between the two controls as measured nondeterminism.
 - **Escape hatches.** `--no-template` skips the template (R6 then refuses the run), and
   `--template-lag 2` makes it read rows up to G−2, the fallback if A2 is inconclusive.
+  - The summary records the lag (`template.lag`), and R6 refuses runs built with different lags.
+  - `--export-residuals` reads its features from the same row as the template.
+- **Runtime.** `template_solve_seconds` times building the pool and the two template solves; it
+  doesn't include the scoring diagnostics, which are database reads.
 - **Residual export (Req 12).** `run_walkforward.py --export-residuals` writes
   `residual_features.csv`; `branch_walkforward.yml` uploads it as `residual-features`. The
   features come from `residual_levers.feature_rows()`, the one reader every harness will share.

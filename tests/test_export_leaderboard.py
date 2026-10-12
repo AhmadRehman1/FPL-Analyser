@@ -109,6 +109,14 @@ def test_every_baseline_row_carries_numeric_totals_and_gaps():
     assert "oracle_model_beats_baseline_by" not in by_kind["model_oracle"]
 
 
+def test_rows_carry_their_weekly_points_and_the_models_hits():
+    rows = el.build_rows(MODEL, BASELINES, ORACLE, window_gameweeks=3, model_hits={3: 4.0})
+    assert rows[0]["weekly_points"] == {"2": 50.0, "3": 60.0, "4": 40.0}
+    assert rows[0]["weekly_hits"] == {"3": 4.0}
+    assert rows[2]["weekly_points"] == {"2": 52.0, "4": 48.0}
+    assert rows[4]["weekly_points"] == {"2": 58.0, "3": 66.0, "4": 51.0}
+
+
 def test_rows_survive_an_oracle_row_with_no_gameweeks():
     rows = el.build_rows(MODEL, BASELINES, {"model_oracle": {}, "template_gated": {}}, window_gameweeks=3)
     oracle_row = next(r for r in rows if r.get("kind") == "model_oracle")

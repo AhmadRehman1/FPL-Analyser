@@ -472,6 +472,15 @@ def test_r6_refusals(mutate, message):
         ca.compare(c, arm, rule="r6")
 
 
+def test_r6_refuses_runs_whose_templates_read_different_rows():
+    c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    arm["template"]["lag"] = 2
+    with pytest.raises(ca.Refused, match="template lag control 1, arm 2"):
+        ca.compare(c, arm, rule="r6")
+    c["template"]["lag"] = 2
+    assert ca.compare(c, arm, rule="r6")["verdict"] == "PASS"
+
+
 def test_r6_refuses_a_replicate_on_another_db_and_replicate_without_r6():
     c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
     with pytest.raises(ca.Refused, match="different cached DBs"):
@@ -495,3 +504,10 @@ def test_cli_rule_r6(tmp_path, capsys):
     assert ca.main([str(c), str(near), "--rule", "r6"]) == 3
     assert "replicate required" in capsys.readouterr().out
     assert ca.main([str(c), str(arm), "--rule", "r6", "--replicate", str(c)]) == 2
+
+
+def test_r6_reads_a_summary_without_a_recorded_lag_as_lag_one():
+    c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    c["template"]["lag"] = None  # a control run before the template recorded its lag
+    arm["template"]["lag"] = 1
+    assert ca.compare(c, arm, rule="r6")["verdict"] == "PASS"

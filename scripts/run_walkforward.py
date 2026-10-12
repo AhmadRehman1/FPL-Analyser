@@ -375,7 +375,8 @@ def main(argv: list[str] | None = None) -> None:
     print(f"[walk-forward] {n_pred} gameweek steps carry an ep_model_version -- research.ml.experiment can now run")
 
     if args.export_residuals:
-        n_rows = residual_levers.write_residual_csv(con, backtest_run_id, args.export_residuals)
+        # features from the same row the template reads (G-1, or G-2 under A2's fallback)
+        n_rows = residual_levers.write_residual_csv(con, backtest_run_id, args.export_residuals, lag=args.template_lag)
         print(f"[residuals] {n_rows} player-gameweek rows -> {args.export_residuals}")
 
     con.close()
