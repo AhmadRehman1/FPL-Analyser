@@ -429,8 +429,8 @@ Executor's choice:
       (n = 74 GWs, SE from those means). The MAE check uses the mean of the two runs' MAEs.
     - The replicate counts as one arm toward the cap; its control does not.
     - If the two controls' squad points differ, that is recorded as measured nondeterminism.
-  - Why: the same arm gave different 2025-26 results in D1 (`--seasons 2025-2026`) and D2 (both
-    seasons), on one commit and DB. Whether `--seasons` or nondeterminism caused it is unresolved.
+  - Why: walk-forwards are not deterministic across runners. Two equivalent controls differed in
+    3 of 74 GWs (paired SD 1.07, SE ≈ 0.12) through small team-strength fit differences (A9).
 - **Declared hyperparameters** (single values, fixed before any run):
   - **L1:** `ridge_alpha` 10 on standardized features; `min_rows` 2,000 player-GWs per fold; the
     adjustment is clipped to ±1.5 pts/GW; features as in the Approach.
@@ -518,7 +518,7 @@ Executor's choice:
 | A6 | The per-arm paired SE over 74 GWs is 0.4–1.2 | verified: D2 ±0.39–0.74; λ arms ±1.21 | Rule R6's power | Recorded per arm |
 | A7 | One GW2–38 season-sim job uses both chip halves correctly | [assumed: the sim tracks chip sets by GW] | G3 is mis-measured | Phase 2: inspect chips used in a GW2–38 control |
 | A8 | The executor has the owner's standing authority: merge green PRs; promote an arm that passes rule R6 and the season-sim check; ask the owner before merging any winner with m < 0 | (user) standing instructions | It would need to stop for approval | none |
-| A9 | Walk-forward controls on the same commit, DB and args are deterministic | verified for the controls (D1 and D2 identical); arms diverged once | The noise floor is understated | Replicates near the threshold (Key Decisions) |
+| A9 | Walk-forward controls on the same commit, DB and args are deterministic | **False across runners** (verified 2026-10-12: runs 38185477854 and 38185480048, same DB, code differing only in a minutes change that left every minutes metric identical). The team-strength fit differed slightly (`match_log_lik`), and 3 of 74 GWs' squad points changed: paired mean +0.14, SD 1.07, so control-vs-control SE ≈ 0.12. D1 and D2's controls happened to match | Control noise adds about 0.12 to each arm's SE | Replicates near the threshold (Key Decisions); Phase 1 records one control_b walk-forward |
 | A10 | "By a lot" means ≥ +2.0 pts/GW over the template, raised to M if the cutoff chain needs more | [assumed: the owner said "by a lot"] | G2's bar | The owner may restate it at approval |
 | A11 | The walk-forward can run 2026-27 for the kill-switch | **False today** (verified: `ALL_SEASON_GAMEWEEKS`, `backtest.py:1228`, lists only 2024-25 and 2025-26). [assumed: the cached DB holds settled 2026-27 data, so extending that list is enough] | The kill-switch falls back to the one-runner season sim with control_b | Phase 11, step 1 |
 | A12 | `backtest.run_gameweek_step` can score a 2026-27 GW (for Req 3's oracle row) | [assumed: it takes season and GW as arguments] | The oracle row needs its own step loop | Phase 2, Req 3 test |
@@ -574,7 +574,8 @@ Executor's choice:
       - Check A2 and A3 with a diagnostic script in Actions on the cached DB (pattern:
         `.github/workflows/diagnose_premium_returns.yml`).
       - Dispatch the control (args `"--export-residuals"`) on the branch and confirm A4 from its
-        `head_sha`.
+        `head_sha`. Once it finishes, dispatch the same control again as control_b (a concurrent
+        duplicate would cancel the first) and record their paired squad-point SD (A9).
       Covers: Req 1, Req 2, Req 5, Req 9, Req 12; checks: A2, A3, A4, A5
       Critique: important phase. After building, hand the result plus this phase's Done-when and
       Covers lines to a blind critic (a fresh sub-agent if available, else a fresh-eyes reread). The
