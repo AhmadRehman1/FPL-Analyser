@@ -1609,6 +1609,8 @@ def _apply_crowd_prior(con: duckdb.DuckDBPyConnection, model_version: int, targe
         for match_id, ep in fixtures:
             share = adjustments[uid] * (max(ep, 0.0) / total if total > 0 else 1.0 / len(fixtures))
             shares.append((uid, match_id, max(share, -max(ep, 0.0))))
+    if not shares:
+        return 0
     con.execute("CREATE OR REPLACE TEMP TABLE _crowd_adj (player_uid VARCHAR, fixture_match_id VARCHAR, share DOUBLE)")
     con.executemany("INSERT INTO _crowd_adj VALUES (?, ?, ?)", shares)
     con.execute(

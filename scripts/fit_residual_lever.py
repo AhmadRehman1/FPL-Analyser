@@ -108,19 +108,24 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--residuals", required=True, type=Path, help="residual_features.csv")
     parser.add_argument("--date", required=True, type=int, help="YYYYMMDD; names the coefficient file")
-    parser.add_argument("--lag", required=True, type=int, choices=(1, 2),
-                        help="the feature row the export read (G minus this); must match the run's --template-lag")
+    parser.add_argument("--lag", required=True, type=int, choices=(rl.MIN_FEATURE_LAG,),
+                        help="the feature row the export read (G minus this); must match the run's --template-lag "
+                             "(2: A2 failed, so row G-1 is never read)")
     parser.add_argument("--source-run", default=None, help="the walk-forward's Actions run id, for the record")
     parser.add_argument("--alpha", type=float, default=10.0)
     parser.add_argument("--min-rows", type=int, default=2000)
     parser.add_argument("--clip", type=float, default=1.5)
     parser.add_argument("--out", type=Path, default=None, help="default data/recalibration/crowd_prior_coeffs_<DATE>.json")
     args = parser.parse_args(argv)
+    path = args.out or rl.coeff_path(args.date)
+    if path.exists():
+        # a param version is minted per file; a refit gets a new date, never a rewrite
+        print(f"{path} exists; coefficient files are immutable, use a new --date", file=sys.stderr)
+        return 2
     rows = read_rows(args.residuals)
     source = {"file": args.residuals.name, "sha256": hashlib.sha256(args.residuals.read_bytes()).hexdigest(),
               "run_id": args.source_run}
     out = build(rows, args.lag, args.alpha, args.min_rows, args.clip, source)
-    path = args.out or rl.coeff_path(args.date)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2) + "\n")
     print(json.dumps({"path": str(path), "n_complete": out["n_complete"],

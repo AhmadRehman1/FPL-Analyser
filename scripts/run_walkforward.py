@@ -403,6 +403,23 @@ def main(argv: list[str] | None = None) -> None:
     ).fetchone()[0]
     print(f"[walk-forward] {n_pred} gameweek steps carry an ep_model_version -- research.ml.experiment can now run")
 
+    if extra.get("crowd_prior_params_version") is not None:
+        # what lever L1 did, so an arm whose adjustment came out empty can't pass for a real arm
+        n_steps, n_adj_steps, n_adj, mean_abs, n_floored = con.execute(
+            """
+            SELECT count(DISTINCT s.season || '/' || s.gameweek),
+                   count(DISTINCT CASE WHEN o.ep_crowd_adj != 0 THEN s.season || '/' || s.gameweek END),
+                   count(*) FILTER (WHERE o.ep_crowd_adj != 0),
+                   avg(abs(o.ep_crowd_adj)) FILTER (WHERE o.ep_crowd_adj != 0),
+                   count(*) FILTER (WHERE o.ep_crowd_adj < 0 AND o.ep_total = 0)
+            FROM backtest_gameweek_steps s JOIN ep_outputs o ON o.model_version = s.ep_model_version
+            WHERE s.backtest_run_id = ?
+            """,
+            [backtest_run_id],
+        ).fetchone()
+        print(f"[crowd_prior] v{extra['crowd_prior_params_version']}: {n_adj_steps}/{n_steps} steps adjusted, "
+              f"{n_adj} player-fixtures, mean |adjustment| {mean_abs or 0.0:.4f}, {n_floored} floored at zero EP")
+
     if args.export_residuals:
         # features from the same row the template reads (G-1, or G-2 under A2's fallback)
         n_rows = residual_levers.write_residual_csv(con, backtest_run_id, args.export_residuals, lag=args.template_lag)

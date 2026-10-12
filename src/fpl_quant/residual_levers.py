@@ -135,8 +135,11 @@ def write_residual_csv(con: duckdb.DuckDBPyConnection, backtest_run_id: int, pat
 # ============================================================
 
 CROWD_PRIOR_FAMILY = "crowd_prior_params"
-CROWD_PRIOR_KEYS = ("coeff_date", "ridge_alpha", "min_rows", "clip", "lag")
+CROWD_PRIOR_KEYS = ("coeff_date", "coeff_hash", "ridge_alpha", "min_rows", "clip", "lag")
 COEFF_DIR_NAME = "recalibration"
+# A2 (docs/reports/2026-10_beat_the_template.md) was inconclusive: row G-1 isn't reliably settled
+# by G's deadline, so a lever's crowd features read row G-2 or earlier, never G-1.
+MIN_FEATURE_LAG = 2
 
 
 def fold_for(season: str) -> str:
@@ -198,8 +201,15 @@ def crowd_adjustments(con: duckdb.DuckDBPyConnection, season: str, deadline_game
     (fewer than min_rows); a player without a full feature row gets no entry (no adjustment).
     Every planning-horizon gameweek of one deadline gets the same adjustment: the features are
     what was knowable at that deadline."""
-    fit = (coeffs.get("folds") or {}).get(fold_for(season))
+    if lag < MIN_FEATURE_LAG:
+        raise ValueError(f"crowd features at lag {lag}: A2 failed, so they read row G-{MIN_FEATURE_LAG} or earlier")
+    folds = coeffs.get("folds") or {}
+    if fold_for(season) not in folds:
+        raise KeyError(f"coefficient file has no {fold_for(season)!r} fold for {season}")
+    fit = folds[fold_for(season)]
     if fit is None:
+        print(f"[crowd_prior] {season} GW{deadline_gameweek}: the {fold_for(season)} fold was not fitted "
+              "(fewer than min_rows), no adjustment")
         return {}
     features = tuple(coeffs.get("features") or FEATURES)
     out = {}
@@ -218,13 +228,20 @@ def coeff_path(coeff_date: int) -> Path:
     return COEFF_ROOT / f"crowd_prior_coeffs_{int(coeff_date)}.json"
 
 
+def coeff_hash(coeff_date: int) -> int:
+    """The coefficient file's content hash: the first 48 bits of its sha256, exact as a double."""
+    import hashlib
+
+    return int(hashlib.sha256(coeff_path(coeff_date).read_bytes()).hexdigest()[:12], 16)
+
+
 def crowd_prior_bundle(coeff_date: int) -> dict[str, float]:
-    """The crowd_prior_params values for one coefficient file: its date, and the alpha, min_rows,
-    clip and feature lag it was fitted and is applied with (read from the file itself, so the
-    param version and the coefficients can't disagree)."""
+    """The crowd_prior_params values for one coefficient file: its date and content hash, and the
+    alpha, min_rows, clip and feature lag it was fitted and is applied with (read from the file
+    itself, so the param version and the coefficients can't disagree)."""
     coeffs = json.loads(coeff_path(coeff_date).read_text())
-    return {"coeff_date": int(coeff_date), "ridge_alpha": coeffs["alpha"], "min_rows": coeffs["min_rows"],
-            "clip": coeffs["clip"], "lag": coeffs["lag"]}
+    return {"coeff_date": int(coeff_date), "coeff_hash": coeff_hash(coeff_date), "ridge_alpha": coeffs["alpha"],
+            "min_rows": coeffs["min_rows"], "clip": coeffs["clip"], "lag": coeffs["lag"]}
 
 
 def crowd_prior_version(con: duckdb.DuckDBPyConnection, coeff_date: int, effective_date: str) -> int:
@@ -241,5 +258,7 @@ def resolve_crowd_prior(con: duckdb.DuckDBPyConnection, version: int | None) -> 
     if version is None:
         return None
     values = {k: params_mod.resolve_param(con, CROWD_PRIOR_FAMILY, k, version)[0] for k in CROWD_PRIOR_KEYS}
+    if coeff_hash(values["coeff_date"]) != int(values["coeff_hash"]):
+        raise ValueError(f"{coeff_path(values['coeff_date'])} changed since crowd_prior_params v{version} was minted")
     coeffs = json.loads(coeff_path(values["coeff_date"]).read_text())
     return {"coeffs": coeffs, "clip": float(values["clip"]), "lag": int(values["lag"])}

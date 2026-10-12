@@ -330,9 +330,10 @@ def test_without_the_flag_ep_is_identical_to_the_control(con, tmp_path, monkeypa
 
 def test_walk_forward_season_sim_and_live_apply_the_same_adjustment(con, tmp_path, monkeypatch):
     """Req 11's identical-adjustment test. For the deadline of GW3: the walk-forward step's EP,
-    the season sim's planner horizon (GW3 and GW4) and the live planner horizon (compute_horizon_ep,
-    as scripts/run_transfer_planner_for_real_squad.py calls it) all carry the same per-player
-    adjustment, through residual_levers.crowd_adjustments() at deadline 3."""
+    the season sim's planner horizon (GW3 and GW4) and the planner horizon live will run
+    (compute_horizon_ep from the deadline's view; the live script itself is wired to the flag at
+    PROMOTE, Req 8) all carry the same per-player adjustment, through
+    residual_levers.crowd_adjustments() at deadline 3."""
     _crowd_league(con)
     v = _version(con, tmp_path, monkeypatch, FOLDS)
     calls = []
@@ -440,3 +441,89 @@ def test_residual_export_takes_the_crowd_adjustment_out_of_the_projection(tmp_pa
         assert r["crowd_adj"] == pytest.approx(adj)
         assert r["ep_pre_adjustment"] == pytest.approx(total - adj)
     con.close()
+
+
+def test_a_later_window_reads_the_deadlines_features(con, tmp_path, monkeypatch):
+    # the planner's chip-timing window projects gameweeks past the horizon one call at a time,
+    # passing the planning gameweek as the deadline: GW4 projected from GW3's view gets GW3's
+    # adjustment, not GW4's
+    _crowd_league(con)
+    v = _version(con, tmp_path, monkeypatch, FOLDS)
+    expected = rl.crowd_adjustments(con, SEASON, 3, rl.resolve_crowd_prior(con, v)["coeffs"], 1.5, 2)
+    assert expected != rl.crowd_adjustments(con, SEASON, 4, rl.resolve_crowd_prior(con, v)["coeffs"], 1.5, 2)
+    asof, ts, mm = _snapshots(con, SEASON, 3, schedule_horizon_gameweeks=2)
+    with bt.asof_scope(con, SEASON, 3, schedule_horizon_gameweeks=2):
+        later = tp.compute_horizon_ep(con, asof, SEASON, 4, ts, mm, 1, 1, 1, 1, 1, 1,
+                                      crowd_prior_params_version=v, crowd_deadline_gameweek=3)
+    rows = con.execute("SELECT player_uid, ep_crowd_adj, ep_total FROM ep_gameweek_outputs WHERE model_version = ?",
+                       [later[4][0]]).fetchall()
+    for uid, adj, total in rows:
+        assert adj == pytest.approx(max(expected.get(uid, 0.0), -max(total - adj, 0.0)))
+
+
+def test_monte_carlo_summary_carries_the_adjustment(con, tmp_path, monkeypatch):
+    # the planner's Triple Captain score and vice fallback read monte_carlo_player_summary's mean:
+    # the same draws, shifted by each player's crowd adjustment, variance unchanged
+    from fpl_quant import monte_carlo
+
+    _crowd_league(con)
+    v = _version(con, tmp_path, monkeypatch, FOLDS)
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    walk = {k: val for k, val in _SEASON_SIM_VERSIONS.items()
+            if k not in ("horizon_params_version", "transfer_cost_params_version", "wildcard_threshold_params_version",
+                         "free_hit_threshold_params_version", "kappa_tc_params_version")}
+    bt.run_gameweek_step(con, run_id, SEASON, 4, n_antithetic_pairs=200, **walk)
+    ts, mm, ep_control, un, so = con.execute(
+        "SELECT ts_model_version, mm_model_version, ep_model_version, un_model_version, so_run_id "
+        "FROM backtest_gameweek_steps WHERE backtest_run_id = ?", [run_id]).fetchone()
+    with bt.asof_scope(con, SEASON, 4) as deadline:
+        asof = deadline.date()
+        ep_lever = ep.run(con, asof, SEASON, 4, ts, mm, 1, 1, 1, crowd_prior_params_version=v,
+                          lookback_seasons=bt.lookback_seasons_for(SEASON))
+        mcs = [monte_carlo.run(con, asof, so, mv, mm, ts, un, 1, 1, 1, n_antithetic_pairs=200,
+                               season_priority=bt.lookback_seasons_for(SEASON)) for mv in (ep_control, ep_lever)]
+    summary = [{uid: rest for uid, *rest in con.execute(
+        "SELECT player_uid, mean_total, var_total, quantile_05, max_total FROM monte_carlo_player_summary "
+        "WHERE model_version = ?", [mc]).fetchall()} for mc in mcs]
+    adj = dict(con.execute("SELECT player_uid, ep_crowd_adj FROM ep_gameweek_outputs WHERE model_version = ?",
+                           [ep_lever]).fetchall())
+    assert summary[0] and set(summary[0]) == set(summary[1])
+    assert any(adj.get(uid, 0.0) != 0.0 for uid in summary[0])
+    for uid, (mean, var, q05, top) in summary[0].items():
+        shift = adj.get(uid, 0.0)
+        lever_mean, lever_var, lever_q05, lever_top = summary[1][uid]
+        assert lever_mean == pytest.approx(mean + shift) and lever_var == pytest.approx(var)
+        assert lever_q05 == pytest.approx(q05 + shift) and lever_top == pytest.approx(top + shift)
+
+
+def test_guards_lag_missing_fold_and_a_changed_coefficient_file(con, tmp_path, monkeypatch):
+    _seed_template_league(con)
+    coeffs = {"features": list(rl.FEATURES), "folds": dict(FOLDS)}
+    with pytest.raises(ValueError, match="A2"):
+        rl.crowd_adjustments(con, SEASON, 3, coeffs, clip=1.5, lag=1)
+    with pytest.raises(KeyError):
+        rl.crowd_adjustments(con, SEASON, 3, {"features": list(rl.FEATURES), "folds": {"both": FOLDS["both"]}}, 1.5, 2)
+    v = _version(con, tmp_path, monkeypatch, FOLDS)
+    assert rl.resolve_crowd_prior(con, v)["lag"] == 2
+    path = rl.coeff_path(COEFF_DATE)
+    path.write_text(path.read_text().replace('"clip": 1.5', '"clip": 1.4'))
+    with pytest.raises(ValueError, match="changed"):
+        rl.resolve_crowd_prior(con, v)
+
+
+def test_fit_script_refuses_lag_1_and_an_existing_file(tmp_path):
+    rows = _rows(10)
+    path = tmp_path / "residual_features.csv"
+    with open(path, "w", newline="") as fh:
+        import csv
+
+        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    out = tmp_path / "coeffs.json"
+    with pytest.raises(SystemExit):
+        fit_script.main(["--residuals", str(path), "--date", "20260101", "--lag", "1", "--out", str(out)])
+    assert fit_script.main(["--residuals", str(path), "--date", "20260101", "--lag", "2", "--out", str(out)]) == 0
+    before = out.read_text()
+    assert fit_script.main(["--residuals", str(path), "--date", "20260101", "--lag", "2", "--out", str(out)]) == 2
+    assert out.read_text() == before
