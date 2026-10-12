@@ -365,6 +365,7 @@ def run_gameweek_step(
     bps_calibration_params_version: int | None = None,
     team_strength_guard_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
+    crowd_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
@@ -459,6 +460,7 @@ def run_gameweek_step(
             memo=memo,
             bps_calibration_params_version=bps_calibration_params_version,
             rate_prior_params_version=rate_prior_params_version,
+            crowd_prior_params_version=crowd_prior_params_version,
             conversion_params_version=conversion_params_version,
         )
         un_model_version = uncertainty.run(
@@ -1312,6 +1314,7 @@ def run(
     bps_calibration_params_version: int | None = None,
     team_strength_guard_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
+    crowd_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
@@ -1427,6 +1430,7 @@ def run(
             bps_calibration_params_version=bps_calibration_params_version,
             team_strength_guard_params_version=team_strength_guard_params_version,
             rate_prior_params_version=rate_prior_params_version,
+            crowd_prior_params_version=crowd_prior_params_version,
             conversion_params_version=conversion_params_version,
             template_baseline=template_baseline, template_lag=template_lag, availability_lag=availability_lag,
         )
@@ -1815,6 +1819,7 @@ def run_season_simulation(
     minutes_start_prior_params_version: int | None = None,
     team_strength_guard_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
+    crowd_prior_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
     current_season_minutes_params_version: int | None = None,
     sub_rate_params_version: int | None = None,
@@ -1955,6 +1960,7 @@ def run_season_simulation(
             scoring_params_version, bps_params_version, tau_params_version,
             rate_shrinkage_params_version=rate_shrinkage_params_version,
             rate_prior_params_version=rate_prior_params_version,
+            crowd_prior_params_version=crowd_prior_params_version,
             lookback_seasons=lookback_seasons_for(season),
             memo=bootstrap_memo,
         )
@@ -2038,6 +2044,7 @@ def run_season_simulation(
                     captain_risk_params_version=captain_risk_params_version,
                     rate_shrinkage_params_version=rate_shrinkage_params_version,
                     rate_prior_params_version=rate_prior_params_version,
+                    crowd_prior_params_version=crowd_prior_params_version,
                     multi_transfer_pool_limit_per_position=multi_transfer_pool,
                 )
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(

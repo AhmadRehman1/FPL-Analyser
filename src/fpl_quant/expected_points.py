@@ -1422,7 +1422,14 @@ def run(
     bps_calibration_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
+    crowd_prior_params_version: int | None = None,
+    crowd_deadline_gameweek: int | None = None,
 ) -> int:
+    # crowd_prior_params_version (opt-in, None = off): lever L1 of docs/plans/
+    # 2026-10_beat_the_template.md -- after every fixture is written, each player's crowd
+    # adjustment (residual_levers.crowd_adjustments) is added to ep_total, see _apply_crowd_prior().
+    # crowd_deadline_gameweek is the gameweek being planned (default target_gameweek): a planning
+    # horizon's later gameweeks pass the deadline's, so every one of them reads the same features.
     # conversion_params_version (opt-in, None = off): the pooled band conversion -- see
     # band_conversion_ratios().
     # rate_prior_params_version (None = off; live since 2026-10-07, every caller passes
@@ -1481,15 +1488,15 @@ def run(
              scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
              assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-             rate_prior_params_version, conversion_params_version, recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             rate_prior_params_version, conversion_params_version, crowd_prior_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version,
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
          assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-         rate_prior_params_version, conversion_params_version],
+         rate_prior_params_version, conversion_params_version, crowd_prior_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -1560,7 +1567,58 @@ def run(
                  r["ep_saves"], r["ep_penalty_save"], r["ep_cards"], r["ep_own_goal"], ep_total, r["expected_bps"]],
             )
 
+    if crowd_prior_params_version is not None:
+        _apply_crowd_prior(
+            con, model_version, target_season, crowd_prior_params_version,
+            target_gameweek if crowd_deadline_gameweek is None else crowd_deadline_gameweek, memo,
+        )
     return model_version
+
+
+def _apply_crowd_prior(con: duckdb.DuckDBPyConnection, model_version: int, target_season: str, version: int,
+                       deadline_gameweek: int, memo: dict | None = None) -> int:
+    """Adds each player's crowd adjustment for the deadline to this model version's ep_total, split
+    across a double gameweek's fixtures in proportion to their EP (equally when that is not
+    positive). A share never takes a fixture's EP below zero (or lower, when it is already below
+    zero): a cut bigger than the projection itself is floored there. The share applied goes into
+    ep_crowd_adj too, so ep_total - ep_crowd_adj is the projection before the lever. Returns the
+    number of players adjusted."""
+    from . import residual_levers
+
+    def build():
+        prior = residual_levers.resolve_crowd_prior(con, version)
+        return residual_levers.crowd_adjustments(
+            con, target_season, deadline_gameweek, prior["coeffs"], prior["clip"], prior["lag"],
+        )
+
+    key = ("crowd_adjustments", version, target_season, deadline_gameweek)
+    adjustments = build() if memo is None else _memo_get(memo, key, build)
+    if not adjustments:
+        return 0
+    rows = con.execute(
+        "SELECT player_uid, fixture_match_id, ep_total FROM ep_outputs WHERE model_version = ? ORDER BY player_uid, fixture_match_id",
+        [model_version],
+    ).fetchall()
+    by_player: dict[str, list[tuple[str, float]]] = {}
+    for uid, match_id, ep_total in rows:
+        if uid in adjustments:
+            by_player.setdefault(uid, []).append((match_id, ep_total))
+    shares = []
+    for uid, fixtures in by_player.items():
+        total = sum(max(ep, 0.0) for _, ep in fixtures)
+        for match_id, ep in fixtures:
+            share = adjustments[uid] * (max(ep, 0.0) / total if total > 0 else 1.0 / len(fixtures))
+            shares.append((uid, match_id, max(share, -max(ep, 0.0))))
+    con.execute("CREATE OR REPLACE TEMP TABLE _crowd_adj (player_uid VARCHAR, fixture_match_id VARCHAR, share DOUBLE)")
+    con.executemany("INSERT INTO _crowd_adj VALUES (?, ?, ?)", shares)
+    con.execute(
+        "UPDATE ep_outputs SET ep_total = ep_outputs.ep_total + a.share, ep_crowd_adj = a.share FROM _crowd_adj a "
+        "WHERE ep_outputs.model_version = ? AND ep_outputs.player_uid = a.player_uid "
+        "AND ep_outputs.fixture_match_id = a.fixture_match_id",
+        [model_version],
+    )
+    con.execute("DROP TABLE _crowd_adj")
+    return len(by_player)
 
 
 # ============================================================

@@ -89,6 +89,13 @@ Phase 3's cause measurements (docs/plans/2026-10_beat_the_template.md; arms, not
     --live-eo-anchor           the walk-forward solve with the live from-scratch solve's EO
                                template anchor (ownership_params v1, risk_posture_params v2)
 
+Lever L1, the crowd prior (docs/plans/2026-10_beat_the_template.md, Phase 5):
+    --crowd-prior 20261012     add each player's crowd adjustment (a ridge fit of the model's
+                               residuals on ownership percentile, log ownership and net-transfer
+                               percentile from row G-2) to his EP, from
+                               data/recalibration/crowd_prior_coeffs_20261012.json; each season is
+                               scored with the other season's fit
+
 Residual export (docs/plans/2026-10_beat_the_template.md, Req 12; not an experiment setting):
     --export-residuals         after the walk, write residual_features.csv (per player-gameweek:
                                realized points, the projection before any promoted lever, the
@@ -175,6 +182,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="weight on the newest season's minutes and returns in a player's rate pool")
     parser.add_argument("--rate-season-decay", type=float, default=None, metavar="DECAY",
                         help="weight of each earlier season relative to the one after it")
+    parser.add_argument("--crowd-prior", type=int, default=None, metavar="COEFF_DATE",
+                        help="lever L1: the crowd prior from data/recalibration/crowd_prior_coeffs_<COEFF_DATE>.json")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="stop before a step that would likely run past this many minutes")
     parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
@@ -297,6 +306,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         squad_optimizer.seed_template_anchor_params(con)  # run_ingestion.py seeds it; a cached DB may predate it
         out["solve_ownership_params_version"] = 1
         out["solve_risk_posture_params_version"] = 2
+    if getattr(args, "crowd_prior", None) is not None:
+        out["crowd_prior_params_version"] = residual_levers.crowd_prior_version(
+            con, args.crowd_prior, EXPERIMENT_EFFECTIVE_DATE,
+        )
     if getattr(args, "bps_tau", None) is not None:
         out["tau_params_version"] = params_mod.get_or_create_version(
             con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,
