@@ -368,6 +368,7 @@ def run_gameweek_step(
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
+    availability_lag: int = 1,
 ) -> dict | None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -408,7 +409,11 @@ def run_gameweek_step(
     squads inside this step's asof_scope() (template_squads()) and returns them for
     score_gameweek(); None otherwise. The model's own outputs are untouched either way.
     template_lag: the template reads rows up to gw G - template_lag (1, the latest before the
-    deadline; 2 is the plan's fallback if row G-1 isn't settled by G's deadline)."""
+    deadline; 2 is the plan's fallback if row G-1 isn't settled by G's deadline).
+
+    availability_lag (default 1, the prior behavior): the minutes model's FPL availability flag
+    reads rows up to gw G - availability_lag -- 2 measures what row G-1's flags are worth, the
+    plan's Phase 3 check on backtest optimism."""
     tier = tier_for(season, gameweek)
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
@@ -441,6 +446,7 @@ def run_gameweek_step(
             minutes_bounds_params_version=minutes_bounds_params_version,
             price_prior_params_version=minutes_price_prior_params_version,
             start_prior_params_version=minutes_start_prior_params_version,
+            availability_max_gw=None if availability_lag <= 1 else gameweek - availability_lag,
         )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
@@ -1309,6 +1315,7 @@ def run(
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
+    availability_lag: int = 1,
     seasons: tuple[str, ...] | None = None,
     stop_after_seconds: float | None = None,
     resume_backtest_run_id: int | None = None,
@@ -1351,7 +1358,8 @@ def run(
     behavior.
 
     template_baseline (opt-in): every step also builds and scores the availability-gated
-    ownership template (run_gameweek_step(), score_gameweek()); template_lag as there."""
+    ownership template (run_gameweek_step(), score_gameweek()); template_lag and availability_lag
+    as there."""
     if resume_backtest_run_id is not None and seasons is None:
         stored = con.execute("SELECT seasons FROM backtest_runs WHERE backtest_run_id = ?", [resume_backtest_run_id]).fetchone()
         if stored is None:
@@ -1420,7 +1428,7 @@ def run(
             team_strength_guard_params_version=team_strength_guard_params_version,
             rate_prior_params_version=rate_prior_params_version,
             conversion_params_version=conversion_params_version,
-            template_baseline=template_baseline, template_lag=template_lag,
+            template_baseline=template_baseline, template_lag=template_lag, availability_lag=availability_lag,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "

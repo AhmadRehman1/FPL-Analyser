@@ -227,3 +227,46 @@ the 2025-26 fit, and only 2026-27 uses the both-season fit.
 - **The evolving loss is small.** Paired over the same 37 GWs, the oracle model (59.87) beats
   the season sim (57.81) by E = +2.05 ± 2.07 pts/GW. That is below the plan's 3.0 trigger,
   so Phase 10 does not move earlier.
+
+## A2 and A3: diagnostic run 38267689849 (cached DB duckdb-38263007316)
+
+- **A3 holds.** `status`, `selected_by_percent`, `transfers_in_event`, `transfers_out_event` and
+  `now_cost` are non-null on 100% of rows in every gameweek of 2024-25 (27,657 rows) and 2025-26
+  (29,978 rows).
+- **A2 is inconclusive under the declared rule, so the crowd features and the template gate move
+  to row G−2.** In 2026-27, 4 finished GWs had a commit before the deadline:
+  - GW2 and GW4: row G−1 matched that snapshot on all four judged columns;
+  - GW3 and GW5: status matched for 98%, but `selected_by_percent` for only 76–78% and the
+    transfer counts for 0.3–16%.
+  - The same split shows in history: most weeks match 100%, while 2025-26 GW2–4, 9, 11, 24, 27
+    and 30 and 2024-25 GW34 and 37 don't. 2024-25 has no pre-deadline commit before GW20.
+- **What the mismatches can and can't tell us.** Row G−1's transfer counts accumulate until G's
+  deadline. A snapshot taken hours before the deadline differs from the final row without any
+  leak. But in those weeks the source also committed row G−1 again after the deadline, so the
+  final row may carry some post-deadline information. The git history can't separate the two.
+  As declared, the rule treats this as unknowable and uses G−2.
+- **The consequence for the existing model.** The minutes model's FPL availability flag
+  (`minutes_model.live_availability_by_player`) also reads the latest row before the deadline,
+  i.e. row G−1. Status matched 97.5–100% in every judged week, so at most a few percent of flags
+  could have moved after a deadline. Phase 3 measures what the flag is worth: its squad points
+  at row G−1 against row G−2.
+
+## Phase 3 measurement batch (declared 2026-10-12, before dispatch)
+
+These runs measure named causes in the oracle → live chain. They are not levers and don't count
+towards the caps. They run on this branch at the commit that adds the flags, back-to-back on one
+cached DB, with the G−2 template:
+
+| run | args | measures |
+|---|---|---|
+| control | `--template-lag 2 --export-residuals` | the G−2 template's T_s; residuals for L1/L2 (features from G−2) |
+| availability | `--template-lag 2 --availability-lag 2` | what row G−1's availability flag is worth (an upper bound on any leak through it) |
+| live EO anchor | `--template-lag 2 --live-eo-anchor` | the cost of the live-only EO template anchor (ownership v1, risk posture v2) |
+
+How each result is used:
+- **Availability.** If removing row G−1's flag costs more than 1.0 pt/GW with m + SE < 0, G3's
+  backtest pace is haircut by the measured m before any lever runs. The cause can't be fixed
+  live, where the flag is genuinely current.
+- **EO anchor.** The paired m enters the chain table as the live anchor's contribution.
+- **A9.** The master pair 38267875032 / 38267878143 (control and control_b, G−1 template) gives
+  the across-runner control noise.

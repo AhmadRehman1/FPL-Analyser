@@ -83,6 +83,12 @@ it never changes the model's own numbers.
     --template-lag 2           the template reads rows up to G-2, the plan's fallback if row G-1
                                isn't settled by G's deadline (A2)
 
+Phase 3's cause measurements (docs/plans/2026-10_beat_the_template.md; arms, not levers):
+    --availability-lag 2       the minutes model's FPL availability flag reads rows up to G-2:
+                               what row G-1 (not always settled by G's deadline, A2) is worth
+    --live-eo-anchor           the walk-forward solve with the live from-scratch solve's EO
+                               template anchor (ownership_params v1, risk_posture_params v2)
+
 Residual export (docs/plans/2026-10_beat_the_template.md, Req 12; not an experiment setting):
     --export-residuals         after the walk, write residual_features.csv (per player-gameweek:
                                realized points, the projection before any promoted lever, the
@@ -101,7 +107,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from fpl_quant import backtest, db, residual_levers  # noqa: E402
 from fpl_quant import expected_points as ep  # noqa: E402
 from fpl_quant import params as params_mod  # noqa: E402
-from fpl_quant import team_strength  # noqa: E402
+from fpl_quant import squad_optimizer, team_strength  # noqa: E402
 
 # Reuse run_backtest.py's own version-resolution verbatim -- the walk-forward must measure the
 # model against the same git-committed confirmed-seed versions every other script uses, not a
@@ -175,6 +181,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="carry on this backtest_run_id, walking only its steps not yet scored")
     parser.add_argument("--seasons", default=None,
                         help="comma-separated seasons to walk (default: both)")
+    parser.add_argument("--availability-lag", type=int, default=1, choices=(1, 2),
+                        help="the minutes model's availability flag reads rows up to gameweek G minus this")
+    parser.add_argument("--live-eo-anchor", action="store_true",
+                        help="solve with the live from-scratch solve's EO anchor (ownership v1, risk posture v2)")
     parser.add_argument("--no-template", action="store_true",
                         help="don't build the availability-gated ownership template at each step")
     parser.add_argument("--template-lag", type=int, default=1, choices=(1, 2),
@@ -281,6 +291,12 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         )
     elif no_anchor:
         out["rate_prior_params_version"] = None
+    if getattr(args, "availability_lag", 1) != 1:
+        out["availability_lag"] = args.availability_lag
+    if getattr(args, "live_eo_anchor", False):
+        squad_optimizer.seed_template_anchor_params(con)  # run_ingestion.py seeds it; a cached DB may predate it
+        out["solve_ownership_params_version"] = 1
+        out["solve_risk_posture_params_version"] = 2
     if getattr(args, "bps_tau", None) is not None:
         out["tau_params_version"] = params_mod.get_or_create_version(
             con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,

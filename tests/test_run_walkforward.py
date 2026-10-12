@@ -201,3 +201,14 @@ def test_export_residuals_is_not_an_experiment_setting(con):
     assert rw._parse_args(["--export-residuals", "out.csv"]).export_residuals == "out.csv"
     assert rw._parse_args([]).export_residuals is None
     assert rw._experiment_versions(con, args) == {}
+
+
+def test_phase3_measurement_flags_reach_the_run(con):
+    from fpl_quant import squad_optimizer as so
+
+    so.seed_v1_params(con)
+    out = rw._experiment_versions(con, rw._parse_args(["--availability-lag", "2", "--live-eo-anchor"]))
+    assert out == {"availability_lag": 2, "solve_ownership_params_version": 1, "solve_risk_posture_params_version": 2}
+    kappa, _ = rw.params_mod.resolve_param(con, "risk_posture_params", "eo_weight_kappa", 2)
+    assert kappa == 0.12
+    assert rw._experiment_versions(con, rw._parse_args([])) == {}

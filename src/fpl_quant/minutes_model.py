@@ -1042,7 +1042,9 @@ def log_preseason_involvement_claims(con: duckdb.DuckDBPyConnection, target_seas
     return n
 
 
-def live_availability_by_player(con: duckdb.DuckDBPyConnection, target_season: str) -> dict[str, float]:
+def live_availability_by_player(
+    con: duckdb.DuckDBPyConnection, target_season: str, max_gw: int | None = None,
+) -> dict[str, float]:
     """{player_uid: 0.0-1.0} forward-looking availability, from the FPL bootstrap's own
     chance_of_playing_next_round / status, taken from each player's latest ingested gameweek
     row. Only ever < 1.0 -- an explicit "doubtful / out" flag. A player absent from the dict
@@ -1057,15 +1059,19 @@ def live_availability_by_player(con: duckdb.DuckDBPyConnection, target_season: s
     sees rows from gameweeks before the one being simulated -- the flag as it was actually
     knowable then, no look-ahead. Before this, the minutes model had NO automatic injury
     signal at all: a currently-injured player with good history and no hand-entered
-    injury_status evidence claim was projected as a full starter."""
+    injury_status evidence claim was projected as a full starter.
+
+    max_gw (default None, every visible row): read only rows with gw <= max_gw. The backtest
+    passes G - 2 for docs/plans/2026-10_beat_the_template.md's availability-lag measurement:
+    row G - 1 is not always settled by G's deadline (A2)."""
     rows = con.execute(
         """
         SELECT player_uid, chance_of_playing_next_round, status
         FROM fact_player_season_stats
-        WHERE season = ?
+        WHERE season = ? AND gw <= ?
         QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
         """,
-        [target_season],
+        [target_season, 10_000 if max_gw is None else max_gw],
     ).fetchall()
     out: dict[str, float] = {}
     for player_uid, chance, status in rows:
@@ -1102,8 +1108,12 @@ def run(
     current_season_minutes_params_version: int | None = None,
     minutes_rates_scope_params_version: int | None = None,
     sub_rate_params_version: int | None = None,
+    availability_max_gw: int | None = None,
 ) -> int:
-    """lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
+    """availability_max_gw: passed to live_availability_by_player() (None, the default, reads
+    the latest row).
+
+    lookback_seasons (2026-09-15 fix -- real gap found live: a Spurs goalkeeper who has
     started every match this season projected at p_start_final=0.13, because target_season's
     OWN already-played matches never entered p_start_historical_own's computation at all --
     only the two complete PRIOR seasons did. Every real caller in this codebase (backtest.py's
@@ -1230,7 +1240,7 @@ def run(
                 con, "current_season_minutes_params", "starts_threshold", current_season_minutes_params_version,
             )
         current_conditional = compute_player_conditional_minutes_rates(con, (target_season,), league_only)
-    availability = live_availability_by_player(con, target_season)
+    availability = live_availability_by_player(con, target_season, max_gw=availability_max_gw)
     price_priors: dict[tuple[str, str], float] = {}
     prices: dict[str, float] = {}
     if price_prior_params_version is not None and start_prior_params_version is not None:

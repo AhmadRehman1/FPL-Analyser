@@ -234,3 +234,13 @@ def test_ruled_out_flag_keeps_the_floor_with_minutes_bounds(con):
     p0, p1, p60 = _probs(con, mv)
     f = mm.PLACEHOLDER_MINUTES_P_FLOOR
     assert abs(p0 - (1 - 2 * f)) < 1e-9 and abs(p1 - f) < 1e-9 and abs(p60 - f) < 1e-9
+
+
+def test_live_availability_can_read_only_rows_up_to_a_gameweek(con):
+    # docs/plans/2026-10_beat_the_template.md, the availability-lag measurement: row G-1 out,
+    # row G-2 fit -- reading up to G-2 must ignore the newer flag
+    con.execute("INSERT INTO dim_player (player_uid, canonical_name, position) VALUES ('late','L','F')")
+    _season_stat(con, "late", "2025-2026", 4, status="a", chance=100)
+    _season_stat(con, "late", "2025-2026", 5, status="i", chance=None)
+    assert mm.live_availability_by_player(con, "2025-2026") == {"late": 0.0}
+    assert mm.live_availability_by_player(con, "2025-2026", max_gw=4) == {}
