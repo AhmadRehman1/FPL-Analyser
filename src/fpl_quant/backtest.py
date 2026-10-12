@@ -367,6 +367,7 @@ def run_gameweek_step(
     rate_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
+    template_lag: int = 1,
 ) -> dict | None:
     """One walk-forward step. Inside asof_scope, calls the exact same M1-M6 entrypoints a live
     run calls, completely unmodified -- the shadow is what makes every one of those calls
@@ -405,7 +406,9 @@ def run_gameweek_step(
 
     template_baseline (opt-in, default off): also builds the gated and ungated ownership-template
     squads inside this step's asof_scope() (template_squads()) and returns them for
-    score_gameweek(); None otherwise. The model's own outputs are untouched either way."""
+    score_gameweek(); None otherwise. The model's own outputs are untouched either way.
+    template_lag: the template reads rows up to gw G - template_lag (1, the latest before the
+    deadline; 2 is the plan's fallback if row G-1 isn't settled by G's deadline)."""
     tier = tier_for(season, gameweek)
     deadline = gameweek_deadline(con, season, gameweek)
     if deadline is None:
@@ -487,7 +490,9 @@ def run_gameweek_step(
             guardrail_cap, _ = params_mod.resolve_param(
                 con, "squad_optimizer_guardrail_params", "xi_club_concentration_cap", guardrail_params_version,
             )
-            template = template_squads(con, season, guardrail_cap)
+            template = template_squads(
+                con, season, guardrail_cap, max_gw=None if template_lag <= 1 else gameweek - template_lag,
+            )
 
     con.execute(
         """
@@ -1302,6 +1307,7 @@ def run(
     rate_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
+    template_lag: int = 1,
     seasons: tuple[str, ...] | None = None,
     stop_after_seconds: float | None = None,
     resume_backtest_run_id: int | None = None,
@@ -1344,7 +1350,7 @@ def run(
     behavior.
 
     template_baseline (opt-in): every step also builds and scores the availability-gated
-    ownership template (run_gameweek_step(), score_gameweek())."""
+    ownership template (run_gameweek_step(), score_gameweek()); template_lag as there."""
     if resume_backtest_run_id is not None and seasons is None:
         stored = con.execute("SELECT seasons FROM backtest_runs WHERE backtest_run_id = ?", [resume_backtest_run_id]).fetchone()
         if stored is None:
@@ -1413,7 +1419,7 @@ def run(
             team_strength_guard_params_version=team_strength_guard_params_version,
             rate_prior_params_version=rate_prior_params_version,
             conversion_params_version=conversion_params_version,
-            template_baseline=template_baseline,
+            template_baseline=template_baseline, template_lag=template_lag,
         )
         ep_mv, mm_mv, ts_mv, so_run_id = con.execute(
             "SELECT ep_model_version, mm_model_version, ts_model_version, so_run_id FROM backtest_gameweek_steps "
@@ -2229,6 +2235,7 @@ def report_season_simulation_sensitivity(
 
 def _naive_candidate_pool(
     con: duckdb.DuckDBPyConnection, target_season: str, signal: str, lookback_gameweeks: int = 3,
+    max_gw: int | None = None,
 ) -> list[dict]:
     """A squad_optimizer.solve()-compatible candidate pool ({"player_uid","position","mu","var",
     "club","price"}) built from real, already-known data only -- NOT ep_outputs, no model
@@ -2249,33 +2256,37 @@ def _naive_candidate_pool(
     A player missing from the resulting mu map (no recent_points history yet, or no ownership
     data yet) is excluded from the pool entirely -- missing data is never treated as a
     fabricated 0, matching this project's discipline everywhere else.
+
+    max_gw (default None, every visible row): read only rows with gw <= max_gw -- the template
+    yardstick's G-2 fallback (docs/plans/2026-10_beat_the_template.md, A2).
     """
     if signal not in ("recent_points", "ownership"):
         raise ValueError(f"signal must be 'recent_points' or 'ownership', got {signal!r}")
+    gw_cap = 10_000 if max_gw is None else max_gw
 
     team_of = dict(con.execute(
         "SELECT DISTINCT player_uid, team_code FROM player_alias WHERE season = ?", [target_season],
     ).fetchall())
     positions = dict(con.execute("SELECT player_uid, position FROM dim_player").fetchall())
     prices = dict(con.execute(
-        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = ? AND now_cost IS NOT NULL "
+        "SELECT player_uid, now_cost FROM fact_player_season_stats WHERE season = ? AND gw <= ? AND now_cost IS NOT NULL "
         "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
-        [target_season],
+        [target_season, gw_cap],
     ).fetchall())
 
     if signal == "ownership":
         mu_by_uid = dict(con.execute(
             "SELECT player_uid, selected_by_percent FROM fact_player_season_stats "
-            "WHERE season = ? AND selected_by_percent IS NOT NULL "
+            "WHERE season = ? AND gw <= ? AND selected_by_percent IS NOT NULL "
             "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1",
-            [target_season],
+            [target_season, gw_cap],
         ).fetchall())
     else:
         rows = con.execute(
             "SELECT player_uid, event_points FROM fact_player_season_stats "
-            "WHERE season = ? AND event_points IS NOT NULL "
+            "WHERE season = ? AND gw <= ? AND event_points IS NOT NULL "
             "QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) <= ?",
-            [target_season, lookback_gameweeks],
+            [target_season, gw_cap, lookback_gameweeks],
         ).fetchall()
         by_player: dict[str, list[float]] = {}
         for player_uid, event_points in rows:
@@ -2419,7 +2430,7 @@ def beats_baseline(
             baseline_gameweeks["crowd"].append(gw)
 
     total_window_gameweeks = end_gameweek - start_gameweek + 1
-    summary = {"model": {"total_points": sum(model_weekly_points), "n_gameweeks": len(model_gameweeks)}}
+    summary: dict[str, dict] = {"model": {"total_points": sum(model_weekly_points), "n_gameweeks": len(model_gameweeks)}}
     for name, weekly in baseline_weekly.items():
         gws = baseline_gameweeks[name]
         comparable_model_total = sum(model_points_by_gw[gw] for gw in gws if gw in model_points_by_gw)
@@ -2449,20 +2460,20 @@ def beats_baseline(
 TEMPLATE_UNAVAILABLE_STATUSES = ("i", "s", "u", "n")
 
 
-def _unavailable_player_uids(con: duckdb.DuckDBPyConnection, target_season: str) -> set[str]:
+def _unavailable_player_uids(con: duckdb.DuckDBPyConnection, target_season: str, max_gw: int | None = None) -> set[str]:
     """Players whose latest target-season row has an unavailable status. Reads
     fact_player_season_stats by bare name, so inside asof_scope() for gameweek G that is the
-    latest row with gw <= G-1. A missing status never excludes a player: no data is not
-    "unavailable"."""
+    latest row with gw <= G-1 (or gw <= max_gw when given). A missing status never excludes a
+    player: no data is not "unavailable"."""
     placeholders = ",".join("?" * len(TEMPLATE_UNAVAILABLE_STATUSES))
     return {r[0] for r in con.execute(
         f"""
         SELECT player_uid FROM (
-            SELECT player_uid, status FROM fact_player_season_stats WHERE season = ?
+            SELECT player_uid, status FROM fact_player_season_stats WHERE season = ? AND gw <= ?
             QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
         ) WHERE lower(trim(status)) IN ({placeholders})
         """,
-        [target_season, *TEMPLATE_UNAVAILABLE_STATUSES],
+        [target_season, 10_000 if max_gw is None else max_gw, *TEMPLATE_UNAVAILABLE_STATUSES],
     ).fetchall()}
 
 
@@ -2477,17 +2488,21 @@ def _template_solve(pool: list[dict], guardrail_cap: float) -> dict | None:
     return result if result["status"] in ("optimal", "timelimit") else None
 
 
-def template_squads(con: duckdb.DuckDBPyConnection, target_season: str, guardrail_cap: float) -> dict:
+def template_squads(
+    con: duckdb.DuckDBPyConnection, target_season: str, guardrail_cap: float, max_gw: int | None = None,
+) -> dict:
     """The gated and ungated ownership-template squads for one gameweek. MUST be called inside
     the same asof_scope() as the model's own candidate pool (see _naive_candidate_pool).
+    max_gw: read only rows with gw <= max_gw (the G-2 fallback if row G-1 isn't knowable in
+    time, A2); None reads every row the scope shows, i.e. up to G-1.
 
     Returns {"gated": solve | None, "ungated": solve | None, "n_unavailable": int,
     "solve_seconds": float}. Each solve is squad_optimizer.solve()'s result dict: squad, xi,
     captain (the most-owned outfield XI player, since mu is ownership and the captain counts
     double), vice and bench_order."""
     started = time.monotonic()
-    pool = _naive_candidate_pool(con, target_season, "ownership")
-    unavailable = _unavailable_player_uids(con, target_season)
+    pool = _naive_candidate_pool(con, target_season, "ownership", max_gw=max_gw)
+    unavailable = _unavailable_player_uids(con, target_season, max_gw=max_gw)
     gated_pool = [c for c in pool if c["player_uid"] not in unavailable]
     return {
         "gated": _template_solve(gated_pool, guardrail_cap),
@@ -2518,7 +2533,7 @@ def _spend_by_band(xi: frozenset, price_of: dict[str, float]) -> dict[str, float
     spend = {band: 0.0 for band in ("<5.0", "5.0-7.0", "7.0-9.0", "9.0+")}
     for uid in xi:
         price = price_of.get(uid)
-        if price is not None:
+        if price is not None and not math.isnan(price):
             spend[_price_band(price)] += price
     return spend
 

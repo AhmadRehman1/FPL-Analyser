@@ -108,9 +108,17 @@ the 2025-26 fit, and only 2026-27 uses the both-season fit.
     players outside the template's picked XI.
   - Captain points are before doubling. EO for `ep_plus_eo` is the latest ownership before the
     deadline, spread as captaincy over the model's EP (`ownership.compute_eo_for_pool`).
-- **Rule R6 (Req 5, Req 9).** `compare_arms.py --rule r6` returns PASS, FAIL, BLOCKED (R6
-  passes, Req 9 blocks) or REPLICATE (|m − SE| ≤ 0.1; exit code 3). `--replicate c_b a_b`
-  judges the two runs' mean differences and mean MAEs.
+- **Rule R6 (Req 5, Req 9).** `compare_arms.py --rule r6` returns one of:
+  - REPLICATE (exit 3) whenever |m − SE| ≤ 0.1, before any other verdict;
+  - FAIL on points or MAE;
+  - BLOCKED when R6 passes but Req 9 blocks;
+  - PAUSE when mean overlap is ≥ 9/11 in either run;
+  - PASS.
+  It refuses summaries without the per-GW template rows Req 9 reads. `--replicate c_b a_b`
+  judges the two runs' mean differences and mean MAEs, and reports any squad-point difference
+  between the two controls as measured nondeterminism.
+- **Escape hatches.** `--no-template` skips the template (R6 then refuses the run), and
+  `--template-lag 2` makes it read rows up to G−2, the fallback if A2 is inconclusive.
 - **Residual export (Req 12).** `run_walkforward.py --export-residuals` writes
   `residual_features.csv`; `branch_walkforward.yml` uploads it as `residual-features`. The
   features come from `residual_levers.feature_rows()`, the one reader every harness will share.

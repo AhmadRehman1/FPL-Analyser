@@ -108,6 +108,18 @@ def test_doubtful_players_stay_in(con):
     assert "m1" in _templates(con)["gated"]["xi"]
 
 
+def test_template_lag_two_reads_only_rows_up_to_g_minus_2(con):
+    # suspended in row 2 only; at lag 2 the GW3 template reads row 1, where he was available
+    _seed_template_league(con, {("m1", 2): "s"})
+    con.execute("UPDATE fact_player_season_stats SET selected_by_percent = 1.0 WHERE player_uid = 'm2' AND gw = 2")
+    with bt.asof_scope(con, SEASON, 3):
+        lag2 = bt.template_squads(con, SEASON, guardrail_cap=3.0, max_gw=1)
+        lag1 = bt.template_squads(con, SEASON, guardrail_cap=3.0)
+    assert "m1" in lag2["gated"]["xi"] and lag2["n_unavailable"] == 0
+    assert "m2" in lag2["gated"]["xi"]  # row 1's 50%, not row 2's 1%
+    assert "m1" not in lag1["gated"]["squad"] and "m2" not in lag1["gated"]["xi"]  # benched at 1%
+
+
 def test_template_is_none_when_the_pool_cannot_fill_a_squad(con):
     # GW1: no row before the deadline, so no ownership to pick from
     _seed_template_league(con)
@@ -150,11 +162,12 @@ def test_walk_forward_records_the_template_every_scored_step(tmp_path):
 
     con = db.connect(tmp_path / "t.duckdb")
     _seed_owned_league(con)
-    run_id = bt.run(con, n_antithetic_pairs=200, run_monte_carlo=False, seasons=(SEASON,), ownership_params_version=1,
-                    template_baseline=True, **_WALK_KWARGS)
+    run_id = bt.run(con, n_antithetic_pairs=200, run_monte_carlo=False, ownership_params_version=1,
+                    template_baseline=True, **_WALK_KWARGS)  # both seasons
     by_step = _metrics(con, run_id)
     scored = [step for step, m in by_step.items() if "model_squad_realized_points" in m]
-    assert len(scored) > 2
+    assert {season for season, _gw in scored} == {"2024-2025", SEASON}
+    assert len(scored) > 4
     for step in scored:
         m = by_step[step]
         assert TEMPLATE_METRICS <= set(m), step
@@ -206,3 +219,55 @@ def test_the_scorer_counts_points_the_gap_overlap_and_non_template_points(con):
     assert m["model_captain_points"] == 2 and m["template_captain_points"] == 2
     assert m["template_xi_spend:price_band=5.0-7.0"] == pytest.approx(55.0)
     assert "captain_ep_plus_eo_points" not in m  # needs ownership params
+
+
+def _seed_ep(con, ep_by_uid, gameweek=3):
+    """An EP model version for GW3 with these ep_total values (2.0 for anyone not named)."""
+    con.execute(
+        "INSERT INTO team_strength_model_versions (calibration_asof_date, home_advantage, xi_params_version, "
+        "rho_params_version, reference_team_uid) VALUES ('2025-08-21', 0.2, 1, 1, 'team_a')"
+    )
+    con.execute(
+        "INSERT INTO minutes_model_versions (calibration_asof_date, target_season, decay_params_version, "
+        "adjustment_params_version, shrinkage_params_version, fact_multiplier_params_version, lookback_seasons) "
+        "VALUES ('2025-08-21', ?, 1, 1, 1, 1, '[]')", [SEASON],
+    )
+    con.execute(
+        "INSERT INTO ep_model_versions (calibration_asof_date, target_season, team_strength_model_version, "
+        "minutes_model_version, scoring_matrix_params_version, bps_params_version, bps_tau_params_version) "
+        "VALUES ('2025-08-21', ?, (SELECT max(model_version) FROM team_strength_model_versions), "
+        "(SELECT max(model_version) FROM minutes_model_versions), 1, 1, 1)", [SEASON],
+    )
+    ep_mv = con.execute("SELECT max(model_version) FROM ep_model_versions").fetchone()[0]
+    for uid in OWNERSHIP:
+        con.execute(
+            "INSERT INTO ep_outputs (model_version, player_uid, fixture_match_id, ep_appearance, ep_goals, ep_assists, "
+            "ep_clean_sheet, ep_goals_conceded, ep_defcon, ep_bonus, ep_saves, ep_penalty_save, ep_cards, ep_own_goal, "
+            "ep_total, expected_bps) VALUES (?, ?, ?, 2.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 20.0)",
+            [ep_mv, uid, f"m{gameweek}", ep_by_uid.get(uid, 2.0)],
+        )
+    return ep_mv
+
+
+def test_the_diagnostics_values_captain_counterfactual_spend_and_residuals(con):
+    _seed_template_league(con)
+    template = _templates(con)
+    # EP alone would captain f4 (6.0); with ownership, m1 (5.8 EP, 60% owned and the top
+    # midfielder, so EO 120) wins: 5.8 + 1.2 > 6.0 + 0.04
+    ep_mv = _seed_ep(con, {"f4": 6.0, "m1": 5.8})
+    con.execute("UPDATE fact_player_season_stats SET event_points = 12 WHERE player_uid = 'm1' AND gw = 3")
+    con.execute("UPDATE fact_player_season_stats SET event_points = 1 WHERE player_uid = 'f4' AND gw = 3")
+    bt.params_mod.write_param(con, "ownership_params", 1, "2026-08-10", "captaincy_concentration", value_numeric=0.3)
+    xi = frozenset({"g1", "d1", "d2", "d3", "m1", "m2", "m3", "m6", "f1", "f2", "f4"})
+    model = {"xi": xi, "captain": "f4", "contributions": {uid: 2.0 for uid in xi}}
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    bt._score_template_baseline(con, run_id, SEASON, 3, "warm", template, ep_mv, 1, model)
+    m = _metrics(con, run_id)[(SEASON, 3)]
+    assert m["captain_ep_plus_eo_points"] == 12
+    assert m["model_captain_points"] == 1 and m["template_captain_points"] == 12
+    assert m["model_xi_spend:price_band=5.0-7.0"] == pytest.approx(55.0)
+    assert m["model_xi_spend:price_band=9.0+"] == 0.0
+    # model XI: m1 12 - 5.8, f4 1 - 6.0, nine others 2 - 2
+    assert m["model_xi_resid"] == pytest.approx(((12 - 5.8) + (1 - 6.0)) / 11)
+    # template XI (g1 d1-d4 m1-m4 f1 f2): only m1 is off its projection
+    assert m["template_xi_resid"] == pytest.approx((12 - 5.8) / 11)

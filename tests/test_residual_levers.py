@@ -37,6 +37,15 @@ def test_feature_rows_rank_ownership_within_position_and_transfers_overall(con):
     assert f["d1"]["xfer_pct"] is None
 
 
+def test_xfer_pct_ranks_every_player_with_transfer_figures_owned_or_not(con):
+    _seed_template_league(con)
+    _set_transfers(con, 2, {"m1": 500.0, "f1": -300.0, "g1": 100.0})
+    con.execute("UPDATE fact_player_season_stats SET selected_by_percent = NULL WHERE player_uid = 'f1' AND gw = 2")
+    f = rl.feature_rows(con, SEASON, 3)
+    assert "f1" not in f  # no ownership, no feature row
+    assert (f["g1"]["xfer_pct"], f["m1"]["xfer_pct"]) == (0.5, 1.0)  # f1's -300 still ranks below them
+
+
 def test_feature_rows_never_read_row_g(con):
     # the leak test: changing row G's ownership doesn't change step G's features
     _seed_template_league(con)

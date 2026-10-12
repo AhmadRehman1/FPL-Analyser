@@ -54,15 +54,17 @@ def feature_rows(con: duckdb.DuckDBPyConnection, season: str, gameweek: int, lag
             SELECT s.player_uid, dp.position, s.selected_by_percent AS sbp,
                    s.transfers_in_event - s.transfers_out_event AS net_xfer
             FROM fact_player_season_stats s JOIN dim_player dp ON dp.player_uid = s.player_uid
-            WHERE s.season = ? AND s.gw = ? AND s.selected_by_percent IS NOT NULL
+            WHERE s.season = ? AND s.gw = ?
         ),
         x AS (
+            -- among every player in the row with both transfer figures, owned or not
             SELECT player_uid, percent_rank() OVER (ORDER BY net_xfer) AS xfer_pct
             FROM r WHERE net_xfer IS NOT NULL
-        )
-        SELECT r.player_uid, percent_rank() OVER (PARTITION BY r.position ORDER BY r.sbp) AS own_pct,
-               ln(1 + greatest(r.sbp, 0)) AS log_sbp, x.xfer_pct
-        FROM r LEFT JOIN x USING (player_uid)
+        ),
+        owned AS (SELECT * FROM r WHERE sbp IS NOT NULL)
+        SELECT owned.player_uid, percent_rank() OVER (PARTITION BY owned.position ORDER BY owned.sbp) AS own_pct,
+               ln(1 + greatest(owned.sbp, 0)) AS log_sbp, x.xfer_pct
+        FROM owned LEFT JOIN x USING (player_uid)
         """,
         [season, source_gw],
     ).fetchall()

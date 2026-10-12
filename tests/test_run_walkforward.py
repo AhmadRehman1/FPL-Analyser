@@ -187,6 +187,14 @@ def test_no_own_sub_rate_flag_turns_the_live_switch_off(con):
     assert rw._experiment_versions(con, rw._parse_args(["--no-own-sub-rate"])) == {"sub_rate_params_version": None}
 
 
+def test_template_flags_are_not_experiment_settings(con):
+    args = rw._parse_args(["--no-template", "--template-lag", "2"])
+    assert args.no_template and args.template_lag == 2
+    defaults = rw._parse_args([])
+    assert not defaults.no_template and defaults.template_lag == 1
+    assert rw._experiment_versions(con, args) == {}
+
+
 def test_export_residuals_is_not_an_experiment_setting(con):
     args = rw._parse_args(["--export-residuals"])
     assert args.export_residuals == "residual_features.csv"

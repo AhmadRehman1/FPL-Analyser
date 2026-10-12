@@ -419,18 +419,38 @@ def test_r6_req9_pauses_the_programme_at_nine_of_eleven():
     c = _r6_run(C_PRIOR, C_POINTS, overlap=8.5, non_template=7.0)
     out = ca.compare(c, arm, rule="r6")
     assert out["req9"]["pause_for_owner"] and not out["req9"]["blocks_promotion"]
+    assert out["verdict"] == "PAUSE"
     assert "PAUSE FOR OWNER REVIEW" in ca._fmt(out)
 
 
-def test_r6_without_template_rows_judges_points_and_says_req9_was_not_measured():
+def test_r6_pauses_when_the_control_itself_has_collapsed_into_the_template():
+    c = _r6_run(C_PRIOR, C_POINTS, overlap=9.2, non_template=5.0)
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0], overlap=8.0, non_template=9.0)
+    assert ca.compare(c, arm, rule="r6")["verdict"] == "PAUSE"
+
+
+def test_r6_refuses_summaries_without_the_template_rows_req9_reads():
     c, arm = _r6_run(C_PRIOR, C_POINTS), _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
-    for run in (c, arm):
-        for r in run["per_gameweek"]:
-            del r["template_xi_overlap"], r["non_template_points"]
-        del run["template"]
-    out = ca.compare(c, arm, rule="r6")
-    assert out["verdict"] == "PASS" and not out["req9"]["measured"]
-    assert "Req 9 not measured" in ca._fmt(out)
+    for r in c["per_gameweek"]:
+        del r["template_xi_overlap"], r["non_template_points"]
+    del c["template"]
+    with pytest.raises(ca.Refused, match="Req 9"):
+        ca.compare(c, arm, rule="r6")
+
+
+def test_r6_asks_for_a_replicate_before_an_mae_verdict():
+    # m - SE within 0.1 of zero and MAE just over the tolerance: the replicate's mean MAE decides
+    arm = _r6_run([50.1, 60.0, 55.1], [40.0, 70.1, 52.0], mae=1.0805)
+    assert ca.compare(_r6_run(C_PRIOR, C_POINTS), arm, rule="r6")["verdict"] == "REPLICATE"
+
+
+def test_r6_replicate_reports_drift_between_the_two_controls():
+    c = _r6_run(C_PRIOR, C_POINTS)
+    c_b = _r6_run(C_PRIOR, [40.0, 72.0, 52.0])  # one gameweek differs by 2
+    arm = _r6_run([52.0, 62.0, 57.0], [42.0, 73.0, 54.0])
+    out = ca.compare(c, arm, rule="r6", replicate=(c_b, arm))
+    assert out["control_drift"] == {"n": 6, "changed": 1, "mean": pytest.approx(2 / 6), "max_abs": 2.0}
+    assert "measured nondeterminism, up to 2.0 pts" in ca._fmt(out)
 
 
 def _drop_season_rows(run, season, keep):

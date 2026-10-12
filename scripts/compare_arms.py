@@ -39,10 +39,12 @@ DBs or seasons, an incomplete run, or a season with fewer than 2 paired gameweek
 both runs' gaps to the availability-gated and ungated ownership templates, XI overlap with the
 gated template, the change in points from outside it, the gameweeks the arm changed and the SE,
 and applies the plan's Req 9 guard: promotion is BLOCKED when mean overlap rises by >= 1 player a
-gameweek while the paired change in non-template points is <= 0, and mean overlap >= 9/11 pauses
-the programme for the owner. When |m - SE| <= 0.1 the verdict is REPLICATE: re-dispatch control
-and arm once on the same commit and pass them with --replicate, which judges R6 on the per-gameweek
-mean of the two runs' differences and the mean of their MAEs.
+gameweek while the paired change in non-template points is <= 0, and mean overlap >= 9/11 in
+either run is PAUSE, for the owner. It refuses summaries without the template rows Req 9 reads.
+When |m - SE| <= 0.1 the verdict is REPLICATE, before anything else: re-dispatch control and arm
+once on the same commit and pass them with --replicate, which judges R6 on the per-gameweek mean
+of the two runs' differences and the mean of their MAEs, and reports any difference between the
+two controls as measured nondeterminism.
 
 Refuses (exit 2) when any run is incomplete or they weren't made on the same cached DB.
 
@@ -53,7 +55,7 @@ Usage:
     python scripts/compare_arms.py control.json arm.json --rule confirm [--json]
     python scripts/compare_arms.py control.json arm.json --rule r6 [--replicate control_b.json arm_b.json] [--json]
 
-Exit codes: 0 PASS, 1 FAIL or BLOCKED, 2 refused, 3 REPLICATE (rule r6 only).
+Exit codes: 0 PASS, 1 FAIL, BLOCKED or PAUSE, 2 refused, 3 REPLICATE (rule r6 only).
 """
 
 import json
@@ -277,18 +279,28 @@ def _req9(pairs: list[tuple[dict, dict]]) -> dict:
     overlaps = [_paired_key(c, a, "template_xi_overlap") for c, a in pairs]
     non_template = [_paired_key(c, a, "non_template_points") for c, a in pairs]
     if any(o["mean"] is None for o in overlaps) or any(n["mean"] is None for n in non_template):
-        return {"measured": False, "blocks_promotion": False, "pause_for_owner": False,
-                "reason": "no per-gameweek template overlap in one of the runs (a summary from before the template yardstick)"}
+        # a promotion needs R6 and Req 9 both, so an unguarded comparison is no comparison
+        raise Refused("rule r6 needs per-gameweek template_xi_overlap and non_template_points in every run "
+                      "(Req 9): a summary from before the template yardstick can't be judged by it")
     rise = sum(o["mean"] for o in overlaps) / len(overlaps)
+    control_overlap = sum(o["control"] for o in overlaps) / len(overlaps)
     arm_overlap = sum(o["arm"] for o in overlaps) / len(overlaps)
     change = sum(n["mean"] for n in non_template) / len(non_template)
     return {
-        "measured": True,
-        "control_overlap": sum(o["control"] for o in overlaps) / len(overlaps), "arm_overlap": arm_overlap,
+        "control_overlap": control_overlap, "arm_overlap": arm_overlap,
         "overlap_rise": rise, "non_template_change": change, "non_template_change_se": non_template[0]["se"],
         "blocks_promotion": rise >= COLLAPSE_OVERLAP_RISE and change <= 0,
-        "pause_for_owner": arm_overlap >= PAUSE_OVERLAP,
+        "pause_for_owner": max(control_overlap, arm_overlap) >= PAUSE_OVERLAP,
     }
+
+
+def _control_drift(control: dict, control_b: dict) -> dict:
+    """The replicate's two controls, same commit and DB: any squad-point difference between them
+    is measured nondeterminism (the plan's replicate rule records it)."""
+    diffs = list(_squad_diffs(control, control_b).values())
+    changed = [d for d in diffs if abs(d) > 1e-9]
+    return {"n": len(diffs), "changed": len(changed), "mean": sum(diffs) / len(diffs) if diffs else None,
+            "max_abs": max((abs(d) for d in changed), default=0.0)}
 
 
 def _r6(control: dict, arm: dict, baseline: dict | None, replicate: tuple[dict, dict] | None) -> dict:
@@ -344,20 +356,23 @@ def _r6(control: dict, arm: dict, baseline: dict | None, replicate: tuple[dict, 
     }
 
     req9 = _req9(pairs)
+    # near the threshold, control and arm are re-run before ANY verdict: the replicate's mean
+    # MAE can land on the other side of the tolerance too
     replicate_required = replicate is None and abs(pts["m_minus_se"]) <= REPLICATE_BAND
-    if not checks["mae_by_season"]["pass"]:
-        verdict = "FAIL"
-    elif replicate_required:
+    if replicate_required:
         verdict = "REPLICATE"
-    elif not checks["points"]["pass"]:
+    elif not (checks["mae_by_season"]["pass"] and checks["points"]["pass"]):
         verdict = "FAIL"
     elif req9["blocks_promotion"]:
         verdict = "BLOCKED"
+    elif req9["pause_for_owner"]:
+        verdict = "PAUSE"
     else:
         verdict = "PASS"
     return {
         "verdict": verdict, "rule": "r6", "checks": checks, "req9": req9,
         "replicate_required": replicate_required, "replicated": replicate is not None,
+        "control_drift": _control_drift(control, replicate[0]) if replicate is not None else None,
         "template": {"control": _template_view(control), "arm": _template_view(arm)},
     }
 
@@ -432,15 +447,17 @@ def _fmt_r6(result: dict) -> str:
         else:
             lines.append(f"  {name:<7} template: not in this summary")
     r = result["req9"]
-    if not r["measured"]:
-        lines.append(f"  Req 9 not measured: {r['reason']}")
-    else:
-        state = "BLOCKS PROMOTION" if r["blocks_promotion"] else "ok"
-        se = "" if r["non_template_change_se"] is None else f" ± {r['non_template_change_se']:.2f}"
-        lines.append(f"  Req 9 {state}: overlap {r['control_overlap']:.2f} -> {r['arm_overlap']:.2f} ({r['overlap_rise']:+.2f}), "
-                     f"non-template points {r['non_template_change']:+.2f}{se} a gameweek")
-        if r["pause_for_owner"]:
-            lines.append(f"  PAUSE FOR OWNER REVIEW: mean overlap {r['arm_overlap']:.2f} >= {PAUSE_OVERLAP:.0f}/11")
+    state = "BLOCKS PROMOTION" if r["blocks_promotion"] else "ok"
+    se = "" if r["non_template_change_se"] is None else f" ± {r['non_template_change_se']:.2f}"
+    lines.append(f"  Req 9 {state}: overlap {r['control_overlap']:.2f} -> {r['arm_overlap']:.2f} ({r['overlap_rise']:+.2f}), "
+                 f"non-template points {r['non_template_change']:+.2f}{se} a gameweek")
+    if r["pause_for_owner"]:
+        lines.append(f"  PAUSE FOR OWNER REVIEW: mean overlap {max(r['control_overlap'], r['arm_overlap']):.2f} "
+                     f">= {PAUSE_OVERLAP:.0f}/11")
+    drift = result.get("control_drift")
+    if drift is not None:
+        lines.append(f"  controls: {drift['changed']} of {drift['n']} gameweeks differ between the two control runs"
+                     + (f" (measured nondeterminism, up to {drift['max_abs']:.1f} pts)" if drift["changed"] else ""))
     if result["replicate_required"]:
         lines.append(f"  replicate required: |m - SE| = {abs(p['m_minus_se']):.3f} <= {REPLICATE_BAND}; re-dispatch control "
                      "and arm on the same commit, then pass them with --replicate")

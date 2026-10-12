@@ -10,7 +10,8 @@ depth-1 clone, so its raw tables hold one snapshot and carry no history. The sou
 history does: for each finished gameweek G of a season, the last commit to that season's
 playerstats.csv before G's deadline is what a pipeline run at that moment ingested. Its gw = G-1
 rows are compared with HEAD's gw = G-1 rows, which are what the DB's fact_player_season_stats
-row G-1 holds now. A column "matches" for a player when both values are equal (numbers within
+row G-1 holds now (HEAD can be newer than the cached DB; a later edit to row G-1 can only lower
+the match, so that errs on the safe side). A column "matches" for a player when both values are equal (numbers within
 1e-9, both missing counts as equal). The deadline is the gameweek's earliest kickoff minus 90
 minutes.
 
@@ -79,15 +80,16 @@ def _playerstats_path(repo: Path, season: str) -> str | None:
     return None
 
 
-def _rows_for_gw(text: str, gw: int) -> dict[str, dict]:
-    out = {}
+def _rows_by_gw(text: str) -> dict[int, dict[str, dict]]:
+    """{gw: {player id: {column: value}}} from one playerstats.csv snapshot."""
+    out: dict[int, dict[str, dict]] = {}
     for row in csv.DictReader(io.StringIO(text)):
         try:
             row_gw = int(float(row.get("gw") or "nan"))
         except ValueError:
             continue
-        if row_gw == gw and row.get("id"):
-            out[row["id"]] = {col: row.get(col) for col in COLUMNS}
+        if row.get("id"):
+            out.setdefault(row_gw, {})[row["id"]] = {col: row.get(col) for col in COLUMNS}
     return out
 
 
@@ -119,7 +121,7 @@ def knowability(con, repo: Path, season: str) -> dict:
     rel = _playerstats_path(repo, season)
     if rel is None:
         return {"error": f"no playerstats.csv for {season} at HEAD"}
-    head = _git(repo, "show", f"HEAD:{rel}")
+    head = _rows_by_gw(_git(repo, "show", f"HEAD:{rel}"))
     finished = [gw for (gw,) in con.execute(
         "SELECT gameweek FROM fact_match WHERE season = ? AND competition = ? GROUP BY gameweek "
         "HAVING bool_and(coalesce(finished, FALSE)) ORDER BY gameweek",
@@ -139,9 +141,9 @@ def knowability(con, repo: Path, season: str) -> dict:
             gameweeks.append({**entry, "commit": None})
             continue
         sha, when = log
-        before = _rows_for_gw(_git(repo, "show", f"{sha}:{rel}"), gw - 1)
+        before = _rows_by_gw(_git(repo, "show", f"{sha}:{rel}")).get(gw - 1, {})
         gameweeks.append({**entry, "commit": sha[:12], "commit_time": when,
-                          **compare_snapshots(before, _rows_for_gw(head, gw - 1))})
+                          **compare_snapshots(before, head.get(gw - 1, {}))})
     judged = [g for g in gameweeks if g.get("commit") and g.get("n_players")]
     holds = len(judged) >= MIN_GAMEWEEKS and all(
         all(g["match_share"].get(col, 0) >= MATCH_SHARE for col in JUDGED) for g in judged

@@ -75,6 +75,14 @@ no summary):
     --resume RUN_ID            carry on that run in this DB, walking only its unscored steps
     --seasons 2025-2026        walk only these seasons (comma-separated)
 
+The template yardstick (docs/plans/2026-10_beat_the_template.md, Req 1; not an experiment setting):
+every run also builds the availability-gated ownership template at each step -- two extra
+linear SCIP solves a step, a few minutes a run, and its rows in backtest_metrics. Model-free:
+it never changes the model's own numbers.
+    --no-template              skip it (rule R6 then refuses the run)
+    --template-lag 2           the template reads rows up to G-2, the plan's fallback if row G-1
+                               isn't settled by G's deadline (A2)
+
 Residual export (docs/plans/2026-10_beat_the_template.md, Req 12; not an experiment setting):
     --export-residuals         after the walk, write residual_features.csv (per player-gameweek:
                                realized points, the projection before any promoted lever, the
@@ -167,6 +175,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="carry on this backtest_run_id, walking only its steps not yet scored")
     parser.add_argument("--seasons", default=None,
                         help="comma-separated seasons to walk (default: both)")
+    parser.add_argument("--no-template", action="store_true",
+                        help="don't build the availability-gated ownership template at each step")
+    parser.add_argument("--template-lag", type=int, default=1, choices=(1, 2),
+                        help="the template reads rows up to gameweek G minus this (default 1)")
     parser.add_argument("--export-residuals", nargs="?", const="residual_features.csv", default=None, metavar="PATH",
                         help="write the run's per player-gameweek residuals and crowd features as CSV "
                              "(default path residual_features.csv)")
@@ -308,7 +320,7 @@ def main(argv: list[str] | None = None) -> None:
         # the availability-gated ownership template, the yardstick rule R6's report reads
         # (docs/plans/2026-10_beat_the_template.md, Req 1): built inside each step's own asof
         # scope, model-free, so it never changes the model's numbers
-        template_baseline=True,
+        template_baseline=not args.no_template, template_lag=args.template_lag,
         **extra,
         # Fix D (captain weight 0) and Fix F (minutes floor 0.005) come in via _param_versions().
         notes="M7 walk-forward (ml_experiment.yml provisioning -- no recalibration)",
