@@ -32,8 +32,10 @@ def _control(gap_mean=1.0, gap_se=0.5):
 SIM = {"gameweeks": [2, 3, 4], "weekly_points": [60.0, 58.0, 70.0], "weekly_hits": [0.0, 4.0, 0.0],
        "weekly_real_avg": [50.0, 55.0, 60.0]}
 CUTOFFS = {"seasons": {"2024-2025": {"pace_per_gw": 64.0}, "2025-2026": {"pace_per_gw": 63.0}},
-           "current_season": {"by_gameweek": [{"gameweek": 2, "total_points": 130.0},
-                                              {"gameweek": 4, "total_points": 260.0}]}}
+           "current_season": {"by_gameweek": [{"gameweek": 1, "total_points": 80.0},
+                                              {"gameweek": 2, "total_points": 140.0},
+                                              {"gameweek": 3, "total_points": 210.0},
+                                              {"gameweek": 4, "total_points": 300.0}]}}
 
 
 def test_evolving_loss_pairs_the_oracle_with_the_sims_net_points():
@@ -99,9 +101,12 @@ def test_chain_lists_each_harness_with_its_cutoff():
     assert by[("gated template", "2025-2026")]["vs_cutoff"] == pytest.approx(58.0 - 63.0)
     assert by[("season sim control", "2025-2026")]["pts_per_gw"] == pytest.approx(184 / 3, abs=1e-3)
     assert by[("model (oracle)", "2026-2027")]["vs_fpl_average"] == pytest.approx(-1.0)
-    # the live team has settled GW2 only, so the cutoff's pace is taken at GW2, not GW4
-    assert by[("live team", "2026-2027")]["cutoff_pace"] == pytest.approx(65.0)
-    team["weeks"].append({"gameweek": 4, "realized_points": 50.0, "hit_cost": 0.0, "provisional": False})
+    # each 2026-27 row is set against the cutoff's pace over its own gameweeks: GW2 alone is
+    # 140 - 80 = 60, not GW1-2's 70 or GW1-4's 75
+    assert by[("live team", "2026-2027")]["cutoff_pace"] == pytest.approx(60.0)
+    assert by[("leaderboard sim", "2026-2027")]["vs_cutoff"] == pytest.approx(10.0)
+    team["weeks"] = [{"gameweek": gw, "realized_points": 60.0, "hit_cost": 0.0, "provisional": False,
+                      "field_average": 50} for gw in (1, 2, 3)]
     rows = btm.chain(_control(), SIM, SIM, leaderboard, team, CUTOFFS)
-    assert next(r for r in rows if r["row"] == "live team")["cutoff_pace"] == pytest.approx(65.0)
+    assert next(r for r in rows if r["row"] == "live team")["cutoff_pace"] == pytest.approx(70.0)  # GW1-3: 210 / 3
     assert by[("leaderboard sim", "2026-2027")]["pts_per_gw"] == 70.0

@@ -122,7 +122,7 @@ def chain(control: dict, sim: dict | None, sim_b: dict | None, leaderboard: dict
         mean = round(sum(pts) / len(pts), 3) if pts else None
         real_vals = [real[gw] for gw in points if real and real.get(gw) is not None]
         vs_real = round(mean - sum(real_vals) / len(real_vals), 3) if real_vals and len(real_vals) == len(pts) else None
-        cut = pace(season) if cutoff is None else cutoff
+        cut = pace(season) if cutoff is None else cutoff(points) if callable(cutoff) else cutoff
         return {"row": name, "season": season, "n_gameweeks": len(pts), "pts_per_gw": mean,
                 "vs_fpl_average": vs_real, "cutoff_pace": cut,
                 "vs_cutoff": None if mean is None or cut is None else round(mean - cut, 3)}
@@ -141,12 +141,19 @@ def chain(control: dict, sim: dict | None, sim_b: dict | None, leaderboard: dict
             rows.append(row(name, SIM_SEASON, season_sim_net(s), real))
     if leaderboard and leaderboard.get("status") == "ok":
         live_real = {w["gameweek"]: w.get("field_average") for w in (model_team or {}).get("weeks", [])}
-        settled = [w["gameweek"] for w in (model_team or {}).get("weeks", [])
-                   if not w.get("provisional") and w.get("realized_points") is not None]
-        by_gw = (((cutoffs or {}).get("current_season") or {}).get("by_gameweek")) or []
-        # the cutoff's pace up to the live team's last settled gameweek (a later, unfinished one is provisional)
-        usable = [g for g in by_gw if not settled or g["gameweek"] <= max(settled)]
-        live_cut = round(usable[-1]["total_points"] / usable[-1]["gameweek"], 3) if usable else None
+        cum = {g["gameweek"]: g["total_points"]
+               for g in (((cutoffs or {}).get("current_season") or {}).get("by_gameweek")) or []}
+
+        def live_cut(points: dict):
+            """The cutoff's pace over the row's own gameweeks: the cumulative cutoff's gain from the
+            gameweek before the row's first to its last (gameweek 0 is 0 points)."""
+            if not points:
+                return None
+            first, last = min(points), max(points)
+            start = 0.0 if first == 1 else cum.get(first - 1)
+            if last not in cum or start is None:
+                return None
+            return round((cum[last] - start) / (last - first + 1), 3)
         for r in leaderboard["rows"]:
             if r.get("kind") == "model_oracle" or not r.get("is_baseline"):
                 weekly = {int(gw): pts for gw, pts in (r.get("weekly_points") or {}).items()}
