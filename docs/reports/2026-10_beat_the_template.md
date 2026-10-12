@@ -1,10 +1,17 @@
 # Beat the template, then push toward a top-100k season
 
-Oct 12, 2026 · in progress: Phase 0 done; Phase 1 (the oracle yardstick, rule R6, the residual
-export) being built. Plan: `docs/plans/2026-10_beat_the_template.md`.
+Oct 12, 2026 · in progress. Phases 0–2 are built and merged (PR #262, 2dff696). Phase 1's
+control has run. Phase 3 is waiting on the A2/A3 diagnostic, the real cutoffs and a fresh
+leaderboard. Plan: `docs/plans/2026-10_beat_the_template.md`.
+
+**The headline so far.** Against a legal, availability-gated ownership template, the oracle
+model is ahead by **+7.30 ± 1.93 pts/GW** pooled over 74 GWs (2024-25 +9.11 ± 2.65, 2025-26
++5.49 ± 2.81). The plan's starting premise, that the model "only roughly matches the template",
+compared it with the synthetic EO crowd. That crowd is not a legal squad, and it sits far above
+FPL's real average.
 
 Work runs on branch `claude/new-session-11j6no`. The plan names `claude/beat-template`, but this
-session is bound to its own branch. Dispatches use that branch's ref.
+session is bound to its own branch. Dispatches use that branch's ref, or master after a merge.
 
 ## Rule R6 (agreed with the owner, before any result)
 
@@ -157,6 +164,66 @@ the 2025-26 fit, and only 2026-27 uses the both-season fit.
 - **A5 holds.** The unit test `test_template_captain_is_the_most_owned_outfield_xi_player`
   checks that the template captain is the most-owned outfield XI player, never a goalkeeper,
   even one owned by more managers than anyone else.
-- **Still to run after merge:** `diagnose_crowd_columns.yml` (A2, A3). A workflow must be on the
-  default branch before it can be dispatched. Also `rank_tracking.yml` (Req 4, A1), so its
-  commit goes to master and not to this branch.
+- **Dispatched after the merge (master, 2dff696):**
+
+| run | workflow | args | purpose |
+|---|---|---|---|
+| 38267689849 | `diagnose_crowd_columns.yml` | — | A2, A3 |
+| 38267694488 | `rank_tracking.yml` | — | Req 4: `top_100k_cutoff` (A1) |
+| 38267806962 | `weekly_backtest.yml` | — | Req 3's new rows, per-GW leaderboard rows (O) |
+| 38267875032 | `branch_walkforward.yml` | `--export-residuals` | the current control |
+| 38267878143 | `branch_walkforward.yml` | (none) | control_b, same DB: A9 |
+
+## Phase 1 results: control run 38228939128 (cached DB duckdb-38189062194, 75/75 steps)
+
+| per GW | pooled (74 GWs) | 2024-25 (37) | 2025-26 (37) |
+|---|---|---|---|
+| oracle model squad points | 61.64 | 63.41 | 59.87 |
+| gated template | 54.34 | 54.30 | 54.38 |
+| ungated template | 54.82 | 55.03 | 54.62 |
+| **model − gated template (m ± SE)** | **+7.30 ± 1.93** | +9.11 ± 2.65 | +5.49 ± 2.81 |
+| model − ungated template | +6.81 ± 1.98 | +8.38 ± 2.83 | +5.24 ± 2.79 |
+| XI overlap with the gated template | 3.53 / 11 | 3.68 | 3.38 |
+| points from outside the template XI | 36.2 | 36.7 | 35.7 |
+| model captain pts (before doubling) | 6.42 | 6.95 | 5.89 |
+| template captain pts (most-owned) | 5.89 | 6.87 | 4.92 |
+| `ep_plus_eo` captain − model captain | +0.08 ± 0.20 | +0.11 ± 0.36 | +0.05 ± 0.16 |
+| model XI realized − projected (per player) | −0.149 | −0.100 | −0.198 |
+| template XI realized − projected (model EP) | +0.040 | −0.135 | +0.215 |
+
+- **The gate made the template slightly worse, not better:** gated 54.34 against ungated
+  54.82, −0.49 a GW. The gate reads the last row before the deadline, so some players flagged
+  there were back by kickoff, and the next most-owned players who replaced them scored less.
+  The difference is within noise. The gated template stays the yardstick, as declared: it is the
+  squad a manager following the crowd could actually field.
+- **The model differs from the template far more than "matches the template" suggests:**
+  only 3.5 of its 11 starters are in the template XI, and 36 of its 62 points come from the other 7.5.
+- **Spend by band (pooled XIs, £m):** model 5.6 / 27.6 / 21.0 / 28.5 and template
+  3.8 / 28.6 / 22.6 / 27.7 (<5.0 / 5.0–7.0 / 7.0–9.0 / 9.0+). The two spread their budget
+  much the same way.
+- **The optimizer's curse is visible but small:** the model's XI scores 0.15 pts per player
+  below its projection, while the template XI scored under the same EP is +0.04.
+- **The template costs 58.5 s** of SCIP time over the run (two solves a step).
+- **A3 (provisional, from the residual export):** ownership and transfer features cover 99.4%
+  (2024-25) and 97.1% (2025-26) of projected player-GWs, so the transfer columns are populated
+  in both seasons. The diagnostic run gives the formal count.
+
+## Phase 2 results
+
+**The one-runner season sim, run 38229024307** (2025-26, GW2–38, `control: ; control_b:`):
+
+| arm | net pts/GW | FPL real avg | vs real avg | hits | transfers |
+|---|---|---|---|---|---|
+| control | 57.81 | 49.76 | +8.05 | 0 | 29 |
+| control_b | 57.81 | 49.76 | +8.05 | 0 | 29 |
+
+- **The noise floor on one runner is zero:** control_b − control is +0.00 ± 0.00 over 37 GWs,
+  with identical chips. The ±1.81/GW split seen earlier was between runners. Req 7's
+  `same_runner` removes it.
+- **A7 holds.** One continuous GW2–38 squad played BB GW3, WC GW5, TC GW6 and FH GW8 in the
+  first chip half, then FH GW20, BB GW21 and TC GW22 in the second. Each half's chips were played
+  inside that half. The second wildcard went unused: the planner's threshold was never met.
+  That is a planner choice for Phase 10, not a chip-accounting fault.
+- **The evolving loss is small.** Paired over the same 37 GWs, the oracle model (59.87) beats
+  the season sim (57.81) by E = +2.05 ± 2.07 pts/GW. That is below the plan's 3.0 trigger,
+  so Phase 10 does not move earlier.
