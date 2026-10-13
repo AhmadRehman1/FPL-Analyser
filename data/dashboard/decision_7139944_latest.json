@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
   "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-  "data_asof": "2026-10-12",
+  "data_asof": "2026-10-13",
   "downside_ci": [
-    7.61562559485294,
-    129.8424118790956
+    7.6886474807307135,
+    129.96209170237992
   ],
   "entry_id": 7139944,
-  "ep_lift": 6.686249548221486,
+  "ep_lift": 6.413113630326464,
   "gw": 7,
   "price_hint": {
     "confidence": 0.0,
@@ -18,13 +18,42 @@
     "player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva"
   },
   "provenance": {
-    "data_asof": "2026-10-12",
-    "model_version": "ep_v2/un_v2/plan_run3"
+    "data_asof": "2026-10-13",
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
-  "runner_up": null,
+  "runner_up": {
+    "action": "transfer_in:player_joao_pedro_junqueira_de_jesus->player_igor_thiago_nascimento_rodrigues",
+    "action_display": "Jo\u00e3o Pedro Junqueira de Jesus -> Igor Thiago Nascimento Rodrigues",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 6.139883269598535,
+    "provenance": {
+      "data_asof": "2026-10-13",
+      "model_version": "ep_v2/un_v2/plan_run5"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 6.139883269598535,
+        "in_name": "Igor Thiago Nascimento Rodrigues",
+        "in_player_uid": "player_igor_thiago_nascimento_rodrigues",
+        "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",
+        "out_player_uid": "player_joao_pedro_junqueira_de_jesus",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
   "sensitivity": [
     {
-      "delta_ep": 18.308967904037925,
+      "delta_ep": 18.58129629087843,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
       "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
@@ -33,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.686249548221486,
+      "delta_ep": 6.413113630326464,
       "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
       "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
       "out_name": "Lewis Hall",
