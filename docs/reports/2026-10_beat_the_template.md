@@ -486,3 +486,34 @@ fixes were applied in the next commit.
   `--template-lag 2 --no-goal-anchor --export-residuals` is dispatched. It is not an arm and does
   not count. If Z-goal is promoted, it is the new control's residual export that L1 is refitted
   from. If not, L1 is fitted from 38269659997's export.
+
+### PROMOTE: the season-sim check and the live switch for `--no-goal-anchor`
+
+- **Season-sim check 38312626413** (commit cb4b651, 2025-26 GW2–38, one runner, arms
+  `control: ; control_b: ; z_goal: --no-goal-anchor`). Net is gross XI points minus hits.
+
+  | arm | net pts/GW | vs FPL average | vs control (paired, 37 GWs) | hits | transfers | chips |
+  |---|---|---|---|---|---|---|
+  | control | 59.49 | +9.73 | — | 0 | 29 | GW5 WC, GW6 TC, GW8 FH, GW9 BB, GW20 FH, GW21 BB, GW22 TC |
+  | control_b | 59.49 | +9.73 | +0.00 ± 0.00 | 0 | 29 | the same |
+  | z_goal | 61.00 | +11.24 | **+1.51 ± 1.13** (21 better, 10 worse) | 0 | 29 | GW4 TC, GW5 WC, GW8 FH, GW12 BB, GW20 FH, GW21 BB, GW22 TC |
+
+  The declared rule is paired net points m ≥ 0: **+1.51, PASS**. The one-runner floor is exactly
+  0. The arm moves two chips (Triple Captain GW6 → GW4, Bench Boost GW9 → GW12).
+- **Live switch (Req 8), commit after this section:**
+  - `rate_prior_params` v2 = v1 with `anchor_goals` 0 (`expected_points.LIVE_RATE_PRIOR`), seeded
+    by `seed_rate_prior_params()`. That is called from `materialize_confirmed_seeds()` and
+    `run_ingestion.py`, as v1 was.
+  - The family was already in `RECALIBRATABLE_VERSION_ARGS`, and every call site already passes it
+    (the wiring test's `REQUIRED` lists include it). The active version moves to v2 through the
+    committed seed `data/recalibration/seeds_live_switches_2026-10-13.json`, which confirms every
+    bundle key at v2.
+  - The off switch is `--goal-anchor` in both scripts, which maps to v1 (the rate prior live until
+    2026-10-13). `--no-goal-anchor` alone is now the control.
+  - The wiring test, the flag tests and the full suite pass.
+- **What follows:** PR #263 merges once CI is green, then `scheduled_pipeline.yml` runs on master
+  with a projections before/after diff. The kill-switch clock (Phase 11) starts with that
+  pipeline's first live gameweek.
+- **The new control** is `--template-lag 2` on this commit or later (Z-goal live). Run 38312629527
+  (`--no-goal-anchor --export-residuals`, cached DB duckdb-38283940509) is its residual export,
+  and L1 is fitted from it.

@@ -113,4 +113,9 @@ def test_near_miss_rate_flags_match_the_walk_forwards(con):
     price, changed = arm.arm_versions(con, arm._parse_args(["--label", "x", "--no-rate-price-anchor"]))
     assert changed == {"rate_prior_params_version": None} and price["rate_prior_params_version"] is None
     control, _ = arm.arm_versions(con, arm._parse_args(["--label", "control"]))
-    assert control["rate_prior_params_version"] not in (None, goal["rate_prior_params_version"])
+    # --no-goal-anchor went live on 2026-10-13 (rate_prior_params v2): it is the control now, and
+    # --goal-anchor is its kill switch, the v1 rate prior from before
+    assert control["rate_prior_params_version"] == goal["rate_prior_params_version"] == 2
+    anchored, changed = arm.arm_versions(con, arm._parse_args(["--label", "x", "--goal-anchor"]))
+    assert changed == {"rate_prior_params_version": 1} and anchored["rate_prior_params_version"] == 1
+    assert rw._experiment_versions(con, rw._parse_args(["--goal-anchor"])) == {"rate_prior_params_version": 1}

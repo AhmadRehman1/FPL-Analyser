@@ -1125,11 +1125,10 @@ def test_goals_only_anchor_off_keeps_the_assist_anchor(con):
 
 
 def test_resolve_rate_prior_reads_anchor_goals_only_when_the_bundle_has_it(con):
-    v1 = params_mod.get_or_create_bundle_version(con, "rate_prior_params", ep.LIVE_RATE_PRIOR, "2026-10-07")
+    # v1 (live until 2026-10-13) has no anchor_goals key; the live v2 sets it to 0
+    v1 = params_mod.get_or_create_bundle_version(con, "rate_prior_params", ep.RATE_PRIOR_V1, "2026-10-07")
     assert "anchor_goals" not in ep.resolve_rate_prior(con, v1)
-    v2 = params_mod.get_or_create_bundle_version(
-        con, "rate_prior_params", {**ep.LIVE_RATE_PRIOR, "anchor_goals": 0.0}, "2026-10-11",
-    )
+    v2 = params_mod.get_or_create_bundle_version(con, "rate_prior_params", ep.LIVE_RATE_PRIOR, "2026-10-13")
     assert v2 != v1
     assert ep.resolve_rate_prior(con, v2) == {"price_anchor": True, "current_season_weight": 1.0,
                                               "season_decay": 1.0, "anchor_goals": False}

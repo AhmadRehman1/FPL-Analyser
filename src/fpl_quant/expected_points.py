@@ -344,23 +344,33 @@ def _memo_get(memo: dict | None, key: tuple, compute):
 #                          premium round found the anchor over-predicts premium goals (-0.27 a
 #                          player-gameweek at 9.0m+; -0.10 with no anchor) while assists stay short
 #                          (docs/reports/2026-10_premium_and_form_returns.md)
-# Live since 2026-10-07 as v1: the price anchor alone (docs/reports/2026-10_rate_prior.md). In the
+# Live from 2026-10-07 as v1: the price anchor alone (docs/reports/2026-10_rate_prior.md). In the
 # walk-forward it cut the EP error (2025-26 MAE 1.093 -> 1.083, the 9.0+ under-prediction +0.54 ->
 # +0.07) and kept the squad's points (+0.59 +/- 0.71 a gameweek against FPL's real average). The
 # recency weights stay opt-in: no calibration gain, and noisier points.
+# Live since 2026-10-13 as v2: the same with anchor_goals 0 (docs/reports/2026-10_beat_the_template.md,
+# Phase 4, lever Z): +0.82 +/- 0.66 squad points a gameweek over the 74 walk-forward gameweeks of
+# 2024-25 and 2025-26 (rule R6), EP MAE +0.007 / +0.006, and +1.51 +/- 1.13 net points a gameweek in
+# the 2025-26 season sim against a same-runner control.
 # ============================================================
 
 RATE_PRIOR_KEYS = ("price_anchor", "current_season_weight", "season_decay")
 # A position needs this much pooled history before it gets a price anchor (else the average).
 PRICE_ANCHOR_MIN_MINUTES = 5000.0
-# rate_prior_params v1, the live bundle.
-LIVE_RATE_PRIOR = {"price_anchor": 1.0, "current_season_weight": 1.0, "season_decay": 1.0}
+# rate_prior_params v1: the price anchor on goals and assists (live 2026-10-07 to 2026-10-13).
+RATE_PRIOR_V1 = {"price_anchor": 1.0, "current_season_weight": 1.0, "season_decay": 1.0}
+# rate_prior_params v2, the live bundle: goals unanchored, assists anchored. It is the active version
+# through data/recalibration/seeds_live_switches_2026-10-13.json.
+LIVE_RATE_PRIOR = {**RATE_PRIOR_V1, "anchor_goals": 0.0}
 
 
 def seed_rate_prior_params(con: duckdb.DuckDBPyConnection) -> None:
-    """rate_prior_params v1 = the live rate prior (run()'s rate_prior_params_version)."""
-    for key, value in LIVE_RATE_PRIOR.items():
+    """rate_prior_params v1 (the bundle before 2026-10-13, run_walkforward.py --goal-anchor) and v2
+    (the live rate prior), seeded before any walk-forward arm mints a version."""
+    for key, value in RATE_PRIOR_V1.items():
         params_mod.write_param(con, "rate_prior_params", 1, "2026-10-07", key, value_numeric=value)
+    for key, value in LIVE_RATE_PRIOR.items():
+        params_mod.write_param(con, "rate_prior_params", 2, "2026-10-13", key, value_numeric=value)
 
 
 def resolve_rate_prior(con: duckdb.DuckDBPyConnection, rate_prior_params_version: int | None) -> dict | None:

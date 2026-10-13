@@ -116,7 +116,7 @@ def main() -> None:
     minutes_model.seed_minutes_bounds_params(con)  # v1 = the live 0.005 floor (Fix F)
     minutes_model.seed_start_prior_params(con)  # v1 = the live evidence-order start prior (issue 4)
     team_strength.seed_team_strength_guard_params(con)  # v1 = the live team-strength guard
-    expected_points.seed_rate_prior_params(con)  # v1 = the live price-anchored rate prior
+    expected_points.seed_rate_prior_params(con)  # v2 = the live rate prior (goals unanchored), v1 before it
     minutes_model.seed_current_season_role_params(con)  # v1 = the live current-season start-rate blend
     minutes_model.seed_current_season_minutes_params(con)  # v1 = the live current-season P(60+) blend
     minutes_model.seed_sub_rate_params(con)  # v1 = each player's own substitute rate

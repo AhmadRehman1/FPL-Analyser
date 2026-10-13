@@ -188,8 +188,10 @@ def test_active_versions_resolve_to_the_live_values(con):
     assert floor == mm.PLACEHOLDER_MINUTES_P_FLOOR
     assert pseudo_matches == mm.PLACEHOLDER_START_PRIOR_PSEUDO_MATCHES == 5.0
     assert ts.resolve_guard_params(con, active[GUARD]) == ts.GUARD_RECOMMENDED == ts.GUARD_ARMS["fix-withheld"]
+    # rate_prior_params v2 since 2026-10-13: goals unanchored (lever Z)
+    assert active[PRIOR] == 2
     assert ep.resolve_rate_prior(con, active[PRIOR]) == {
-        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0,
+        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0, "anchor_goals": False,
     }
     matches, _ = params.resolve_param(con, "current_season_role_params", "current_season_matches_threshold", active[ROLE])
     starts, _ = params.resolve_param(con, "current_season_minutes_params", "starts_threshold", active[P60])

@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 from fpl_quant import params as params_mod
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -102,16 +104,16 @@ def test_rate_flags_change_the_live_rate_prior_bundle(con):
     ))
     assert set(out) == {"rate_prior_params_version"}
     assert ep.resolve_rate_prior(con, out["rate_prior_params_version"]) == {
-        "price_anchor": True, "current_season_weight": 2.0, "season_decay": 0.5,
+        "price_anchor": True, "current_season_weight": 2.0, "season_decay": 0.5, "anchor_goals": False,
     }
     # the recency knobs without the anchor
     no_anchor = rw._experiment_versions(con, rw._parse_args(["--no-rate-price-anchor", "--rate-season-decay", "0.5"]))
     assert ep.resolve_rate_prior(con, no_anchor["rate_prior_params_version"]) == {
-        "price_anchor": False, "current_season_weight": 1.0, "season_decay": 0.5,
+        "price_anchor": False, "current_season_weight": 1.0, "season_decay": 0.5, "anchor_goals": False,
     }
-    # the live bundle's own values find v1 rather than minting a copy
+    # the live bundle's own values find v2 (live since 2026-10-13) rather than minting a copy
     same = rw._experiment_versions(con, rw._parse_args(["--rate-current-season-weight", "1"]))
-    assert same == {"rate_prior_params_version": 1}
+    assert same == {"rate_prior_params_version": 2}
     # the model before the anchor went live, for comparisons
     assert rw._experiment_versions(con, rw._parse_args(["--no-rate-price-anchor"])) == {
         "rate_prior_params_version": None,
@@ -174,6 +176,25 @@ def test_no_goal_anchor_flag_mints_a_bundle_with_anchor_goals_off(con):
     assert rw._experiment_versions(con, rw._parse_args(["--no-goal-anchor", "--no-rate-price-anchor"])) == {
         "rate_prior_params_version": None,
     }
+
+
+def test_goal_anchor_flag_is_the_kill_switch_for_the_live_goals_only_anchor(con):
+    # lever Z went live on 2026-10-13 as rate_prior_params v2; --goal-anchor is its --no-<lever>
+    # switch (Req 8): exactly the v1 rate prior that was live before, goals anchored to price
+    rw.ep.seed_rate_prior_params(con)
+    active = rw.backtest.active_recalibratable_versions(rw.RECALIBRATION_SEED_DIR)
+    assert active["rate_prior_params_version"] == 2
+    assert rw.ep.resolve_rate_prior(con, 2)["anchor_goals"] is False
+    assert rw._experiment_versions(con, rw._parse_args(["--no-goal-anchor"])) == {"rate_prior_params_version": 2}
+    assert rw._experiment_versions(con, rw._parse_args(["--goal-anchor"])) == {"rate_prior_params_version": 1}
+    assert "anchor_goals" not in rw.ep.resolve_rate_prior(con, 1)  # goals anchored
+    # with a recency knob, the live bundle with the goals anchored
+    out = rw._experiment_versions(con, rw._parse_args(["--goal-anchor", "--rate-season-decay", "0.5"]))
+    assert rw.ep.resolve_rate_prior(con, out["rate_prior_params_version"]) == {
+        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 0.5, "anchor_goals": True,
+    }
+    with pytest.raises(SystemExit):
+        rw._parse_args(["--goal-anchor", "--no-goal-anchor"])
 
 
 def test_own_sub_rate_flag_maps_to_a_sub_rate_version(con):
