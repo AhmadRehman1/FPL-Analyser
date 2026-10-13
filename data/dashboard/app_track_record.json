@@ -534,15 +534,14 @@
   "parameters_backtested": 9,
   "parameters_still_invented": 53,
   "planner_decision_accuracy": {
-    "ready": false,
-    "n_realized": 6,
+    "ready": true,
+    "n_realized": 8,
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2,
-    "preliminary": true,
-    "mean_point_delta_if_followed": -0.17,
-    "total_point_delta_if_followed": -1,
-    "n_recommendation_would_have_scored_more": 4,
-    "n_actual_scored_more": 2,
+    "mean_point_delta_if_followed": -1.0,
+    "total_point_delta_if_followed": -8,
+    "n_recommendation_would_have_scored_more": 5,
+    "n_actual_scored_more": 3,
     "n_tied": 0,
     "by_gameweek": [
       {
@@ -592,10 +591,26 @@
         "actual": 52,
         "if_followed": 60,
         "delta": 8
+      },
+      {
+        "gameweek": 6,
+        "entry_id": 1305242,
+        "recommended_action": "transfer_now",
+        "actual": 60,
+        "if_followed": 63,
+        "delta": 3
+      },
+      {
+        "gameweek": 6,
+        "entry_id": 7139944,
+        "recommended_action": "transfer_now",
+        "actual": 52,
+        "if_followed": 42,
+        "delta": -10
       }
     ]
   },
-  "generated_at": "2026-10-13T13:53:02.078140",
+  "generated_at": "2026-10-13T22:09:33.724491",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 75,
@@ -827,55 +842,20 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 59.073987463346135,
+        "total_projected_ep": 59.07803410483983,
         "captain_name": "Bukayo Saka",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
     "latest_diff": {
-      "has_previous": true,
-      "previous_gameweek": 2,
-      "current_gameweek": 3,
-      "squad_changes": {
-        "in": [
-          "Igor Thiago Nascimento Rodrigues",
-          "Marcus Tavernier",
-          "Bukayo Saka",
-          "Riccardo Calafiori",
-          "Marc Gu\u00e9hi",
-          "Luke Woolfenden",
-          "Alex Palmer",
-          "Erling Haaland",
-          "Morgan Gibbs-White",
-          "Maxim De Cuyper",
-          "Nehemiah Oriola",
-          "Gianluigi Donnarumma",
-          "Gonzalo Garc\u00eda",
-          "Charlie Hughes"
-        ],
-        "out": [
-          "Nathan Collins",
-          "Yankuba Minteh",
-          "Ollie Watkins",
-          "Will Dennis",
-          "Mois\u00e9s Caicedo Corozo",
-          "Maxence Lacroix",
-          "Bernd Leno",
-          "William Osula",
-          "Elliot Anderson",
-          "Marcos Senesi Bar\u00f3n",
-          "Adrien Truffert",
-          "Ethan Ampadu",
-          "Igor Jesus Maciel da Cruz",
-          "Omar Alderete"
-        ]
-      },
-      "captain_changed": true,
-      "previous_captain": "Igor Jesus Maciel da Cruz",
-      "current_captain": "Erling Haaland",
-      "total_projected_ep_delta": 22.84756931312154,
-      "newly_doubtful_flags": []
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 1,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
     },
     "provenance": {
       "data_asof": "2026-10-13",
@@ -883,8 +863,8 @@
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "e322c25d5d0c0cdf84d8647887d3b40bac1caa66",
-      "fpl_core_insights_commit_sha": "097b3bde188162cb6001240d01b8c6b0d3d54b27",
+      "fpl_analyser_commit_sha": "9a7fc3d6c43e01afe26dbdda8df20a587dd3ea12",
+      "fpl_core_insights_commit_sha": "d5a6022f49c8568babf7bb69a659cd17cc227cb7",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -896,7 +876,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-10-13T13:35:49.298730+00:00",
+      "recorded_at": "2026-10-13T22:01:25.635360+00:00",
       "research_pull_workbook": {
         "sha256": "fe2582b0f3ab9a2fcae1197c72b028db137117879b77c3949248991e8bb950a2",
         "size_bytes": 26584
