@@ -517,3 +517,61 @@ fixes were applied in the next commit.
 - **The new control** is `--template-lag 2` on this commit or later (Z-goal live). Run 38312629527
   (`--no-goal-anchor --export-residuals`, cached DB duckdb-38283940509) is its residual export,
   and L1 is fitted from it.
+
+## Phase 5: lever L1, the crowd prior, batch L1 (declared 2026-10-13, before dispatch)
+
+- **Code:** `daedeee` (the build) and `f93743e` (critique round 1 fixes). The blind critic returned
+  PASS with no blockers. Its minor findings are fixed in `f93743e` except three, which are deferred:
+  - the live script is wired to the flag at PROMOTE (Req 8);
+  - the own-season adjustment column is added before Phase 6 needs it (stacked folds);
+  - a golden pre-change EP comparison is replaced by the zero-coefficient identity test plus the
+    existing EP suites.
+- **Coefficient file:** `data/recalibration/crowd_prior_coeffs_20261013.json`, committed with this
+  declaration.
+  - It was fitted by `scripts/fit_residual_lever.py` on the residual export of run 38312629527,
+    which is the new control (`--template-lag 2 --no-goal-anchor`, now live; cached DB
+    duckdb-38283940509). The export's sha256 is
+    `d714b8132d57786dc38ff6873d519f4bec1491e294b3dd201896b117b446a915`.
+  - Declared values: `ridge_alpha` 10 on standardized features, no intercept; `min_rows` 2,000;
+    clip ±1.5 pts/GW; features `own_pct`, `log_sbp`, `xfer_pct` from row G−2 (A2 failed).
+  - Folds: 2024-25 is scored with the 2025-26 fit, 2025-26 with the 2024-25 fit, and 2026-27 with
+    both.
+
+  | fold | n | β own_pct | β log_sbp | β xfer_pct |
+  |---|---|---|---|---|
+  | 2024-25 (scores 2025-26) | 25,675 | +0.075 | +0.038 | +0.067 |
+  | 2025-26 (scores 2024-25) | 27,882 | +0.070 | +0.022 | +0.126 |
+  | both (2026-27) | 53,557 | +0.072 | +0.031 | +0.098 |
+
+  β is in pts/GW per standard deviation of the feature.
+- **Out-of-fold check** (in the file): each season's player-gameweek residual MAE against the other
+  season's fit is 1.0394 → 1.0363 for 2024-25 and 1.0496 → 1.0423 for 2025-26. RMSE is
+  1.9563 → 1.9542 and 1.9436 → 1.9398.
+- **Deviation from the plan's text, disclosed: the zero floor.** An adjusted fixture EP never goes
+  below zero, or below itself when it is already negative.
+  - It was decided after the cross-fold check on the previous control's export (38269659997). There,
+    the unfloored adjustment left 21–24% of player-gameweeks with negative EP. Unfloored MAE was
+    1.0406 / 1.0528 and floored 1.0301 / 1.0395, against the control's 1.0328 / 1.0435. No other
+    variant was tried.
+  - On this export it binds on 21.9% / 26.3% of adjusted player-gameweeks. Unfloored MAE would be
+    1.0470 / 1.0577.
+  - The floor keeps an invariant the control already holds (EP ≥ 0). It binds only where a fixture's
+    EP is below the adjustment, which in practice means non-playing players.
+  - It gives the adjustment a small positive mean (+0.015 / +0.012 pts per player-gameweek).
+- **The Monte Carlo summary** (Triple Captain score, vice fallback) is shifted by the same
+  adjustment. Variance is unchanged.
+- **Arms** (one arm; both runs with `--template-lag 2`, both seasons), dispatched back-to-back on
+  this branch at the commit that adds this declaration, through `branch_walkforward.yml`:
+
+  | run | args |
+  |---|---|
+  | control | `--template-lag 2` |
+  | L1 | `--template-lag 2 --crowd-prior 20261013` |
+
+- **Rule:** R6 via `compare_arms.py control.json arm.json --rule r6`, with Req 9 and the replicate
+  rule. A run on a different DB re-dispatches both. The arm's log line `[crowd_prior]` must show
+  adjusted steps in both seasons, or the arm is not judged.
+- **On a PASS:** the season-sim check `control: ; control_b: ; l1: --crowd-prior 20261013`
+  (2025-26, chunk `2-38`, `same_runner`), then the live switch (Req 8), unless m < 0, which goes to
+  the owner.
+- **Arms used after this batch:** 3 of 10 (Z: 2, L1: 1).
