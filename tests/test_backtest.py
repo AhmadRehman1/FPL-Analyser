@@ -4027,8 +4027,10 @@ def test_materialize_confirmed_seeds_writes_the_active_version_idempotently(con)
     for arg in ("minutes_bounds_params_version", "minutes_start_prior_params_version"):
         family, key = bt.RECALIBRATABLE_VERSION_ARGS[arg]
         bt.params_mod.resolve_param(con, family, key, active[arg])
+    # rate_prior_params v2 since 2026-10-13 (lever Z: goals unanchored), confirmed by a committed seed
+    assert active["rate_prior_params_version"] == 2
     assert bt.ep.resolve_rate_prior(con, active["rate_prior_params_version"]) == {
-        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0,
+        "price_anchor": True, "current_season_weight": 1.0, "season_decay": 1.0, "anchor_goals": False,
     }
 
 
