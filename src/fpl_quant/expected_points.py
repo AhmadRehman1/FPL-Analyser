@@ -344,23 +344,33 @@ def _memo_get(memo: dict | None, key: tuple, compute):
 #                          premium round found the anchor over-predicts premium goals (-0.27 a
 #                          player-gameweek at 9.0m+; -0.10 with no anchor) while assists stay short
 #                          (docs/reports/2026-10_premium_and_form_returns.md)
-# Live since 2026-10-07 as v1: the price anchor alone (docs/reports/2026-10_rate_prior.md). In the
+# Live from 2026-10-07 as v1: the price anchor alone (docs/reports/2026-10_rate_prior.md). In the
 # walk-forward it cut the EP error (2025-26 MAE 1.093 -> 1.083, the 9.0+ under-prediction +0.54 ->
 # +0.07) and kept the squad's points (+0.59 +/- 0.71 a gameweek against FPL's real average). The
 # recency weights stay opt-in: no calibration gain, and noisier points.
+# Live since 2026-10-13 as v2: the same with anchor_goals 0 (docs/reports/2026-10_beat_the_template.md,
+# Phase 4, lever Z): +0.82 +/- 0.66 squad points a gameweek over the 74 walk-forward gameweeks of
+# 2024-25 and 2025-26 (rule R6), EP MAE +0.007 / +0.006, and +1.51 +/- 1.13 net points a gameweek in
+# the 2025-26 season sim against a same-runner control.
 # ============================================================
 
 RATE_PRIOR_KEYS = ("price_anchor", "current_season_weight", "season_decay")
 # A position needs this much pooled history before it gets a price anchor (else the average).
 PRICE_ANCHOR_MIN_MINUTES = 5000.0
-# rate_prior_params v1, the live bundle.
-LIVE_RATE_PRIOR = {"price_anchor": 1.0, "current_season_weight": 1.0, "season_decay": 1.0}
+# rate_prior_params v1: the price anchor on goals and assists (live 2026-10-07 to 2026-10-13).
+RATE_PRIOR_V1 = {"price_anchor": 1.0, "current_season_weight": 1.0, "season_decay": 1.0}
+# rate_prior_params v2, the live bundle: goals unanchored, assists anchored. It is the active version
+# through data/recalibration/seeds_live_switches_2026-10-13.json.
+LIVE_RATE_PRIOR = {**RATE_PRIOR_V1, "anchor_goals": 0.0}
 
 
 def seed_rate_prior_params(con: duckdb.DuckDBPyConnection) -> None:
-    """rate_prior_params v1 = the live rate prior (run()'s rate_prior_params_version)."""
-    for key, value in LIVE_RATE_PRIOR.items():
+    """rate_prior_params v1 (the bundle before 2026-10-13, run_walkforward.py --goal-anchor) and v2
+    (the live rate prior), seeded before any walk-forward arm mints a version."""
+    for key, value in RATE_PRIOR_V1.items():
         params_mod.write_param(con, "rate_prior_params", 1, "2026-10-07", key, value_numeric=value)
+    for key, value in LIVE_RATE_PRIOR.items():
+        params_mod.write_param(con, "rate_prior_params", 2, "2026-10-13", key, value_numeric=value)
 
 
 def resolve_rate_prior(con: duckdb.DuckDBPyConnection, rate_prior_params_version: int | None) -> dict | None:
@@ -1422,7 +1432,14 @@ def run(
     bps_calibration_params_version: int | None = None,
     rate_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
+    crowd_prior_params_version: int | None = None,
+    crowd_deadline_gameweek: int | None = None,
 ) -> int:
+    # crowd_prior_params_version (opt-in, None = off): lever L1 of docs/plans/
+    # 2026-10_beat_the_template.md -- after every fixture is written, each player's crowd
+    # adjustment (residual_levers.crowd_adjustments) is added to ep_total, see _apply_crowd_prior().
+    # crowd_deadline_gameweek is the gameweek being planned (default target_gameweek): a planning
+    # horizon's later gameweeks pass the deadline's, so every one of them reads the same features.
     # conversion_params_version (opt-in, None = off): the pooled band conversion -- see
     # band_conversion_ratios().
     # rate_prior_params_version (None = off; live since 2026-10-07, every caller passes
@@ -1481,15 +1498,15 @@ def run(
              scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
              assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-             rate_prior_params_version, conversion_params_version, recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             rate_prior_params_version, conversion_params_version, crowd_prior_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version,
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
          assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-         rate_prior_params_version, conversion_params_version],
+         rate_prior_params_version, conversion_params_version, crowd_prior_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -1560,7 +1577,60 @@ def run(
                  r["ep_saves"], r["ep_penalty_save"], r["ep_cards"], r["ep_own_goal"], ep_total, r["expected_bps"]],
             )
 
+    if crowd_prior_params_version is not None:
+        _apply_crowd_prior(
+            con, model_version, target_season, crowd_prior_params_version,
+            target_gameweek if crowd_deadline_gameweek is None else crowd_deadline_gameweek, memo,
+        )
     return model_version
+
+
+def _apply_crowd_prior(con: duckdb.DuckDBPyConnection, model_version: int, target_season: str, version: int,
+                       deadline_gameweek: int, memo: dict | None = None) -> int:
+    """Adds each player's crowd adjustment for the deadline to this model version's ep_total, split
+    across a double gameweek's fixtures in proportion to their EP (equally when that is not
+    positive). A share never takes a fixture's EP below zero (or lower, when it is already below
+    zero): a cut bigger than the projection itself is floored there. The share applied goes into
+    ep_crowd_adj too, so ep_total - ep_crowd_adj is the projection before the lever. Returns the
+    number of players adjusted."""
+    from . import residual_levers
+
+    def build():
+        prior = residual_levers.resolve_crowd_prior(con, version)
+        return residual_levers.crowd_adjustments(
+            con, target_season, deadline_gameweek, prior["coeffs"], prior["clip"], prior["lag"],
+        )
+
+    key = ("crowd_adjustments", version, target_season, deadline_gameweek)
+    adjustments = build() if memo is None else _memo_get(memo, key, build)
+    if not adjustments:
+        return 0
+    rows = con.execute(
+        "SELECT player_uid, fixture_match_id, ep_total FROM ep_outputs WHERE model_version = ? ORDER BY player_uid, fixture_match_id",
+        [model_version],
+    ).fetchall()
+    by_player: dict[str, list[tuple[str, float]]] = {}
+    for uid, match_id, ep_total in rows:
+        if uid in adjustments:
+            by_player.setdefault(uid, []).append((match_id, ep_total))
+    shares = []
+    for uid, fixtures in by_player.items():
+        total = sum(max(ep, 0.0) for _, ep in fixtures)
+        for match_id, ep in fixtures:
+            share = adjustments[uid] * (max(ep, 0.0) / total if total > 0 else 1.0 / len(fixtures))
+            shares.append((uid, match_id, max(share, -max(ep, 0.0))))
+    if not shares:
+        return 0
+    con.execute("CREATE OR REPLACE TEMP TABLE _crowd_adj (player_uid VARCHAR, fixture_match_id VARCHAR, share DOUBLE)")
+    con.executemany("INSERT INTO _crowd_adj VALUES (?, ?, ?)", shares)
+    con.execute(
+        "UPDATE ep_outputs SET ep_total = ep_outputs.ep_total + a.share, ep_crowd_adj = a.share FROM _crowd_adj a "
+        "WHERE ep_outputs.model_version = ? AND ep_outputs.player_uid = a.player_uid "
+        "AND ep_outputs.fixture_match_id = a.fixture_match_id",
+        [model_version],
+    )
+    con.execute("DROP TABLE _crowd_adj")
+    return len(by_player)
 
 
 # ============================================================

@@ -1,0 +1,71 @@
+{
+  "backtest_run_id": null,
+  "note": "Hand-authored, same shape as backtest.write_recalibration_seed_file()'s output. Lever Z of docs/plans/2026-10_beat_the_template.md: rate_prior_params v2 (expected_points.LIVE_RATE_PRIOR, seeded by expected_points.seed_rate_prior_params) is the live rate prior from 2026-10-13 -- v1 with anchor_goals 0, so goals shrink toward the position average while assists keep the price anchor. Evidence (docs/reports/2026-10_beat_the_template.md, Phase 4): walk-forward 38275613712 against control 38275606306, +0.824 +/- 0.655 squad points a gameweek over the 74 gameweeks of 2024-25 and 2025-26 (rule R6 PASS, m - SE +0.169), EP MAE +0.0068 / +0.0063; season-sim check 38312626413 on 2025-26 GW2-38, one runner, +1.51 +/- 1.13 net points a gameweek against control (control_b +0.00 +/- 0.00). Every rate_prior_params key is listed at v2 so resolve_active_version() finds the whole bundle confirmed. run_walkforward.py / run_season_sim_arm.py --goal-anchor restore v1.",
+  "written_at": "2026-10-13T00:00:00+00:00",
+  "proposals": [
+    {
+      "proposal_id": null,
+      "param_family": "rate_prior_params",
+      "param_key": "price_anchor",
+      "dimensions": null,
+      "old_params_version": 1,
+      "new_params_version": 2,
+      "old_value": 1.0,
+      "new_value": 1.0,
+      "metric_name": "model_squad_realized_points",
+      "metric_before": null,
+      "metric_after": null,
+      "status": "confirmed",
+      "reviewed_by": "walk-forward arm --no-goal-anchor (batch Z1, rule R6) and season-sim check 38312626413",
+      "reviewed_at": null
+    },
+    {
+      "proposal_id": null,
+      "param_family": "rate_prior_params",
+      "param_key": "current_season_weight",
+      "dimensions": null,
+      "old_params_version": 1,
+      "new_params_version": 2,
+      "old_value": 1.0,
+      "new_value": 1.0,
+      "metric_name": "model_squad_realized_points",
+      "metric_before": null,
+      "metric_after": null,
+      "status": "confirmed",
+      "reviewed_by": "walk-forward arm --no-goal-anchor (batch Z1, rule R6) and season-sim check 38312626413",
+      "reviewed_at": null
+    },
+    {
+      "proposal_id": null,
+      "param_family": "rate_prior_params",
+      "param_key": "season_decay",
+      "dimensions": null,
+      "old_params_version": 1,
+      "new_params_version": 2,
+      "old_value": 1.0,
+      "new_value": 1.0,
+      "metric_name": "model_squad_realized_points",
+      "metric_before": null,
+      "metric_after": null,
+      "status": "confirmed",
+      "reviewed_by": "walk-forward arm --no-goal-anchor (batch Z1, rule R6) and season-sim check 38312626413",
+      "reviewed_at": null
+    },
+    {
+      "proposal_id": null,
+      "param_family": "rate_prior_params",
+      "param_key": "anchor_goals",
+      "dimensions": null,
+      "old_params_version": 1,
+      "new_params_version": 2,
+      "old_value": 1.0,
+      "new_value": 0.0,
+      "metric_name": "model_squad_realized_points",
+      "metric_before": null,
+      "metric_after": null,
+      "status": "confirmed",
+      "reviewed_by": "walk-forward arm --no-goal-anchor (batch Z1, rule R6) and season-sim check 38312626413",
+      "reviewed_at": null
+    }
+  ]
+}

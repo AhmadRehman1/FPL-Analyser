@@ -95,3 +95,27 @@ def test_chip_option_value_flag_uses_chip_wait_v2_with_the_wide_window(con):
     assert set(changed) == {
         "chip_wait_params_version", "triple_captain_timing_params_version", "bench_boost_timing_params_version",
     }
+
+
+def test_near_miss_rate_flags_match_the_walk_forwards(con):
+    """Lever Z (docs/plans/2026-10_beat_the_template.md): the season sim takes the walk-forward's
+    two near-miss flags and maps them to the same rate-prior version."""
+    import run_walkforward as rw
+
+    from fpl_quant import expected_points as ep
+
+    ep.seed_rate_prior_params(con)
+    goal, changed = arm.arm_versions(con, arm._parse_args(["--label", "x", "--no-goal-anchor"]))
+    assert set(changed) == {"rate_prior_params_version"}
+    assert ep.resolve_rate_prior(con, goal["rate_prior_params_version"])["anchor_goals"] is False
+    walk = rw._experiment_versions(con, rw._parse_args(["--no-goal-anchor"]))
+    assert goal["rate_prior_params_version"] == walk["rate_prior_params_version"]
+    price, changed = arm.arm_versions(con, arm._parse_args(["--label", "x", "--no-rate-price-anchor"]))
+    assert changed == {"rate_prior_params_version": None} and price["rate_prior_params_version"] is None
+    control, _ = arm.arm_versions(con, arm._parse_args(["--label", "control"]))
+    # --no-goal-anchor went live on 2026-10-13 (rate_prior_params v2): it is the control now, and
+    # --goal-anchor is its kill switch, the v1 rate prior from before
+    assert control["rate_prior_params_version"] == goal["rate_prior_params_version"] == 2
+    anchored, changed = arm.arm_versions(con, arm._parse_args(["--label", "x", "--goal-anchor"]))
+    assert changed == {"rate_prior_params_version": 1} and anchored["rate_prior_params_version"] == 1
+    assert rw._experiment_versions(con, rw._parse_args(["--goal-anchor"])) == {"rate_prior_params_version": 1}

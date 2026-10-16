@@ -271,3 +271,21 @@ def test_the_diagnostics_values_captain_counterfactual_spend_and_residuals(con):
     assert m["model_xi_resid"] == pytest.approx(((12 - 5.8) + (1 - 6.0)) / 11)
     # template XI (g1 d1-d4 m1-m4 f1 f2): only m1 is off its projection
     assert m["template_xi_resid"] == pytest.approx((12 - 5.8) / 11)
+
+
+def test_availability_lag_reaches_the_minutes_model(con, monkeypatch):
+    # Phase 3's availability measurement: lag 2 reads the flag up to G-2; the default reads all
+    _seed_owned_league(con)
+    seen = []
+    real_fn = bt.minutes_model.run
+
+    def _spy(*args, **kwargs):
+        seen.append(kwargs.get("availability_max_gw"))
+        return real_fn(*args, **kwargs)
+
+    monkeypatch.setattr(bt.minutes_model, "run", _spy)
+    run_id = con.execute("INSERT INTO backtest_runs (warm_up_gameweeks) VALUES (0) RETURNING backtest_run_id").fetchone()[0]
+    versions = {k: v for k, v in _WALK_KWARGS.items()}
+    bt.run_gameweek_step(con, run_id, SEASON, 4, n_antithetic_pairs=200, run_monte_carlo=False, availability_lag=2, **versions)
+    bt.run_gameweek_step(con, run_id, SEASON, 5, n_antithetic_pairs=200, run_monte_carlo=False, **versions)
+    assert seen == [2, None]
