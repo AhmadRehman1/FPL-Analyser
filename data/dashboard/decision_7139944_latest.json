@@ -3,11 +3,11 @@
   "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
   "data_asof": "2026-10-16",
   "downside_ci": [
-    7.677519101481598,
-    129.91639350226058
+    7.689219538281002,
+    129.9696323546007
   ],
   "entry_id": 7139944,
-  "ep_lift": 6.353536303194382,
+  "ep_lift": 6.352647387904435,
   "gw": 7,
   "price_hint": {
     "confidence": 0.0,
@@ -19,7 +19,7 @@
   },
   "provenance": {
     "data_asof": "2026-10-16",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": {
     "action": "transfer_in:player_joao_pedro_junqueira_de_jesus->player_igor_thiago_nascimento_rodrigues",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 6.153258556621875,
+    "ep_lift": 6.170246755329995,
     "provenance": {
       "data_asof": "2026-10-16",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "model_version": "ep_v2/un_v2/plan_run3"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 6.153258556621875,
+        "delta_ep": 6.170246755329995,
         "in_name": "Igor Thiago Nascimento Rodrigues",
         "in_player_uid": "player_igor_thiago_nascimento_rodrigues",
         "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 18.632386563482367,
+      "delta_ep": 18.67261952491463,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
       "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.353536303194382,
+      "delta_ep": 6.352647387904435,
       "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
       "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
       "out_name": "Lewis Hall",
