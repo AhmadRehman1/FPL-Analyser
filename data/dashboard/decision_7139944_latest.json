@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
   "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-  "data_asof": "2026-10-15",
+  "data_asof": "2026-10-16",
   "downside_ci": [
-    7.6790989160902985,
-    129.92293095182166
+    7.677519101481598,
+    129.91639350226058
   ],
   "entry_id": 7139944,
-  "ep_lift": 6.3707519174822345,
+  "ep_lift": 6.353536303194382,
   "gw": 7,
   "price_hint": {
     "confidence": 0.0,
@@ -18,8 +18,8 @@
     "player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva"
   },
   "provenance": {
-    "data_asof": "2026-10-15",
-    "model_version": "ep_v2/un_v2/plan_run3"
+    "data_asof": "2026-10-16",
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
   "runner_up": {
     "action": "transfer_in:player_joao_pedro_junqueira_de_jesus->player_igor_thiago_nascimento_rodrigues",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 6.1557774242124665,
+    "ep_lift": 6.153258556621875,
     "provenance": {
-      "data_asof": "2026-10-15",
-      "model_version": "ep_v2/un_v2/plan_run3"
+      "data_asof": "2026-10-16",
+      "model_version": "ep_v2/un_v2/plan_run5"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 6.1557774242124665,
+        "delta_ep": 6.153258556621875,
         "in_name": "Igor Thiago Nascimento Rodrigues",
         "in_player_uid": "player_igor_thiago_nascimento_rodrigues",
         "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 18.61737425765696,
+      "delta_ep": 18.632386563482367,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
       "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.3707519174822345,
+      "delta_ep": 6.353536303194382,
       "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
       "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
       "out_name": "Lewis Hall",
