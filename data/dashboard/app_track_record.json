@@ -610,7 +610,7 @@
       }
     ]
   },
-  "generated_at": "2026-10-17T06:59:42.747245",
+  "generated_at": "2026-10-17T19:57:28.744633",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 75,
@@ -842,21 +842,29 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 59.02284927986223,
+        "total_projected_ep": 59.604133486895996,
         "captain_name": "Bukayo Saka",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
-    "latest_diff": null,
+    "latest_diff": {
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 1,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
+    },
     "provenance": {
-      "data_asof": "2026-10-16",
+      "data_asof": "2026-10-17",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "f90f22b0469d81175549865d339e93e2c373147f",
-      "fpl_core_insights_commit_sha": "4ae5ceb679daa4421e9b5e9677ac412e412edff3",
+      "fpl_analyser_commit_sha": "81dcfc909cacb02f93dc53f93963469807bf26ae",
+      "fpl_core_insights_commit_sha": "a16ede936aaca3ab4ec81f181136e9236195ccde",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -868,7 +876,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-10-16T20:09:54.660568+00:00",
+      "recorded_at": "2026-10-17T19:46:00.007301+00:00",
       "research_pull_workbook": {
         "sha256": "fe2582b0f3ab9a2fcae1197c72b028db137117879b77c3949248991e8bb950a2",
         "size_bytes": 26584
