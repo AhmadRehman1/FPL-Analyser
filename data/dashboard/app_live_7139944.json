@@ -4,7 +4,7 @@
   "gameweek": 7,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 7,
+  "live_total": 26,
   "players": [
     {
       "player_id": 496,
@@ -23,9 +23,9 @@
     {
       "player_id": 449,
       "web_name": "Hall",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 3,
+      "provisional_bonus": 1,
+      "contribution": 3
     },
     {
       "player_id": 334,
@@ -65,16 +65,16 @@
     {
       "player_id": 464,
       "web_name": "Wissa",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 1,
-      "provisional_bonus": 0,
-      "contribution": 1
+      "live_points": 16,
+      "provisional_bonus": 3,
+      "contribution": 16
     },
     {
       "player_id": 165,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 47.5,
-    "estimated_rank": 5831884
+    "percentile": 12.5,
+    "estimated_rank": 9722481
   },
   "fixtures": [
     {
@@ -116,12 +116,12 @@
       "home": {
         "short_name": "BRE",
         "name": "Brentford",
-        "score": 0
+        "score": 1
       },
       "away": {
         "short_name": "LIV",
         "name": "Liverpool",
-        "score": 0
+        "score": 2
       }
     },
     {
@@ -133,7 +133,7 @@
       "home": {
         "short_name": "FUL",
         "name": "Fulham",
-        "score": 0
+        "score": 1
       },
       "away": {
         "short_name": "HUL",
@@ -150,16 +150,65 @@
       "home": {
         "short_name": "MCI",
         "name": "Man City",
-        "score": 0
+        "score": 3
       },
       "away": {
         "short_name": "IPS",
         "name": "Ipswich Town",
+        "score": 2
+      }
+    },
+    {
+      "id": 68,
+      "kickoff": "2026-10-17T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NEW",
+        "name": "Newcastle",
         "score": 0
+      },
+      "away": {
+        "short_name": "AVL",
+        "name": "Aston Villa",
+        "score": 1
       }
     }
   ],
   "events": [
+    {
+      "player_id": 53,
+      "web_name": "Manzambi",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 68
+    },
+    {
+      "player_id": 54,
+      "web_name": "Gomes",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 68
+    },
+    {
+      "player_id": 86,
+      "web_name": "Lewis-Potter",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 62
+    },
+    {
+      "player_id": 106,
+      "web_name": "Thiago",
+      "team": 4,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 62
+    },
     {
       "player_id": 148,
       "web_name": "Hato",
@@ -175,7 +224,127 @@
       "event": "goal",
       "count": 2,
       "fixture_id": 64
+    },
+    {
+      "player_id": 237,
+      "web_name": "Ndiaye",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 261,
+      "web_name": "Iwobi",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 65
+    },
+    {
+      "player_id": 265,
+      "web_name": "Berge",
+      "team": 10,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 65
+    },
+    {
+      "player_id": 315,
+      "web_name": "Fatawu",
+      "team": 12,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 62
+    },
+    {
+      "player_id": 377,
+      "web_name": "Munoz",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 62
+    },
+    {
+      "player_id": 379,
+      "web_name": "Isak",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 62
+    },
+    {
+      "player_id": 398,
+      "web_name": "Foden",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 400,
+      "web_name": "Doku",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 406,
+      "web_name": "Kova\u010di\u0107",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 411,
+      "web_name": "Haaland",
+      "team": 15,
+      "event": "goal",
+      "count": 2,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 562,
+      "web_name": "Maeda",
+      "team": 12,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 592,
+      "web_name": "Ouattara",
+      "team": 12,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 67
+    },
+    {
+      "player_id": 627,
+      "web_name": "Barcola",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 62
+    },
+    {
+      "player_id": 640,
+      "web_name": "Flemming",
+      "team": 12,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 67
     }
   ],
-  "generated_at": "2026-10-17T14:08:51.464598+00:00"
+  "generated_at": "2026-10-17T17:12:04.255268+00:00"
 }
