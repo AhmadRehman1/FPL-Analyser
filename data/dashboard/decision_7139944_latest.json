@@ -1,47 +1,47 @@
 {
-  "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
-  "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-  "data_asof": "2026-10-16",
+  "action": "transfer_in:player_lewis_hall->player_maxim_de_cuyper",
+  "action_display": "Lewis Hall -> Maxim De Cuyper",
+  "data_asof": "2026-10-17",
   "downside_ci": [
-    7.689219538281002,
-    129.9696323546007
+    6.991503912470593,
+    129.30314998495257
   ],
   "entry_id": 7139944,
-  "ep_lift": 6.352647387904435,
-  "gw": 7,
+  "ep_lift": 6.327182841518262,
+  "gw": 8,
   "price_hint": {
     "confidence": 0.0,
     "delta_pence": 0,
     "direction": "stable",
     "estimated_date": null,
-    "player_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-    "player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva"
+    "player_name": "Maxim De Cuyper",
+    "player_uid": "player_maxim_de_cuyper"
   },
   "provenance": {
-    "data_asof": "2026-10-16",
+    "data_asof": "2026-10-17",
     "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": {
-    "action": "transfer_in:player_joao_pedro_junqueira_de_jesus->player_igor_thiago_nascimento_rodrigues",
-    "action_display": "Jo\u00e3o Pedro Junqueira de Jesus -> Igor Thiago Nascimento Rodrigues",
+    "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+    "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
     "downside_ci": [
       0.0,
       0.0
     ],
-    "ep_lift": 6.170246755329995,
+    "ep_lift": 6.274556404133776,
     "provenance": {
-      "data_asof": "2026-10-16",
+      "data_asof": "2026-10-17",
       "model_version": "ep_v2/un_v2/plan_run3"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 6.170246755329995,
-        "in_name": "Igor Thiago Nascimento Rodrigues",
-        "in_player_uid": "player_igor_thiago_nascimento_rodrigues",
-        "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",
-        "out_player_uid": "player_joao_pedro_junqueira_de_jesus",
+        "delta_ep": 6.274556404133776,
+        "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+        "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+        "out_name": "Lewis Hall",
+        "out_player_uid": "player_lewis_hall",
         "reason": "model-ranked transfer"
       }
     ],
@@ -53,18 +53,18 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 18.67261952491463,
-      "if_condition": "player_erling_haaland ruled out",
-      "if_condition_display": "Erling Haaland ruled out",
-      "then_action": "transfer_in:player_erling_haaland->player_igor_thiago_nascimento_rodrigues",
-      "then_action_display": "Erling Haaland -> Igor Thiago Nascimento Rodrigues"
+      "delta_ep": 18.733158431256225,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
     }
   ],
   "swaps": [
     {
-      "delta_ep": 6.352647387904435,
-      "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-      "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+      "delta_ep": 6.327182841518262,
+      "in_name": "Maxim De Cuyper",
+      "in_player_uid": "player_maxim_de_cuyper",
       "out_name": "Lewis Hall",
       "out_player_uid": "player_lewis_hall",
       "reason": "model-ranked transfer"
