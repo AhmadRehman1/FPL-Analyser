@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_lewis_hall->player_maxim_de_cuyper",
   "action_display": "Lewis Hall -> Maxim De Cuyper",
-  "data_asof": "2026-10-17",
+  "data_asof": "2026-10-18",
   "downside_ci": [
-    6.991503912470593,
-    129.30314998495257
+    7.2070404731868045,
+    129.50717458917813
   ],
   "entry_id": 7139944,
-  "ep_lift": 6.327182841518262,
+  "ep_lift": 6.263450443067143,
   "gw": 8,
   "price_hint": {
     "confidence": 0.0,
@@ -18,8 +18,8 @@
     "player_uid": "player_maxim_de_cuyper"
   },
   "provenance": {
-    "data_asof": "2026-10-17",
-    "model_version": "ep_v2/un_v2/plan_run3"
+    "data_asof": "2026-10-18",
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
   "runner_up": {
     "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 6.274556404133776,
+    "ep_lift": 6.126106141836889,
     "provenance": {
-      "data_asof": "2026-10-17",
-      "model_version": "ep_v2/un_v2/plan_run3"
+      "data_asof": "2026-10-18",
+      "model_version": "ep_v2/un_v2/plan_run5"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 6.274556404133776,
+        "delta_ep": 6.126106141836889,
         "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
         "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
         "out_name": "Lewis Hall",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 18.733158431256225,
+      "delta_ep": 18.71206577642998,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.327182841518262,
+      "delta_ep": 6.263450443067143,
       "in_name": "Maxim De Cuyper",
       "in_player_uid": "player_maxim_de_cuyper",
       "out_name": "Lewis Hall",
