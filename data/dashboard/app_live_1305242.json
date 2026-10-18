@@ -4,7 +4,7 @@
   "gameweek": 7,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 32,
+  "live_total": 56,
   "players": [
     {
       "player_id": 109,
@@ -16,16 +16,16 @@
     {
       "player_id": 31,
       "web_name": "Konsa",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 12,
+      "provisional_bonus": 3,
+      "contribution": 12
     },
     {
       "player_id": 8,
       "web_name": "Calafiori",
-      "live_points": 0,
+      "live_points": 6,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     },
     {
       "player_id": 305,
@@ -37,9 +37,9 @@
     {
       "player_id": 12,
       "web_name": "Saka",
-      "live_points": 0,
+      "live_points": 3,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 6
     },
     {
       "player_id": 268,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 5.5,
-    "estimated_rank": 10508225
+    "percentile": 19.0,
+    "estimated_rank": 9008922
   },
   "fixtures": [
     {
@@ -225,9 +225,42 @@
         "name": "Man Utd",
         "score": 1
       }
+    },
+    {
+      "id": 69,
+      "kickoff": "2026-10-18T15:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NFO",
+        "name": "Nott'm Forest",
+        "score": 0
+      },
+      "away": {
+        "short_name": "ARS",
+        "name": "Arsenal",
+        "score": 1
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 13,
+      "web_name": "Rice",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 69
+    },
+    {
+      "player_id": 16,
+      "web_name": "Madueke",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 69
+    },
     {
       "player_id": 43,
       "web_name": "Tielemans",
@@ -533,5 +566,5 @@
       "fixture_id": 67
     }
   ],
-  "generated_at": "2026-10-18T15:28:41.258432+00:00"
+  "generated_at": "2026-10-18T18:15:57.588987+00:00"
 }
