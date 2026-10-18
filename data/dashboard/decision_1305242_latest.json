@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_ezri_konsa_ngoyo->player_marc_guehi",
   "action_display": "Ezri Konsa Ngoyo -> Marc Gu\u00e9hi",
-  "data_asof": "2026-10-17",
+  "data_asof": "2026-10-18",
   "downside_ci": [
-    9.960403468748986,
-    128.3108367203788
+    10.013341243005083,
+    128.17887292322078
   ],
   "entry_id": 1305242,
-  "ep_lift": 7.83190089520938,
+  "ep_lift": 7.695434504216269,
   "gw": 8,
   "price_hint": {
     "confidence": 0.0,
@@ -18,13 +18,42 @@
     "player_uid": "player_marc_guehi"
   },
   "provenance": {
-    "data_asof": "2026-10-17",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-10-18",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
-  "runner_up": null,
+  "runner_up": {
+    "action": "transfer_in:player_ezri_konsa_ngoyo->player_gabriel_dos_santos_magalhaes",
+    "action_display": "Ezri Konsa Ngoyo -> Gabriel dos Santos Magalh\u00e3es",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 7.323550573811804,
+    "provenance": {
+      "data_asof": "2026-10-18",
+      "model_version": "ep_v2/un_v2/plan_run7"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 7.323550573811804,
+        "in_name": "Gabriel dos Santos Magalh\u00e3es",
+        "in_player_uid": "player_gabriel_dos_santos_magalhaes",
+        "out_name": "Ezri Konsa Ngoyo",
+        "out_player_uid": "player_ezri_konsa_ngoyo",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
   "sensitivity": [
     {
-      "delta_ep": 22.443666095745517,
+      "delta_ep": 22.463878493257614,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -33,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 7.83190089520938,
+      "delta_ep": 7.695434504216269,
       "in_name": "Marc Gu\u00e9hi",
       "in_player_uid": "player_marc_guehi",
       "out_name": "Ezri Konsa Ngoyo",
