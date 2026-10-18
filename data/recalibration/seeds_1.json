@@ -43,6 +43,26 @@
     },
     {
       "dimensions": null,
+      "grid_max": 4000.0,
+      "grid_min": 100.0,
+      "holdout_metric_after": 2.3499152222897015,
+      "holdout_metric_before": 2.3527221837509193,
+      "metric_after": 2.3491438061589736,
+      "metric_before": 2.352151226343401,
+      "metric_name": "ep_total_calibration_mae_decision_weighted",
+      "new_params_version": 18,
+      "new_value": 4000.0,
+      "old_params_version": 8,
+      "old_value": 900.0,
+      "param_family": "rate_shrinkage_params",
+      "param_key": "k_minutes",
+      "proposal_id": 3,
+      "reviewed_at": null,
+      "reviewed_by": null,
+      "status": "pending"
+    },
+    {
+      "dimensions": null,
       "metric_after": 1.1453659985877347,
       "metric_before": 1.1456995269035073,
       "metric_name": "ep_total_calibration_mae",
@@ -207,5 +227,5 @@
       "status": "confirmed"
     }
   ],
-  "written_at": "2026-10-18T12:02:06.662545+00:00"
+  "written_at": "2026-10-18T13:25:14.132055+00:00"
 }
