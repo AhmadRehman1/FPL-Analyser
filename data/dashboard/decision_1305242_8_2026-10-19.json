@@ -1,0 +1,78 @@
+{
+  "action": "transfer_in:player_ezri_konsa_ngoyo->player_gabriel_dos_santos_magalhaes",
+  "action_display": "Ezri Konsa Ngoyo -> Gabriel dos Santos Magalh\u00e3es",
+  "data_asof": "2026-10-19",
+  "downside_ci": [
+    8.284620480412645,
+    127.35134537630883
+  ],
+  "entry_id": 1305242,
+  "ep_lift": 6.839891881961675,
+  "gw": 8,
+  "price_hint": {
+    "confidence": 0.0,
+    "delta_pence": 0,
+    "direction": "stable",
+    "estimated_date": null,
+    "player_name": "Gabriel dos Santos Magalh\u00e3es",
+    "player_uid": "player_gabriel_dos_santos_magalhaes"
+  },
+  "provenance": {
+    "data_asof": "2026-10-19",
+    "model_version": "ep_v2/un_v2/plan_run5"
+  },
+  "runner_up": {
+    "action": "transfer_in:player_ezri_konsa_ngoyo->player_marc_guehi",
+    "action_display": "Ezri Konsa Ngoyo -> Marc Gu\u00e9hi",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 6.726201483791678,
+    "provenance": {
+      "data_asof": "2026-10-19",
+      "model_version": "ep_v2/un_v2/plan_run5"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 6.726201483791678,
+        "in_name": "Marc Gu\u00e9hi",
+        "in_player_uid": "player_marc_guehi",
+        "out_name": "Ezri Konsa Ngoyo",
+        "out_player_uid": "player_ezri_konsa_ngoyo",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
+  "sensitivity": [
+    {
+      "delta_ep": 23.172131504267163,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
+      "then_action_display": "Cole Palmer -> Bruno Borges Fernandes"
+    }
+  ],
+  "swaps": [
+    {
+      "delta_ep": 6.839891881961675,
+      "in_name": "Gabriel dos Santos Magalh\u00e3es",
+      "in_player_uid": "player_gabriel_dos_santos_magalhaes",
+      "out_name": "Ezri Konsa Ngoyo",
+      "out_player_uid": "player_ezri_konsa_ngoyo",
+      "reason": "model-ranked transfer"
+    }
+  ],
+  "track_record": {
+    "optimal_in_n_of_71": null,
+    "pattern": "action_kind:transfer_in",
+    "sample_size": 0
+  }
+}

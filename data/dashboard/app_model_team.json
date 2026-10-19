@@ -1,12 +1,13 @@
 {
   "ready": true,
   "season": "2026-2027",
-  "current_gameweek": 6,
-  "n_gameweeks_scored": 5,
+  "current_gameweek": 7,
+  "n_gameweeks_scored": 6,
   "n_gameweeks_simulated": 1,
-  "total_realized_points": 302.0,
-  "total_vs_field": 3.0,
+  "total_realized_points": 362.0,
+  "total_vs_field": 5.0,
   "chips_used": [
+    "bench_boost",
     "free_hit",
     "triple_captain"
   ],
@@ -88,6 +89,20 @@
       "action_detail": "player_igor_jesus_maciel_da_cruz -> player_igor_thiago_nascimento_rodrigues (net +24.88)",
       "projected_points": 53.4,
       "realized_points": 60.0,
+      "hit_cost": 0.0,
+      "provisional": false,
+      "field_average": 58,
+      "delta_vs_field": 2.0,
+      "cumulative_points": 362.0,
+      "cumulative_vs_field": 5.0
+    },
+    {
+      "gameweek": 7,
+      "simulated": false,
+      "action": "bench_boost",
+      "action_detail": "bench boost (all 15 score)",
+      "projected_points": 57.73,
+      "realized_points": 35.0,
       "hit_cost": 0.0,
       "provisional": true,
       "field_average": null,
@@ -186,10 +201,10 @@
     }
   ],
   "next_decision": {
-    "gameweek": 6,
-    "action": "transfer",
-    "detail": "player_igor_jesus_maciel_da_cruz -> player_igor_thiago_nascimento_rodrigues (net +24.88)"
+    "gameweek": 7,
+    "action": "bench_boost",
+    "detail": "bench boost (all 15 score)"
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-10-13T00:00:37.394006+00:00"
+  "generated_at": "2026-10-19T21:58:50.270396+00:00"
 }

@@ -53,6 +53,11 @@
       "n_observations": 37
     },
     {
+      "metric_name": "beats_template_points_delta",
+      "mean_value": 7.4324,
+      "n_observations": 74
+    },
+    {
       "metric_name": "brier_clean_sheet_mean",
       "mean_value": 0.0563,
       "n_observations": 75
@@ -61,6 +66,11 @@
       "metric_name": "brier_minutes_mean",
       "mean_value": 0.273,
       "n_observations": 75
+    },
+    {
+      "metric_name": "captain_ep_plus_eo_points",
+      "mean_value": 6.5,
+      "n_observations": 74
     },
     {
       "metric_name": "ep_appearance_calibration_mean_resid",
@@ -123,8 +133,23 @@
       "n_observations": 75
     },
     {
+      "metric_name": "model_captain_points",
+      "mean_value": 6.4189,
+      "n_observations": 74
+    },
+    {
       "metric_name": "model_squad_realized_points",
       "mean_value": 61.7703,
+      "n_observations": 74
+    },
+    {
+      "metric_name": "model_xi_resid",
+      "mean_value": -0.1499,
+      "n_observations": 74
+    },
+    {
+      "metric_name": "non_template_points",
+      "mean_value": 36.3649,
       "n_observations": 74
     },
     {
@@ -136,6 +161,41 @@
       "metric_name": "real_avg_manager_points",
       "mean_value": 49.7568,
       "n_observations": 37
+    },
+    {
+      "metric_name": "template_captain_points",
+      "mean_value": 5.8919,
+      "n_observations": 74
+    },
+    {
+      "metric_name": "template_lag",
+      "mean_value": 1.0,
+      "n_observations": 75
+    },
+    {
+      "metric_name": "template_solve_seconds",
+      "mean_value": 0.4819,
+      "n_observations": 75
+    },
+    {
+      "metric_name": "template_squad_realized_points",
+      "mean_value": 54.3378,
+      "n_observations": 74
+    },
+    {
+      "metric_name": "template_squad_realized_points_ungated",
+      "mean_value": 54.8243,
+      "n_observations": 74
+    },
+    {
+      "metric_name": "template_xi_overlap",
+      "mean_value": 3.527,
+      "n_observations": 74
+    },
+    {
+      "metric_name": "template_xi_resid",
+      "mean_value": 0.0397,
+      "n_observations": 74
     }
   ],
   "segment_calibration": {
@@ -474,15 +534,14 @@
   "parameters_backtested": 9,
   "parameters_still_invented": 53,
   "planner_decision_accuracy": {
-    "ready": false,
-    "n_realized": 6,
+    "ready": true,
+    "n_realized": 8,
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2,
-    "preliminary": true,
-    "mean_point_delta_if_followed": -0.17,
-    "total_point_delta_if_followed": -1,
-    "n_recommendation_would_have_scored_more": 4,
-    "n_actual_scored_more": 2,
+    "mean_point_delta_if_followed": -1.0,
+    "total_point_delta_if_followed": -8,
+    "n_recommendation_would_have_scored_more": 5,
+    "n_actual_scored_more": 3,
     "n_tied": 0,
     "by_gameweek": [
       {
@@ -532,10 +591,26 @@
         "actual": 52,
         "if_followed": 60,
         "delta": 8
+      },
+      {
+        "gameweek": 6,
+        "entry_id": 1305242,
+        "recommended_action": "transfer_now",
+        "actual": 60,
+        "if_followed": 63,
+        "delta": 3
+      },
+      {
+        "gameweek": 6,
+        "entry_id": 7139944,
+        "recommended_action": "transfer_now",
+        "actual": 52,
+        "if_followed": 42,
+        "delta": -10
       }
     ]
   },
-  "generated_at": "2026-10-13T00:00:33.631852",
+  "generated_at": "2026-10-19T21:58:45.888385",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 75,
@@ -591,6 +666,11 @@
           "n_observations": 37
         },
         {
+          "metric_name": "beats_template_points_delta",
+          "mean_value": 7.4324,
+          "n_observations": 74
+        },
+        {
           "metric_name": "brier_clean_sheet_mean",
           "mean_value": 0.0563,
           "n_observations": 75
@@ -599,6 +679,11 @@
           "metric_name": "brier_minutes_mean",
           "mean_value": 0.273,
           "n_observations": 75
+        },
+        {
+          "metric_name": "captain_ep_plus_eo_points",
+          "mean_value": 6.5,
+          "n_observations": 74
         },
         {
           "metric_name": "ep_appearance_calibration_mean_resid",
@@ -661,8 +746,23 @@
           "n_observations": 75
         },
         {
+          "metric_name": "model_captain_points",
+          "mean_value": 6.4189,
+          "n_observations": 74
+        },
+        {
           "metric_name": "model_squad_realized_points",
           "mean_value": 61.7703,
+          "n_observations": 74
+        },
+        {
+          "metric_name": "model_xi_resid",
+          "mean_value": -0.1499,
+          "n_observations": 74
+        },
+        {
+          "metric_name": "non_template_points",
+          "mean_value": 36.3649,
           "n_observations": 74
         },
         {
@@ -674,6 +774,41 @@
           "metric_name": "real_avg_manager_points",
           "mean_value": 49.7568,
           "n_observations": 37
+        },
+        {
+          "metric_name": "template_captain_points",
+          "mean_value": 5.8919,
+          "n_observations": 74
+        },
+        {
+          "metric_name": "template_lag",
+          "mean_value": 1.0,
+          "n_observations": 75
+        },
+        {
+          "metric_name": "template_solve_seconds",
+          "mean_value": 0.4819,
+          "n_observations": 75
+        },
+        {
+          "metric_name": "template_squad_realized_points",
+          "mean_value": 54.3378,
+          "n_observations": 74
+        },
+        {
+          "metric_name": "template_squad_realized_points_ungated",
+          "mean_value": 54.8243,
+          "n_observations": 74
+        },
+        {
+          "metric_name": "template_xi_overlap",
+          "mean_value": 3.527,
+          "n_observations": 74
+        },
+        {
+          "metric_name": "template_xi_resid",
+          "mean_value": 0.0397,
+          "n_observations": 74
         }
       ],
       "parameters_total": 62,
@@ -691,7 +826,7 @@
       {
         "season": "2026-2027",
         "gameweek": 3,
-        "total_projected_ep": 66.27315948885699,
+        "total_projected_ep": 65.88905158768195,
         "captain_name": "Erling Haaland",
         "squad_size": 15,
         "in_xi_count": 11
@@ -707,7 +842,7 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 59.073987463346135,
+        "total_projected_ep": 58.61815211427454,
         "captain_name": "Bukayo Saka",
         "squad_size": 15,
         "in_xi_count": 11
@@ -723,13 +858,13 @@
       "newly_doubtful_flags": null
     },
     "provenance": {
-      "data_asof": "2026-10-12",
+      "data_asof": "2026-10-19",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "e6531850e9a209c84a6d6642a2c11f31c5e81520",
-      "fpl_core_insights_commit_sha": "3806eb0307e70319a30ad8136d7880cb01e1bdc9",
+      "fpl_analyser_commit_sha": "f3e4d27b2335f2ddde9f46e7d848a27c9ee9f1b3",
+      "fpl_core_insights_commit_sha": "94467b9cb53833324b54f85e649c2321acdc925c",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -741,7 +876,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-10-12T23:52:33.576963+00:00",
+      "recorded_at": "2026-10-19T21:47:28.033099+00:00",
       "research_pull_workbook": {
         "sha256": "fe2582b0f3ab9a2fcae1197c72b028db137117879b77c3949248991e8bb950a2",
         "size_bytes": 26584
