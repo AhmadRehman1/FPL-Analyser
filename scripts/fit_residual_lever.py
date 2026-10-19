@@ -1,5 +1,7 @@
-"""Fits lever L1, the crowd prior (docs/plans/2026-10_beat_the_template.md, Phase 5), from a
-walk-forward's residual export and writes its coefficient file.
+"""Fits a residual-fitted lever (docs/plans/2026-10_beat_the_template.md) from a walk-forward's
+residual export and writes its coefficient file: L1, the crowd prior (Phase 5, the default), or
+L2, the band bias (Phase 6, --lever band_bias: each position and price band's mean residual,
+shrunk by n / (n + pseudo_rows), per fold, with the same cross-fold check).
 
 Input: residual_features.csv from `run_walkforward.py --export-residuals` (Req 12): one row per
 player-gameweek with realized points, the projection before any lever (ep_pre_adjustment) and the
@@ -104,20 +106,75 @@ def build(rows: list[dict], lag: int, alpha: float, min_rows: int, clip: float,
     }
 
 
+def band_cross_fold_check(rows: list[dict], folds: dict) -> dict:
+    """L2's cross-fold check: per season, residual MAE and RMSE before and after the cell adjustment
+    from the fold that scores it, floored at zero EP as expected_points.run() applies it."""
+    out = {}
+    for season in SEASONS:
+        cells = folds.get(rl.fold_for(season)) or {}
+        season_rows = [r for r in rows if r.get("season") == season
+                       and r.get("realized_points") not in (None, "") and r.get("ep_pre_adjustment") not in (None, "")]
+        if not season_rows:
+            out[season] = {"n": 0, "fitted_fold": rl.fold_for(season)}
+            continue
+        before, after, adjs, adjusted, floored = [], [], [], 0, 0
+        for r in season_rows:
+            ep_pre = float(r["ep_pre_adjustment"])
+            resid = float(r["realized_points"]) - ep_pre
+            cell = cells.get(rl.band_key(r.get("position"), r.get("price_band"))) if r.get("price_band") else None
+            applied = 0.0 if cell is None else max(float(cell["adj"]), -max(ep_pre, 0.0))
+            before.append(resid)
+            after.append(resid - applied)
+            if cell is not None:
+                adjusted += 1
+                floored += applied != float(cell["adj"])
+                adjs.append(applied)
+        n = len(before)
+        out[season] = {
+            "n": n, "n_adjusted": adjusted, "fitted_fold": rl.fold_for(season),
+            "mae_before": round(sum(abs(x) for x in before) / n, 4),
+            "mae_after": round(sum(abs(x) for x in after) / n, 4),
+            "rmse_before": round((sum(x * x for x in before) / n) ** 0.5, 4),
+            "rmse_after": round((sum(x * x for x in after) / n) ** 0.5, 4),
+            "mean_resid_before": round(sum(before) / n, 4),
+            "mean_resid_after": round(sum(after) / n, 4),
+            "mean_adjustment": round(sum(adjs) / len(adjs), 4) if adjs else None,
+            "share_floored": round(floored / adjusted, 4) if adjusted else None,
+        }
+    return out
+
+
+def build_band_bias(rows: list[dict], pseudo_rows: float, source: dict) -> dict:
+    folds = rl.fit_band_bias(rows, pseudo_rows=pseudo_rows)
+    return {
+        "lever": "L2 band bias (docs/plans/2026-10_beat_the_template.md)",
+        "pseudo_rows": pseudo_rows, "source": source,
+        "n_rows": {s: sum(1 for r in rows if r.get("season") == s) for s in SEASONS},
+        "folds": folds,
+        "fold_for": {s: rl.fold_for(s) for s in (*SEASONS, "2026-2027")},
+        "cross_fold_check": band_cross_fold_check(rows, folds),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--residuals", required=True, type=Path, help="residual_features.csv")
     parser.add_argument("--date", required=True, type=int, help="YYYYMMDD; names the coefficient file")
-    parser.add_argument("--lag", required=True, type=int, choices=(rl.MIN_FEATURE_LAG,),
-                        help="the feature row the export read (G minus this); must match the run's --template-lag "
-                             "(2: A2 failed, so row G-1 is never read)")
+    parser.add_argument("--lever", choices=("crowd_prior", "band_bias"), default="crowd_prior",
+                        help="L1 (crowd_prior, the default) or L2 (band_bias)")
+    parser.add_argument("--lag", type=int, choices=(rl.MIN_FEATURE_LAG,), default=None,
+                        help="crowd_prior: the feature row the export read (G minus this); must match the run's "
+                             "--template-lag (2: A2 failed, so row G-1 is never read)")
+    parser.add_argument("--pseudo-rows", type=float, default=500.0, help="band_bias: the n / (n + K) shrinkage K")
     parser.add_argument("--source-run", default=None, help="the walk-forward's Actions run id, for the record")
     parser.add_argument("--alpha", type=float, default=10.0)
     parser.add_argument("--min-rows", type=int, default=2000)
     parser.add_argument("--clip", type=float, default=1.5)
-    parser.add_argument("--out", type=Path, default=None, help="default data/recalibration/crowd_prior_coeffs_<DATE>.json")
+    parser.add_argument("--out", type=Path, default=None, help="default data/recalibration/<lever>_coeffs_<DATE>.json")
     args = parser.parse_args(argv)
-    path = args.out or rl.coeff_path(args.date)
+    if args.lever == "crowd_prior" and args.lag is None:
+        parser.error("--lag is required for the crowd prior")
+    path = args.out or rl.coeff_path(args.date, args.lever)
     if path.exists():
         # a param version is minted per file; a refit gets a new date, never a rewrite
         print(f"{path} exists; coefficient files are immutable, use a new --date", file=sys.stderr)
@@ -125,6 +182,12 @@ def main(argv: list[str] | None = None) -> int:
     rows = read_rows(args.residuals)
     source = {"file": args.residuals.name, "sha256": hashlib.sha256(args.residuals.read_bytes()).hexdigest(),
               "run_id": args.source_run}
+    if args.lever == "band_bias":
+        out = build_band_bias(rows, args.pseudo_rows, source)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, indent=2) + "\n")
+        print(json.dumps({"path": str(path), "folds": out["folds"], "cross_fold_check": out["cross_fold_check"]}, indent=2))
+        return 0
     out = build(rows, args.lag, args.alpha, args.min_rows, args.clip, source)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2) + "\n")

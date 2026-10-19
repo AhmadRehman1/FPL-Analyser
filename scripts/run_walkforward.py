@@ -98,6 +98,11 @@ Lever L1, the crowd prior (docs/plans/2026-10_beat_the_template.md, Phase 5):
                                data/recalibration/crowd_prior_coeffs_20261012.json; each season is
                                scored with the other season's fit
 
+Lever L2, the band bias (docs/plans/2026-10_beat_the_template.md, Phase 6):
+    --band-bias 20261019       add each (position, price band) cell's shrunk mean residual to its
+                               players' EP, from data/recalibration/band_bias_coeffs_20261019.json;
+                               each season is scored with the other season's fit
+
 Residual export (docs/plans/2026-10_beat_the_template.md, Req 12; not an experiment setting):
     --export-residuals         after the walk, write residual_features.csv (per player-gameweek:
                                realized points, the projection before any promoted lever, the
@@ -190,6 +195,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="weight of each earlier season relative to the one after it")
     parser.add_argument("--crowd-prior", type=int, default=None, metavar="COEFF_DATE",
                         help="lever L1: the crowd prior from data/recalibration/crowd_prior_coeffs_<COEFF_DATE>.json")
+    parser.add_argument("--band-bias", type=int, default=None, metavar="COEFF_DATE",
+                        help="lever L2: the band bias from data/recalibration/band_bias_coeffs_<COEFF_DATE>.json")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="stop before a step that would likely run past this many minutes")
     parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
@@ -322,6 +329,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         out["crowd_prior_params_version"] = residual_levers.crowd_prior_version(
             con, args.crowd_prior, EXPERIMENT_EFFECTIVE_DATE,
         )
+    if getattr(args, "band_bias", None) is not None:
+        out["band_bias_params_version"] = residual_levers.band_bias_version(
+            con, args.band_bias, EXPERIMENT_EFFECTIVE_DATE,
+        )
     if getattr(args, "bps_tau", None) is not None:
         out["tau_params_version"] = params_mod.get_or_create_version(
             con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,
@@ -415,21 +426,23 @@ def main(argv: list[str] | None = None) -> None:
     ).fetchone()[0]
     print(f"[walk-forward] {n_pred} gameweek steps carry an ep_model_version -- research.ml.experiment can now run")
 
-    if extra.get("crowd_prior_params_version") is not None:
-        # what lever L1 did, so an arm whose adjustment came out empty can't pass for a real arm
+    for lever, column in (("crowd_prior", "ep_crowd_adj"), ("band_bias", "ep_band_adj")):
+        if extra.get(f"{lever}_params_version") is None:
+            continue
+        # what the lever did, so an arm whose adjustment came out empty can't pass for a real arm
         n_steps, n_adj_steps, n_adj, mean_abs, n_floored = con.execute(
-            """
+            f"""
             SELECT count(DISTINCT s.season || '/' || s.gameweek),
-                   count(DISTINCT CASE WHEN o.ep_crowd_adj != 0 THEN s.season || '/' || s.gameweek END),
-                   count(*) FILTER (WHERE o.ep_crowd_adj != 0),
-                   avg(abs(o.ep_crowd_adj)) FILTER (WHERE o.ep_crowd_adj != 0),
-                   count(*) FILTER (WHERE o.ep_crowd_adj < 0 AND o.ep_total = 0)
+                   count(DISTINCT CASE WHEN o.{column} != 0 THEN s.season || '/' || s.gameweek END),
+                   count(*) FILTER (WHERE o.{column} != 0),
+                   avg(abs(o.{column})) FILTER (WHERE o.{column} != 0),
+                   count(*) FILTER (WHERE o.{column} < 0 AND o.ep_total = 0)
             FROM backtest_gameweek_steps s JOIN ep_outputs o ON o.model_version = s.ep_model_version
             WHERE s.backtest_run_id = ?
             """,
             [backtest_run_id],
         ).fetchone()
-        print(f"[crowd_prior] v{extra['crowd_prior_params_version']}: {n_adj_steps}/{n_steps} steps adjusted, "
+        print(f"[{lever}] v{extra[f'{lever}_params_version']}: {n_adj_steps}/{n_steps} steps adjusted, "
               f"{n_adj} player-fixtures, mean |adjustment| {mean_abs or 0.0:.4f}, {n_floored} floored at zero EP")
 
     if args.export_residuals:

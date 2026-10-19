@@ -11,8 +11,9 @@ residual_rows() is what `run_walkforward.py --export-residuals` writes as residu
 (Req 12): one row per player-gameweek a walk-forward step projected and FPL scored, with the
 realized points, the projection before any promoted lever's adjustment, and the features. The
 lever fits (scripts/fit_residual_lever.py) read that file. The pre-adjustment projection is
-ep_total minus the crowd prior's share (ep_crowd_adj, zero when L1 is off), so a lever is always
-fitted to the model's own error; crowd_adj carries the adjustment the run applied.
+ep_total minus every lever's share (ep_crowd_adj for L1, ep_band_adj for L2, each zero when off),
+so a lever is always fitted to the model's own error; crowd_adj and band_adj carry the adjustments
+the run applied.
 """
 
 import json
@@ -25,7 +26,7 @@ FEATURES = ("own_pct", "log_sbp", "xfer_pct")
 PRICE_BANDS = (("<5.0", 5.0), ("5.0-7.0", 7.0), ("7.0-9.0", 9.0), ("9.0+", math.inf))
 RESIDUAL_COLUMNS = (
     "season", "gw", "player_uid", "position", "price", "price_band", "realized_points", "ep_pre_adjustment",
-    *FEATURES, "crowd_adj",
+    *FEATURES, "crowd_adj", "band_adj",
 )
 
 
@@ -93,8 +94,8 @@ def residual_rows(con: duckdb.DuckDBPyConnection, backtest_run_id: int, lag: int
                 WHERE season = ? AND gw < ? AND now_cost IS NOT NULL
                 QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
             )
-            SELECT o.player_uid, dp.position, price.now_cost, f.event_points, o.ep_total - o.ep_crowd_adj,
-                   o.ep_crowd_adj
+            SELECT o.player_uid, dp.position, price.now_cost, f.event_points,
+                   o.ep_total - o.ep_crowd_adj - o.ep_band_adj, o.ep_crowd_adj, o.ep_band_adj
             FROM ep_gameweek_outputs o
             JOIN dim_player dp ON dp.player_uid = o.player_uid
             JOIN fact_player_season_stats f ON f.player_uid = o.player_uid AND f.season = ? AND f.gw = ?
@@ -104,12 +105,12 @@ def residual_rows(con: duckdb.DuckDBPyConnection, backtest_run_id: int, lag: int
             """,
             [season, gw, season, gw, ep_mv],
         ).fetchall()
-        for uid, position, price, realized, ep_pre, crowd_adj in rows:
+        for uid, position, price, realized, ep_pre, crowd_adj, band_adj in rows:
             feat = features.get(uid, {})
             out.append({
                 "season": season, "gw": gw, "player_uid": uid, "position": position, "price": price,
                 "price_band": price_band(price), "realized_points": realized, "ep_pre_adjustment": ep_pre,
-                **{name: feat.get(name) for name in FEATURES}, "crowd_adj": crowd_adj,
+                **{name: feat.get(name) for name in FEATURES}, "crowd_adj": crowd_adj, "band_adj": band_adj,
             })
     return out
 
@@ -223,16 +224,17 @@ def crowd_adjustments(con: duckdb.DuckDBPyConnection, season: str, deadline_game
 COEFF_ROOT = Path(__file__).resolve().parents[2] / "data" / COEFF_DIR_NAME
 
 
-def coeff_path(coeff_date: int) -> Path:
-    """data/recalibration/crowd_prior_coeffs_<YYYYMMDD>.json, written by scripts/fit_residual_lever.py."""
-    return COEFF_ROOT / f"crowd_prior_coeffs_{int(coeff_date)}.json"
+def coeff_path(coeff_date: int, lever: str = "crowd_prior") -> Path:
+    """data/recalibration/<lever>_coeffs_<YYYYMMDD>.json, written by scripts/fit_residual_lever.py
+    (lever crowd_prior for L1, band_bias for L2)."""
+    return COEFF_ROOT / f"{lever}_coeffs_{int(coeff_date)}.json"
 
 
-def coeff_hash(coeff_date: int) -> int:
+def coeff_hash(coeff_date: int, lever: str = "crowd_prior") -> int:
     """The coefficient file's content hash: the first 48 bits of its sha256, exact as a double."""
     import hashlib
 
-    return int(hashlib.sha256(coeff_path(coeff_date).read_bytes()).hexdigest()[:12], 16)
+    return int(hashlib.sha256(coeff_path(coeff_date, lever).read_bytes()).hexdigest()[:12], 16)
 
 
 def crowd_prior_bundle(coeff_date: int) -> dict[str, float]:
@@ -262,3 +264,105 @@ def resolve_crowd_prior(con: duckdb.DuckDBPyConnection, version: int | None) -> 
         raise ValueError(f"{coeff_path(values['coeff_date'])} changed since crowd_prior_params v{version} was minted")
     coeffs = json.loads(coeff_path(values["coeff_date"]).read_text())
     return {"coeffs": coeffs, "clip": float(values["clip"]), "lag": int(values["lag"])}
+
+
+# ============================================================
+# L2, the band bias (docs/plans/2026-10_beat_the_template.md, Phase 6): each (position, price band)
+# cell's mean residual (realized - the projection before any lever) in the fold that scores the
+# season, shrunk toward zero by n / (n + pseudo_rows). Applied by band_adjustments() through
+# expected_points.run(), the same way as L1: split across a double gameweek by EP, never taking a
+# fixture's EP below zero, every planning-horizon gameweek of one deadline the same.
+# ============================================================
+
+BAND_BIAS_FAMILY = "band_bias_params"
+BAND_BIAS_KEYS = ("coeff_date", "coeff_hash", "pseudo_rows")
+BAND_BIAS_REQUIRED = ("realized_points", "ep_pre_adjustment", "position", "price_band")
+
+
+def band_key(position: str, band: str) -> str:
+    return f"{position}|{band}"
+
+
+def fit_band_cells(rows: list[dict], pseudo_rows: float = 500.0) -> dict[str, dict]:
+    """{"position|band": {"n", "mean_resid", "adj"}} over the rows that carry every BAND_BIAS_REQUIRED
+    field: adj = mean_resid * n / (n + pseudo_rows)."""
+    acc: dict[str, list[float]] = {}
+    for r in rows:
+        if any(r.get(k) in (None, "") for k in BAND_BIAS_REQUIRED):
+            continue
+        cell = acc.setdefault(band_key(r["position"], r["price_band"]), [0, 0.0])
+        cell[0] += 1
+        cell[1] += float(r["realized_points"]) - float(r["ep_pre_adjustment"])
+    out = {}
+    for key, (n, total) in sorted(acc.items()):
+        mean = total / n
+        out[key] = {"n": int(n), "mean_resid": round(mean, 6), "adj": round(mean * n / (n + pseudo_rows), 6)}
+    return out
+
+
+def fit_band_bias(rows: list[dict], pseudo_rows: float = 500.0) -> dict:
+    """{fold: cells} for the folds fold_for() names: each season's own rows, and both."""
+    by_season = {s: [r for r in rows if r.get("season") == s] for s in ("2024-2025", "2025-2026")}
+    return {
+        "2024-2025": fit_band_cells(by_season["2024-2025"], pseudo_rows),
+        "2025-2026": fit_band_cells(by_season["2025-2026"], pseudo_rows),
+        "both": fit_band_cells(by_season["2024-2025"] + by_season["2025-2026"], pseudo_rows),
+    }
+
+
+def band_adjustments(con: duckdb.DuckDBPyConnection, season: str, deadline_gameweek: int,
+                     coeffs: dict) -> dict[str, float]:
+    """{player_uid: adjustment, pts/GW} for the gameweek being planned: the cell of the player's
+    position and price band, from the fold that scores `season`. The price is his latest before the
+    deadline (the price the optimizer sees, and the one residual_rows() bands by). A player with no
+    price yet, or in a cell the fold has no rows for, gets no entry (no adjustment)."""
+    folds = coeffs.get("folds") or {}
+    if fold_for(season) not in folds:
+        raise KeyError(f"coefficient file has no {fold_for(season)!r} fold for {season}")
+    cells = folds[fold_for(season)] or {}
+    rows = con.execute(
+        """
+        WITH price AS (
+            SELECT player_uid, now_cost FROM fact_player_season_stats
+            WHERE season = ? AND gw < ? AND now_cost IS NOT NULL
+            QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
+        )
+        SELECT price.player_uid, dp.position, price.now_cost
+        FROM price JOIN dim_player dp ON dp.player_uid = price.player_uid
+        """,
+        [season, deadline_gameweek],
+    ).fetchall()
+    out = {}
+    for uid, position, price in rows:
+        cell = cells.get(band_key(position, price_band(price)))
+        if cell is not None:
+            out[uid] = float(cell["adj"])
+    return out
+
+
+def band_bias_bundle(coeff_date: int) -> dict[str, float]:
+    """The band_bias_params values for one coefficient file: its date, content hash and pseudo_rows."""
+    coeffs = json.loads(coeff_path(coeff_date, "band_bias").read_text())
+    return {"coeff_date": int(coeff_date), "coeff_hash": coeff_hash(coeff_date, "band_bias"),
+            "pseudo_rows": coeffs["pseudo_rows"]}
+
+
+def band_bias_version(con: duckdb.DuckDBPyConnection, coeff_date: int, effective_date: str) -> int:
+    """The band_bias_params version for this coefficient file (an existing one if it matches)."""
+    from . import params as params_mod
+
+    return params_mod.get_or_create_bundle_version(con, BAND_BIAS_FAMILY, band_bias_bundle(coeff_date), effective_date)
+
+
+def resolve_band_bias(con: duckdb.DuckDBPyConnection, version: int | None) -> dict | None:
+    """The band_bias_params bundle with its coefficient file loaded, or None when off."""
+    from . import params as params_mod
+
+    if version is None:
+        return None
+    values = {k: params_mod.resolve_param(con, BAND_BIAS_FAMILY, k, version)[0] for k in BAND_BIAS_KEYS}
+    if coeff_hash(values["coeff_date"], "band_bias") != int(values["coeff_hash"]):
+        raise ValueError(f"{coeff_path(values['coeff_date'], 'band_bias')} changed since band_bias_params "
+                         f"v{version} was minted")
+    return {"coeffs": json.loads(coeff_path(values["coeff_date"], "band_bias").read_text())}
+

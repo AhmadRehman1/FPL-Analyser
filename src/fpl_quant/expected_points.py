@@ -1433,13 +1433,16 @@ def run(
     rate_prior_params_version: int | None = None,
     conversion_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
-    crowd_deadline_gameweek: int | None = None,
+    lever_deadline_gameweek: int | None = None,
+    band_bias_params_version: int | None = None,
 ) -> int:
     # crowd_prior_params_version (opt-in, None = off): lever L1 of docs/plans/
     # 2026-10_beat_the_template.md -- after every fixture is written, each player's crowd
     # adjustment (residual_levers.crowd_adjustments) is added to ep_total, see _apply_crowd_prior().
-    # crowd_deadline_gameweek is the gameweek being planned (default target_gameweek): a planning
-    # horizon's later gameweeks pass the deadline's, so every one of them reads the same features.
+    # band_bias_params_version (opt-in, None = off): lever L2, each player's (position, price band)
+    # adjustment (residual_levers.band_adjustments), added after L1 the same way.
+    # lever_deadline_gameweek is the gameweek being planned (default target_gameweek): a planning
+    # horizon's later gameweeks pass the deadline's, so every one of them gets the same adjustment.
     # conversion_params_version (opt-in, None = off): the pooled band conversion -- see
     # band_conversion_ratios().
     # rate_prior_params_version (None = off; live since 2026-10-07, every caller passes
@@ -1498,15 +1501,17 @@ def run(
              scoring_matrix_params_version, bps_params_version, bps_tau_params_version,
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
              assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-             rate_prior_params_version, conversion_params_version, crowd_prior_params_version, recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             rate_prior_params_version, conversion_params_version, crowd_prior_params_version,
+             band_bias_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
          scoring_params_version, bps_params_version, tau_params_version,
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
          assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
-         rate_prior_params_version, conversion_params_version, crowd_prior_params_version],
+         rate_prior_params_version, conversion_params_version, crowd_prior_params_version,
+         band_bias_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -1577,22 +1582,18 @@ def run(
                  r["ep_saves"], r["ep_penalty_save"], r["ep_cards"], r["ep_own_goal"], ep_total, r["expected_bps"]],
             )
 
+    deadline = target_gameweek if lever_deadline_gameweek is None else lever_deadline_gameweek
     if crowd_prior_params_version is not None:
-        _apply_crowd_prior(
-            con, model_version, target_season, crowd_prior_params_version,
-            target_gameweek if crowd_deadline_gameweek is None else crowd_deadline_gameweek, memo,
-        )
+        _apply_crowd_prior(con, model_version, target_season, crowd_prior_params_version, deadline, memo)
+    if band_bias_params_version is not None:
+        _apply_band_bias(con, model_version, target_season, band_bias_params_version, deadline, memo)
     return model_version
 
 
 def _apply_crowd_prior(con: duckdb.DuckDBPyConnection, model_version: int, target_season: str, version: int,
                        deadline_gameweek: int, memo: dict | None = None) -> int:
-    """Adds each player's crowd adjustment for the deadline to this model version's ep_total, split
-    across a double gameweek's fixtures in proportion to their EP (equally when that is not
-    positive). A share never takes a fixture's EP below zero (or lower, when it is already below
-    zero): a cut bigger than the projection itself is floored there. The share applied goes into
-    ep_crowd_adj too, so ep_total - ep_crowd_adj is the projection before the lever. Returns the
-    number of players adjusted."""
+    """Lever L1: each player's crowd adjustment for the deadline (residual_levers.crowd_adjustments),
+    added by _apply_lever_adjustments() into ep_crowd_adj. Returns the number of players adjusted."""
     from . import residual_levers
 
     def build():
@@ -1603,6 +1604,38 @@ def _apply_crowd_prior(con: duckdb.DuckDBPyConnection, model_version: int, targe
 
     key = ("crowd_adjustments", version, target_season, deadline_gameweek)
     adjustments = build() if memo is None else _memo_get(memo, key, build)
+    return _apply_lever_adjustments(con, model_version, adjustments, "ep_crowd_adj")
+
+
+def _apply_band_bias(con: duckdb.DuckDBPyConnection, model_version: int, target_season: str, version: int,
+                     deadline_gameweek: int, memo: dict | None = None) -> int:
+    """Lever L2: each player's (position, price band) adjustment for the deadline
+    (residual_levers.band_adjustments), added by _apply_lever_adjustments() into ep_band_adj."""
+    from . import residual_levers
+
+    def build():
+        return residual_levers.band_adjustments(
+            con, target_season, deadline_gameweek, residual_levers.resolve_band_bias(con, version)["coeffs"],
+        )
+
+    key = ("band_adjustments", version, target_season, deadline_gameweek)
+    adjustments = build() if memo is None else _memo_get(memo, key, build)
+    return _apply_lever_adjustments(con, model_version, adjustments, "ep_band_adj")
+
+
+_LEVER_COLUMNS = ("ep_crowd_adj", "ep_band_adj")
+
+
+def _apply_lever_adjustments(con: duckdb.DuckDBPyConnection, model_version: int, adjustments: dict[str, float],
+                             column: str) -> int:
+    """Adds each player's adjustment to this model version's ep_total, split across a double
+    gameweek's fixtures in proportion to their EP (equally when that is not positive). A share never
+    takes a fixture's EP below zero (or lower, when it is already below zero): a cut bigger than
+    the projection itself is floored there. The share applied goes into `column` too, so ep_total
+    minus every lever column is the projection before the levers. Returns the number of players
+    adjusted."""
+    if column not in _LEVER_COLUMNS:
+        raise ValueError(f"not a lever column: {column}")
     if not adjustments:
         return 0
     rows = con.execute(
@@ -1621,15 +1654,15 @@ def _apply_crowd_prior(con: duckdb.DuckDBPyConnection, model_version: int, targe
             shares.append((uid, match_id, max(share, -max(ep, 0.0))))
     if not shares:
         return 0
-    con.execute("CREATE OR REPLACE TEMP TABLE _crowd_adj (player_uid VARCHAR, fixture_match_id VARCHAR, share DOUBLE)")
-    con.executemany("INSERT INTO _crowd_adj VALUES (?, ?, ?)", shares)
+    con.execute("CREATE OR REPLACE TEMP TABLE _lever_adj (player_uid VARCHAR, fixture_match_id VARCHAR, share DOUBLE)")
+    con.executemany("INSERT INTO _lever_adj VALUES (?, ?, ?)", shares)
     con.execute(
-        "UPDATE ep_outputs SET ep_total = ep_outputs.ep_total + a.share, ep_crowd_adj = a.share FROM _crowd_adj a "
+        f"UPDATE ep_outputs SET ep_total = ep_outputs.ep_total + a.share, {column} = a.share FROM _lever_adj a "
         "WHERE ep_outputs.model_version = ? AND ep_outputs.player_uid = a.player_uid "
         "AND ep_outputs.fixture_match_id = a.fixture_match_id",
         [model_version],
     )
-    con.execute("DROP TABLE _crowd_adj")
+    con.execute("DROP TABLE _lever_adj")
     return len(by_player)
 
 
