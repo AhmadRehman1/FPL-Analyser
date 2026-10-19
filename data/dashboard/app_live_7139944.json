@@ -4,14 +4,14 @@
   "gameweek": 7,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 51,
+  "live_total": 53,
   "players": [
     {
       "player_id": 496,
       "web_name": "Kinsky",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 4,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 24.5,
-    "estimated_rank": 8399081
+    "percentile": 28.5,
+    "estimated_rank": 7959060
   },
   "fixtures": [
     {
@@ -240,6 +240,23 @@
       "away": {
         "short_name": "ARS",
         "name": "Arsenal",
+        "score": 1
+      }
+    },
+    {
+      "id": 70,
+      "kickoff": "2026-10-19T19:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "TOT",
+        "name": "Spurs",
+        "score": 3
+      },
+      "away": {
+        "short_name": "COV",
+        "name": "Coventry City",
         "score": 1
       }
     }
@@ -406,6 +423,22 @@
       "fixture_id": 64
     },
     {
+      "player_id": 183,
+      "web_name": "Rudoni",
+      "team": 7,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 70
+    },
+    {
+      "player_id": 194,
+      "web_name": "Thomas-Asante",
+      "team": 7,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 70
+    },
+    {
       "player_id": 203,
       "web_name": "Canvot",
       "team": 8,
@@ -502,6 +535,14 @@
       "fixture_id": 67
     },
     {
+      "player_id": 401,
+      "web_name": "Marmoush",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 70
+    },
+    {
       "player_id": 406,
       "web_name": "Kova\u010di\u0107",
       "team": 15,
@@ -526,12 +567,52 @@
       "fixture_id": 66
     },
     {
+      "player_id": 502,
+      "web_name": "Robertson",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 70
+    },
+    {
       "player_id": 504,
       "web_name": "Vuskovic",
       "team": 5,
       "event": "assist",
       "count": 1,
       "fixture_id": 63
+    },
+    {
+      "player_id": 508,
+      "web_name": "Davies",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 70
+    },
+    {
+      "player_id": 512,
+      "web_name": "Kudus",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 70
+    },
+    {
+      "player_id": 515,
+      "web_name": "Maddison",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 70
+    },
+    {
+      "player_id": 526,
+      "web_name": "Solanke",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 70
     },
     {
       "player_id": 562,
@@ -566,5 +647,5 @@
       "fixture_id": 67
     }
   ],
-  "generated_at": "2026-10-18T22:48:45.026418+00:00"
+  "generated_at": "2026-10-19T22:03:25.105181+00:00"
 }
