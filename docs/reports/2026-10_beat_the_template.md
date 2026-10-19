@@ -575,3 +575,33 @@ fixes were applied in the next commit.
   (2025-26, chunk `2-38`, `same_runner`), then the live switch (Req 8), unless m < 0, which goes to
   the owner.
 - **Arms used after this batch:** 3 of 10 (Z: 2, L1: 1).
+
+### Batch L1 results (cached DB duckdb-38324360004, commit 22112a1, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 38327384582 | control, `--template-lag 2` (Z-goal live) | — | — | 1.0453 / 1.0515 | — | — |
+| 38327387171 | `--template-lag 2 --crowd-prior 20261013` | **−0.770 ± 0.816** (21 better, 32 worse, 53 changed) | **−1.587** | 1.0424 (−0.0029) / 1.0439 (−0.0076) | ok: overlap 3.24 → 3.43 (+0.19), non-template −1.93 ± 0.84 | **FAIL (i)** |
+
+- **The arm ran as declared:** `[crowd_prior] v1: 72/75 steps adjusted, 54048 player-fixtures,
+  mean |adjustment| 0.0768, 13057 floored at zero EP`. The three unadjusted steps are each
+  season's opening gameweeks, which have no row G−2.
+- **Verdict: FAIL.** m − SE is −1.587, far outside the replicate band. No season-sim check is run.
+- **Why it failed:**
+  - The adjustment did what the fit promised for EP error: MAE fell in both seasons, matching the
+    out-of-fold check.
+  - It cost squad points. It raised the EP of owned, transferred-in players, which pulled the XI
+    toward the template (overlap +0.19 a GW). The points the model scores away from the template
+    fell by −1.93 ± 0.84 a GW, and the arm's gap to the gated template dropped from +9.92 to +9.08.
+  - The crowd's information is already largely in the template's picks, and the model's edge is
+    in the players the crowd doesn't hold. A better calibrated mean on average did not help the
+    picks at the top of the EP distribution. That is the decision-weighted error, which ridge on
+    every player-gameweek does not target.
+- **The new control** reproduces the Z1 `--no-goal-anchor` arm (38275613712) on a newer DB: 1 of
+  74 GWs differs, −0.041 ± 0.041. That confirms the live switch (v2) is the arm that was tested.
+- **Family L1:** one fail. It is dropped after a second consecutive fail, and no L1 variant is
+  queued (the plan declares one arm).
+- **Arms used:** 3 of 10 (Z: 2, L1: 1).
+- **Next:** Phase 6 (L2, the position × price-band bias). Its residuals come from the current
+  control, which has Z-goal live and no L1, so export 38312629527 stands in. Its fit adds no crowd
+  term, so the own-season L1 column the stacked-folds rule needs is not required.
