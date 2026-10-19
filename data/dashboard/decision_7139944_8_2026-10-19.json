@@ -3,11 +3,11 @@
   "action_display": "Lewis Hall -> Luka Vu\u0161kovi\u0107",
   "data_asof": "2026-10-19",
   "downside_ci": [
-    7.775523838982082,
-    130.16652333031868
+    6.185655341092302,
+    128.44860115645156
   ],
   "entry_id": 7139944,
-  "ep_lift": 6.359020388311549,
+  "ep_lift": 6.374226749233991,
   "gw": 8,
   "price_hint": {
     "confidence": 0.0,
@@ -19,7 +19,7 @@
   },
   "provenance": {
     "data_asof": "2026-10-19",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": {
     "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 6.250780926446655,
+    "ep_lift": 6.2518901291623195,
     "provenance": {
       "data_asof": "2026-10-19",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "model_version": "ep_v2/un_v2/plan_run3"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 6.250780926446655,
+        "delta_ep": 6.2518901291623195,
         "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
         "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
         "out_name": "Lewis Hall",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 18.677796425480416,
+      "delta_ep": 18.668701291133132,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.359020388311549,
+      "delta_ep": 6.374226749233991,
       "in_name": "Luka Vu\u0161kovi\u0107",
       "in_player_uid": "player_luka_vuskovic",
       "out_name": "Lewis Hall",
