@@ -6,14 +6,14 @@
     "2025-2026"
   ],
   "headline": {
-    "beats_avg_manager_by_points_per_gw": -1.53,
+    "beats_avg_manager_by_points_per_gw": -1.3952,
     "n_scored_gameweeks": 74,
-    "model_squad_points_per_gw": 61.6351,
-    "avg_manager_points_per_gw": 63.1651,
+    "model_squad_points_per_gw": 61.7703,
+    "avg_manager_points_per_gw": 63.1655,
     "minutes_brier": 0.273,
     "minutes_log_score": -0.5039,
-    "ep_points_bias_per_player": -0.0659,
-    "ep_points_mae_per_player": 1.0418,
+    "ep_points_bias_per_player": -0.0661,
+    "ep_points_mae_per_player": 1.0419,
     "benchmark_metadata": {
       "benchmark_name": "synthetic_eo_weighted_score",
       "source": "internal computation: fact_player_season_stats.selected_by_percent (EO) x realized event_points",
@@ -24,7 +24,7 @@
       "oracle": true
     },
     "real_benchmark": {
-      "beats_avg_manager_by_points_per_gw": 10.1081,
+      "beats_avg_manager_by_points_per_gw": 10.3514,
       "n_scored_gameweeks": 37,
       "avg_manager_points_per_gw": 49.7568,
       "benchmark_metadata": {
@@ -39,22 +39,22 @@
   "metrics": [
     {
       "metric_name": "avg_manager_benchmark_points",
-      "mean_value": 63.1651,
+      "mean_value": 63.1655,
       "n_observations": 74
     },
     {
       "metric_name": "beats_crowd_points_delta",
-      "mean_value": -1.53,
+      "mean_value": -1.3952,
       "n_observations": 74
     },
     {
       "metric_name": "beats_real_avg_points_delta",
-      "mean_value": 10.1081,
+      "mean_value": 10.3514,
       "n_observations": 37
     },
     {
       "metric_name": "beats_template_points_delta",
-      "mean_value": 7.2973,
+      "mean_value": 7.4324,
       "n_observations": 74
     },
     {
@@ -94,17 +94,17 @@
     },
     {
       "metric_name": "ep_other_calibration_mean_resid",
-      "mean_value": -0.0124,
+      "mean_value": -0.0126,
       "n_observations": 75
     },
     {
       "metric_name": "ep_total_calibration_mae",
-      "mean_value": 1.0418,
+      "mean_value": 1.0419,
       "n_observations": 75
     },
     {
       "metric_name": "ep_total_calibration_mean_resid",
-      "mean_value": -0.0659,
+      "mean_value": -0.0661,
       "n_observations": 75
     },
     {
@@ -129,7 +129,7 @@
     },
     {
       "metric_name": "match_score_log_lik_mean",
-      "mean_value": -3.0492,
+      "mean_value": -3.0496,
       "n_observations": 75
     },
     {
@@ -139,17 +139,17 @@
     },
     {
       "metric_name": "model_squad_realized_points",
-      "mean_value": 61.6351,
+      "mean_value": 61.7703,
       "n_observations": 74
     },
     {
       "metric_name": "model_xi_resid",
-      "mean_value": -0.1493,
+      "mean_value": -0.1499,
       "n_observations": 74
     },
     {
       "metric_name": "non_template_points",
-      "mean_value": 36.2297,
+      "mean_value": 36.3649,
       "n_observations": 74
     },
     {
@@ -174,7 +174,7 @@
     },
     {
       "metric_name": "template_solve_seconds",
-      "mean_value": 0.8038,
+      "mean_value": 0.4819,
       "n_observations": 75
     },
     {
@@ -194,7 +194,7 @@
     },
     {
       "metric_name": "template_xi_resid",
-      "mean_value": 0.0401,
+      "mean_value": 0.0397,
       "n_observations": 74
     }
   ],
@@ -217,15 +217,15 @@
         "n_observations": 38
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0101,
+        "mean_value": -0.0105,
         "n_observations": 38
       },
       "ep_total_calibration_mae": {
-        "mean_value": 0.9939,
+        "mean_value": 0.9941,
         "n_observations": 38
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.1183,
+        "mean_value": -0.1187,
         "n_observations": 38
       }
     },
@@ -247,15 +247,15 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0297,
+        "mean_value": -0.03,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.1463,
+        "mean_value": 1.1465,
         "n_observations": 75
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.1146,
+        "mean_value": -0.1149,
         "n_observations": 75
       }
     },
@@ -277,7 +277,7 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.0265,
+        "mean_value": 0.0264,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
@@ -307,15 +307,15 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.0766,
+        "mean_value": 0.0764,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
-        "mean_value": 0.8078,
+        "mean_value": 0.8079,
         "n_observations": 75
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.076,
+        "mean_value": -0.0763,
         "n_observations": 75
       }
     },
@@ -337,15 +337,15 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0294,
+        "mean_value": -0.0296,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.0047,
+        "mean_value": 1.0048,
         "n_observations": 75
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.0504,
+        "mean_value": -0.0506,
         "n_observations": 75
       }
     },
@@ -367,15 +367,15 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0123,
+        "mean_value": -0.0126,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.4302,
+        "mean_value": 1.4303,
         "n_observations": 75
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.0247,
+        "mean_value": 0.0245,
         "n_observations": 75
       }
     },
@@ -397,15 +397,15 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.1136,
+        "mean_value": 0.1134,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
-        "mean_value": 2.3823,
+        "mean_value": 2.3824,
         "n_observations": 75
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.2446,
+        "mean_value": 0.2444,
         "n_observations": 75
       }
     },
@@ -427,15 +427,15 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.1813,
+        "mean_value": 0.1812,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
-        "mean_value": 3.1577,
+        "mean_value": 3.1578,
         "n_observations": 75
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": 0.1702,
+        "mean_value": 0.1701,
         "n_observations": 75
       }
     },
@@ -457,15 +457,15 @@
         "n_observations": 75
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0207,
+        "mean_value": -0.0209,
         "n_observations": 75
       },
       "ep_total_calibration_mae": {
-        "mean_value": 0.7548,
+        "mean_value": 0.7549,
         "n_observations": 75
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.1309,
+        "mean_value": -0.1311,
         "n_observations": 75
       }
     },
@@ -487,15 +487,15 @@
         "n_observations": 38
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": -0.0085,
+        "mean_value": -0.0087,
         "n_observations": 38
       },
       "ep_total_calibration_mae": {
-        "mean_value": 0.9323,
+        "mean_value": 0.9324,
         "n_observations": 38
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.0754,
+        "mean_value": -0.0756,
         "n_observations": 38
       }
     },
@@ -517,15 +517,15 @@
         "n_observations": 38
       },
       "ep_other_calibration_mean_resid": {
-        "mean_value": 0.0327,
+        "mean_value": 0.0325,
         "n_observations": 38
       },
       "ep_total_calibration_mae": {
-        "mean_value": 1.1505,
+        "mean_value": 1.1506,
         "n_observations": 38
       },
       "ep_total_calibration_mean_resid": {
-        "mean_value": -0.0383,
+        "mean_value": -0.0385,
         "n_observations": 38
       }
     }
@@ -610,7 +610,7 @@
       }
     ]
   },
-  "generated_at": "2026-10-18T19:59:05.760146",
+  "generated_at": "2026-10-19T07:34:13.119037",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 75,
@@ -619,14 +619,14 @@
         "2025-2026"
       ],
       "headline": {
-        "beats_avg_manager_by_points_per_gw": -1.53,
+        "beats_avg_manager_by_points_per_gw": -1.3952,
         "n_scored_gameweeks": 74,
-        "model_squad_points_per_gw": 61.6351,
-        "avg_manager_points_per_gw": 63.1651,
+        "model_squad_points_per_gw": 61.7703,
+        "avg_manager_points_per_gw": 63.1655,
         "minutes_brier": 0.273,
         "minutes_log_score": -0.5039,
-        "ep_points_bias_per_player": -0.0659,
-        "ep_points_mae_per_player": 1.0418,
+        "ep_points_bias_per_player": -0.0661,
+        "ep_points_mae_per_player": 1.0419,
         "benchmark_metadata": {
           "benchmark_name": "synthetic_eo_weighted_score",
           "source": "internal computation: fact_player_season_stats.selected_by_percent (EO) x realized event_points",
@@ -637,7 +637,7 @@
           "oracle": true
         },
         "real_benchmark": {
-          "beats_avg_manager_by_points_per_gw": 10.1081,
+          "beats_avg_manager_by_points_per_gw": 10.3514,
           "n_scored_gameweeks": 37,
           "avg_manager_points_per_gw": 49.7568,
           "benchmark_metadata": {
@@ -652,22 +652,22 @@
       "metrics": [
         {
           "metric_name": "avg_manager_benchmark_points",
-          "mean_value": 63.1651,
+          "mean_value": 63.1655,
           "n_observations": 74
         },
         {
           "metric_name": "beats_crowd_points_delta",
-          "mean_value": -1.53,
+          "mean_value": -1.3952,
           "n_observations": 74
         },
         {
           "metric_name": "beats_real_avg_points_delta",
-          "mean_value": 10.1081,
+          "mean_value": 10.3514,
           "n_observations": 37
         },
         {
           "metric_name": "beats_template_points_delta",
-          "mean_value": 7.2973,
+          "mean_value": 7.4324,
           "n_observations": 74
         },
         {
@@ -707,17 +707,17 @@
         },
         {
           "metric_name": "ep_other_calibration_mean_resid",
-          "mean_value": -0.0124,
+          "mean_value": -0.0126,
           "n_observations": 75
         },
         {
           "metric_name": "ep_total_calibration_mae",
-          "mean_value": 1.0418,
+          "mean_value": 1.0419,
           "n_observations": 75
         },
         {
           "metric_name": "ep_total_calibration_mean_resid",
-          "mean_value": -0.0659,
+          "mean_value": -0.0661,
           "n_observations": 75
         },
         {
@@ -742,7 +742,7 @@
         },
         {
           "metric_name": "match_score_log_lik_mean",
-          "mean_value": -3.0492,
+          "mean_value": -3.0496,
           "n_observations": 75
         },
         {
@@ -752,17 +752,17 @@
         },
         {
           "metric_name": "model_squad_realized_points",
-          "mean_value": 61.6351,
+          "mean_value": 61.7703,
           "n_observations": 74
         },
         {
           "metric_name": "model_xi_resid",
-          "mean_value": -0.1493,
+          "mean_value": -0.1499,
           "n_observations": 74
         },
         {
           "metric_name": "non_template_points",
-          "mean_value": 36.2297,
+          "mean_value": 36.3649,
           "n_observations": 74
         },
         {
@@ -787,7 +787,7 @@
         },
         {
           "metric_name": "template_solve_seconds",
-          "mean_value": 0.8038,
+          "mean_value": 0.4819,
           "n_observations": 75
         },
         {
@@ -807,7 +807,7 @@
         },
         {
           "metric_name": "template_xi_resid",
-          "mean_value": 0.0401,
+          "mean_value": 0.0397,
           "n_observations": 74
         }
       ],
@@ -848,15 +848,7 @@
         "in_xi_count": 11
       }
     ],
-    "latest_diff": {
-      "has_previous": false,
-      "previous_gameweek": null,
-      "current_gameweek": 1,
-      "squad_changes": null,
-      "captain_changed": null,
-      "total_projected_ep_delta": null,
-      "newly_doubtful_flags": null
-    },
+    "latest_diff": null,
     "provenance": {
       "data_asof": "2026-10-18",
       "evidence_workbook": {
