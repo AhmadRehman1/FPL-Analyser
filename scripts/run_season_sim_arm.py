@@ -19,6 +19,13 @@ version (nothing is activated):
     --multi-transfers        two-transfer moves, taking a hit when only one is free
     --team-strength off      the team-strength model from before 2026-10-06 (or another arm of
                              run_walkforward.py --team-strength)
+    --goal-anchor            goals anchored to price too: the rate prior before 2026-10-13 (v1)
+    --no-goal-anchor         goals unanchored, assists anchored: the live rate prior since
+                             2026-10-13 (run_walkforward.py's flags)
+    --no-rate-price-anchor   shrink goal/assist rates toward the position average, as before
+                             2026-10-07 (run_walkforward.py's flag)
+    --crowd-prior 20261012   lever L1, the crowd prior from that coefficient file
+                             (run_walkforward.py's flag)
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/run_season_sim_arm.py --label control --season 2025-2026
@@ -61,6 +68,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--team-strength", default=None,
                         help="a team-strength arm, as run_walkforward.py --team-strength "
                              "(team_strength.GUARD_ARMS, or off)")
+    # docs/plans/2026-10_beat_the_template.md, lever Z: the season-sim check of the two near misses
+    goal = parser.add_mutually_exclusive_group()
+    goal.add_argument("--no-goal-anchor", action="store_true",
+                      help="keep the price anchor for assists but shrink goals toward the position average "
+                           "(live since 2026-10-13)")
+    goal.add_argument("--goal-anchor", action="store_true",
+                      help="anchor goals to price too: the rate prior before 2026-10-13 (rate_prior_params v1)")
+    parser.add_argument("--no-rate-price-anchor", action="store_true",
+                        help="shrink goal/assist rates toward the position average, as before 2026-10-07")
+    parser.add_argument("--crowd-prior", type=int, default=None, metavar="COEFF_DATE",
+                        help="lever L1: the crowd prior from data/recalibration/crowd_prior_coeffs_<COEFF_DATE>.json")
     return parser.parse_args(argv)
 
 
@@ -74,6 +92,8 @@ def arm_versions(con, args: argparse.Namespace) -> tuple[dict, dict]:
     experiment = _experiment_versions(con, argparse.Namespace(
         lambda_value=args.lambda_value, role_matches_threshold=None, assist_prior_xa=args.assist_prior_xa,
         team_strength=args.team_strength,
+        no_goal_anchor=args.no_goal_anchor, goal_anchor=args.goal_anchor, no_rate_price_anchor=args.no_rate_price_anchor,
+        crowd_prior=args.crowd_prior,
     ))
     versions.update(experiment)
     changed.update(experiment)

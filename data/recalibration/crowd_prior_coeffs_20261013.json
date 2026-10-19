@@ -1,0 +1,121 @@
+{
+  "lever": "L1 crowd prior (docs/plans/2026-10_beat_the_template.md)",
+  "features": [
+    "own_pct",
+    "log_sbp",
+    "xfer_pct"
+  ],
+  "lag": 2,
+  "alpha": 10.0,
+  "min_rows": 2000,
+  "clip": 1.5,
+  "source": {
+    "file": "residual_features_38312629527.csv",
+    "sha256": "d714b8132d57786dc38ff6873d519f4bec1491e294b3dd201896b117b446a915",
+    "run_id": "38312629527"
+  },
+  "n_rows": {
+    "2024-2025": 26624,
+    "2025-2026": 29569
+  },
+  "n_complete": {
+    "2024-2025": 25675,
+    "2025-2026": 27882
+  },
+  "folds": {
+    "2024-2025": {
+      "n": 25675,
+      "means": [
+        0.43500457,
+        0.5797443,
+        0.49892328
+      ],
+      "sds": [
+        0.34056536,
+        0.82240267,
+        0.28808558
+      ],
+      "beta": [
+        0.07525148,
+        0.03784851,
+        0.06714677
+      ],
+      "resid_mean": -0.04025
+    },
+    "2025-2026": {
+      "n": 27882,
+      "means": [
+        0.42709322,
+        0.52285941,
+        0.49764609
+      ],
+      "sds": [
+        0.3420813,
+        0.79622057,
+        0.28835347
+      ],
+      "beta": [
+        0.06953381,
+        0.02189721,
+        0.12590692
+      ],
+      "resid_mean": -0.070377
+    },
+    "both": {
+      "n": 53557,
+      "means": [
+        0.43088589,
+        0.55012979,
+        0.49825837
+      ],
+      "sds": [
+        0.34137829,
+        0.80937697,
+        0.28822578
+      ],
+      "beta": [
+        0.07184971,
+        0.03097629,
+        0.09776171
+      ],
+      "resid_mean": -0.055934
+    }
+  },
+  "fold_for": {
+    "2024-2025": "2025-2026",
+    "2025-2026": "2024-2025",
+    "2026-2027": "both"
+  },
+  "cross_fold_check": {
+    "2024-2025": {
+      "n": 26624,
+      "n_adjusted": 25675,
+      "fitted_fold": "2025-2026",
+      "mae_before": 1.0394,
+      "mae_after": 1.0363,
+      "unfloored_mae_after": 1.047,
+      "rmse_before": 1.9563,
+      "rmse_after": 1.9542,
+      "mean_resid_before": -0.0542,
+      "mean_resid_after": -0.0685,
+      "mean_adjustment": 0.0149,
+      "share_clipped": 0.0,
+      "share_floored": 0.2186
+    },
+    "2025-2026": {
+      "n": 29569,
+      "n_adjusted": 27882,
+      "fitted_fold": "2024-2025",
+      "mae_before": 1.0496,
+      "mae_after": 1.0423,
+      "unfloored_mae_after": 1.0577,
+      "rmse_before": 1.9436,
+      "rmse_after": 1.9398,
+      "mean_resid_before": -0.0881,
+      "mean_resid_after": -0.0991,
+      "mean_adjustment": 0.0117,
+      "share_clipped": 0.0,
+      "share_floored": 0.2633
+    }
+  }
+}

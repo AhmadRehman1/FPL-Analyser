@@ -26,9 +26,11 @@ The experiment flags (--lambda, --role-matches-threshold, --role-minutes-blend, 
 branch_walkforward.yml's `args` input instead of a bt/** branch. Nothing is activated.
 
 Goals-only anchor off (docs/reports/2026-10_premium_and_form_returns.md, round 2: the price anchor
-over-predicts premium goals while assists stay short):
-    --no-goal-anchor           the live rate prior with anchor_goals 0: goals shrink toward the
-                               position average, assists keep the price anchor
+over-predicts premium goals while assists stay short). Live since 2026-10-13 as rate_prior_params v2
+(docs/reports/2026-10_beat_the_template.md, Phase 4, lever Z):
+    --goal-anchor              the rate prior before 2026-10-13 (v1): goals anchored to price too
+    --no-goal-anchor           goals shrink toward the position average, assists keep the price
+                               anchor -- now the live setting, so alone it is the control
 
 Pooled band conversion (docs/plans/2026-10_premium_and_form_returns.md, Phase 4: FPL awards more
 assists than xA implies in every price band, most at 9.0m+):
@@ -83,6 +85,19 @@ it never changes the model's own numbers.
     --template-lag 2           the template reads rows up to G-2, the plan's fallback if row G-1
                                isn't settled by G's deadline (A2)
 
+Phase 3's cause measurements (docs/plans/2026-10_beat_the_template.md; arms, not levers):
+    --availability-lag 2       the minutes model's FPL availability flag reads rows up to G-2:
+                               what row G-1 (not always settled by G's deadline, A2) is worth
+    --live-eo-anchor           the walk-forward solve with the live from-scratch solve's EO
+                               template anchor (ownership_params v1, risk_posture_params v2)
+
+Lever L1, the crowd prior (docs/plans/2026-10_beat_the_template.md, Phase 5):
+    --crowd-prior 20261012     add each player's crowd adjustment (a ridge fit of the model's
+                               residuals on ownership percentile, log ownership and net-transfer
+                               percentile from row G-2) to his EP, from
+                               data/recalibration/crowd_prior_coeffs_20261012.json; each season is
+                               scored with the other season's fit
+
 Residual export (docs/plans/2026-10_beat_the_template.md, Req 12; not an experiment setting):
     --export-residuals         after the walk, write residual_features.csv (per player-gameweek:
                                realized points, the projection before any promoted lever, the
@@ -101,7 +116,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from fpl_quant import backtest, db, residual_levers  # noqa: E402
 from fpl_quant import expected_points as ep  # noqa: E402
 from fpl_quant import params as params_mod  # noqa: E402
-from fpl_quant import team_strength  # noqa: E402
+from fpl_quant import squad_optimizer, team_strength  # noqa: E402
 
 # Reuse run_backtest.py's own version-resolution verbatim -- the walk-forward must measure the
 # model against the same git-committed confirmed-seed versions every other script uses, not a
@@ -122,8 +137,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="turn on the FPL/xA assist calibration with this prior pseudo-count")
     parser.add_argument("--finishing-prior-xg", type=float, default=None,
                         help="turn on per-player finishing skill: (goals + p) / (xG + p), same for assists/xA")
-    parser.add_argument("--no-goal-anchor", action="store_true",
-                        help="keep the price anchor for assists but shrink goals toward the position average")
+    goal = parser.add_mutually_exclusive_group()
+    goal.add_argument("--no-goal-anchor", action="store_true",
+                      help="keep the price anchor for assists but shrink goals toward the position average "
+                           "(live since 2026-10-13)")
+    goal.add_argument("--goal-anchor", action="store_true",
+                      help="anchor goals to price too: the rate prior before 2026-10-13 (rate_prior_params v1)")
     parser.add_argument("--band-conversion", type=float, default=None, metavar="K",
                         help="turn on the pooled band conversion: each position and price band's goals per xG "
                              "and assists per xA in earlier seasons, (sum + K) / (sum expected + K)")
@@ -169,12 +188,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="weight on the newest season's minutes and returns in a player's rate pool")
     parser.add_argument("--rate-season-decay", type=float, default=None, metavar="DECAY",
                         help="weight of each earlier season relative to the one after it")
+    parser.add_argument("--crowd-prior", type=int, default=None, metavar="COEFF_DATE",
+                        help="lever L1: the crowd prior from data/recalibration/crowd_prior_coeffs_<COEFF_DATE>.json")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="stop before a step that would likely run past this many minutes")
     parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
                         help="carry on this backtest_run_id, walking only its steps not yet scored")
     parser.add_argument("--seasons", default=None,
                         help="comma-separated seasons to walk (default: both)")
+    parser.add_argument("--availability-lag", type=int, default=1, choices=(1, 2),
+                        help="the minutes model's availability flag reads rows up to gameweek G minus this")
+    parser.add_argument("--live-eo-anchor", action="store_true",
+                        help="solve with the live from-scratch solve's EO anchor (ownership v1, risk posture v2)")
     parser.add_argument("--no-template", action="store_true",
                         help="don't build the availability-gated ownership template at each step")
     parser.add_argument("--template-lag", type=int, default=1, choices=(1, 2),
@@ -265,7 +290,11 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
     weight, decay = getattr(args, "rate_current_season_weight", None), getattr(args, "rate_season_decay", None)
     no_anchor = getattr(args, "no_rate_price_anchor", False)
     no_goal_anchor = getattr(args, "no_goal_anchor", False) and not no_anchor
-    if weight is not None or decay is not None or no_goal_anchor:
+    goal_anchor = getattr(args, "goal_anchor", False) and not no_anchor
+    if goal_anchor and weight is None and decay is None:
+        # the kill switch: exactly the rate prior that was live before 2026-10-13 (seeded v1)
+        out["rate_prior_params_version"] = 1
+    elif weight is not None or decay is not None or no_goal_anchor or goal_anchor:
         # the live bundle with these knobs changed
         bundle = dict(ep.LIVE_RATE_PRIOR)
         if no_anchor:
@@ -276,11 +305,23 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
             bundle["season_decay"] = decay
         if no_goal_anchor:
             bundle["anchor_goals"] = 0.0
+        if goal_anchor:
+            bundle["anchor_goals"] = 1.0
         out["rate_prior_params_version"] = params_mod.get_or_create_bundle_version(
             con, "rate_prior_params", bundle, EXPERIMENT_EFFECTIVE_DATE,
         )
     elif no_anchor:
         out["rate_prior_params_version"] = None
+    if getattr(args, "availability_lag", 1) != 1:
+        out["availability_lag"] = args.availability_lag
+    if getattr(args, "live_eo_anchor", False):
+        squad_optimizer.seed_template_anchor_params(con)  # run_ingestion.py seeds it; a cached DB may predate it
+        out["solve_ownership_params_version"] = 1
+        out["solve_risk_posture_params_version"] = 2
+    if getattr(args, "crowd_prior", None) is not None:
+        out["crowd_prior_params_version"] = residual_levers.crowd_prior_version(
+            con, args.crowd_prior, EXPERIMENT_EFFECTIVE_DATE,
+        )
     if getattr(args, "bps_tau", None) is not None:
         out["tau_params_version"] = params_mod.get_or_create_version(
             con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,
@@ -373,6 +414,23 @@ def main(argv: list[str] | None = None) -> None:
         [backtest_run_id],
     ).fetchone()[0]
     print(f"[walk-forward] {n_pred} gameweek steps carry an ep_model_version -- research.ml.experiment can now run")
+
+    if extra.get("crowd_prior_params_version") is not None:
+        # what lever L1 did, so an arm whose adjustment came out empty can't pass for a real arm
+        n_steps, n_adj_steps, n_adj, mean_abs, n_floored = con.execute(
+            """
+            SELECT count(DISTINCT s.season || '/' || s.gameweek),
+                   count(DISTINCT CASE WHEN o.ep_crowd_adj != 0 THEN s.season || '/' || s.gameweek END),
+                   count(*) FILTER (WHERE o.ep_crowd_adj != 0),
+                   avg(abs(o.ep_crowd_adj)) FILTER (WHERE o.ep_crowd_adj != 0),
+                   count(*) FILTER (WHERE o.ep_crowd_adj < 0 AND o.ep_total = 0)
+            FROM backtest_gameweek_steps s JOIN ep_outputs o ON o.model_version = s.ep_model_version
+            WHERE s.backtest_run_id = ?
+            """,
+            [backtest_run_id],
+        ).fetchone()
+        print(f"[crowd_prior] v{extra['crowd_prior_params_version']}: {n_adj_steps}/{n_steps} steps adjusted, "
+              f"{n_adj} player-fixtures, mean |adjustment| {mean_abs or 0.0:.4f}, {n_floored} floored at zero EP")
 
     if args.export_residuals:
         # features from the same row the template reads (G-1, or G-2 under A2's fallback)

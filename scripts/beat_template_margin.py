@@ -122,7 +122,7 @@ def chain(control: dict, sim: dict | None, sim_b: dict | None, leaderboard: dict
         mean = round(sum(pts) / len(pts), 3) if pts else None
         real_vals = [real[gw] for gw in points if real and real.get(gw) is not None]
         vs_real = round(mean - sum(real_vals) / len(real_vals), 3) if real_vals and len(real_vals) == len(pts) else None
-        cut = pace(season) if cutoff is None else cutoff
+        cut = pace(season) if cutoff is None else cutoff(points) if callable(cutoff) else cutoff
         return {"row": name, "season": season, "n_gameweeks": len(pts), "pts_per_gw": mean,
                 "vs_fpl_average": vs_real, "cutoff_pace": cut,
                 "vs_cutoff": None if mean is None or cut is None else round(mean - cut, 3)}
@@ -141,8 +141,20 @@ def chain(control: dict, sim: dict | None, sim_b: dict | None, leaderboard: dict
             rows.append(row(name, SIM_SEASON, season_sim_net(s), real))
     if leaderboard and leaderboard.get("status") == "ok":
         live_real = {w["gameweek"]: w.get("field_average") for w in (model_team or {}).get("weeks", [])}
-        by_gw = (((cutoffs or {}).get("current_season") or {}).get("by_gameweek")) or []
-        live_cut = round(by_gw[-1]["total_points"] / by_gw[-1]["gameweek"], 3) if by_gw else None
+        cum = {g["gameweek"]: g["total_points"]
+               for g in (((cutoffs or {}).get("current_season") or {}).get("by_gameweek")) or []}
+
+        def live_cut(points: dict):
+            """The cutoff's pace over the row's own gameweeks: the mean of the cumulative cutoff's
+            gain in each of them (gameweek 0 is 0 points), so a row that skips a gameweek is set
+            against the gameweeks it has."""
+            gains = []
+            for gw in points:
+                before = 0.0 if gw == 1 else cum.get(gw - 1)
+                if gw not in cum or before is None:
+                    return None
+                gains.append(cum[gw] - before)
+            return round(sum(gains) / len(gains), 3) if gains else None
         for r in leaderboard["rows"]:
             if r.get("kind") == "model_oracle" or not r.get("is_baseline"):
                 weekly = {int(gw): pts for gw, pts in (r.get("weekly_points") or {}).items()}
