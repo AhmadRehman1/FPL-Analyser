@@ -605,3 +605,74 @@ fixes were applied in the next commit.
 - **Next:** Phase 6 (L2, the position × price-band bias). Its residuals come from the current
   control, which has Z-goal live and no L1, so export 38312629527 stands in. Its fit adds no crowd
   term, so the own-season L1 column the stacked-folds rule needs is not required.
+
+## Phase 6: lever L2, the position × price-band bias, batch L2 (declared 2026-10-19, before dispatch)
+
+- **Code** (this commit):
+  - `residual_levers.fit_band_cells` / `fit_band_bias`: each (position, price band) cell's mean
+    residual, realized − the projection before any lever, shrunk by n/(n + `pseudo_rows`). Folds
+    follow `fold_for`, as L1's do.
+  - `band_adjustments` gives each player his cell at the deadline. The price is his latest before
+    the deadline: the one the optimizer budgets with and the residual export bands by. Price is not
+    one of A2's crowd columns.
+  - `expected_points.run(band_bias_params_version=…)` applies it after L1 through the shared
+    `_apply_lever_adjustments` (split by EP across a double gameweek, floored at zero EP) into
+    `ep_band_adj` (schema 0030).
+  - It is threaded through the walk-forward step, the season sim and the planner horizon (the
+    deadline argument is now `lever_deadline_gameweek`, shared with L1). The Monte Carlo summary
+    shifts by both levers.
+  - `--band-bias COEFF_DATE` is in both scripts. `fit_residual_lever.py --lever band_bias` writes
+    the file.
+  - Tests in `tests/test_band_bias.py` cover shrinkage, folds, the leak (row G's price is never
+    read), missing data, the floor, stacking on L1, the export, the same adjustment in the
+    walk-forward and the planner horizon, the season-sim threading, the Monte Carlo shift, both
+    flags, control identity and the file hash.
+- **Coefficient file:** `data/recalibration/band_bias_coeffs_20261019.json`, committed with this
+  declaration.
+  - Fitted on residual export 38312629527 of the current control (`--template-lag 2`, Z-goal live,
+    L1 off). The export's sha256 is
+    `d714b8132d57786dc38ff6873d519f4bec1491e294b3dd201896b117b446a915`.
+  - `pseudo_rows` 500, as declared.
+  - No lever is live in those residuals, so the stacked-folds rule has nothing to substitute.
+
+  | cell | 2024-25 fit (scores 2025-26): n, mean, adj | 2025-26 fit (scores 2024-25): n, mean, adj |
+  |---|---|---|
+  | Midfielder 9.0+ | 221, +0.815, **+0.250** | 142, +0.467, **+0.103** |
+  | Midfielder 7.0–9.0 | 312, +0.491, +0.189 | 627, +0.235, +0.131 |
+  | Forward 7.0–9.0 | 390, +0.298, +0.131 | 523, +0.180, +0.092 |
+  | Forward 9.0+ | 73, +0.423, +0.054 | 98, −0.174, −0.029 |
+  | Midfielder 5.0–7.0 | 5,276, +0.066, +0.061 | 5,708, −0.080, −0.074 |
+  | Midfielder <5.0 | 6,072, −0.164, −0.152 | 6,324, −0.115, −0.107 |
+  | Defender <5.0 | 7,905, −0.150, −0.141 | 7,698, −0.085, −0.080 |
+  | Goalkeeper <5.0 | 2,462, +0.008, +0.007 | 2,924, −0.206, −0.176 |
+
+  The full 13 cells per fold are in the file.
+- **Out-of-fold check** (in the file, floored as applied):
+
+  | season | MAE | RMSE |
+  |---|---|---|
+  | 2024-25 | 1.0394 → 1.0042 | 1.9563 → 1.9541 |
+  | 2025-26 | 1.0496 → 1.0306 | 1.9436 → 1.9425 |
+
+  - The floor binds on 25.7% / 21.9% of player-gameweeks. These are mostly the cheap cells' cuts on
+    near-zero EP, which is where most of the MAE gain comes from.
+  - The premium cells' boosts carry the expected squad effect.
+- **Stated risks:**
+  - B3's band *conversion* (scaling goal and assist rates by realized/xG per band) failed:
+    −2.27 ± 0.97.
+  - L1 just failed by pulling the XI toward the template. A premium boost could do the same,
+    because premiums are the most-owned players. Req 9 guards this.
+- **Arms** (one arm; both runs with `--template-lag 2`, both seasons), dispatched back-to-back on
+  this branch at the commit that adds this declaration, through `branch_walkforward.yml`:
+
+  | run | args |
+  |---|---|
+  | control | `--template-lag 2` |
+  | L2 | `--template-lag 2 --band-bias 20261019` |
+
+- **Rule:** R6 via `compare_arms.py control.json arm.json --rule r6`, with Req 9 and the replicate
+  rule. A run on a different DB re-dispatches both. The arm's `[band_bias]` log line must show
+  adjusted steps, or the arm is not judged.
+- **On a PASS:** the season-sim check `control: ; control_b: ; l2: --band-bias 20261019` (2025-26,
+  chunk `2-38`, `same_runner`), then the live switch (Req 8), unless m < 0, which goes to the owner.
+- **Arms used after this batch:** 4 of 10 (Z: 2, L1: 1, L2: 1).

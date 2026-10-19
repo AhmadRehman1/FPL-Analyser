@@ -1,0 +1,249 @@
+{
+  "lever": "L2 band bias (docs/plans/2026-10_beat_the_template.md)",
+  "pseudo_rows": 500.0,
+  "source": {
+    "file": "residual_features_38312629527.csv",
+    "sha256": "d714b8132d57786dc38ff6873d519f4bec1491e294b3dd201896b117b446a915",
+    "run_id": "38312629527"
+  },
+  "n_rows": {
+    "2024-2025": 26624,
+    "2025-2026": 29569
+  },
+  "folds": {
+    "2024-2025": {
+      "Defender|5.0-7.0": {
+        "n": 931,
+        "mean_resid": -0.218172,
+        "adj": -0.141941
+      },
+      "Defender|7.0-9.0": {
+        "n": 34,
+        "mean_resid": 0.04515,
+        "adj": 0.002875
+      },
+      "Defender|<5.0": {
+        "n": 7905,
+        "mean_resid": -0.150006,
+        "adj": -0.141082
+      },
+      "Forward|5.0-7.0": {
+        "n": 1484,
+        "mean_resid": 0.123366,
+        "adj": 0.092275
+      },
+      "Forward|7.0-9.0": {
+        "n": 390,
+        "mean_resid": 0.298376,
+        "adj": 0.130749
+      },
+      "Forward|9.0+": {
+        "n": 73,
+        "mean_resid": 0.423046,
+        "adj": 0.053896
+      },
+      "Forward|<5.0": {
+        "n": 978,
+        "mean_resid": -0.125998,
+        "adj": -0.083374
+      },
+      "Goalkeeper|5.0-7.0": {
+        "n": 318,
+        "mean_resid": 0.332936,
+        "adj": 0.12943
+      },
+      "Goalkeeper|<5.0": {
+        "n": 2462,
+        "mean_resid": 0.007833,
+        "adj": 0.006511
+      },
+      "Midfielder|5.0-7.0": {
+        "n": 5276,
+        "mean_resid": 0.066268,
+        "adj": 0.060531
+      },
+      "Midfielder|7.0-9.0": {
+        "n": 312,
+        "mean_resid": 0.490777,
+        "adj": 0.188574
+      },
+      "Midfielder|9.0+": {
+        "n": 221,
+        "mean_resid": 0.815011,
+        "adj": 0.249816
+      },
+      "Midfielder|<5.0": {
+        "n": 6072,
+        "mean_resid": -0.164307,
+        "adj": -0.151806
+      }
+    },
+    "2025-2026": {
+      "Defender|5.0-7.0": {
+        "n": 1590,
+        "mean_resid": 0.05718,
+        "adj": 0.0435
+      },
+      "Defender|7.0-9.0": {
+        "n": 14,
+        "mean_resid": 1.653467,
+        "adj": 0.045036
+      },
+      "Defender|<5.0": {
+        "n": 7698,
+        "mean_resid": -0.085378,
+        "adj": -0.080171
+      },
+      "Forward|5.0-7.0": {
+        "n": 1467,
+        "mean_resid": -0.015466,
+        "adj": -0.011535
+      },
+      "Forward|7.0-9.0": {
+        "n": 523,
+        "mean_resid": 0.18048,
+        "adj": 0.092269
+      },
+      "Forward|9.0+": {
+        "n": 98,
+        "mean_resid": -0.174028,
+        "adj": -0.02852
+      },
+      "Forward|<5.0": {
+        "n": 1234,
+        "mean_resid": -0.10715,
+        "adj": -0.076254
+      },
+      "Goalkeeper|5.0-7.0": {
+        "n": 379,
+        "mean_resid": -0.113048,
+        "adj": -0.048743
+      },
+      "Goalkeeper|<5.0": {
+        "n": 2924,
+        "mean_resid": -0.205754,
+        "adj": -0.175709
+      },
+      "Midfielder|5.0-7.0": {
+        "n": 5708,
+        "mean_resid": -0.080044,
+        "adj": -0.073597
+      },
+      "Midfielder|7.0-9.0": {
+        "n": 627,
+        "mean_resid": 0.234778,
+        "adj": 0.130617
+      },
+      "Midfielder|9.0+": {
+        "n": 142,
+        "mean_resid": 0.467429,
+        "adj": 0.103388
+      },
+      "Midfielder|<5.0": {
+        "n": 6324,
+        "mean_resid": -0.115258,
+        "adj": -0.106813
+      }
+    },
+    "both": {
+      "Defender|5.0-7.0": {
+        "n": 2521,
+        "mean_resid": -0.044507,
+        "adj": -0.037141
+      },
+      "Defender|7.0-9.0": {
+        "n": 48,
+        "mean_resid": 0.514242,
+        "adj": 0.045043
+      },
+      "Defender|<5.0": {
+        "n": 15603,
+        "mean_resid": -0.118121,
+        "adj": -0.114453
+      },
+      "Forward|5.0-7.0": {
+        "n": 2951,
+        "mean_resid": 0.054349,
+        "adj": 0.046475
+      },
+      "Forward|7.0-9.0": {
+        "n": 913,
+        "mean_resid": 0.230841,
+        "adj": 0.149156
+      },
+      "Forward|9.0+": {
+        "n": 171,
+        "mean_resid": 0.080863,
+        "adj": 0.020607
+      },
+      "Forward|<5.0": {
+        "n": 2212,
+        "mean_resid": -0.115484,
+        "adj": -0.094193
+      },
+      "Goalkeeper|5.0-7.0": {
+        "n": 697,
+        "mean_resid": 0.090428,
+        "adj": 0.052655
+      },
+      "Goalkeeper|<5.0": {
+        "n": 5386,
+        "mean_resid": -0.108121,
+        "adj": -0.098937
+      },
+      "Midfielder|5.0-7.0": {
+        "n": 10984,
+        "mean_resid": -0.009765,
+        "adj": -0.00934
+      },
+      "Midfielder|7.0-9.0": {
+        "n": 939,
+        "mean_resid": 0.319838,
+        "adj": 0.208706
+      },
+      "Midfielder|9.0+": {
+        "n": 363,
+        "mean_resid": 0.679042,
+        "adj": 0.285623
+      },
+      "Midfielder|<5.0": {
+        "n": 12396,
+        "mean_resid": -0.139284,
+        "adj": -0.133884
+      }
+    }
+  },
+  "fold_for": {
+    "2024-2025": "2025-2026",
+    "2025-2026": "2024-2025",
+    "2026-2027": "both"
+  },
+  "cross_fold_check": {
+    "2024-2025": {
+      "n": 26624,
+      "n_adjusted": 26456,
+      "fitted_fold": "2025-2026",
+      "mae_before": 1.0394,
+      "mae_after": 1.0042,
+      "rmse_before": 1.9563,
+      "rmse_after": 1.9541,
+      "mean_resid_before": -0.0542,
+      "mean_resid_after": 0.0061,
+      "mean_adjustment": -0.0606,
+      "share_floored": 0.2573
+    },
+    "2025-2026": {
+      "n": 29569,
+      "n_adjusted": 28728,
+      "fitted_fold": "2024-2025",
+      "mae_before": 1.0496,
+      "mae_after": 1.0306,
+      "rmse_before": 1.9436,
+      "rmse_after": 1.9425,
+      "mean_resid_before": -0.0881,
+      "mean_resid_after": -0.0575,
+      "mean_adjustment": -0.0315,
+      "share_floored": 0.219
+    }
+  }
+}
