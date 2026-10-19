@@ -514,6 +514,21 @@ fixes were applied in the next commit.
 - **What follows:** PR #263 merges once CI is green, then `scheduled_pipeline.yml` runs on master
   with a projections before/after diff. The kill-switch clock (Phase 11) starts with that
   pipeline's first live gameweek.
+- **Live (2026-10-19):** PR #263 merged as `3b16a20`. `scheduled_pipeline.yml` run 39340718301 on
+  master rebuilt the projections with rate prior v2, generated 23:35 UTC.
+  - **Before/after diff**, against master's 21:58 UTC projections on the same day's data (v1):
+    - GW8 EP moved by a mean |change| of 0.018 pts a player, net +0.009.
+    - By position and band in GW8: midfielders 9.0+ −0.22, midfielders 7.0–9.0 −0.08,
+      forwards 9.0+ −0.10, midfielders <5.0 +0.04, midfielders 5.0–7.0 +0.01.
+    - Over the 8-GW horizon (GW8–15), the biggest fallers are Barcola −2.63, Bruno Fernandes −1.93,
+      Saka −1.56, Palmer −1.36, Haaland −1.18 and Cherki −0.82.
+    - The biggest risers are cheap midfielders: Slater +1.85, Crooks +1.52, Grimes +1.45 and
+      Rudoni +1.32.
+    - The captain ranking's top 10 is unchanged (Palmer, Bruno Fernandes, Saka, Mbeumo, …).
+  - This is the intended effect: premium goal rates shrink toward the position average and assists
+    keep their price anchor.
+  - The kill-switch clock (Phase 11) starts at GW8, the first live gameweek on v2. Its comparison
+    is against `--goal-anchor` from that gameweek on.
 - **The new control** is `--template-lag 2` on this commit or later (Z-goal live). Run 38312629527
   (`--no-goal-anchor --export-residuals`, cached DB duckdb-38283940509) is its residual export,
   and L1 is fitted from it.
