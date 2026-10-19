@@ -1,45 +1,45 @@
 {
-  "action": "transfer_in:player_ezri_konsa_ngoyo->player_marc_guehi",
-  "action_display": "Ezri Konsa Ngoyo -> Marc Gu\u00e9hi",
-  "data_asof": "2026-10-18",
+  "action": "transfer_in:player_ezri_konsa_ngoyo->player_gabriel_dos_santos_magalhaes",
+  "action_display": "Ezri Konsa Ngoyo -> Gabriel dos Santos Magalh\u00e3es",
+  "data_asof": "2026-10-19",
   "downside_ci": [
-    10.109539223809007,
-    128.2936393593845
+    9.855249032822572,
+    129.0253087112016
   ],
   "entry_id": 1305242,
-  "ep_lift": 7.598189157385221,
+  "ep_lift": 6.834925895320989,
   "gw": 8,
   "price_hint": {
     "confidence": 0.0,
     "delta_pence": 0,
     "direction": "stable",
     "estimated_date": null,
-    "player_name": "Marc Gu\u00e9hi",
-    "player_uid": "player_marc_guehi"
+    "player_name": "Gabriel dos Santos Magalh\u00e3es",
+    "player_uid": "player_gabriel_dos_santos_magalhaes"
   },
   "provenance": {
-    "data_asof": "2026-10-18",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-10-19",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
   "runner_up": {
-    "action": "transfer_in:player_ezri_konsa_ngoyo->player_gabriel_dos_santos_magalhaes",
-    "action_display": "Ezri Konsa Ngoyo -> Gabriel dos Santos Magalh\u00e3es",
+    "action": "transfer_in:player_ezri_konsa_ngoyo->player_marc_guehi",
+    "action_display": "Ezri Konsa Ngoyo -> Marc Gu\u00e9hi",
     "downside_ci": [
       0.0,
       0.0
     ],
-    "ep_lift": 7.460367246257217,
+    "ep_lift": 6.641343160747724,
     "provenance": {
-      "data_asof": "2026-10-18",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "data_asof": "2026-10-19",
+      "model_version": "ep_v2/un_v2/plan_run7"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 7.460367246257217,
-        "in_name": "Gabriel dos Santos Magalh\u00e3es",
-        "in_player_uid": "player_gabriel_dos_santos_magalhaes",
+        "delta_ep": 6.641343160747724,
+        "in_name": "Marc Gu\u00e9hi",
+        "in_player_uid": "player_marc_guehi",
         "out_name": "Ezri Konsa Ngoyo",
         "out_player_uid": "player_ezri_konsa_ngoyo",
         "reason": "model-ranked transfer"
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 22.388178542088934,
+      "delta_ep": 23.17361431763433,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -62,9 +62,9 @@
   ],
   "swaps": [
     {
-      "delta_ep": 7.598189157385221,
-      "in_name": "Marc Gu\u00e9hi",
-      "in_player_uid": "player_marc_guehi",
+      "delta_ep": 6.834925895320989,
+      "in_name": "Gabriel dos Santos Magalh\u00e3es",
+      "in_player_uid": "player_gabriel_dos_santos_magalhaes",
       "out_name": "Ezri Konsa Ngoyo",
       "out_player_uid": "player_ezri_konsa_ngoyo",
       "reason": "model-ranked transfer"
