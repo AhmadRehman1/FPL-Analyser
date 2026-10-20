@@ -35,6 +35,7 @@ from . import ownership as ownership_mod
 from . import params as params_mod
 from . import recalibration_gate
 from . import reconcile
+from . import residual_levers
 from . import season_rules
 from . import squad_optimizer
 from . import team_strength
@@ -367,6 +368,7 @@ def run_gameweek_step(
     rate_prior_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
@@ -450,6 +452,13 @@ def run_gameweek_step(
             start_prior_params_version=minutes_start_prior_params_version,
             availability_max_gw=None if availability_lag <= 1 else gameweek - availability_lag,
         )
+        # L3's history: the projection each earlier step of this run made for its own gameweek
+        player_residual_history = None if player_residual_params_version is None else (
+            residual_levers.history_for_deadline(
+                con, residual_levers.walk_forward_ep_versions(con, backtest_run_id, season), gameweek,
+                residual_levers.resolve_player_residual(con, player_residual_params_version),
+            )
+        )
         ep_model_version = ep.run(
             con, calibration_asof_date, season, gameweek, ts_model_version, mm_model_version,
             scoring_params_version, bps_params_version, tau_params_version,
@@ -463,6 +472,8 @@ def run_gameweek_step(
             rate_prior_params_version=rate_prior_params_version,
             crowd_prior_params_version=crowd_prior_params_version,
             band_bias_params_version=band_bias_params_version,
+            player_residual_params_version=player_residual_params_version,
+            player_residual_history=player_residual_history,
             conversion_params_version=conversion_params_version,
         )
         un_model_version = uncertainty.run(
@@ -1318,6 +1329,7 @@ def run(
     rate_prior_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
@@ -1435,6 +1447,7 @@ def run(
             rate_prior_params_version=rate_prior_params_version,
             crowd_prior_params_version=crowd_prior_params_version,
             band_bias_params_version=band_bias_params_version,
+            player_residual_params_version=player_residual_params_version,
             conversion_params_version=conversion_params_version,
             template_baseline=template_baseline, template_lag=template_lag, availability_lag=availability_lag,
         )
@@ -1825,6 +1838,7 @@ def run_season_simulation(
     rate_prior_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
     current_season_minutes_params_version: int | None = None,
     sub_rate_params_version: int | None = None,
@@ -1942,6 +1956,10 @@ def run_season_simulation(
     schedule_gameweeks = max(horizon_gameweeks, transfer_planner.chip_timing_window_gameweeks(
         con, triple_captain_timing_params_version, bench_boost_timing_params_version,
     ))
+    # L3's history in the sim: {gameweek: the EP model version this sim projected it with at its
+    # own deadline} -- the bootstrap's for start_gameweek, then each plan run's for its own gameweek
+    player_residual_params = residual_levers.resolve_player_residual(con, player_residual_params_version)
+    projected_versions: dict[int, int] = {}
 
     with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
         calibration_asof_date = deadline.date()
@@ -1967,6 +1985,9 @@ def run_season_simulation(
             rate_prior_params_version=rate_prior_params_version,
             crowd_prior_params_version=crowd_prior_params_version,
             band_bias_params_version=band_bias_params_version,
+            # no earlier deadline in the sim yet, so L3's history is empty here
+            player_residual_params_version=player_residual_params_version,
+            player_residual_history=None if player_residual_params_version is None else {},
             lookback_seasons=lookback_seasons_for(season),
             memo=bootstrap_memo,
         )
@@ -1975,6 +1996,7 @@ def run_season_simulation(
             tau_params_version, rho_residual_params_version, corr_params_version,
             season_priority=lookback_seasons_for(season), memo=bootstrap_memo,
         )
+        projected_versions[start_gameweek] = ep_mv
         bootstrap_run_id = squad_optimizer.run(
             con, calibration_asof_date, season, start_gameweek, ep_mv, un_mv,
             lambda_params_version, guardrail_params_version,
@@ -2052,8 +2074,17 @@ def run_season_simulation(
                     rate_prior_params_version=rate_prior_params_version,
                     crowd_prior_params_version=crowd_prior_params_version,
                     band_bias_params_version=band_bias_params_version,
+                    player_residual_params_version=player_residual_params_version,
+                    player_residual_history=None if player_residual_params is None else (
+                        residual_levers.history_for_deadline(con, projected_versions, gw, player_residual_params)
+                    ),
                     multi_transfer_pool_limit_per_position=multi_transfer_pool,
                 )
+                if player_residual_params is not None:
+                    # this deadline's projection of its own gameweek, for later deadlines' L3 history
+                    planned = transfer_planner.plan_gameweek_versions(con, plan_run_id, gw)
+                    if planned is not None:
+                        projected_versions[gw] = planned[0]
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
                     chip_wait_params_version=chip_wait_params_version,

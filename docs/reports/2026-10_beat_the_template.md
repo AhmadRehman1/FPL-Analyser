@@ -733,7 +733,7 @@ fixes were applied in the next commit.
   - The XI moves 0.18 players toward the template. That is within Req 9 but it is the direction the
     stated risk named: the premium boost buys the most-owned premiums.
   - The arm's model-XI spend on £9.0m+ fell (26.3 against the control's 27.4 a GW). So the gain does
-    not come from buying premiums; it comes from the cheap cells' cuts moving money elsewhere.
+    not come from buying more premiums. Where it does come from was not measured.
 - **Family count:** L2 1 fail (L1 1 fail; Z promoted). **Arms used:** 5 of 10 (Z: 2, L1: 1,
   L2: 2).
 - **Combine candidate (Phase 9):** L2 has m > 0 and failed only m − SE ≥ 0, so it is listed with
@@ -753,3 +753,90 @@ lever) gives **+0.547** per player-GW for £9.0m+. Its components:
   −0.177 to +0.144, while assists and bonus are unchanged.
 - **L3 is queued.** Phase 7 next names the point-in-time EP-history source in each harness, and
   drops L3 if any harness lacks one.
+
+## Phase 7: lever L3, the per-player residual, batch L3 (declared 2026-10-20, before dispatch)
+
+- **Gate:** the current control's £9.0m+ residual is +0.547 (≥ +0.1, above), so L3 is queued.
+- **Step 1, the point-in-time EP history in each harness.** None is missing, so L3 is not dropped.
+
+  | harness | source of "the projection made at gameweek g's deadline" |
+  |---|---|
+  | walk-forward | the same run's step for g: `backtest_gameweek_steps.ep_model_version`, which projects g at g's deadline (`residual_levers.walk_forward_ep_versions`). The 75 steps run in order in one job and one DB. |
+  | season sim | the sim's own earlier deadlines in its single GW2–38 job: the bootstrap's projection of the start GW, then each plan run's projection of its own GW (`transfer_planner.plan_gameweek_versions`) |
+  | live | the committed snapshots `data/dashboard/projections_<date>.json`. For each GW g, take the latest snapshot generated before g's deadline (`app_fixtures.json`) whose `gameweeks` include g. Its `players[].ep_per_gw[gw = g].ep` is that run's `ep_gameweek_outputs.ep_total`. They exist for 2026-27 GW2–8. GW1 has none: the first file, 2026-08-25, postdates GW1's deadline. The live DB itself is rebuilt every run and keeps no history. |
+
+  The live reader is built at PROMOTE (Req 8), if L3 passes.
+- **Definition.** The adjustment for deadline G is each eligible player's mean residual (realized
+  FPL points − the projection before L3, made at that gameweek's own deadline by the same harness
+  run) over the window, times n/(n + 6). n counts the window's gameweeks with both a projection and
+  a score. A blank gameweek has no projection and doesn't count. A projected gameweek he didn't
+  play counts.
+  - **Declared values (the plan's):** 6 GWs; shrink n/(n + 6); players with ≥ 900 Premier League
+    minutes in the previous season plus this one.
+  - **Choices the plan's text leaves open, disclosed:**
+    - **The window is G−7..G−2 (lag 2), not G−6..G−1.** A gameweek's realized points live in row
+      gw of `fact_player_season_stats`, the row A2 couldn't show is settled by the next deadline.
+      A2's declared fallback is G−2 everywhere.
+    - **GW1 never enters the window.** Neither the season sim (it starts at GW2) nor live (no
+      pre-deadline snapshot) has a deadline-time GW1 projection. So the walk-forward doesn't use
+      its own either, and the adjustment is the same in every harness. This only changes the
+      walk-forward's 2025-26 GW3–8.
+    - **The window stays inside the season**, by gameweek number.
+    - **League minutes** are `fact_player_match_stats` minutes in `Premier League` matches: all of
+      the previous season plus this season's GWs ≤ G−2.
+    - **No clip** (none is declared). The shared floor at zero EP applies, as for L1 and L2.
+  - **Harness differences, disclosed:** live's snapshot is the last nightly run before the
+    deadline, not a run at the deadline. Its window can also mix model versions from before and
+    after a promotion. The walk-forward and season sim use one model throughout.
+- **Code** (this commit):
+  - `residual_levers`: `player_residual_window`, `projection_history`,
+    `player_residual_adjustments`, `history_for_deadline`, `walk_forward_ep_versions`, and the
+    `player_residual_params` v1 bundle (`PLAYER_RESIDUAL_V1`, the declared values).
+  - `expected_points.run(player_residual_params_version=…, player_residual_history=…)` applies it
+    after L2 through the shared `_apply_lever_adjustments` into `ep_player_adj` (schema 0031).
+    The version without a history is a `TypeError`, so the planner horizon (which skips a
+    gameweek on `ValueError`) can't swallow it.
+  - It is threaded through the walk-forward step (history from this run's earlier steps), the
+    season sim (history from its own bootstrap and plan runs) and the planner horizon. The Monte
+    Carlo summary shifts by it, and the residual export takes it out (`player_adj`).
+  - `--player-residual` is in both scripts.
+  - `tests/test_player_residual.py` covers the window, shrinkage, the leak (rows G−1 and G never
+    move G's adjustment), eligibility (including a cup tie), the pre-L3 projection, the floor,
+    control identity, the history guard, the Monte Carlo shift, each harness's history (the
+    walk-forward reads only its own run; the season sim its own deadlines), the export and both
+    flags.
+- **Preview** (stated before dispatch). L3 has no fitted parameters, so applying it to the current
+  control's residual export (38312629527) is out of sample by construction. The export carries no
+  minutes, so this preview adjusts every player; the arm adjusts only the eligible.
+
+  | slice | MAE before → after | RMSE before → after | mean residual before → after | mean adjustment |
+  |---|---|---|---|---|
+  | all player-GWs | 1.0448 → 1.0206 | 1.9497 → 1.9588 | −0.072 → −0.054 | −0.019 |
+  | 2024-25 £9.0m+ | 3.365 → 3.482 | 4.822 → 4.784 | +0.718 → +0.174 | +0.575 |
+  | 2025-26 £9.0m+ | 2.673 → 2.823 | 3.679 → 3.733 | +0.206 → −0.085 | +0.309 |
+  | 2024-25 £7.0–9.0m | 2.498 → 2.565 | 3.535 → 3.538 | +0.368 → +0.113 | +0.276 |
+  | 2025-26 £7.0–9.0m | 2.160 → 2.202 | 3.240 → 3.287 | +0.227 → +0.096 | +0.140 |
+  | 2024-25 / 2025-26 <£5.0m | 0.769 → 0.711 / 0.735 → 0.685 | 1.501 → 1.491 / 1.517 → 1.514 | | −0.072 / −0.056 |
+
+- **Stated risks:**
+  - In the preview, MAE gets worse for every band from £5.0m up, and RMSE overall. The mean
+    residual moves toward zero, but per player six gameweeks of residual are mostly noise.
+  - The MAE gain comes from cutting cheap players who barely play, and the eligibility rule
+    removes most of them.
+  - Like L2's, the premium boost could pull the XI toward the template. Req 9 guards this.
+- **Arms** (one arm; both runs with `--template-lag 2`, both seasons), dispatched back-to-back on
+  this branch at the commit that adds this declaration, through `branch_walkforward.yml`:
+
+  | run | args |
+  |---|---|
+  | control | `--template-lag 2` |
+  | L3 | `--template-lag 2 --player-residual` |
+
+- **Rule:** R6 via `compare_arms.py control.json arm.json --rule r6`, with Req 9 and the replicate
+  rule. A run on a different DB re-dispatches both. The arm's `[player_residual]` log line must
+  show adjusted steps, or the arm is not judged.
+- **On a PASS:**
+  - the season-sim check `control: ; control_b: ; l3: --player-residual` (2025-26, chunk `2-38`,
+    `same_runner`);
+  - then the live switch (Req 8) with the snapshot reader, unless m < 0, which goes to the owner.
+- **Arms used after this batch:** 6 of 10 (Z: 2, L1: 1, L2: 2, L3: 1).

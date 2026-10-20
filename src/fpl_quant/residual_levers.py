@@ -11,9 +11,9 @@ residual_rows() is what `run_walkforward.py --export-residuals` writes as residu
 (Req 12): one row per player-gameweek a walk-forward step projected and FPL scored, with the
 realized points, the projection before any promoted lever's adjustment, and the features. The
 lever fits (scripts/fit_residual_lever.py) read that file. The pre-adjustment projection is
-ep_total minus every lever's share (ep_crowd_adj for L1, ep_band_adj for L2, each zero when off),
-so a lever is always fitted to the model's own error; crowd_adj and band_adj carry the adjustments
-the run applied.
+ep_total minus every lever's share (ep_crowd_adj for L1, ep_band_adj for L2, ep_player_adj for L3,
+each zero when off), so a lever is always fitted to the model's own error; crowd_adj, band_adj and
+player_adj carry the adjustments the run applied.
 """
 
 import json
@@ -22,11 +22,12 @@ from pathlib import Path
 
 import duckdb
 
+PL = "Premier League"
 FEATURES = ("own_pct", "log_sbp", "xfer_pct")
 PRICE_BANDS = (("<5.0", 5.0), ("5.0-7.0", 7.0), ("7.0-9.0", 9.0), ("9.0+", math.inf))
 RESIDUAL_COLUMNS = (
     "season", "gw", "player_uid", "position", "price", "price_band", "realized_points", "ep_pre_adjustment",
-    *FEATURES, "crowd_adj", "band_adj",
+    *FEATURES, "crowd_adj", "band_adj", "player_adj",
 )
 
 
@@ -95,7 +96,8 @@ def residual_rows(con: duckdb.DuckDBPyConnection, backtest_run_id: int, lag: int
                 QUALIFY row_number() OVER (PARTITION BY player_uid ORDER BY gw DESC) = 1
             )
             SELECT o.player_uid, dp.position, price.now_cost, f.event_points,
-                   o.ep_total - o.ep_crowd_adj - o.ep_band_adj, o.ep_crowd_adj, o.ep_band_adj
+                   o.ep_total - o.ep_crowd_adj - o.ep_band_adj - o.ep_player_adj,
+                   o.ep_crowd_adj, o.ep_band_adj, o.ep_player_adj
             FROM ep_gameweek_outputs o
             JOIN dim_player dp ON dp.player_uid = o.player_uid
             JOIN fact_player_season_stats f ON f.player_uid = o.player_uid AND f.season = ? AND f.gw = ?
@@ -105,12 +107,13 @@ def residual_rows(con: duckdb.DuckDBPyConnection, backtest_run_id: int, lag: int
             """,
             [season, gw, season, gw, ep_mv],
         ).fetchall()
-        for uid, position, price, realized, ep_pre, crowd_adj, band_adj in rows:
+        for uid, position, price, realized, ep_pre, crowd_adj, band_adj, player_adj in rows:
             feat = features.get(uid, {})
             out.append({
                 "season": season, "gw": gw, "player_uid": uid, "position": position, "price": price,
                 "price_band": price_band(price), "realized_points": realized, "ep_pre_adjustment": ep_pre,
                 **{name: feat.get(name) for name in FEATURES}, "crowd_adj": crowd_adj, "band_adj": band_adj,
+                "player_adj": player_adj,
             })
     return out
 
@@ -366,3 +369,127 @@ def resolve_band_bias(con: duckdb.DuckDBPyConnection, version: int | None) -> di
                          f"v{version} was minted")
     return {"coeffs": json.loads(coeff_path(values["coeff_date"], "band_bias").read_text())}
 
+
+
+# ============================================================
+# L3, the per-player residual (docs/plans/2026-10_beat_the_template.md, Phase 7): an eligible
+# player's own mean residual over the gameweeks just before the deadline, realized - the projection
+# made at each of those gameweeks' own deadlines (before L3), shrunk toward zero by
+# n / (n + pseudo_gws). No fit and no coefficient file: the window, shrinkage, eligibility and lag
+# are the plan's declared values. Applied through expected_points.run() like L1 and L2.
+#
+# The history is the caller's: each harness passes the projection it made at each earlier deadline
+# (projection_history() reads one from the EP model versions that projected them), because only the
+# harness knows which run is its own -- the walk-forward's earlier steps, the season sim's earlier
+# plan runs, live's committed deadline-time snapshots.
+# ============================================================
+
+PLAYER_RESIDUAL_FAMILY = "player_residual_params"
+PLAYER_RESIDUAL_KEYS = ("window", "pseudo_gws", "min_minutes", "lag")
+# the plan's declared L3 values; lag 2 because A2 failed, so row G-1 (where a gameweek's realized
+# points live) is never read before G's deadline
+PLAYER_RESIDUAL_V1 = {"window": 6, "pseudo_gws": 6, "min_minutes": 900, "lag": 2}
+# GW1 never enters a window: neither the season sim (it starts at GW2) nor live (no snapshot before
+# 2026-27's GW1 deadline) has a deadline-time GW1 projection, so the walk-forward doesn't use one
+FIRST_HISTORY_GAMEWEEK = 2
+
+
+def player_residual_window(deadline_gameweek: int, window: int, lag: int) -> list[int]:
+    """The gameweeks whose residuals the deadline's adjustment averages: the `window` gameweeks
+    ending at deadline - lag, none before FIRST_HISTORY_GAMEWEEK."""
+    last = deadline_gameweek - lag
+    return list(range(max(FIRST_HISTORY_GAMEWEEK, last - window + 1), last + 1))
+
+
+def projection_history(con: duckdb.DuckDBPyConnection, ep_versions: dict[int, int]) -> dict[int, dict[str, float]]:
+    """{gameweek: {player_uid: the projection before L3}} from {gameweek: the EP model version that
+    projected it at its deadline}: ep_gameweek_outputs.ep_total - ep_player_adj (a double gameweek
+    summed, a blank one absent)."""
+    out = {}
+    for gw, mv in sorted(ep_versions.items()):
+        out[int(gw)] = {uid: float(ep) for uid, ep in con.execute(
+            "SELECT player_uid, ep_total - ep_player_adj FROM ep_gameweek_outputs WHERE model_version = ?", [mv],
+        ).fetchall()}
+    return out
+
+
+def _previous_season(season: str) -> str:
+    start = int(season[:4])
+    return f"{start - 1}-{start}"
+
+
+def player_residual_adjustments(con: duckdb.DuckDBPyConnection, season: str, deadline_gameweek: int,
+                                history: dict[int, dict[str, float]], params: dict) -> dict[str, float]:
+    """{player_uid: adjustment, pts/GW} for the gameweek being planned. Over the window's gameweeks
+    the history projected, a player's residual is his FPL score that gameweek minus his projection;
+    adj = mean residual * n / (n + pseudo_gws), n the gameweeks with both. Only players with at least
+    min_minutes Premier League minutes in the previous season plus this one up to deadline - lag
+    are adjusted. A player with no such gameweek gets no entry (no adjustment)."""
+    window, pseudo, lag = int(params["window"]), float(params["pseudo_gws"]), int(params["lag"])
+    if lag < MIN_FEATURE_LAG:
+        raise ValueError(f"player residual lag {lag} < {MIN_FEATURE_LAG}: row G-1 is not knowable at G's deadline (A2)")
+    gws = [gw for gw in player_residual_window(deadline_gameweek, window, lag) if gw in history]
+    if not gws:
+        return {}
+    eligible = {uid for uid, mins in con.execute(
+        """
+        SELECT s.player_uid, sum(coalesce(s.minutes_played, 0))
+        FROM fact_player_match_stats s JOIN fact_match m ON m.match_id = s.match_id
+        WHERE m.competition = ? AND (m.season = ? OR (m.season = ? AND m.gameweek <= ?))
+        GROUP BY s.player_uid
+        """,
+        [PL, _previous_season(season), season, deadline_gameweek - lag],
+    ).fetchall() if mins >= float(params["min_minutes"])}
+    ph = ",".join("?" * len(gws))
+    realized = con.execute(
+        f"SELECT player_uid, gw, event_points FROM fact_player_season_stats "
+        f"WHERE season = ? AND gw IN ({ph}) AND event_points IS NOT NULL",
+        [season, *gws],
+    ).fetchall()
+    acc: dict[str, list[float]] = {}
+    for uid, gw, points in realized:
+        projected = history[gw].get(uid)
+        if uid in eligible and projected is not None:
+            cell = acc.setdefault(uid, [0, 0.0])
+            cell[0] += 1
+            cell[1] += float(points) - projected
+    # the mean residual (total / n) shrunk by n / (n + pseudo_gws)
+    return {uid: total / (n + pseudo) for uid, (n, total) in acc.items()}
+
+
+def player_residual_version(con: duckdb.DuckDBPyConnection, effective_date: str,
+                            values: dict | None = None) -> int:
+    """The player_residual_params version for these values (the declared PLAYER_RESIDUAL_V1 by
+    default; an existing version if it matches)."""
+    from . import params as params_mod
+
+    return params_mod.get_or_create_bundle_version(
+        con, PLAYER_RESIDUAL_FAMILY, dict(values or PLAYER_RESIDUAL_V1), effective_date,
+    )
+
+
+def resolve_player_residual(con: duckdb.DuckDBPyConnection, version: int | None) -> dict | None:
+    """The player_residual_params bundle, or None when off."""
+    from . import params as params_mod
+
+    if version is None:
+        return None
+    return {k: params_mod.resolve_param(con, PLAYER_RESIDUAL_FAMILY, k, version)[0] for k in PLAYER_RESIDUAL_KEYS}
+
+
+def history_for_deadline(con: duckdb.DuckDBPyConnection, ep_versions: dict[int, int], deadline_gameweek: int,
+                         params: dict) -> dict[int, dict[str, float]]:
+    """L3's history for one deadline from a harness's {gameweek: the EP model version that projected
+    it at its own deadline}: projection_history() over the gameweeks in the deadline's window."""
+    gws = set(player_residual_window(deadline_gameweek, int(params["window"]), int(params["lag"])))
+    return projection_history(con, {gw: mv for gw, mv in ep_versions.items() if gw in gws})
+
+
+def walk_forward_ep_versions(con: duckdb.DuckDBPyConnection, backtest_run_id: int, season: str) -> dict[int, int]:
+    """{gameweek: ep_model_version} of this walk-forward run's steps so far in `season`: each step
+    projects its own gameweek at its own deadline, so these are the walk-forward's L3 history."""
+    return dict(con.execute(
+        "SELECT gameweek, ep_model_version FROM backtest_gameweek_steps "
+        "WHERE backtest_run_id = ? AND season = ? AND ep_model_version IS NOT NULL",
+        [backtest_run_id, season],
+    ).fetchall())
