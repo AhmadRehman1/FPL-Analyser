@@ -662,9 +662,18 @@ Executor's choice:
       Done when: declared, run, judged and recorded, or the report says why it was skipped,
       including when any harness lacks point-in-time EP history.
       Steps:
-      - Name the EP-history source per harness: walk-forward = earlier steps' `ep_outputs` in the
-        same run; season sim = the sim's per-GW EP within its single GW2–38 job; live = each GW's
-        deadline-time model version in the live DB. Drop L3 if any is missing.
+      - EP-history sources, named 2026-10-20 (report, "Phase 7 prep"):
+        - walk-forward = earlier steps of the same `backtest_run_id`
+          (`backtest_gameweek_steps.ep_model_version`);
+        - season sim = each GW's `transfer_plan_runs.ep_model_versions[gw]` within its single
+          GW2–38 job (never the default 2-19/20-38 chunks), the bootstrap GW's from its solve;
+        - live = a replay of each needed 2026-27 GW's EP inside `asof_scope()`, because the live
+          DB is rebuilt every run and keeps no deadline-time versions. The committed
+          `projections_<date>.json` snapshots are a cross-check only. Drop L3 if A11's per-GW
+          2026-27 data can't support the replay.
+        - One shared function serves all three. Every harness computes residuals from
+          pre-adjustment EP (`ep_total − ep_player_adj`) and counts only the current season's
+          GWs in the 6-GW window.
       - Tests (leak, shrinkage, paths, flag), then declare, run, judge, PROMOTE on PASS.
       Covers: Req 6, Req 9, Req 10, Req 11
 
