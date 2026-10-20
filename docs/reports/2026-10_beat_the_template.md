@@ -514,6 +514,21 @@ fixes were applied in the next commit.
 - **What follows:** PR #263 merges once CI is green, then `scheduled_pipeline.yml` runs on master
   with a projections before/after diff. The kill-switch clock (Phase 11) starts with that
   pipeline's first live gameweek.
+- **Live (2026-10-19):** PR #263 merged as `3b16a20`. `scheduled_pipeline.yml` run 39340718301 on
+  master rebuilt the projections with rate prior v2, generated 23:35 UTC.
+  - **Before/after diff**, against master's 21:58 UTC projections on the same day's data (v1):
+    - GW8 EP moved by a mean |change| of 0.018 pts a player, net +0.009.
+    - By position and band in GW8: midfielders 9.0+ −0.22, midfielders 7.0–9.0 −0.08,
+      forwards 9.0+ −0.10, midfielders <5.0 +0.04, midfielders 5.0–7.0 +0.01.
+    - Over the 8-GW horizon (GW8–15), the biggest fallers are Barcola −2.63, Bruno Fernandes −1.93,
+      Saka −1.56, Palmer −1.36, Haaland −1.18 and Cherki −0.82.
+    - The biggest risers are cheap midfielders: Slater +1.85, Crooks +1.52, Grimes +1.45 and
+      Rudoni +1.32.
+    - The captain ranking's top 10 is unchanged (Palmer, Bruno Fernandes, Saka, Mbeumo, …).
+  - This is the intended effect: premium goal rates shrink toward the position average and assists
+    keep their price anchor.
+  - The kill-switch clock (Phase 11) starts at GW8, the first live gameweek on v2. Its comparison
+    is against `--goal-anchor` from that gameweek on.
 - **The new control** is `--template-lag 2` on this commit or later (Z-goal live). Run 38312629527
   (`--no-goal-anchor --export-residuals`, cached DB duckdb-38283940509) is its residual export,
   and L1 is fitted from it.
@@ -605,3 +620,136 @@ fixes were applied in the next commit.
 - **Next:** Phase 6 (L2, the position × price-band bias). Its residuals come from the current
   control, which has Z-goal live and no L1, so export 38312629527 stands in. Its fit adds no crowd
   term, so the own-season L1 column the stacked-folds rule needs is not required.
+
+## Phase 6: lever L2, the position × price-band bias, batch L2 (declared 2026-10-19, before dispatch)
+
+- **Code** (this commit):
+  - `residual_levers.fit_band_cells` / `fit_band_bias`: each (position, price band) cell's mean
+    residual, realized − the projection before any lever, shrunk by n/(n + `pseudo_rows`). Folds
+    follow `fold_for`, as L1's do.
+  - `band_adjustments` gives each player his cell at the deadline. The price is his latest before
+    the deadline: the one the optimizer budgets with and the residual export bands by. Price is not
+    one of A2's crowd columns.
+  - `expected_points.run(band_bias_params_version=…)` applies it after L1 through the shared
+    `_apply_lever_adjustments` (split by EP across a double gameweek, floored at zero EP) into
+    `ep_band_adj` (schema 0030).
+  - It is threaded through the walk-forward step, the season sim and the planner horizon (the
+    deadline argument is now `lever_deadline_gameweek`, shared with L1). The Monte Carlo summary
+    shifts by both levers.
+  - `--band-bias COEFF_DATE` is in both scripts. `fit_residual_lever.py --lever band_bias` writes
+    the file.
+  - Tests in `tests/test_band_bias.py` cover shrinkage, folds, the leak (row G's price is never
+    read), missing data, the floor, stacking on L1, the export, the same adjustment in the
+    walk-forward and the planner horizon, the season-sim threading, the Monte Carlo shift, both
+    flags, control identity and the file hash.
+- **Coefficient file:** `data/recalibration/band_bias_coeffs_20261019.json`, committed with this
+  declaration.
+  - Fitted on residual export 38312629527 of the current control (`--template-lag 2`, Z-goal live,
+    L1 off). The export's sha256 is
+    `d714b8132d57786dc38ff6873d519f4bec1491e294b3dd201896b117b446a915`.
+  - `pseudo_rows` 500, as declared.
+  - No lever is live in those residuals, so the stacked-folds rule has nothing to substitute.
+
+  | cell | 2024-25 fit (scores 2025-26): n, mean, adj | 2025-26 fit (scores 2024-25): n, mean, adj |
+  |---|---|---|
+  | Midfielder 9.0+ | 221, +0.815, **+0.250** | 142, +0.467, **+0.103** |
+  | Midfielder 7.0–9.0 | 312, +0.491, +0.189 | 627, +0.235, +0.131 |
+  | Forward 7.0–9.0 | 390, +0.298, +0.131 | 523, +0.180, +0.092 |
+  | Forward 9.0+ | 73, +0.423, +0.054 | 98, −0.174, −0.029 |
+  | Midfielder 5.0–7.0 | 5,276, +0.066, +0.061 | 5,708, −0.080, −0.074 |
+  | Midfielder <5.0 | 6,072, −0.164, −0.152 | 6,324, −0.115, −0.107 |
+  | Defender <5.0 | 7,905, −0.150, −0.141 | 7,698, −0.085, −0.080 |
+  | Goalkeeper <5.0 | 2,462, +0.008, +0.007 | 2,924, −0.206, −0.176 |
+
+  The full 13 cells per fold are in the file.
+- **Out-of-fold check** (in the file, floored as applied):
+
+  | season | MAE | RMSE |
+  |---|---|---|
+  | 2024-25 | 1.0394 → 1.0042 | 1.9563 → 1.9541 |
+  | 2025-26 | 1.0496 → 1.0306 | 1.9436 → 1.9425 |
+
+  - The floor binds on 25.7% / 21.9% of player-gameweeks. These are mostly the cheap cells' cuts on
+    near-zero EP, which is where most of the MAE gain comes from.
+  - The premium cells' boosts carry the expected squad effect.
+- **Stated risks:**
+  - B3's band *conversion* (scaling goal and assist rates by realized/xG per band) failed:
+    −2.27 ± 0.97.
+  - L1 just failed by pulling the XI toward the template. A premium boost could do the same,
+    because premiums are the most-owned players. Req 9 guards this.
+- **Arms** (one arm; both runs with `--template-lag 2`, both seasons), dispatched back-to-back on
+  this branch at the commit that adds this declaration, through `branch_walkforward.yml`:
+
+  | run | args |
+  |---|---|
+  | control | `--template-lag 2` |
+  | L2 | `--template-lag 2 --band-bias 20261019` |
+
+- **Rule:** R6 via `compare_arms.py control.json arm.json --rule r6`, with Req 9 and the replicate
+  rule. A run on a different DB re-dispatches both. The arm's `[band_bias]` log line must show
+  adjusted steps, or the arm is not judged.
+- **On a PASS:** the season-sim check `control: ; control_b: ; l2: --band-bias 20261019` (2025-26,
+  chunk `2-38`, `same_runner`), then the live switch (Req 8), unless m < 0, which goes to the owner.
+- **Arms used after this batch:** 4 of 10 (Z: 2, L1: 1, L2: 1).
+
+### Batch L2, first run (cached DB duckdb-39340718301, commit 2b0086a, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 39342719420 | control, `--template-lag 2` | — | — | 1.0453 / 1.0515 | — | — |
+| 39342721804 | `--template-lag 2 --band-bias 20261019` | +0.486 ± 0.560 (19 better, 27 worse, 46 changed) | −0.073 | 1.0100 (−0.0353) / 1.0325 (−0.0190) | ok: overlap 3.24 → 3.42 (+0.18), non-template −0.25 ± 0.63 | **REPLICATE** |
+
+- **The arm ran as declared:** `[band_bias] v1: 74/75 steps adjusted, 55748 player-fixtures, mean
+  |adjustment| 0.0781, 13206 floored at zero EP`.
+- **EP error** fell in both seasons, by about what the out-of-fold check predicted. The arm beats
+  the gated template by +10.42 ± 1.94 a GW, against the control's +9.92.
+- **Squad points:** |m − SE| = 0.073 ≤ 0.1, so the replicate rule applies. Control and arm are
+  re-dispatched once on the same code. This session can push only the branch, so they run at the
+  branch head that adds this note. Its only difference from `2b0086a` is this report: no code, data
+  or workflow change, checked with
+  `git diff 2b0086a HEAD -- src scripts schema tests .github data/recalibration`. The verdict
+  is R6 on the per-GW mean of the two runs' (arm − control) differences, with MAE the mean of the
+  two runs' MAEs (`compare_arms.py --replicate`).
+- **Arm count:** the replicate counts as one arm, so 5 of 10 after it (Z: 2, L1: 1, L2: 2).
+- **Drift:** this control is identical to the L1 control (38327384582) on a newer DB, with 0 of 74
+  GWs changed.
+
+### Batch L2 replicate (cached DB duckdb-39340718301, branch head 75dd2d8, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 39345466273 | control, `--template-lag 2` | — | — | 1.0453 / 1.0513 | — | — |
+| 39345468971 | `--template-lag 2 --band-bias 20261019` | +0.446 ± 0.562 (19 better, 28 worse, 47 changed) | −0.116 | 1.0100 (−0.0353) / 1.0325 (−0.0188) | ok: overlap 3.24 → 3.42 (+0.18), non-template −0.25 ± 0.63 | — |
+| verdict | means of both runs (`--replicate`) | **+0.466 ± 0.560** (19 better, 28 worse, 47 changed) | **−0.094** | 1.0453 → 1.0100 / 1.0514 → 1.0325 | ok | **FAIL** |
+
+- **The arm ran as declared:** the replicate's log line is identical to the first run's,
+  `[band_bias] v1: 74/75 steps adjusted, 55748 player-fixtures, mean |adjustment| 0.0781, 13206
+  floored at zero EP`. All four runs used the same DB and scored 75/75 steps.
+- **Measured nondeterminism:** 1 of 74 GWs differs between the two controls, by up to 3.0 pts.
+- **Why it failed:** R6(i). The paired gain is positive but within one SE of zero (m − SE −0.094).
+  R6(ii) passes comfortably: EP error falls in both seasons.
+  - The squad changes are lopsided: 19 GWs better against 28 worse. A few large wins carry the
+    mean.
+  - The XI moves 0.18 players toward the template. That is within Req 9 but it is the direction the
+    stated risk named: the premium boost buys the most-owned premiums.
+  - The arm's model-XI spend on £9.0m+ fell (26.3 against the control's 27.4 a GW). So the gain does
+    not come from buying premiums; it comes from the cheap cells' cuts moving money elsewhere.
+- **Family count:** L2 1 fail (L1 1 fail; Z promoted). **Arms used:** 5 of 10 (Z: 2, L1: 1,
+  L2: 2).
+- **Combine candidate (Phase 9):** L2 has m > 0 and failed only m − SE ≥ 0, so it is listed with
+  `--no-rate-price-anchor`.
+
+### The L3 gate, re-checked after L2
+
+The queue's rule: L3 runs only if £9.0m+ realized − projected is still ≥ +0.1 after the levers that
+passed. Z is the only lever that passed. The current control (39345466273; Z-goal live, no other
+lever) gives **+0.547** per player-GW for £9.0m+. Its components:
+
+| total | appearance | goals | assists | clean sheet | other (bonus …) |
+|---|---|---|---|---|---|
+| +0.547 | +0.008 | +0.144 | +0.168 | −0.011 | +0.237 |
+
+- The total is higher than Phase 3's +0.170. Unanchoring goals moved the goal component from
+  −0.177 to +0.144, while assists and bonus are unchanged.
+- **L3 is queued.** Phase 7 next names the point-in-time EP-history source in each harness, and
+  drops L3 if any harness lacks one.

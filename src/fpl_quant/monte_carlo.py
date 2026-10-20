@@ -740,17 +740,17 @@ def run(
     con.execute("INSERT INTO monte_carlo_player_totals SELECT * FROM _mc_totals_df")
     con.unregister("_mc_totals_df")
 
-    # The draws are simulated from EP's components, so lever L1's crowd adjustment (ep_crowd_adj,
-    # zero when off -- docs/plans/2026-10_beat_the_template.md) isn't in them: it shifts each
-    # player's summary by a constant (variance and covariances unchanged), so the captaincy and
-    # chip reads of mean_total see the same EP the optimizer did.
+    # The draws are simulated from EP's components, so the levers' adjustments (ep_crowd_adj for L1,
+    # ep_band_adj for L2, zero when off -- docs/plans/2026-10_beat_the_template.md) aren't in them:
+    # they shift each player's summary by a constant (variance and covariances unchanged), so the
+    # captaincy and chip reads of mean_total see the same EP the optimizer did.
     con.execute(
         """
         INSERT INTO monte_carlo_player_summary
-        SELECT ?, s.player_uid, mean_total + coalesce(a.ep_crowd_adj, 0.0), var_total,
-               q05 + coalesce(a.ep_crowd_adj, 0.0), q25 + coalesce(a.ep_crowd_adj, 0.0),
-               q75 + coalesce(a.ep_crowd_adj, 0.0), q95 + coalesce(a.ep_crowd_adj, 0.0),
-               min_total + coalesce(a.ep_crowd_adj, 0.0), max_total + coalesce(a.ep_crowd_adj, 0.0)
+        SELECT ?, s.player_uid, mean_total + coalesce(a.adj, 0.0), var_total,
+               q05 + coalesce(a.adj, 0.0), q25 + coalesce(a.adj, 0.0),
+               q75 + coalesce(a.adj, 0.0), q95 + coalesce(a.adj, 0.0),
+               min_total + coalesce(a.adj, 0.0), max_total + coalesce(a.adj, 0.0)
         FROM (
             SELECT player_uid, avg(total_points) AS mean_total, var_pop(total_points) AS var_total,
                    quantile_cont(total_points, 0.05) AS q05, quantile_cont(total_points, 0.25) AS q25,
@@ -760,7 +760,8 @@ def run(
             GROUP BY player_uid
         ) s
         LEFT JOIN (
-            SELECT player_uid, ep_crowd_adj FROM ep_gameweek_outputs WHERE model_version = ? AND ep_crowd_adj != 0
+            SELECT player_uid, ep_crowd_adj + ep_band_adj AS adj FROM ep_gameweek_outputs
+            WHERE model_version = ? AND ep_crowd_adj + ep_band_adj != 0
         ) a ON a.player_uid = s.player_uid
         """,
         [model_version, model_version, ep_model_version],
