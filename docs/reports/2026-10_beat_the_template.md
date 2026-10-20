@@ -1022,3 +1022,29 @@ G2's frozen margins:
   - then the PR, merge, `scheduled_pipeline.yml`, and the live model team's next plan diffed
     before and after.
 - **Planner arms used after these batches:** 4 of 6.
+
+## Phase 10 results
+
+### Batch P2 (run 39418854853, commit cbd6587, 2025-26 GW2–38, one runner, every arm complete over 37 GWs)
+
+| arm | flags | net pts/GW | vs FPL average | vs control (paired, 37 GWs) | m − SE | hits | transfers | chips | decision |
+|---|---|---|---|---|---|---|---|---|---|
+| control | live | 61.00 | +11.24 | — | — | 0 | 29 | GW4 TC, GW5 WC, GW8 FH, GW12 BB, GW20 FH, GW21 BB, GW22 TC | — |
+| control_b | live | 61.00 | +11.24 | +0.00 ± 0.00 | — | 0 | 29 | the same | floor: 0 |
+| `timing` | `--chip-timing` | 61.00 | +11.24 | +0.00 ± 0.00 | 0.00 | 0 | 29 | identical to control | **not promoted: no effect** |
+| `wait` | `--chip-wait` | 59.81 | +10.05 | **−1.19 ± 1.34** | −2.53 | 0 | 29 | GW3 BB, GW5 WC, GW6 TC, GW8 FH, GW20 FH, GW23 BB, GW26 TC | **reject** |
+
+- **The control reproduces the Z-goal season-sim arm** (38312626413, 61.00 with the same chips),
+  now the live settings. The one-runner floor is exactly 0 again.
+- **`--chip-timing` has no effect.** It played the same chips in the same gameweeks and scored the
+  same points in every one of the 37.
+  - The rule's m − SE ≥ 0 is met only trivially (0 ≥ 0). An arm identical to control carries no
+    evidence that the setting helps.
+  - Promoting it would change live chip decisions in 2026-27 with nothing measured behind them, so
+    it is **not promoted**. This reads the rule against its letter, and the owner can overrule it.
+  - The gate is expensive: 91 min against control's 31.
+- **`--chip-wait` is rejected.**
+  - It held the first Bench Boost from GW12 back to GW3, delayed the first Triple Captain from GW4
+    to GW6, and moved the second-half BB and TC later (GW21 → GW23, GW22 → GW26).
+  - It cost 1.19 ± 1.34 pts/GW.
+- **Planner arms used:** 2 of 6 so far; P1 (2 arms) is still running.
