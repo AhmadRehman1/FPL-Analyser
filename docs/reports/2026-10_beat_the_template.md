@@ -840,3 +840,42 @@ lever) gives **+0.547** per player-GW for £9.0m+. Its components:
     `same_runner`);
   - then the live switch (Req 8) with the snapshot reader, unless m < 0, which goes to the owner.
 - **Arms used after this batch:** 6 of 10 (Z: 2, L1: 1, L2: 2, L3: 1).
+
+### Batch L3 results (cached DB duckdb-39340718301, commit e69f5c9, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 39410155197 | control, `--template-lag 2` | — | — | 1.0453 / 1.0513 | — | — |
+| 39410158888 | `--template-lag 2 --player-residual` | **−2.932 ± 1.550** (20 better, 41 worse, 61 changed) | **−4.483** | 1.0514 (+0.0061) / 1.0545 (+0.0032) | ok: overlap 3.24 → 3.49 (+0.25), non-template −4.40 ± 1.58 | **FAIL (i)** |
+
+- **The arm ran as declared:** `[player_residual] v1: 62/75 steps adjusted, 17573 player-fixtures,
+  mean |adjustment| 0.4343, 1084 floored at zero EP`.
+  - The 13 unadjusted steps are 2025-26 GW1–3 (no window yet) and 2024-25 GW2–11.
+  - 2024-25 GW2–11 are unadjusted because no player reaches 900 minutes before then, which is
+    consistent with the cached DB holding no 2023-24 match minutes: 2024-25's eligibility rests
+    on its own minutes alone. Those 10 steps are identical to the control.
+- **Verdict: FAIL**, far outside the replicate band. No season-sim check is run. By season it is
+  −2.84 ± 2.06 (2024-25; −3.89 over the adjusted GW12–38) and −3.03 ± 2.34 (2025-26).
+- **Why it failed:**
+  - The preview's stated risk held, and for the eligible players it is worse than the preview
+    suggested. EP error rose in both seasons (R6(ii) still passes, within the +0.01 tolerance).
+  - Unlike L1 and L2, L3 doesn't even improve the mean error once the cheap non-players are out.
+  - The adjustment is large (mean |0.43| pts per adjusted player-fixture). Most of it chases six
+    gameweeks of noise in the eligible players' own residuals.
+  - It moves the XI toward the template (+0.25 overlap, the largest of any lever) and costs
+    −4.40 ± 1.58 a GW in the points the model scores away from it. The gap to the gated template
+    falls from +9.92 to +6.94.
+  - Recent over-performers are mostly the owned players, so chasing a player's own recent returns
+    is chasing what the crowd already holds.
+- **The control** is identical to the L2 replicate's control (39345466273): 0 of 74 GWs changed.
+- **Family L3:** one fail. The plan declares one L3 arm, so no variant is queued.
+- **Arms used:** 6 of 10 (Z: 2, L1: 1, L2: 2, L3: 1).
+
+## Phase 8: L4 and L5 (skipped)
+
+Phase 3's rule queued neither, so both are skipped. The rule was evaluated then and is not
+re-opened.
+- **L4** needs the model XI's realized − projected ≤ −0.3 pts/player-GW and the template XI's ≥ 0.
+  It was −0.11.
+- **L5** needs `ep_plus_eo` to beat the model's captain by ≥ +0.3 pts/GW with m − SE > 0. It was
+  −0.07 ± 0.13.
