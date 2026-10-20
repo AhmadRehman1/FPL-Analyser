@@ -691,3 +691,22 @@ fixes were applied in the next commit.
 - **On a PASS:** the season-sim check `control: ; control_b: ; l2: --band-bias 20261019` (2025-26,
   chunk `2-38`, `same_runner`), then the live switch (Req 8), unless m < 0, which goes to the owner.
 - **Arms used after this batch:** 4 of 10 (Z: 2, L1: 1, L2: 1).
+
+### Batch L2, first run (cached DB duckdb-39340718301, commit 2b0086a, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 39342719420 | control, `--template-lag 2` | — | — | 1.0453 / 1.0515 | — | — |
+| 39342721804 | `--template-lag 2 --band-bias 20261019` | +0.486 ± 0.560 (19 better, 27 worse, 46 changed) | −0.073 | 1.0100 (−0.0353) / 1.0325 (−0.0190) | ok: overlap 3.24 → 3.42 (+0.18), non-template −0.25 ± 0.63 | **REPLICATE** |
+
+- **The arm ran as declared:** `[band_bias] v1: 74/75 steps adjusted, 55748 player-fixtures, mean
+  |adjustment| 0.0781, 13206 floored at zero EP`.
+- **EP error** fell in both seasons, by about what the out-of-fold check predicted. The arm beats
+  the gated template by +10.42 ± 1.94 a GW, against the control's +9.92.
+- **Squad points:** |m − SE| = 0.073 ≤ 0.1, so the replicate rule applies. Control and arm are
+  re-dispatched once on the same commit (`2b0086a`, pinned by tag `btt-l2-replicate`). The verdict
+  is R6 on the per-GW mean of the two runs' (arm − control) differences, with MAE the mean of the
+  two runs' MAEs (`compare_arms.py --replicate`).
+- **Arm count:** the replicate counts as one arm, so 5 of 10 after it (Z: 2, L1: 1, L2: 2).
+- **Drift:** this control is identical to the L1 control (38327384582) on a newer DB, with 0 of 74
+  GWs changed.
