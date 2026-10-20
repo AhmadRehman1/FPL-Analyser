@@ -576,7 +576,7 @@ fixes were applied in the next commit.
 - **The Monte Carlo summary** (Triple Captain score, vice fallback) is shifted by the same
   adjustment. Variance is unchanged.
 - **Arms** (one arm; both runs with `--template-lag 2`, both seasons), dispatched back-to-back on
-  this branch at the commit that adds this declaration, through `branch_walkforward.yml`:
+  this branch at the head that carries this declaration, through `branch_walkforward.yml`:
 
   | run | args |
   |---|---|
@@ -678,7 +678,7 @@ fixes were applied in the next commit.
   - L1 just failed by pulling the XI toward the template. A premium boost could do the same,
     because premiums are the most-owned players. Req 9 guards this.
 - **Arms** (one arm; both runs with `--template-lag 2`, both seasons), dispatched back-to-back on
-  this branch at the commit that adds this declaration, through `branch_walkforward.yml`:
+  this branch at the head that carries this declaration, through `branch_walkforward.yml`:
 
   | run | args |
   |---|---|
@@ -777,3 +777,37 @@ code or run, as the plan's Phase 7 requires.
 - Unverified: that the live DB's per-GW 2026-27 stats support the replay (A11). If they don't, L3
   is dropped, as the plan requires.
 
+
+## Phase 7: lever L3, the per-player residual, batch L3 (declared 2026-10-20, before dispatch)
+
+- **Code:** `--player-residual` in `run_walkforward.py` and `run_season_sim_arm.py`
+  (`residual_levers.player_residual_adjustments`, applied in `expected_points.run()` into
+  `ep_outputs.ep_player_adj`, schema 0031). No coefficient file: the lever reads each harness's own
+  deadline-time EP, as step 1 above names.
+  - Walk-forward: this run's earlier steps of the same season (`player_residual_walk_history`).
+  - Season sim: its own plan runs, with the weeks before `start_gw` replayed at their own
+    deadlines without L3.
+  - Live: not wired. It is wired at PROMOTE (Req 8), as L1 and L2 were.
+- **Declared values** (the plan's, fixed before any run): window 6 GWs of the current season before
+  G; shrink n/(n + 6); only players with ≥ 900 Premier League minutes in the current season before
+  G plus the whole previous one. The residual is realized − (`ep_total` − `ep_player_adj`), so L3
+  never feeds on itself. A player-GW counts when the step projected him and FPL scored him (a blank
+  drops out). Realized points are `event_points` of row gw < G.
+- **Tests:** `tests/test_player_residual.py` covers the shrinkage and window, the minutes floor, the
+  leak test (row G and later, and other seasons, are never read), the run-id filter, the pre-L3
+  projection, the planner horizon, the season sim's replay and history, the flags in both scripts,
+  and control identity.
+- **Arms** (one arm; both runs with `--template-lag 2`, both seasons), dispatched back-to-back on
+  this branch at the head that carries this declaration, through `branch_walkforward.yml`:
+
+  | run | args |
+  |---|---|
+  | control | `--template-lag 2` |
+  | L3 | `--template-lag 2 --player-residual` |
+
+- **Rule:** R6 via `compare_arms.py control.json arm.json --rule r6`, with Req 9 and the replicate
+  rule. A run on a different DB re-dispatches both. The arm's log line `[player_residual]` must show
+  adjusted steps in both seasons, or the arm is not judged.
+- **On a PASS:** the season-sim check `control: ; control_b: ; l3: --player-residual` (2025-26,
+  chunk `2-38`, `same_runner`), then the live switch (Req 8), unless m < 0, which goes to the owner.
+- **Arms used after this batch:** 6 of 10 (Z: 2, L1: 1, L2: 2, L3: 1).
