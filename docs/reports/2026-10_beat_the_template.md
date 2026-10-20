@@ -879,3 +879,65 @@ re-opened.
   It was −0.11.
 - **L5** needs `ep_plus_eo` to beat the model's captain by ≥ +0.3 pts/GW with m − SE > 0. It was
   −0.07 ± 0.13.
+
+## Phase 9: combine plausible levers, then re-check G2 (2026-10-20)
+
+### (a) Combine candidates: none
+The rule's candidates are arms with m > 0 that failed only m − SE ≥ 0. Against the current
+control, only one arm qualifies, and one lever is not a combination.
+
+| arm | m (as judged) | against the current control | candidate? |
+|---|---|---|---|
+| `--no-rate-price-anchor` (Z1) | +0.635 ± 0.736, against Z1's goals-anchored control | **−0.189 ± 0.472** | no |
+| L2 `--band-bias 20261019` | +0.466 ± 0.560 (replicated) | the same: it was judged against the current control | yes |
+| L1 `--crowd-prior 20261013` | −0.770 ± 0.816 | — | no (m < 0) |
+| L3 `--player-residual` | −2.932 ± 1.550 | — | no (m < 0) |
+
+- **Why `--no-rate-price-anchor` drops out:** it unanchors goals and assists. Its goals half is
+  Z-goal, which is now live. Its m was measured against Z1's control, where goals were still
+  anchored.
+- **What's left of it is measured:** batch Z1 ran both arms against the same control on the same
+  DB, so pairing them gives exactly what `--no-rate-price-anchor` adds on top of Z-goal:
+  `compare_arms.py --rule r6 38275613712 38275619225` gives −0.189 ± 0.472 (11 better, 10 worse).
+- **The Z-goal arm is the current control's model:** the L1 control reproduced it with 1 of 74
+  GWs changed.
+- **This mirrors the plan's PROMOTE rule:** the other arm of a batch is re-judged against the new
+  control. Here that re-judgement needs no new run, and its m is below zero.
+- No combined arm is run, so the lever cap stays at 6 of 10.
+
+### (b) The G2 decision for the current control: unmet, queue exhausted → owner review
+The current control (39410155197: Z-goal live, `--template-lag 2`) against the gated template, by
+G2's frozen margins:
+
+| season | gap (pts/GW) | M_s | short by |
+|---|---|---|---|
+| 2024-25 | +11.44 ± 3.11 (36 GWs) | 15.34 | 3.90 |
+| 2025-26 | +8.39 ± 2.40 (36 GWs) | 10.99 | 2.60 |
+| pooled | **+9.92 ± 1.96** (72 GWs) | **M̄ = 13.17** | **3.25** |
+
+- **G2 is not met:** m − SE > 0 holds, but m < M̄. Phase 3's control was at +9.19; Z-goal added
+  about +0.8 of the +4.0 needed.
+- **The lever queue is exhausted, not capped:**
+
+  | lever | outcome |
+  |---|---|
+  | Z | `--no-goal-anchor` promoted and live |
+  | L1, L2, L3 | each failed its one declared arm |
+  | L4, L5 | not queued (Phase 8) |
+  | combine | no candidates |
+
+  Lever arms used: 6 of 10.
+- **By the plan this triggers owner review.**
+- **Phase 10 (planner and chips) is not started.** It runs after G2 holds, or early only on Phase
+  3's evolving-loss branch, which didn't trigger.
+- **Phase 11 continues regardless:** live tracking and the Z-goal kill-switch, with the clock from
+  GW8. The first review is 6 live GWs after the promotion, plus GW19 and GW38.
+
+**What the levers showed** (for the owner's review):
+- Every EP-calibration lever that improved or kept EP error (L1, L2) or chased recent returns (L3)
+  moved the XI toward the template (+0.19, +0.18, +0.25 overlap). None raised the points scored
+  away from it. L1 and L3 cut them (−1.93 and −4.40 a GW) and L2 changed them by −0.25 ± 0.63.
+- The model's margin over the template comes from the players the crowd doesn't hold. Corrections
+  fitted to the average player-gameweek, or to a player's own recent returns, give that edge
+  back.
+- The one lever that helped (Z-goal) changed the goal model itself, not a residual on top of it.
