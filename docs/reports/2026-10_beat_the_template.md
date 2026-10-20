@@ -704,7 +704,10 @@ fixes were applied in the next commit.
 - **EP error** fell in both seasons, by about what the out-of-fold check predicted. The arm beats
   the gated template by +10.42 ± 1.94 a GW, against the control's +9.92.
 - **Squad points:** |m − SE| = 0.073 ≤ 0.1, so the replicate rule applies. Control and arm are
-  re-dispatched once on the same commit (`2b0086a`, pinned by tag `btt-l2-replicate`). The verdict
+  re-dispatched once on the same code. This session can push only the branch, so they run at the
+  branch head that adds this note. Its only difference from `2b0086a` is this report: no code, data
+  or workflow change, checked with
+  `git diff 2b0086a HEAD -- src scripts schema tests .github data/recalibration`. The verdict
   is R6 on the per-GW mean of the two runs' (arm − control) differences, with MAE the mean of the
   two runs' MAEs (`compare_arms.py --replicate`).
 - **Arm count:** the replicate counts as one arm, so 5 of 10 after it (Z: 2, L1: 1, L2: 2).
