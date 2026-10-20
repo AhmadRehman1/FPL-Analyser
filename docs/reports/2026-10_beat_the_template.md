@@ -973,3 +973,52 @@ G2's frozen margins:
   fitted to the average player-gameweek, or to a player's own recent returns, give that edge
   back.
 - The one lever that helped (Z-goal) changed the goal model itself, not a residual on top of it.
+
+## Phase 10: re-tune the planner and chips, batches P1 and P2 (declared 2026-10-20, before dispatch)
+
+- **Why now:** G2 is unmet, so by the plan Phase 10 waits. At the owner review above, the owner
+  chose to run it anyway (2026-10-20). Phase 10's own rules apply unchanged.
+- **Harness:** `season_sim_arms.yml`, season 2025-2026, chunks `2-38`, `same_runner: true`.
+  - That is one continuous GW2–38 squad with both chip sets, so there is no fresh squad at GW20.
+  - Each batch is its own job on its own runner.
+  - Control is the live settings: Z-goal live; chip timing, chip wait and multi-transfers off;
+    transfer threshold 0.0.
+- **Arms:** one existing flag each, 4 of the 6-arm cap. Each arm is paired with its own batch's
+  control.
+
+  | batch | label | flags | what it changes |
+  |---|---|---|---|
+  | P1 | `multi` | `--multi-transfers` | `multi_transfer_params` v1: a week with no chip makes the best two-transfer move instead of the best single when it is worth more net of its hit |
+  | P1 | `chipov` | `--chip-option-value` | chip timing v1 plus `chip_wait_params` v2: hold a chip unless it beats every week left in its half, Free Hit included |
+  | P2 | `wait` | `--chip-wait` | chip timing v1 plus `chip_wait_params` v1: wait when a later week in the 10-GW window looks better (decay 0.85, margin 0.5) |
+  | P2 | `timing` | `--chip-timing` | the Triple Captain / Bench Boost season-horizon timing gate (v1) alone |
+
+  Batch arms strings:
+  - P1: `control: ; control_b: ; multi: --multi-transfers; chipov: --chip-option-value`
+  - P2: `control: ; control_b: ; wait: --chip-wait; timing: --chip-timing`
+
+  Each job runs 4 arms of about 41–55 min (the Z check's timings), so about 3–3.7 h, inside the
+  345-min step. The two batches are dispatched back-to-back and run in parallel.
+- **Not run: `--transfer-threshold`.** Control's 0.0 already accepts any transfer with a positive
+  net gain, so the only arm is a higher threshold. Both earlier ones, 0.5 and 2.0, cost about
+  2.6 pts/GW (docs/reports/2026-10_open_issues.md). That leaves 2 arms for a re-judgement or a
+  follow-up.
+- **Rule (Phase 10):**
+  - arm − control paired net points per GW over the 37 GWs (`aggregate_season_sim_arms.py`, "vs
+    control (paired)"); **promote if m − SE ≥ 0**, else reject. Only complete runs count.
+  - Each batch's control_b − control is recorded as its noise floor.
+  - If more than one arm passes, the higher m is promoted. The others are re-judged against the
+    new control in a new batch, each counting as an arm.
+  - An arm cut off by the time limit is re-run in a later batch, and counts again.
+- **Earlier evidence**, not comparable: an older model, and chunks `2-19,20-38`, whose fresh GW20
+  squad acts as a free Wildcard.
+  - `--multi-transfers` −0.35 ± 1.44; `--chip-option-value` −0.73 ± 2.01; both together
+    +0.68 ± 1.36.
+  - `--chip-timing` matched control exactly before its horizon fix. `--chip-wait` was never
+    reported.
+- **PROMOTE (Req 8) for a winner:**
+  - its planner family seeded and confirmed live, passed at every live call site, a
+    `--no-<flag>` off switch, and the wiring test;
+  - then the PR, merge, `scheduled_pipeline.yml`, and the live model team's next plan diffed
+    before and after.
+- **Planner arms used after these batches:** 4 of 6.
