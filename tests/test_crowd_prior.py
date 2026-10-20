@@ -454,7 +454,7 @@ def test_a_later_window_reads_the_deadlines_features(con, tmp_path, monkeypatch)
     asof, ts, mm = _snapshots(con, SEASON, 3, schedule_horizon_gameweeks=2)
     with bt.asof_scope(con, SEASON, 3, schedule_horizon_gameweeks=2):
         later = tp.compute_horizon_ep(con, asof, SEASON, 4, ts, mm, 1, 1, 1, 1, 1, 1,
-                                      crowd_prior_params_version=v, crowd_deadline_gameweek=3)
+                                      crowd_prior_params_version=v, lever_deadline_gameweek=3)
     rows = con.execute("SELECT player_uid, ep_crowd_adj, ep_total FROM ep_gameweek_outputs WHERE model_version = ?",
                        [later[4][0]]).fetchall()
     for uid, adj, total in rows:

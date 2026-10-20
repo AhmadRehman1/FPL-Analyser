@@ -26,6 +26,8 @@ version (nothing is activated):
                              2026-10-07 (run_walkforward.py's flag)
     --crowd-prior 20261012   lever L1, the crowd prior from that coefficient file
                              (run_walkforward.py's flag)
+    --band-bias 20261019     lever L2, the band bias from that coefficient file
+                             (run_walkforward.py's flag)
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/run_season_sim_arm.py --label control --season 2025-2026
@@ -79,6 +81,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="shrink goal/assist rates toward the position average, as before 2026-10-07")
     parser.add_argument("--crowd-prior", type=int, default=None, metavar="COEFF_DATE",
                         help="lever L1: the crowd prior from data/recalibration/crowd_prior_coeffs_<COEFF_DATE>.json")
+    parser.add_argument("--band-bias", type=int, default=None, metavar="COEFF_DATE",
+                        help="lever L2: the band bias from data/recalibration/band_bias_coeffs_<COEFF_DATE>.json")
     return parser.parse_args(argv)
 
 
@@ -93,7 +97,7 @@ def arm_versions(con, args: argparse.Namespace) -> tuple[dict, dict]:
         lambda_value=args.lambda_value, role_matches_threshold=None, assist_prior_xa=args.assist_prior_xa,
         team_strength=args.team_strength,
         no_goal_anchor=args.no_goal_anchor, goal_anchor=args.goal_anchor, no_rate_price_anchor=args.no_rate_price_anchor,
-        crowd_prior=args.crowd_prior,
+        crowd_prior=args.crowd_prior, band_bias=args.band_bias,
     ))
     versions.update(experiment)
     changed.update(experiment)
