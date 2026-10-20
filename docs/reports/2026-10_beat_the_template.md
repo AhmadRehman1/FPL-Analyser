@@ -605,3 +605,27 @@ fixes were applied in the next commit.
 - **Next:** Phase 6 (L2, the position × price-band bias). Its residuals come from the current
   control, which has Z-goal live and no L1, so export 38312629527 stands in. Its fit adds no crowd
   term, so the own-season L1 column the stacked-folds rule needs is not required.
+
+## Phase 7 prep: where each harness gets point-in-time EP history (2026-10-20, docs only)
+
+L3 runs only if Phase 3's rule still queues it after Phase 6. This settles its EP-history source
+in advance, so the decision isn't made after seeing results. No code changed.
+
+| harness | source | point-in-time? | gaps |
+|---|---|---|---|
+| walk-forward | earlier steps of the same run: `backtest_gameweek_steps.ep_model_version` → `ep_gameweek_outputs` | yes: each step's EP is fitted inside its own `asof_scope()`, and both seasons walk in order in one job (`ALL_SEASON_GAMEWEEKS`) | the cached DB holds other runs' EP too, so the lookup filters by `backtest_run_id`; 2024-25 GW1 is a cold-start skip |
+| season sim | each GW's plan run: `transfer_plan_runs.ep_model_versions[gw]` (the `plan_run_id` in `actions`); the bootstrap GW from its `squad_optimizer` run | yes: every plan runs inside that GW's `asof_scope()` | GW1 has no EP; the default chunks (`2-19,20-38`) restart GW20 in a fresh job with no history, so L3 arms use chunk `2-38` (as PROMOTE already does) |
+| live | **not as the plan assumed.** `scheduled_pipeline.yml` re-ingests a fresh DB every run and caches it per run id, so no deadline-time model versions survive | the committed `data/dashboard/projections_<date>.json` are pre-deadline (git timestamps: none rewritten after its date) | no GW1 snapshot (first is 2026-08-25); the snapshots mix live model versions (e.g. Z-goal went live 2026-10-13) |
+
+**Decision.**
+- One shared function returns each player's deadline EP for the window. It reads the run's own EP
+  in the walk-forward and the season sim. For live, and for any GW a harness lacks, it replays
+  that GW's EP inside `asof_scope()` with the current model, so live residuals come from the same
+  model the backtest judged. The snapshots are a cross-check only.
+- Residuals use pre-adjustment EP (`ep_total − ep_player_adj`), or L3 would feed on itself.
+- The 6-GW window counts only the current season's GWs. Only the walk-forward can see last
+  season's EP, so a cross-season window would make the harnesses disagree. A GW with no EP counts
+  as no observation (n falls, and n/(n+6) shrinks harder).
+- Unverified: that the live DB's per-GW 2026-27 stats support the replay (A11). If they don't, L3
+  is dropped, as the plan requires.
+
