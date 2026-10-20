@@ -368,6 +368,8 @@ def compute_horizon_ep(
     crowd_prior_params_version: int | None = None,
     lever_deadline_gameweek: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
+    player_residual_history: dict[int, int] | None = None,
 ) -> dict[int, tuple[int, int]]:
     """One ep.run() + uncertainty.run() pair per gameweek in [start_gameweek,
     start_gameweek+horizon_gameweeks), reusing the same ts_model_version/mm_model_version
@@ -392,9 +394,11 @@ def compute_horizon_ep(
     them (docs/reports/2026-10_open_issues.md, issue 3). None builds one for this call; a
     caller making several calls against the same view can pass its own.
 
-    crowd_prior_params_version / band_bias_params_version: levers L1 / L2 (expected_points.run());
-    every gameweek here gets the adjustment of lever_deadline_gameweek, the gameweek being planned
-    (default start_gameweek).
+    crowd_prior_params_version / band_bias_params_version / player_residual_params_version: levers
+    L1 / L2 / L3 (expected_points.run()); every gameweek here gets the adjustment of
+    lever_deadline_gameweek, the gameweek being planned (default start_gameweek). L3 reads
+    player_residual_history, the caller's deadline-time EP for earlier gameweeks ({gameweek:
+    ep_model_version}).
     """
     if memo is None:
         memo = ep.new_memo()
@@ -409,6 +413,8 @@ def compute_horizon_ep(
                 rate_prior_params_version=rate_prior_params_version,
                 crowd_prior_params_version=crowd_prior_params_version,
                 band_bias_params_version=band_bias_params_version,
+                player_residual_params_version=player_residual_params_version,
+                player_residual_history=player_residual_history,
                 lever_deadline_gameweek=start_gameweek if lever_deadline_gameweek is None else lever_deadline_gameweek,
                 memo=memo,
             )
@@ -1652,6 +1658,8 @@ def run(
     rate_prior_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
+    player_residual_history: dict[int, int] | None = None,
 ) -> int:
     """One planning invocation: computes the horizon EP, evaluates transfers and all four
     chips against the manager's actual current holdings (input_state_version), writes
@@ -1748,6 +1756,8 @@ def run(
             rate_prior_params_version=rate_prior_params_version,
             crowd_prior_params_version=crowd_prior_params_version, lever_deadline_gameweek=target_gameweek,
             band_bias_params_version=band_bias_params_version,
+            player_residual_params_version=player_residual_params_version,
+            player_residual_history=player_residual_history,
             memo=memo,
         )
 
@@ -1794,6 +1804,8 @@ def run(
                         rate_prior_params_version=rate_prior_params_version,
                         crowd_prior_params_version=crowd_prior_params_version,
                         band_bias_params_version=band_bias_params_version,
+                        player_residual_params_version=player_residual_params_version,
+                        player_residual_history=player_residual_history,
                         lever_deadline_gameweek=target_gameweek,
                         memo=memo,
                     ))

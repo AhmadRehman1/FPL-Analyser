@@ -1435,12 +1435,18 @@ def run(
     crowd_prior_params_version: int | None = None,
     lever_deadline_gameweek: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
+    player_residual_history: dict[int, int] | None = None,
 ) -> int:
     # crowd_prior_params_version (opt-in, None = off): lever L1 of docs/plans/
     # 2026-10_beat_the_template.md -- after every fixture is written, each player's crowd
     # adjustment (residual_levers.crowd_adjustments) is added to ep_total, see _apply_crowd_prior().
     # band_bias_params_version (opt-in, None = off): lever L2, each player's (position, price band)
     # adjustment (residual_levers.band_adjustments), added after L1 the same way.
+    # player_residual_params_version (opt-in, None = off): lever L3, each player's own shrunk mean
+    # residual (residual_levers.player_residual_adjustments), added after L2 the same way.
+    # player_residual_history is the harness's deadline-time EP for earlier gameweeks of the season,
+    # {gameweek: ep_model_version}; None or empty means no history, so no player is adjusted.
     # lever_deadline_gameweek is the gameweek being planned (default target_gameweek): a planning
     # horizon's later gameweeks pass the deadline's, so every one of them gets the same adjustment.
     # conversion_params_version (opt-in, None = off): the pooled band conversion -- see
@@ -1502,8 +1508,8 @@ def run(
              set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
              assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
              rate_prior_params_version, conversion_params_version, crowd_prior_params_version,
-             band_bias_params_version, recipe_recorded)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+             band_bias_params_version, player_residual_params_version, recipe_recorded)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
         RETURNING model_version
         """,
         [calibration_asof_date, target_season, ts_model_version, mm_model_version,
@@ -1511,7 +1517,7 @@ def run(
          set_piece_params_version, fixture_params_version, rate_shrinkage_params_version,
          assist_calibration_params_version, finishing_skill_params_version, bps_calibration_params_version,
          rate_prior_params_version, conversion_params_version, crowd_prior_params_version,
-         band_bias_params_version],
+         band_bias_params_version, player_residual_params_version],
     ).fetchone()[0]
 
     for match_id, home_uid, away_uid in fixtures:
@@ -1587,6 +1593,9 @@ def run(
         _apply_crowd_prior(con, model_version, target_season, crowd_prior_params_version, deadline, memo)
     if band_bias_params_version is not None:
         _apply_band_bias(con, model_version, target_season, band_bias_params_version, deadline, memo)
+    if player_residual_params_version is not None:
+        _apply_player_residual(con, model_version, target_season, player_residual_params_version, deadline,
+                               player_residual_history or {}, memo)
     return model_version
 
 
@@ -1623,7 +1632,26 @@ def _apply_band_bias(con: duckdb.DuckDBPyConnection, model_version: int, target_
     return _apply_lever_adjustments(con, model_version, adjustments, "ep_band_adj")
 
 
-_LEVER_COLUMNS = ("ep_crowd_adj", "ep_band_adj")
+def _apply_player_residual(con: duckdb.DuckDBPyConnection, model_version: int, target_season: str, version: int,
+                           deadline_gameweek: int, history: dict[int, int], memo: dict | None = None) -> int:
+    """Lever L3: each player's own shrunk mean residual for the deadline
+    (residual_levers.player_residual_adjustments over `history`), added by _apply_lever_adjustments()
+    into ep_player_adj."""
+    from . import residual_levers
+
+    def build():
+        p = residual_levers.resolve_player_residual(con, version)
+        return residual_levers.player_residual_adjustments(
+            con, target_season, deadline_gameweek, history, p["window"], p["pseudo_gws"], p["min_minutes"],
+        )
+
+    key = ("player_residual_adjustments", version, target_season, deadline_gameweek,
+           tuple(sorted((int(gw), int(mv)) for gw, mv in history.items())))
+    adjustments = build() if memo is None else _memo_get(memo, key, build)
+    return _apply_lever_adjustments(con, model_version, adjustments, "ep_player_adj")
+
+
+_LEVER_COLUMNS = ("ep_crowd_adj", "ep_band_adj", "ep_player_adj")
 
 
 def _apply_lever_adjustments(con: duckdb.DuckDBPyConnection, model_version: int, adjustments: dict[str, float],

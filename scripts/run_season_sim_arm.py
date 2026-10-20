@@ -28,6 +28,9 @@ version (nothing is activated):
                              (run_walkforward.py's flag)
     --band-bias 20261019     lever L2, the band bias from that coefficient file
                              (run_walkforward.py's flag)
+    --player-residual        lever L3, each player's own shrunk mean residual over his last 6
+                             gameweeks of this walk (run_walkforward.py's flag); a chunk's first
+                             weeks read history replayed at each earlier deadline
 
 Usage (from repo root):
     PYTHONPATH=src python scripts/run_season_sim_arm.py --label control --season 2025-2026
@@ -83,6 +86,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="lever L1: the crowd prior from data/recalibration/crowd_prior_coeffs_<COEFF_DATE>.json")
     parser.add_argument("--band-bias", type=int, default=None, metavar="COEFF_DATE",
                         help="lever L2: the band bias from data/recalibration/band_bias_coeffs_<COEFF_DATE>.json")
+    parser.add_argument("--player-residual", action="store_true",
+                        help="lever L3: each player's own shrunk mean residual over his last 6 gameweeks")
     return parser.parse_args(argv)
 
 
@@ -97,7 +102,7 @@ def arm_versions(con, args: argparse.Namespace) -> tuple[dict, dict]:
         lambda_value=args.lambda_value, role_matches_threshold=None, assist_prior_xa=args.assist_prior_xa,
         team_strength=args.team_strength,
         no_goal_anchor=args.no_goal_anchor, goal_anchor=args.goal_anchor, no_rate_price_anchor=args.no_rate_price_anchor,
-        crowd_prior=args.crowd_prior, band_bias=args.band_bias,
+        crowd_prior=args.crowd_prior, band_bias=args.band_bias, player_residual=args.player_residual,
     ))
     versions.update(experiment)
     changed.update(experiment)

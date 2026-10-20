@@ -741,7 +741,7 @@ def run(
     con.unregister("_mc_totals_df")
 
     # The draws are simulated from EP's components, so the levers' adjustments (ep_crowd_adj for L1,
-    # ep_band_adj for L2, zero when off -- docs/plans/2026-10_beat_the_template.md) aren't in them:
+    # ep_band_adj for L2, ep_player_adj for L3, zero when off -- docs/plans/2026-10_beat_the_template.md) aren't in them:
     # they shift each player's summary by a constant (variance and covariances unchanged), so the
     # captaincy and chip reads of mean_total see the same EP the optimizer did.
     con.execute(
@@ -760,8 +760,8 @@ def run(
             GROUP BY player_uid
         ) s
         LEFT JOIN (
-            SELECT player_uid, ep_crowd_adj + ep_band_adj AS adj FROM ep_gameweek_outputs
-            WHERE model_version = ? AND ep_crowd_adj + ep_band_adj != 0
+            SELECT player_uid, ep_crowd_adj + ep_band_adj + ep_player_adj AS adj FROM ep_gameweek_outputs
+            WHERE model_version = ? AND ep_crowd_adj + ep_band_adj + ep_player_adj != 0
         ) a ON a.player_uid = s.player_uid
         """,
         [model_version, model_version, ep_model_version],

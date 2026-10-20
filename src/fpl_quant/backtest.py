@@ -35,6 +35,7 @@ from . import ownership as ownership_mod
 from . import params as params_mod
 from . import recalibration_gate
 from . import reconcile
+from . import residual_levers
 from . import season_rules
 from . import squad_optimizer
 from . import team_strength
@@ -323,6 +324,19 @@ def _shadow_point_in_time_roster(con: duckdb.DuckDBPyConnection, season: str, ga
 # one walk-forward step: run M1->M6 pinned to one historical gameweek's asof cutoff
 # ============================================================
 
+def player_residual_walk_history(con: duckdb.DuckDBPyConnection, backtest_run_id: int, season: str,
+                                 gameweek: int) -> dict[int, int]:
+    """Lever L3's EP history in the walk-forward: {gameweek: ep_model_version} for this run's own
+    earlier steps of the same season (docs/reports/2026-10_beat_the_template.md, "Phase 7, step 1").
+    Filtered by run, because the cached DB holds other runs' steps too; a step that hasn't been
+    walked (a cold-start skip, or one not reached yet) is simply absent."""
+    return dict(con.execute(
+        "SELECT gameweek, ep_model_version FROM backtest_gameweek_steps "
+        "WHERE backtest_run_id = ? AND season = ? AND gameweek < ? AND ep_model_version IS NOT NULL",
+        [backtest_run_id, season, gameweek],
+    ).fetchall())
+
+
 def run_gameweek_step(
     con: duckdb.DuckDBPyConnection,
     backtest_run_id: int,
@@ -367,6 +381,7 @@ def run_gameweek_step(
     rate_prior_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
@@ -463,6 +478,11 @@ def run_gameweek_step(
             rate_prior_params_version=rate_prior_params_version,
             crowd_prior_params_version=crowd_prior_params_version,
             band_bias_params_version=band_bias_params_version,
+            player_residual_params_version=player_residual_params_version,
+            player_residual_history=(
+                player_residual_walk_history(con, backtest_run_id, season, gameweek)
+                if player_residual_params_version is not None else None
+            ),
             conversion_params_version=conversion_params_version,
         )
         un_model_version = uncertainty.run(
@@ -1318,6 +1338,7 @@ def run(
     rate_prior_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
     conversion_params_version: int | None = None,
     template_baseline: bool = False,
     template_lag: int = 1,
@@ -1435,6 +1456,7 @@ def run(
             rate_prior_params_version=rate_prior_params_version,
             crowd_prior_params_version=crowd_prior_params_version,
             band_bias_params_version=band_bias_params_version,
+            player_residual_params_version=player_residual_params_version,
             conversion_params_version=conversion_params_version,
             template_baseline=template_baseline, template_lag=template_lag, availability_lag=availability_lag,
         )
@@ -1825,6 +1847,7 @@ def run_season_simulation(
     rate_prior_params_version: int | None = None,
     crowd_prior_params_version: int | None = None,
     band_bias_params_version: int | None = None,
+    player_residual_params_version: int | None = None,
     current_season_role_params_version: int | None = None,
     current_season_minutes_params_version: int | None = None,
     sub_rate_params_version: int | None = None,
@@ -1943,6 +1966,42 @@ def run_season_simulation(
         con, triple_captain_timing_params_version, bench_boost_timing_params_version,
     ))
 
+    # Lever L3's EP history (docs/reports/2026-10_beat_the_template.md, "Phase 7, step 1"): this
+    # walk's own deadline-time EP, {gameweek: ep_model_version}. The gameweeks before start_gameweek
+    # (GW1, or a later chunk's first weeks) are replayed first, each inside its own asof_scope(),
+    # with the same team-strength, minutes and EP settings and no L3.
+    ep_history: dict[int, int] = {}
+    if player_residual_params_version is not None:
+        window = residual_levers.resolve_player_residual(con, player_residual_params_version)["window"]
+        for gw in range(max(1, start_gameweek - window), start_gameweek):
+            if not has_fittable_history(con, season, gw):
+                continue
+            with asof_scope(con, season, gw) as deadline:
+                calibration_asof_date = deadline.date()
+                ts_mv = team_strength.calibrate(
+                    con, calibration_asof_date, xi_params_version, rho_params_version,
+                    target_season=season, fit_seasons=fit_seasons_for(season),
+                    guard_params_version=team_strength_guard_params_version,
+                )
+                mm_mv = minutes_model.run(
+                    con, calibration_asof_date, season, decay_params_version, adjustment_params_version,
+                    shrinkage_params_version, fact_multiplier_params_version,
+                    minutes_bounds_params_version=minutes_bounds_params_version,
+                    start_prior_params_version=minutes_start_prior_params_version,
+                    current_season_role_params_version=current_season_role_params_version,
+                    current_season_minutes_params_version=current_season_minutes_params_version,
+                    sub_rate_params_version=sub_rate_params_version,
+                )
+                ep_history[gw] = ep.run(
+                    con, calibration_asof_date, season, gw, ts_mv, mm_mv,
+                    scoring_params_version, bps_params_version, tau_params_version,
+                    rate_shrinkage_params_version=rate_shrinkage_params_version,
+                    rate_prior_params_version=rate_prior_params_version,
+                    crowd_prior_params_version=crowd_prior_params_version,
+                    band_bias_params_version=band_bias_params_version,
+                    lookback_seasons=lookback_seasons_for(season),
+                )
+
     with asof_scope(con, season, start_gameweek, schedule_horizon_gameweeks=horizon_gameweeks) as deadline:
         calibration_asof_date = deadline.date()
         ts_mv = team_strength.calibrate(
@@ -1967,9 +2026,12 @@ def run_season_simulation(
             rate_prior_params_version=rate_prior_params_version,
             crowd_prior_params_version=crowd_prior_params_version,
             band_bias_params_version=band_bias_params_version,
+            player_residual_params_version=player_residual_params_version,
+            player_residual_history=dict(ep_history),
             lookback_seasons=lookback_seasons_for(season),
             memo=bootstrap_memo,
         )
+        ep_history[start_gameweek] = ep_mv
         un_mv = uncertainty.run(
             con, calibration_asof_date, ep_mv, mm_mv, ts_mv, scoring_params_version, bps_params_version,
             tau_params_version, rho_residual_params_version, corr_params_version,
@@ -2052,8 +2114,15 @@ def run_season_simulation(
                     rate_prior_params_version=rate_prior_params_version,
                     crowd_prior_params_version=crowd_prior_params_version,
                     band_bias_params_version=band_bias_params_version,
+                    player_residual_params_version=player_residual_params_version,
+                    player_residual_history=dict(ep_history),
                     multi_transfer_pool_limit_per_position=multi_transfer_pool,
                 )
+                if player_residual_params_version is not None:
+                    # this week's own deadline-time EP joins the history the next weeks read
+                    planned = transfer_planner.plan_gameweek_versions(con, plan_run_id, gw)
+                    if planned is not None:
+                        ep_history[gw] = planned[0]
                 accept_transfer_rank, accept_chip = _decide_gameweek_action(
                     con, plan_run_id, chips_used_set1, chips_used_set2, gw, accept_transfer_if_net_value_above,
                     chip_wait_params_version=chip_wait_params_version,

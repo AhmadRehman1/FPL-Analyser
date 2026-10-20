@@ -103,6 +103,11 @@ Lever L2, the band bias (docs/plans/2026-10_beat_the_template.md, Phase 6):
                                players' EP, from data/recalibration/band_bias_coeffs_20261019.json;
                                each season is scored with the other season's fit
 
+Lever L3, the per-player residual (docs/plans/2026-10_beat_the_template.md, Phase 7):
+    --player-residual          add each player's own mean residual over his last 6 gameweeks of
+                               the season (this run's earlier steps), shrunk by n / (n + 6), to his
+                               EP; players with 900+ league minutes this and last season only
+
 Residual export (docs/plans/2026-10_beat_the_template.md, Req 12; not an experiment setting):
     --export-residuals         after the walk, write residual_features.csv (per player-gameweek:
                                realized points, the projection before any promoted lever, the
@@ -197,6 +202,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="lever L1: the crowd prior from data/recalibration/crowd_prior_coeffs_<COEFF_DATE>.json")
     parser.add_argument("--band-bias", type=int, default=None, metavar="COEFF_DATE",
                         help="lever L2: the band bias from data/recalibration/band_bias_coeffs_<COEFF_DATE>.json")
+    parser.add_argument("--player-residual", action="store_true",
+                        help="lever L3: each player's own shrunk mean residual over his last 6 gameweeks")
     parser.add_argument("--max-minutes", type=float, default=None,
                         help="stop before a step that would likely run past this many minutes")
     parser.add_argument("--resume", type=int, default=None, metavar="RUN_ID",
@@ -333,6 +340,10 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         out["band_bias_params_version"] = residual_levers.band_bias_version(
             con, args.band_bias, EXPERIMENT_EFFECTIVE_DATE,
         )
+    if getattr(args, "player_residual", False):
+        out["player_residual_params_version"] = residual_levers.player_residual_version(
+            con, EXPERIMENT_EFFECTIVE_DATE,
+        )
     if getattr(args, "bps_tau", None) is not None:
         out["tau_params_version"] = params_mod.get_or_create_version(
             con, "bps_dispersion_params", "tau", EXPERIMENT_EFFECTIVE_DATE, value_numeric=args.bps_tau,
@@ -426,7 +437,8 @@ def main(argv: list[str] | None = None) -> None:
     ).fetchone()[0]
     print(f"[walk-forward] {n_pred} gameweek steps carry an ep_model_version -- research.ml.experiment can now run")
 
-    for lever, column in (("crowd_prior", "ep_crowd_adj"), ("band_bias", "ep_band_adj")):
+    for lever, column in (("crowd_prior", "ep_crowd_adj"), ("band_bias", "ep_band_adj"),
+                          ("player_residual", "ep_player_adj")):
         if extra.get(f"{lever}_params_version") is None:
             continue
         # what the lever did, so an arm whose adjustment came out empty can't pass for a real arm
