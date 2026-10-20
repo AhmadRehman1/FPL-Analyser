@@ -3,11 +3,11 @@
   "action_display": "Ezri Konsa Ngoyo -> Marc Gu\u00e9hi",
   "data_asof": "2026-10-20",
   "downside_ci": [
-    8.488745867316501,
-    125.44695886699893
+    8.491924752832851,
+    125.4492029661185
   ],
   "entry_id": 1305242,
-  "ep_lift": 6.673753123568364,
+  "ep_lift": 6.671663129348797,
   "gw": 8,
   "price_hint": {
     "confidence": 0.0,
@@ -19,7 +19,7 @@
   },
   "provenance": {
     "data_asof": "2026-10-20",
-    "model_version": "ep_v2/un_v2/plan_run7"
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
   "runner_up": {
     "action": "transfer_in:player_leif_davis->player_marc_guehi",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 6.639013041502746,
+    "ep_lift": 6.637410266813838,
     "provenance": {
       "data_asof": "2026-10-20",
-      "model_version": "ep_v2/un_v2/plan_run7"
+      "model_version": "ep_v2/un_v2/plan_run5"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 6.639013041502746,
+        "delta_ep": 6.637410266813838,
         "in_name": "Marc Gu\u00e9hi",
         "in_player_uid": "player_marc_guehi",
         "out_name": "Leif Davis",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 22.17680293521664,
+      "delta_ep": 22.174978138964608,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.673753123568364,
+      "delta_ep": 6.671663129348797,
       "in_name": "Marc Gu\u00e9hi",
       "in_player_uid": "player_marc_guehi",
       "out_name": "Ezri Konsa Ngoyo",
