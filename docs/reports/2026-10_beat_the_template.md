@@ -811,3 +811,30 @@ code or run, as the plan's Phase 7 requires.
 - **On a PASS:** the season-sim check `control: ; control_b: ; l3: --player-residual` (2025-26,
   chunk `2-38`, `same_runner`), then the live switch (Req 8), unless m < 0, which goes to the owner.
 - **Arms used after this batch:** 6 of 10 (Z: 2, L1: 1, L2: 2, L3: 1).
+
+### Batch L3 results (cached DB duckdb-39340718301, branch head 984e6b6, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 39411777553 | control, `--template-lag 2` | — | — | 1.0453 / 1.0515 | — | — |
+| 39411780255 | `--template-lag 2 --player-residual` | **−2.568 ± 1.623** (29 better, 36 worse, 65 changed) | **−4.190** | 1.0491 (+0.0038) / 1.0485 (−0.0030) | ok: overlap 3.24 → 3.36 (+0.12), non-template −2.00 ± 1.83 | **FAIL (i)** |
+
+- **The arm ran as declared:** `[player_residual] v1: 65/75 steps adjusted, 18534 player-fixtures,
+  mean |adjustment| 0.4386, 1221 floored at zero EP`. Each season's first step has no history. The
+  other unadjusted steps are 2024-25's early weeks: the DB holds no 2023-24 match feed, so no
+  player reaches 900 league minutes until enough of 2024-25 has been played.
+- **Verdict: FAIL.** m − SE is −4.190, far outside the replicate band. No season-sim check is run.
+- **Why it failed:**
+  - It did shrink the bias it was queued for: £9.0m+ realized − projected fell from +0.547 to
+    +0.278 per player-GW, and £7.0–9.0m from +0.336 to +0.184.
+  - Its adjustments are large (mean |adjustment| 0.44 pts/GW, against L1's 0.08 and L2's 0.08) and
+    mostly noise: six gameweeks of one player's points barely predict the seventh. EP error got
+    worse in 2024-25 and only slightly better in 2025-26.
+  - The optimizer acts on the biggest projections, so it buys the players with the luckiest recent
+    run. The arm's gap to the gated template fell from +9.92 to +7.33 a GW.
+- **The control** reproduces the batch L2 controls on the same DB: MAE 1.0453 / 1.0515 against
+  1.0453 / 1.0513, and the same +9.92 gap to the gated template.
+- **Family L3:** one fail. No L3 variant is queued (the plan declares one arm).
+- **Arms used:** 6 of 10 (Z: 2, L1: 1, L2: 2, L3: 1).
+- **Next:** Phase 8 has nothing to run (Phase 3 queued neither L4 nor L5). Phase 9 combines the arms
+  with m > 0 that failed only m − SE ≥ 0 (`--no-rate-price-anchor` and L2), then re-checks G2.
