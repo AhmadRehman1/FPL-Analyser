@@ -713,3 +713,43 @@ fixes were applied in the next commit.
 - **Arm count:** the replicate counts as one arm, so 5 of 10 after it (Z: 2, L1: 1, L2: 2).
 - **Drift:** this control is identical to the L1 control (38327384582) on a newer DB, with 0 of 74
   GWs changed.
+
+### Batch L2 replicate (cached DB duckdb-39340718301, branch head 75dd2d8, 75/75 steps each)
+
+| run | args | vs control (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | Req 9 | R6 |
+|---|---|---|---|---|---|---|
+| 39345466273 | control, `--template-lag 2` | — | — | 1.0453 / 1.0513 | — | — |
+| 39345468971 | `--template-lag 2 --band-bias 20261019` | +0.446 ± 0.562 (19 better, 28 worse, 47 changed) | −0.116 | 1.0100 (−0.0353) / 1.0325 (−0.0188) | ok: overlap 3.24 → 3.42 (+0.18), non-template −0.25 ± 0.63 | — |
+| verdict | means of both runs (`--replicate`) | **+0.466 ± 0.560** (19 better, 28 worse, 47 changed) | **−0.094** | 1.0453 → 1.0100 / 1.0514 → 1.0325 | ok | **FAIL** |
+
+- **The arm ran as declared:** the replicate's log line is identical to the first run's,
+  `[band_bias] v1: 74/75 steps adjusted, 55748 player-fixtures, mean |adjustment| 0.0781, 13206
+  floored at zero EP`. All four runs used the same DB and scored 75/75 steps.
+- **Measured nondeterminism:** 1 of 74 GWs differs between the two controls, by up to 3.0 pts.
+- **Why it failed:** R6(i). The paired gain is positive but within one SE of zero (m − SE −0.094).
+  R6(ii) passes comfortably: EP error falls in both seasons.
+  - The squad changes are lopsided: 19 GWs better against 28 worse. A few large wins carry the
+    mean.
+  - The XI moves 0.18 players toward the template. That is within Req 9 but it is the direction the
+    stated risk named: the premium boost buys the most-owned premiums.
+  - The arm's model-XI spend on £9.0m+ fell (26.3 against the control's 27.4 a GW). So the gain does
+    not come from buying premiums; it comes from the cheap cells' cuts moving money elsewhere.
+- **Family count:** L2 1 fail (L1 1 fail; Z promoted). **Arms used:** 5 of 10 (Z: 2, L1: 1,
+  L2: 2).
+- **Combine candidate (Phase 9):** L2 has m > 0 and failed only m − SE ≥ 0, so it is listed with
+  `--no-rate-price-anchor`.
+
+### The L3 gate, re-checked after L2
+
+The queue's rule: L3 runs only if £9.0m+ realized − projected is still ≥ +0.1 after the levers that
+passed. Z is the only lever that passed. The current control (39345466273; Z-goal live, no other
+lever) gives **+0.547** per player-GW for £9.0m+. Its components:
+
+| total | appearance | goals | assists | clean sheet | other (bonus …) |
+|---|---|---|---|---|---|
+| +0.547 | +0.008 | +0.144 | +0.168 | −0.011 | +0.237 |
+
+- The total is higher than Phase 3's +0.170. Unanchoring goals moved the goal component from
+  −0.177 to +0.144, while assists and bonus are unchanged.
+- **L3 is queued.** Phase 7 next names the point-in-time EP-history source in each harness, and
+  drops L3 if any harness lacks one.
