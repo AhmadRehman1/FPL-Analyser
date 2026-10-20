@@ -754,6 +754,29 @@ lever) gives **+0.547** per player-GW for £9.0m+. Its components:
 - **L3 is queued.** Phase 7 next names the point-in-time EP-history source in each harness, and
   drops L3 if any harness lacks one.
 
+## Phase 7, step 1: where each harness gets point-in-time EP history (2026-10-20)
+
+L3 is queued (the gate above). This names its EP-history source in each harness before any L3
+code or run, as the plan's Phase 7 requires.
+
+| harness | source | point-in-time? | gaps |
+|---|---|---|---|
+| walk-forward | earlier steps of the same run: `backtest_gameweek_steps.ep_model_version` → `ep_gameweek_outputs` | yes: each step's EP is fitted inside its own `asof_scope()`, and both seasons walk in order in one job (`ALL_SEASON_GAMEWEEKS`) | the cached DB holds other runs' EP too, so the lookup filters by `backtest_run_id`; 2024-25 GW1 is a cold-start skip |
+| season sim | each GW's plan run: `transfer_plan_runs.ep_model_versions[gw]` (the `plan_run_id` in `actions`); the bootstrap GW from its `squad_optimizer` run | yes: every plan runs inside that GW's `asof_scope()` | GW1 has no EP; the default chunks (`2-19,20-38`) restart GW20 in a fresh job with no history, so L3 arms use chunk `2-38` (as PROMOTE already does) |
+| live | **not as the plan assumed.** `scheduled_pipeline.yml` re-ingests a fresh DB every run and caches it per run id, so no deadline-time model versions survive | the committed `data/dashboard/projections_<date>.json` are pre-deadline (git timestamps: none rewritten after its date) | no GW1 snapshot (first is 2026-08-25); the snapshots mix live model versions (e.g. Z-goal went live 2026-10-13) |
+
+**Decision.**
+- One shared function returns each player's deadline EP for the window. It reads the run's own EP
+  in the walk-forward and the season sim. For live, and for any GW a harness lacks, it replays
+  that GW's EP inside `asof_scope()` with the current model, so live residuals come from the same
+  model the backtest judged. The snapshots are a cross-check only.
+- Residuals use pre-adjustment EP (`ep_total − ep_player_adj`), or L3 would feed on itself.
+- The 6-GW window counts only the current season's GWs. Only the walk-forward can see last
+  season's EP, so a cross-season window would make the harnesses disagree. A GW with no EP counts
+  as no observation (n falls, and n/(n+6) shrinks harder).
+- Unverified: that the live DB's per-GW 2026-27 stats support the replay (A11). If they don't, L3
+  is dropped, as the plan requires.
+
 ## Phase 7: lever L3, the per-player residual, batch L3 (declared 2026-10-20, before dispatch)
 
 - **Gate:** the current control's £9.0m+ residual is +0.547 (≥ +0.1, above), so L3 is queued.
@@ -868,6 +891,15 @@ lever) gives **+0.547** per player-GW for £9.0m+. Its components:
   - Recent over-performers are mostly the owned players, so chasing a player's own recent returns
     is chasing what the crowd already holds.
 - **The control** is identical to the L2 replicate's control (39345466273): 0 of 74 GWs changed.
+- **Two step-1 write-ups.** "Phase 7, step 1" above was written in parallel by another session,
+  on another branch: PR #268, merged at 10:47 UTC, after this batch was dispatched at 10:45. It
+  names the same walk-forward and season-sim sources as this declaration, which these runs used.
+  It differs in two ways:
+  - For live, it replays each gameweek inside `asof_scope()` rather than reading the snapshots.
+  - It lets the walk-forward use 2025-26 GW1's projection, which this declaration excludes.
+
+  L3 failed in the walk-forward, so its live source was never built. Neither difference touches
+  the verdict.
 - **Family L3:** one fail. The plan declares one L3 arm, so no variant is queued.
 - **Arms used:** 6 of 10 (Z: 2, L1: 1, L2: 2, L3: 1).
 
