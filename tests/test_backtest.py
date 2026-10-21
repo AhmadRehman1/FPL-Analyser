@@ -4233,3 +4233,37 @@ def test_walk_forward_stops_on_its_budget_and_a_resume_scores_what_one_run_would
     assert bt.walk_forward_progress(split, run_id)["complete"]
     assert con_steps == 1
     assert _walk_metrics(split, run_id) == _walk_metrics(whole, whole_run)
+
+
+# ============================================================
+# season_gameweeks_in_scope -- the 2026-27 out-of-sample season (live decision layer, Phase 5)
+# ============================================================
+
+def _oos_match(con, match_id, gw, finished, scored=True):
+    con.execute(
+        "INSERT INTO fact_match (match_id, season, gameweek, kickoff_time, home_team_uid, away_team_uid, "
+        "home_score, away_score, finished, competition, _ingested_at) "
+        "VALUES (?, '2026-2027', ?, ?, 'team_a', 'team_b', ?, ?, ?, 'Premier League', ?)",
+        [match_id, gw, datetime(2026, 8, 15 + gw), 1 if scored else None, 0 if scored else None, finished, datetime.now()],
+    )
+
+
+def test_out_of_sample_season_walks_only_settled_gameweeks(con):
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    _oos_match(con, "o1", 1, True)
+    _oos_match(con, "o2a", 2, True)
+    _oos_match(con, "o2b", 2, False, scored=False)  # GW2 still has a fixture to play
+    _oos_match(con, "o3", 3, True)
+    assert bt.gameweek_settled(con, "2026-2027", 1)
+    assert not bt.gameweek_settled(con, "2026-2027", 2)
+    assert not bt.gameweek_settled(con, "2026-2027", 4)  # no fixtures at all
+    assert bt.season_gameweeks_in_scope(con, ("2026-2027",)) == [("2026-2027", 1), ("2026-2027", 3)]
+
+
+def test_default_scope_never_includes_the_out_of_sample_season(con):
+    con.execute("INSERT INTO dim_team (team_uid, canonical_name) VALUES ('team_a', 'A'), ('team_b', 'B')")
+    _oos_match(con, "o1", 1, True)
+    assert bt.season_gameweeks_in_scope(con, None) == bt.ALL_SEASON_GAMEWEEKS
+    assert bt.season_gameweeks_in_scope(con, ("2025-2026",)) == [
+        (s, gw) for s, gw in bt.ALL_SEASON_GAMEWEEKS if s == "2025-2026"
+    ]

@@ -233,3 +233,30 @@ def test_phase3_measurement_flags_reach_the_run(con):
     kappa, _ = rw.params_mod.resolve_param(con, "risk_posture_params", "eo_weight_kappa", 2)
     assert kappa == 0.12
     assert rw._experiment_versions(con, rw._parse_args([])) == {}
+
+
+def test_eo_anchor_kappa_mints_a_protect_posture_version(con):
+    from fpl_quant import squad_optimizer as so
+
+    so.seed_v1_params(con)
+    so.seed_template_anchor_params(con)
+    out = rw._experiment_versions(con, rw._parse_args(["--eo-anchor-kappa", "0.06"]))
+    assert out["solve_ownership_params_version"] == 1
+    version = out["solve_risk_posture_params_version"]
+    assert version not in (1, 2)
+    kappa, _ = rw.params_mod.resolve_param(con, "risk_posture_params", "eo_weight_kappa", version)
+    _, posture = rw.params_mod.resolve_param(con, "risk_posture_params", "posture", version)
+    assert (kappa, posture) == (0.06, "protect")
+    # the same kappa again reuses the version; the live 0.12 resolves to v2 itself
+    assert rw._experiment_versions(con, rw._parse_args(["--eo-anchor-kappa", "0.06"])) == out
+    assert so.template_anchor_version(con, 0.12, rw.EXPERIMENT_EFFECTIVE_DATE) == 2
+
+
+def test_eo_anchor_kappa_and_live_eo_anchor_are_exclusive():
+    with pytest.raises(SystemExit):
+        rw._parse_args(["--live-eo-anchor", "--eo-anchor-kappa", "0.06"])
+
+
+def test_eo_anchor_kappa_must_be_positive():
+    with pytest.raises(SystemExit):
+        rw._parse_args(["--eo-anchor-kappa", "0"])

@@ -155,9 +155,31 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
 # it starts forcing in sub-1.5-EP filler players for their ownership alone. The lambda=0 vs
 # lambda=0.15 divergence check still passes with margin at 0.12 (verified in the same sweep),
 # so the quadratic risk term is not being swamped. posture stays "protect".
+# Re-tested 2026-10-21 (batch K): no anchor beat v2 by +3.66 +- 1.60 pts/GW in the 2024-25/2025-26
+# walk-forward, but v2 beat no anchor by +14.5 +- 8.5 over 2026-27 GW2-7, so v2 stays live.
 def seed_template_anchor_params(con: duckdb.DuckDBPyConnection) -> None:
     params_mod.write_param(con, "risk_posture_params", 2, "2026-09-09", "posture", value_text="protect")
     params_mod.write_param(con, "risk_posture_params", 2, "2026-09-09", "eo_weight_kappa", value_numeric=0.12)
+
+
+def template_anchor_version(con: duckdb.DuckDBPyConnection, kappa: float, effective_date: str) -> int:
+    """The risk_posture_params version holding posture 'protect' with exactly this
+    eo_weight_kappa, minting the family's max + 1 (both keys) if none does. The family mixes a
+    text and a numeric key, so params.get_or_create_bundle_version() can't serve it."""
+    rows = con.execute(
+        "SELECT param_version, param_key, value_numeric, value_text FROM param_versions "
+        "WHERE param_family = 'risk_posture_params' ORDER BY param_version",
+    ).fetchall()
+    by_version: dict[int, dict] = {}
+    for version, key, numeric, text in rows:
+        by_version.setdefault(version, {})[key] = numeric if text is None else text
+    for version, keys in by_version.items():
+        if keys == {"posture": "protect", "eo_weight_kappa": kappa}:
+            return version
+    version = max(by_version, default=0) + 1
+    params_mod.write_param(con, "risk_posture_params", version, effective_date, "posture", value_text="protect")
+    params_mod.write_param(con, "risk_posture_params", version, effective_date, "eo_weight_kappa", value_numeric=kappa)
+    return version
 
 
 # ============================================================
