@@ -207,9 +207,10 @@ def test_live_switch_seed_file_is_confirmed():
     assert (captain["param_family"], captain["status"], captain["new_value"]) == ("captain_risk_params", "confirmed", 0.0)
 
 
-def test_live_from_scratch_solve_has_no_template_anchor():
-    """Batch K (docs/reports/2026-10_beat_the_template.md, 2026-10-21): the v2 EO anchor failed
-    R6 against no anchor, so run_ingestion.py's from-scratch solve passes neither version."""
+def test_live_from_scratch_solve_keeps_the_v2_template_anchor():
+    """Batch K (docs/reports/2026-10_beat_the_template.md, 2026-10-21): no anchor won the
+    two-season backtest but lost 2026-27's walk-forward, so the kill-switch rule keeps the live
+    v2 anchor on run_ingestion.py's from-scratch solve until the GW13 re-judgement."""
     tree = ast.parse((REPO_ROOT / "scripts" / "run_ingestion.py").read_text())
     calls = [
         node for node in ast.walk(tree)
@@ -220,4 +221,6 @@ def test_live_from_scratch_solve_has_no_template_anchor():
     assert len(calls) == 1
     passed = {kw.arg for kw in calls[0].keywords}
     assert "captain_risk_params_version" in passed
-    assert not passed & {"ownership_params_version", "risk_posture_params_version"}
+    versions = {kw.arg: kw.value.value for kw in calls[0].keywords if isinstance(kw.value, ast.Constant)}
+    assert versions.get("ownership_params_version") == 1
+    assert versions.get("risk_posture_params_version") == 2

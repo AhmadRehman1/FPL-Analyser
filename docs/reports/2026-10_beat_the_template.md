@@ -1031,19 +1031,12 @@ with the results).
   
   The anchor buys template overlap (7.43 of 11 at κ = 0.12) and gives up the points the model
   scores away from the template: −22.17 ± 1.54 a GW at κ = 0.12.
-- **Live switch (this commit):** `scripts/run_ingestion.py`'s from-scratch solve passes no
-  ownership or risk-posture version. A test in `tests/test_live_switch_wiring.py` holds it
-  there.
-  - **Off-switch:** pass `ownership_params_version=1, risk_posture_params_version=2` again. The
-    walk-forward's `--live-eo-anchor` keeps measuring it.
-- **What it changes live:**
-  - the weekly report's optimal squad, from the next pipeline run;
-  - any future from-scratch seed.
-  
-  The model team's squad is carried forward, so its GW1 seed stays as it was. Its Wildcard and
-  Free Hit rebuilds never used the anchor.
-- **Phase 11:** the 2026-27 kill-switch comparison for this change is `--live-eo-anchor` against
-  the control on the 2026-27 walk-forward (plan Phase 5), reviewed at GW13 and GW19.
+- **Live switch, then rolled back the same day:**
+  - e4b94b8 switched `run_ingestion.py` off the anchor. It never reached master.
+  - The 2026-27 walk-forward (below) reversed the result, and the kill-switch rule (roll back
+    if m + SE < 0) applied to its numbers, so the v2 anchor stays live.
+  - `tests/test_live_switch_wiring.py` pins the live v2.
+  - The decision is re-judged at GW13 on the 2026-27 walk-forward.
 
 ### Batch P1: planner and chips (declared 2026-10-21, before dispatch)
 
@@ -1079,3 +1072,53 @@ with the results).
   - The edge collapses if m + SE < 0.
   - Anything between is inconclusive and is re-run at GW13.
   - A collapse opens the projection track ahead of P2 (plan, Out of Scope).
+
+### Batch P1 results (run 39595856739, commit a55a66f, 2025-26, one GW2–38 chunk, one runner)
+
+| arm | net pts/GW | vs control (paired, 37 GWs) | hits | transfers | chips |
+|---|---|---|---|---|---|
+| control | 61.00 | — | 0 | 29 | GW4 TC, GW5 WC, GW8 FH, GW12 BB, GW20 FH, GW21 BB, GW22 TC |
+| control_b | 61.00 | +0.00 ± 0.00 | 0 | 29 | as control |
+| multi (`--multi-transfers`) | 60.86 | −0.14 ± 1.79 | 40 | 46 | GW5 FH, GW6 BB, GW7 TC, GW20 FH, GW21 BB, GW22 TC (no Wildcard) |
+| chipov (`--chip-option-value`) | 60.43 | −0.57 ± 1.20 | 0 | 29 | GW3 BB, GW5 WC, GW6 TC, GW8 FH, GW21 BB, GW23 TC, GW31 FH |
+| both | 59.14 | −1.86 ± 1.77 | 44 | 47 | GW3 BB, GW5 WC, GW6 TC, GW8 FH, GW23 TC, GW26 BB, GW34 FH |
+
+- **The batch is valid:** control and control_b match on every gameweek.
+- **Verdict:** no arm has m ≥ 0, so none passes and **nothing goes live**. Planner arms used:
+  3 of 6.
+- **Reading:** on one continuous season with no free restart, the live planner (one transfer a
+  week, no hits, chips at the first local maximum) is level with or better than every
+  alternative tried.
+  - Hits buy nothing net: 40 hits, −0.14.
+  - Holding chips for later weeks costs a little.
+  - The evolving loss is not in these planner switches.
+  - The control's 61.00 is +11.24 a GW on FPL's 2025-26 average, and its first-half Wildcard is
+    played at GW5.
+
+### Plan Phase 5 results: 2026-27, GW2–7 (cached DB duckdb-39608092213, commit 17e071e, 7/7 steps each)
+
+| run | args | squad pts/GW | vs FPL's average (6 GWs) | vs gated template (GW3–7) | XI overlap with the template |
+|---|---|---|---|---|---|
+| 39626660473 | `--seasons 2026-2027 --template-lag 2` (no anchor) | 59.83 | −1.17 ± 4.92 | **−12.4 ± 12.0** | 2.0 |
+| 39626666167 | the same + `--live-eo-anchor` (κ = 0.12) | 74.33 | **+13.33 ± 6.02** | +1.0 ± 3.8 | 7.8 |
+
+- **Paired, no anchor − anchor:** −14.5 ± 8.5 a GW over GW2–7. In order: −20, −8, −46, +3, −27,
+  +11.
+- **Phase 5's declared reading:** the model's edge over the gated template has m + SE = −0.4 < 0,
+  so the **edge collapses** out of sample. GW2 has no template, because the gate needs a G−2
+  row.
+  - It was +8.39 ± 2.40 over the 2025-26 backtest.
+  - This is the backtest → 2026-27 step Phase 3 couldn't explain: the picks away from the
+    template, which carry the backtest edge, are losing this season.
+  - Non-template points per GW: 43, 50, 49, 29, 29 for no anchor; 22, 10, 30, 11, 3 for the
+    anchor.
+- **EP error is far worse this season:** MAE 1.363 against 1.045 and 1.051 over the backtest
+  seasons, and bias −0.23 per player against −0.07. Early-season thin data may be part of it;
+  this is the first thing the projection track checks.
+- **Batch K is reversed out of sample:** the anchor is +14.5 ± 8.5 in 2026-27 against −3.66 ±
+  1.60 in the backtest. By the kill-switch rule (roll back if m + SE < 0; here −6.0), the
+  no-anchor switch is rolled back before it reached master.
+  - With 6 GWs this is 1.7 SE, not conclusive. It is re-judged at GW13.
+- **By the plan, the projection track now opens ahead of P2.** The anchor and the planner
+  aren't where the live loss comes from: the projections are wrong in 2026-27 in ways the
+  backtest seasons didn't show.

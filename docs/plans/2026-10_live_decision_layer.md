@@ -183,17 +183,17 @@ secrets. Output formats are unchanged.
       Steps: add `--eo-anchor-kappa` and `squad_optimizer.template_anchor_version()`, with tests;
       write the declaration; commit; dispatch the three runs.
       Covers: R1, R2
-- [ ] Phase 2: Judge batch K and switch the winner live
+- [x] Phase 2: Judge batch K and switch the winner live
       Done when: the report records both verdicts, and either the live switch commit or "κ = 0.12
       stays".
       Steps: download the summaries; check 75/75 steps and matching MAE; run compare_arms; on a
       pass, change `run_ingestion.py`'s versions.
       Covers: R3; checks: A3
-- [ ] Phase 3: Declare and dispatch batch P1
+- [x] Phase 3: Declare and dispatch batch P1
       Done when: P1's declaration is committed and the run is dispatched with `chunks: 2-38`,
       `same_runner: true`.
       Covers: R2; checks: A1
-- [ ] Phase 4: Judge P1 and promote
+- [x] Phase 4: Judge P1 and promote
       Done when: the report records control vs control_b, each arm's m ± SE, and the live switch
       or rejection.
       Steps: download `season-sim-summary`; pair; decide; on a pass, set the version in the model
@@ -204,7 +204,7 @@ secrets. Output formats are unchanged.
       available, else a fresh-eyes reread). The critic defaults to FAIL and returns PASS/FAIL,
       strengths, weaknesses and fixes. Apply the blocker fixes and repeat, at most 3 rounds.
       Done only on PASS.
-- [ ] Phase 5: Run the walk-forward out of sample on 2026-27
+- [x] Phase 5: Run the walk-forward out of sample on 2026-27
       Done when: R4's test passes and a control walk-forward over 2026-27's finished GWs reports
       model vs gated template and vs FPL's average.
       Steps: extend `ALL_SEASON_GAMEWEEKS` to the last finished 2026-27 GW (A2); test; dispatch
@@ -215,3 +215,18 @@ secrets. Output formats are unchanged.
 - [ ] Phase 7: Review at GW13 and GW19
       Done when: the report holds the live table and each promoted change's off-switch
       comparison, with a keep or roll-back decision (roll back if m + SE < 0).
+
+## Status (2026-10-21)
+- **Batch K:** no anchor won the backtest (+3.66 ± 1.60) but lost 2026-27 GW2–7 (−14.5 ± 8.5).
+  The live switch was rolled back before merge, and κ = 0.12 stays. It is re-judged at GW13.
+- **P1:** no planner arm beat control (multi −0.14, chipov −0.57, both −1.86). Nothing is
+  promoted.
+- **Phase 5:** the oracle edge over the gated template collapses in 2026-27: −12.4 ± 12.0, with
+  EP MAE 1.36 against 1.05 in the backtest.
+- **So Phase 6 (P2) is replaced by a projection track.** Its first step is to find why 2026-27's
+  EP error and its picks away from the template are so much worse than the backtest seasons:
+  - compare EP MAE and bias by GW for 2025-26 GW2–7 against 2026-27 GW2–7;
+  - split the gap by component and by price band;
+  - check the 2026-27 data feed (the match-feed lag of PR #261).
+
+  A new plan is written for that track before any lever is built.

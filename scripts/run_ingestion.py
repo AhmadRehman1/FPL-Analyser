@@ -301,11 +301,12 @@ def main() -> None:
             con, CALIBRATION_ASOF_DATE, TARGET_SEASON, TARGET_GAMEWEEK,
             ep_model_version=ep_model_version, uncertainty_model_version=un_model_version,
             lambda_params_version=ACTIVE["lambda_params_version"], guardrail_params_version=1,
-            # No template anchor (ownership/risk-posture versions unset), since 2026-10-21. The
-            # v2 anchor (eo_weight_kappa=0.12) failed rule R6 against no anchor in batch K:
-            # +3.66 +- 1.60 pts/GW for no anchor over 74 GWs, and +0.92 +- 0.66 for kappa 0.06
-            # (docs/reports/2026-10_beat_the_template.md, "Batch K results"). To roll back, pass
-            # ownership_params_version=1, risk_posture_params_version=2 here again.
+            # Priority 10 Phase C -- the template anchor (ownership_params v1, risk_posture_params
+            # v2, eo_weight_kappa=0.12). Batch K (2026-10-21) found no anchor +3.66 +- 1.60
+            # pts/GW better in the 2024-25/2025-26 walk-forward, but the 2026-27 walk-forward
+            # reversed it: the anchor +14.5 +- 8.5 pts/GW over GW2-7, so the kill-switch rule kept
+            # it (docs/reports/2026-10_beat_the_template.md, "Batch K results"). Re-judged at GW13.
+            ownership_params_version=1, risk_posture_params_version=2,
             # Fix D, switched on 2026-09-29: no extra variance penalty on the captain, so the
             # solver captains its top-EP player (+2.8 pts/GW in the walk-forward).
             captain_risk_params_version=ACTIVE["captain_risk_params_version"],

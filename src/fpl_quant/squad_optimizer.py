@@ -155,8 +155,8 @@ def seed_v1_params(con: duckdb.DuckDBPyConnection) -> None:
 # it starts forcing in sub-1.5-EP filler players for their ownership alone. The lambda=0 vs
 # lambda=0.15 divergence check still passes with margin at 0.12 (verified in the same sweep),
 # so the quadratic risk term is not being swamped. posture stays "protect".
-# Retired from the live solve 2026-10-21 (batch K: no anchor beat v2 by +3.66 +- 1.60 pts/GW in
-# the walk-forward); v2 stays seeded for --live-eo-anchor, the off-switch measurement.
+# Re-tested 2026-10-21 (batch K): no anchor beat v2 by +3.66 +- 1.60 pts/GW in the 2024-25/2025-26
+# walk-forward, but v2 beat no anchor by +14.5 +- 8.5 over 2026-27 GW2-7, so v2 stays live.
 def seed_template_anchor_params(con: duckdb.DuckDBPyConnection) -> None:
     params_mod.write_param(con, "risk_posture_params", 2, "2026-09-09", "posture", value_text="protect")
     params_mod.write_param(con, "risk_posture_params", 2, "2026-09-09", "eo_weight_kappa", value_numeric=0.12)
