@@ -1011,6 +1011,40 @@ chips. Plan: `docs/plans/2026-10_live_decision_layer.md`. G2–G4, R6 and Phase 
 Batch K was dispatched 2026-10-21 from commit `8e21bf5` (run ids are recorded
 with the results).
 
+### Batch K results (cached DB duckdb-39590028248, commit 8e21bf5, 75/75 steps each)
+
+| run | args | vs k012 (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | XI overlap with the gated template | R6 |
+|---|---|---|---|---|---|---|
+| 39595792959 (k012, live) | `--template-lag 2 --live-eo-anchor` | — | — | 1.0453 / 1.0513 | 7.43 | — |
+| 39595787814 (control, κ = 0) | `--template-lag 2` | **+3.662 ± 1.603** (42 better, 29 worse, 71 changed) | **+2.059** | 1.0453 / 1.0513 (equal) | 3.24 | **PASS** |
+| 39595797119 (k006) | `--template-lag 2 --eo-anchor-kappa 0.06` | +0.919 ± 0.658 (25 better, 19 worse, 44 changed) | +0.261 | 1.0453 / 1.0513 (equal) | 6.79 | PASS |
+
+- **The runs are valid:** all three are complete, on one cached DB, and EP MAE matches k012's
+  exactly in both seasons, as it must for a solve-only change.
+- **The control reproduces Phase 9's:** the gap to the gated template is +9.92 ± 1.96, the same
+  as run 39410155197.
+- **Verdict:** both arms pass. κ = 0 has the higher m, so **no anchor goes live**.
+- **Against the gated template:**
+  - k012: +5.88 ± 1.48;
+  - k006: +7.10;
+  - no anchor: +9.92.
+  
+  The anchor buys template overlap (7.43 of 11 at κ = 0.12) and gives up the points the model
+  scores away from the template: −22.17 ± 1.54 a GW at κ = 0.12.
+- **Live switch (this commit):** `scripts/run_ingestion.py`'s from-scratch solve passes no
+  ownership or risk-posture version. A test in `tests/test_live_switch_wiring.py` holds it
+  there.
+  - **Off-switch:** pass `ownership_params_version=1, risk_posture_params_version=2` again. The
+    walk-forward's `--live-eo-anchor` keeps measuring it.
+- **What it changes live:**
+  - the weekly report's optimal squad, from the next pipeline run;
+  - any future from-scratch seed.
+  
+  The model team's squad is carried forward, so its GW1 seed stays as it was. Its Wildcard and
+  Free Hit rebuilds never used the anchor.
+- **Phase 11:** the 2026-27 kill-switch comparison for this change is `--live-eo-anchor` against
+  the control on the 2026-27 walk-forward (plan Phase 5), reviewed at GW13 and GW19.
+
 ### Batch P1: planner and chips (declared 2026-10-21, before dispatch)
 
 - **Why:** the evolving loss is E = +2.30 ± 2.12 pts/GW. The live team plays one transfer a week

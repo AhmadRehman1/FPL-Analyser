@@ -301,12 +301,11 @@ def main() -> None:
             con, CALIBRATION_ASOF_DATE, TARGET_SEASON, TARGET_GAMEWEEK,
             ep_model_version=ep_model_version, uncertainty_model_version=un_model_version,
             lambda_params_version=ACTIVE["lambda_params_version"], guardrail_params_version=1,
-            # Priority 10 Phase C -- the template anchor. Without these the from-scratch squad
-            # ignored field ownership entirely (rank autopsy: 3/15 template, GW1). v2 of
-            # risk_posture_params is the aggressive setting (eo_weight_kappa=0.12); EO itself
-            # is ownership_params v1 (the captaincy-concentration proxy). field-covariance is
-            # deliberately left off for now -- the raw EO anchor is the first, simpler lever.
-            ownership_params_version=1, risk_posture_params_version=2,
+            # No template anchor (ownership/risk-posture versions unset), since 2026-10-21. The
+            # v2 anchor (eo_weight_kappa=0.12) failed rule R6 against no anchor in batch K:
+            # +3.66 +- 1.60 pts/GW for no anchor over 74 GWs, and +0.92 +- 0.66 for kappa 0.06
+            # (docs/reports/2026-10_beat_the_template.md, "Batch K results"). To roll back, pass
+            # ownership_params_version=1, risk_posture_params_version=2 here again.
             # Fix D, switched on 2026-09-29: no extra variance penalty on the captain, so the
             # solver captains its top-EP player (+2.8 pts/GW in the walk-forward).
             captain_risk_params_version=ACTIVE["captain_risk_params_version"],

@@ -205,3 +205,19 @@ def test_live_switch_seed_file_is_confirmed():
     payload = json.loads((SEED_DIR / "seeds_live_switches_2026-09-29.json").read_text())
     (captain,) = payload["proposals"]
     assert (captain["param_family"], captain["status"], captain["new_value"]) == ("captain_risk_params", "confirmed", 0.0)
+
+
+def test_live_from_scratch_solve_has_no_template_anchor():
+    """Batch K (docs/reports/2026-10_beat_the_template.md, 2026-10-21): the v2 EO anchor failed
+    R6 against no anchor, so run_ingestion.py's from-scratch solve passes neither version."""
+    tree = ast.parse((REPO_ROOT / "scripts" / "run_ingestion.py").read_text())
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "run" and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "squad_optimizer"
+    ]
+    assert len(calls) == 1
+    passed = {kw.arg for kw in calls[0].keywords}
+    assert "captain_risk_params_version" in passed
+    assert not passed & {"ownership_params_version", "risk_posture_params_version"}
