@@ -57,7 +57,7 @@ If several arms pass, the highest backtest m wins.
   where the 2026-27 miss sits. Both are existing flags, so there is no new code.
 
 ## Build Phases
-- [ ] Phase 1: Run and judge R1 (above).
+- [x] Phase 1: Run and judge R1 (above). No arm passes: both fail R6 on the backtest (k450 −0.39 ± 0.54, csw2 −0.20 ± 0.71). Both gain ~3 pts/GW on 2026-27 but barely move the £9.0m+ residual.
 - [ ] Phase 2: Keeper over-projection. Split GK −0.53 into saves, clean sheets and appearance on
       2026-27, then declare an arm or record why there is none.
 - [ ] Phase 3: Data-feed check for 2026-27 (the match-feed lag found in PR #261). Compare the

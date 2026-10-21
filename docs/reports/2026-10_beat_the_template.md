@@ -1132,3 +1132,32 @@ Plan: `docs/plans/2026-10_projection_track.md`, which holds the rule and the arm
   - csw2: the same pair, each with `--rate-current-season-weight 2`.
 - **Why:** in 2026-27, £9.0m+ is under-projected by +1.38 per player-GW, +1.00 of it from goals.
   The backtest has +0.55.
+
+### Batch R1 results (cached DB duckdb-39608092213, commit ae52142, all steps complete)
+
+The job logs don't print the arm args, so each run's arm is taken from dispatch order. The two
+controls' numbers match the earlier control runs, which confirms the mapping.
+
+**Backtest, 2024-25 + 2025-26, R6 against control 39637864536:**
+
+| arm | run | paired squad pts/GW | m − SE | EP MAE 2024-25 / 2025-26 | R6 |
+|---|---|---|---|---|---|
+| k450 | 39637871277 | −0.392 ± 0.541 | −0.933 | 1.0442 / 1.0517 | FAIL |
+| csw2 | 39637876675 | −0.203 ± 0.710 | −0.913 | 1.0442 / 1.0504 | FAIL |
+
+csw2's non-template picks lose −1.56 ± 0.71 a GW against the control.
+
+**2026-27 GW2–7, against control 39637883226:**
+
+| arm | run | paired squad pts/GW | EP MAE (control 1.3633) | £9.0m+ residual (control 1.38) |
+|---|---|---|---|---|
+| k450 | 39637888243 | +2.67 ± 2.12 | 1.3656 (worse) | 1.30 |
+| csw2 | 39637893151 | +3.67 ± 1.89 | 1.3625 | 1.35 |
+
+- **Verdict: no arm passes; nothing goes live.** Both fail rule 1 (R6 on the backtest). k450
+  also fails rule 2 on EP MAE.
+- Both arms help in 2026-27 by about 3 pts/GW, but neither moves the premium goal miss much
+  (£9.0m+ residual 1.30 and 1.35 against 1.38). Shrinkage strength isn't the cause of the
+  2026-27 projection error.
+- **Next (projection plan):** the keeper over-projection split (Phase 2) and the 2026-27
+  data-feed check (Phase 3).
