@@ -973,3 +973,37 @@ G2's frozen margins:
   fitted to the average player-gameweek, or to a player's own recent returns, give that edge
   back.
 - The one lever that helped (Z-goal) changed the goal model itself, not a residual on top of it.
+
+## Live decision layer (owner review outcome, 2026-10-21)
+
+The owner's review chose the live decision layer next: the template anchor, then the planner and
+chips. Plan: `docs/plans/2026-10_live_decision_layer.md`. G2–G4, R6 and Phase 11 carry over.
+
+### Batch K: the template-anchor weight (declared 2026-10-21, before dispatch)
+
+- **Why:** the live from-scratch solve anchors on ownership at κ = 0.12. Phase 3 measured that
+  at −2.96 ± 1.49 pts/GW, against a control from before Z-goal. The owner asked for κ = 0 and
+  κ = 0.06 to be judged against the live 0.12.
+- **Where the anchor reaches:** only `scripts/run_ingestion.py`'s from-scratch solve. That is
+  the model team's GW1 seed and the weekly report's optimal squad. The planner's Wildcard and
+  Free Hit rebuilds and the season sim pass no anchor.
+- **Runs** (`branch_walkforward.yml`, this branch's head, both seasons, dispatched back to back):
+
+  | label | args |
+  |---|---|
+  | control (κ = 0) | `--template-lag 2` |
+  | k012 (live) | `--template-lag 2 --live-eo-anchor` |
+  | k006 | `--template-lag 2 --eo-anchor-kappa 0.06` |
+
+- **Rule, fixed now:**
+  - Each of control (κ = 0) and k006 is judged against k012 with
+    `compare_arms.py --rule r6 <k012> <arm>`.
+  - R6(i): m − SE ≥ 0 on paired squad points.
+  - R6(ii): the anchor never changes EP, so EP MAE must equal k012's in both seasons. Any
+    difference means the run is broken, and it is not judged.
+  - Every run must show 75/75 steps.
+  - R6's season-sim check does not apply, because the season sim never passes the anchor.
+  - If both arms pass, the higher m goes live. If neither does, κ = 0.12 stays.
+- **Live switch on a pass:** `run_ingestion.py` passes the winning versions. For κ = 0 that is no
+  ownership or posture version at all. The off-switch is reverting that commit.
+- **Arms:** this plan's own count, 2 decision arms. The earlier plan's lever cap is closed.

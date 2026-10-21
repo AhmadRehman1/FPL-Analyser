@@ -160,6 +160,26 @@ def seed_template_anchor_params(con: duckdb.DuckDBPyConnection) -> None:
     params_mod.write_param(con, "risk_posture_params", 2, "2026-09-09", "eo_weight_kappa", value_numeric=0.12)
 
 
+def template_anchor_version(con: duckdb.DuckDBPyConnection, kappa: float, effective_date: str) -> int:
+    """The risk_posture_params version holding posture 'protect' with exactly this
+    eo_weight_kappa, minting the family's max + 1 (both keys) if none does. The family mixes a
+    text and a numeric key, so params.get_or_create_bundle_version() can't serve it."""
+    rows = con.execute(
+        "SELECT param_version, param_key, value_numeric, value_text FROM param_versions "
+        "WHERE param_family = 'risk_posture_params' ORDER BY param_version",
+    ).fetchall()
+    by_version: dict[int, dict] = {}
+    for version, key, numeric, text in rows:
+        by_version.setdefault(version, {})[key] = numeric if text is None else text
+    for version, keys in by_version.items():
+        if keys == {"posture": "protect", "eo_weight_kappa": kappa}:
+            return version
+    version = max(by_version, default=0) + 1
+    params_mod.write_param(con, "risk_posture_params", version, effective_date, "posture", value_text="protect")
+    params_mod.write_param(con, "risk_posture_params", version, effective_date, "eo_weight_kappa", value_numeric=kappa)
+    return version
+
+
 # ============================================================
 # candidate pool
 # ============================================================
