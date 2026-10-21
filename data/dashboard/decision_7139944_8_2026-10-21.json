@@ -1,0 +1,78 @@
+{
+  "action": "transfer_in:player_lewis_hall->player_luka_vuskovic",
+  "action_display": "Lewis Hall -> Luka Vu\u0161kovi\u0107",
+  "data_asof": "2026-10-21",
+  "downside_ci": [
+    7.643784376510487,
+    127.9308830709511
+  ],
+  "entry_id": 7139944,
+  "ep_lift": 6.314169016032782,
+  "gw": 8,
+  "price_hint": {
+    "confidence": 1.0,
+    "delta_pence": 10,
+    "direction": "rise",
+    "estimated_date": "2026-10-22",
+    "player_name": "Luka Vu\u0161kovi\u0107",
+    "player_uid": "player_luka_vuskovic"
+  },
+  "provenance": {
+    "data_asof": "2026-10-21",
+    "model_version": "ep_v2/un_v2/plan_run5"
+  },
+  "runner_up": {
+    "action": "transfer_in:player_lewis_hall->player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+    "action_display": "Lewis Hall -> Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 6.188548615045658,
+    "provenance": {
+      "data_asof": "2026-10-21",
+      "model_version": "ep_v2/un_v2/plan_run5"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 6.188548615045658,
+        "in_name": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+        "in_player_uid": "player_antonio_joao_pereira_de_albuquerque_tavares_da_silva",
+        "out_name": "Lewis Hall",
+        "out_player_uid": "player_lewis_hall",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
+  "sensitivity": [
+    {
+      "delta_ep": 18.471169144738585,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
+    }
+  ],
+  "swaps": [
+    {
+      "delta_ep": 6.314169016032782,
+      "in_name": "Luka Vu\u0161kovi\u0107",
+      "in_player_uid": "player_luka_vuskovic",
+      "out_name": "Lewis Hall",
+      "out_player_uid": "player_lewis_hall",
+      "reason": "model-ranked transfer"
+    }
+  ],
+  "track_record": {
+    "optimal_in_n_of_71": null,
+    "pattern": "action_kind:transfer_in",
+    "sample_size": 0
+  }
+}
