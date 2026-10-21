@@ -3,11 +3,11 @@
   "action_display": "Ezri Konsa Ngoyo -> Marc Gu\u00e9hi",
   "data_asof": "2026-10-21",
   "downside_ci": [
-    10.009235687892893,
-    127.04357360682314
+    10.004811873396903,
+    127.02404035991647
   ],
   "entry_id": 1305242,
-  "ep_lift": 6.61786087950853,
+  "ep_lift": 6.617124277325221,
   "gw": 8,
   "price_hint": {
     "confidence": 0.0,
@@ -19,7 +19,7 @@
   },
   "provenance": {
     "data_asof": "2026-10-21",
-    "model_version": "ep_v2/un_v2/plan_run7"
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
   "runner_up": {
     "action": "transfer_in:player_ezri_konsa_ngoyo->player_gabriel_dos_santos_magalhaes",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 6.600192890000045,
+    "ep_lift": 6.597755609383896,
     "provenance": {
       "data_asof": "2026-10-21",
-      "model_version": "ep_v2/un_v2/plan_run7"
+      "model_version": "ep_v2/un_v2/plan_run5"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 6.600192890000045,
+        "delta_ep": 6.597755609383896,
         "in_name": "Gabriel dos Santos Magalh\u00e3es",
         "in_player_uid": "player_gabriel_dos_santos_magalhaes",
         "out_name": "Ezri Konsa Ngoyo",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 22.318724685277783,
+      "delta_ep": 22.312497034365116,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.61786087950853,
+      "delta_ep": 6.617124277325221,
       "in_name": "Marc Gu\u00e9hi",
       "in_player_uid": "player_marc_guehi",
       "out_name": "Ezri Konsa Ngoyo",
