@@ -1008,7 +1008,7 @@ chips. Plan: `docs/plans/2026-10_live_decision_layer.md`. G2–G4, R6 and Phase 
   ownership or posture version at all. The off-switch is reverting that commit.
 - **Arms:** this plan's own count, 2 decision arms. The earlier plan's lever cap is closed.
 
-Batch K was dispatched 2026-10-21 from commit `git log -1` of this branch (run ids are recorded
+Batch K was dispatched 2026-10-21 from commit `8e21bf5` (run ids are recorded
 with the results).
 
 ### Batch P1: planner and chips (declared 2026-10-21, before dispatch)
