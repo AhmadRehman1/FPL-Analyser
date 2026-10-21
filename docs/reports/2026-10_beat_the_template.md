@@ -1007,3 +1007,23 @@ chips. Plan: `docs/plans/2026-10_live_decision_layer.md`. G2–G4, R6 and Phase 
 - **Live switch on a pass:** `run_ingestion.py` passes the winning versions. For κ = 0 that is no
   ownership or posture version at all. The off-switch is reverting that commit.
 - **Arms:** this plan's own count, 2 decision arms. The earlier plan's lever cap is closed.
+
+Batch K was dispatched 2026-10-21 from commit `git log -1` of this branch (run ids are recorded
+with the results).
+
+### Batch P1: planner and chips (declared 2026-10-21, before dispatch)
+
+- **Why:** the evolving loss is E = +2.30 ± 2.12 pts/GW. The live team plays one transfer a week
+  at most, never takes a hit, and plays chips at the first local maximum: its GW7 Bench Boost
+  scored 35 against a field of 59. The 2026-10-04 arms were inconclusive. Each half restarted
+  from a fresh squad, which worked as a free Wildcard, and the arms ran on different runners.
+- **Run:** `season_sim_arms.yml`, season 2025-2026, chunks `2-38`, `same_runner: true`, this
+  branch's head:
+  `control: ; control_b: ; multi: --multi-transfers; chipov: --chip-option-value; both: --multi-transfers --chip-option-value`.
+- **Rule, fixed now:**
+  - control and control_b must match on every gameweek. Otherwise the batch is not judged.
+  - Each arm is judged against control on paired net pts/GW over GW2–38: promote on m − SE ≥ 0.
+  - If several arms pass, the highest m wins. `both` winning puts both flags live.
+- **Live switch on a pass:** the flag's version is set in the model team's planner versions from
+  the next deadline. The off-switch is reverting that commit.
+- **Planner arms:** 3 of 6.
