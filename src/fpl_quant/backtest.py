@@ -1284,6 +1284,33 @@ def score_gameweek(
 # fact_match spans gameweek 1-38) -- 76 gameweeks total, matching the spec's own count.
 ALL_SEASON_GAMEWEEKS = [("2024-2025", gw) for gw in range(1, 39)] + [("2025-2026", gw) for gw in range(1, 39)]
 
+# The live season, walked only when asked for by name (seasons=[...]) so the default two-season
+# track record never changes under it: docs/plans/2026-10_live_decision_layer.md, Phase 5 (the
+# out-of-sample check of the backtest -> 2026-27 step). Only its settled gameweeks are walked.
+OUT_OF_SAMPLE_SEASON = "2026-2027"
+
+
+def gameweek_settled(con: duckdb.DuckDBPyConnection, season: str, gameweek: int) -> bool:
+    """True iff the gameweek has Premier League fixtures and every one is finished with a score."""
+    n, n_settled = con.execute(
+        "SELECT count(*), count(*) FILTER (WHERE finished AND home_score IS NOT NULL AND away_score IS NOT NULL) "
+        "FROM fact_match WHERE season = ? AND gameweek = ? AND competition = ?",
+        [season, gameweek, PL],
+    ).fetchone()
+    return n > 0 and n == n_settled
+
+
+def season_gameweeks_in_scope(con: duckdb.DuckDBPyConnection, seasons: list[str] | None) -> list[tuple[str, int]]:
+    """ALL_SEASON_GAMEWEEKS filtered to `seasons`, plus OUT_OF_SAMPLE_SEASON's settled gameweeks
+    when `seasons` names it."""
+    out = [(s, gw) for s, gw in ALL_SEASON_GAMEWEEKS if seasons is None or s in seasons]
+    if seasons is not None and OUT_OF_SAMPLE_SEASON in seasons:
+        out += [
+            (OUT_OF_SAMPLE_SEASON, gw) for gw in range(1, 39)
+            if gameweek_settled(con, OUT_OF_SAMPLE_SEASON, gw)
+        ]
+    return out
+
 
 def run(
     con: duckdb.DuckDBPyConnection,
@@ -1383,7 +1410,7 @@ def run(
         if stored is None:
             raise ValueError(f"no backtest_runs row for backtest_run_id={resume_backtest_run_id}")
         seasons = tuple(json.loads(stored[0])) if stored[0] else None
-    in_scope = [(s, gw) for s, gw in ALL_SEASON_GAMEWEEKS if seasons is None or s in seasons]
+    in_scope = season_gameweeks_in_scope(con, seasons)
     steps = [(s, gw) for s, gw in in_scope if has_fittable_history(con, s, gw)]
     warm_up_gameweeks = len(in_scope) - len(steps)
     run_seasons = sorted({s for s, _gw in in_scope})

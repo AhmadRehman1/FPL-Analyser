@@ -1061,3 +1061,21 @@ with the results).
 - **Live switch on a pass:** the flag's version is set in the model team's planner versions from
   the next deadline. The off-switch is reverting that commit.
 - **Planner arms:** 3 of 6.
+
+### Plan Phase 5: the 2026-27 out-of-sample walk-forward (declared 2026-10-21, before dispatch)
+
+- **Built:** `backtest.season_gameweeks_in_scope()`. `--seasons 2026-2027` walks every 2026-27
+  gameweek whose Premier League fixtures are all finished. The default two-season scope is
+  unchanged, so the nightly track record doesn't move.
+- **Runs** (`branch_walkforward.yml`):
+  - control: `--seasons 2026-2027 --template-lag 2`;
+  - Phase 11's off-switch for batch K: `--seasons 2026-2027 --template-lag 2 --live-eo-anchor`.
+- **What it answers:** the model's gap to the gated template, and to FPL's average where the
+  real benchmark exists, over 2026-27's settled GWs. It is set against the backtest's 2025-26
+  figures (+8.39 ± 2.40 vs the gated template, +10.35 vs FPL's average). The live step was
+  −9.60 ± 5.38 vs FPL's average, with no cause found (Phase 3).
+- **Reading, fixed now:**
+  - The edge holds if the 2026-27 gap to the gated template has m − SE > 0.
+  - The edge collapses if m + SE < 0.
+  - Anything between is inconclusive and is re-run at GW13.
+  - A collapse opens the projection track ahead of P2 (plan, Out of Scope).
