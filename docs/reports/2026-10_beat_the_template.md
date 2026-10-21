@@ -1122,3 +1122,13 @@ with the results).
 - **By the plan, the projection track now opens ahead of P2.** The anchor and the planner
   aren't where the live loss comes from: the projections are wrong in 2026-27 in ways the
   backtest seasons didn't show.
+
+## Projection track, batch R1 (declared 2026-10-21, before dispatch)
+
+Plan: `docs/plans/2026-10_projection_track.md`, which holds the rule and the arms.
+- **Runs** (`branch_walkforward.yml`, this branch's head; the backtest runs both seasons):
+  - control: `--template-lag 2`, and `--seasons 2026-2027 --template-lag 2`;
+  - k450: the same pair, each with `--k-minutes 450`;
+  - csw2: the same pair, each with `--rate-current-season-weight 2`.
+- **Why:** in 2026-27, £9.0m+ is under-projected by +1.38 per player-GW, +1.00 of it from goals.
+  The backtest has +0.55.
