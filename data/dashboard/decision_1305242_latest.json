@@ -1,59 +1,30 @@
 {
-  "action": "transfer_in:player_ezri_konsa_ngoyo->player_marc_guehi",
-  "action_display": "Ezri Konsa Ngoyo -> Marc Gu\u00e9hi",
-  "data_asof": "2026-10-21",
+  "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
+  "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
+  "data_asof": "2026-10-22",
   "downside_ci": [
-    10.004811873396903,
-    127.02404035991647
+    8.56031635868425,
+    126.47417154804063
   ],
   "entry_id": 1305242,
-  "ep_lift": 6.617124277325221,
+  "ep_lift": 14.439120630635317,
   "gw": 8,
   "price_hint": {
-    "confidence": 0.0,
-    "delta_pence": 0,
-    "direction": "stable",
-    "estimated_date": null,
-    "player_name": "Marc Gu\u00e9hi",
-    "player_uid": "player_marc_guehi"
+    "confidence": 1.0,
+    "delta_pence": -10,
+    "direction": "fall",
+    "estimated_date": "2026-10-23",
+    "player_name": "Bruno Borges Fernandes",
+    "player_uid": "player_bruno_borges_fernandes"
   },
   "provenance": {
-    "data_asof": "2026-10-21",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-10-22",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
-  "runner_up": {
-    "action": "transfer_in:player_ezri_konsa_ngoyo->player_gabriel_dos_santos_magalhaes",
-    "action_display": "Ezri Konsa Ngoyo -> Gabriel dos Santos Magalh\u00e3es",
-    "downside_ci": [
-      0.0,
-      0.0
-    ],
-    "ep_lift": 6.597755609383896,
-    "provenance": {
-      "data_asof": "2026-10-21",
-      "model_version": "ep_v2/un_v2/plan_run5"
-    },
-    "runner_up": null,
-    "sensitivity": [],
-    "swaps": [
-      {
-        "delta_ep": 6.597755609383896,
-        "in_name": "Gabriel dos Santos Magalh\u00e3es",
-        "in_player_uid": "player_gabriel_dos_santos_magalhaes",
-        "out_name": "Ezri Konsa Ngoyo",
-        "out_player_uid": "player_ezri_konsa_ngoyo",
-        "reason": "model-ranked transfer"
-      }
-    ],
-    "track_record": {
-      "optimal_in_n_of_71": null,
-      "pattern": "action_kind:transfer_in",
-      "sample_size": 0
-    }
-  },
+  "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": 22.312497034365116,
+      "delta_ep": 14.490347236773582,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -62,11 +33,11 @@
   ],
   "swaps": [
     {
-      "delta_ep": 6.617124277325221,
-      "in_name": "Marc Gu\u00e9hi",
-      "in_player_uid": "player_marc_guehi",
-      "out_name": "Ezri Konsa Ngoyo",
-      "out_player_uid": "player_ezri_konsa_ngoyo",
+      "delta_ep": 14.439120630635317,
+      "in_name": "Bruno Borges Fernandes",
+      "in_player_uid": "player_bruno_borges_fernandes",
+      "out_name": "Bukayo Saka",
+      "out_player_uid": "player_bukayo_saka",
       "reason": "model-ranked transfer"
     }
   ],
