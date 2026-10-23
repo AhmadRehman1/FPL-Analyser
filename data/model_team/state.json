@@ -1,6 +1,6 @@
 {
   "season": "2026-2027",
-  "current_gameweek": 7,
+  "current_gameweek": 8,
   "ledger": [
     {
       "gameweek": 1,
@@ -600,6 +600,122 @@
       "entry_label": "FPL Quant Model Team",
       "simulated": false,
       "realized_final": true,
+      "scoring_version": 2
+    },
+    {
+      "gameweek": 8,
+      "projected_points": 53.28,
+      "band_low": 39.01,
+      "band_high": 67.55,
+      "action": "transfer",
+      "action_detail": "player_ollie_watkins -> player_dominic_calvert_lewin (net +24.79)",
+      "wildcard_gain": -9.36,
+      "wildcard_recommended": false,
+      "squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_pascal_struijk"
+      ],
+      "xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_morgan_rogers"
+      ],
+      "formation_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_morgan_rogers"
+      ],
+      "captain_uid": "player_bruno_borges_fernandes",
+      "vice_captain_uid": "player_igor_thiago_nascimento_rodrigues",
+      "realized_points": 0.0,
+      "current_squad_horizon_value": 260.3,
+      "chips_used": [
+        "bench_boost",
+        "free_hit",
+        "triple_captain"
+      ],
+      "free_hit_gain": 10.85,
+      "free_hit_recommended": true,
+      "free_hit_threshold": null,
+      "free_hit_fresh_run_id": null,
+      "carryforward_squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers",
+        "player_pascal_struijk"
+      ],
+      "carryforward_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_morgan_rogers"
+      ],
+      "carryforward_captain_uid": "player_bruno_borges_fernandes",
+      "carryforward_vice_captain_uid": "player_igor_thiago_nascimento_rodrigues",
+      "transfers": [
+        {
+          "out_uid": "player_ollie_watkins",
+          "in_uid": "player_dominic_calvert_lewin",
+          "net": 24.79
+        }
+      ],
+      "bench_order": {
+        "player_bernd_leno": 1,
+        "player_cody_gakpo": 2,
+        "player_marcos_senesi_baron": 3,
+        "player_pascal_struijk": 4
+      },
+      "hit_cost": 0.0,
+      "entry_label": "FPL Quant Model Team",
+      "simulated": false,
+      "realized_final": false,
       "scoring_version": 2
     }
   ],

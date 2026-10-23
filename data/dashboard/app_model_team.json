@@ -1,7 +1,7 @@
 {
   "ready": true,
   "season": "2026-2027",
-  "current_gameweek": 7,
+  "current_gameweek": 8,
   "n_gameweeks_scored": 7,
   "n_gameweeks_simulated": 1,
   "total_realized_points": 397.0,
@@ -109,6 +109,20 @@
       "delta_vs_field": -24.0,
       "cumulative_points": 397.0,
       "cumulative_vs_field": -19.0
+    },
+    {
+      "gameweek": 8,
+      "simulated": false,
+      "action": "transfer",
+      "action_detail": "player_ollie_watkins -> player_dominic_calvert_lewin (net +24.79)",
+      "projected_points": 53.28,
+      "realized_points": 0.0,
+      "hit_cost": 0.0,
+      "provisional": true,
+      "field_average": null,
+      "delta_vs_field": null,
+      "cumulative_points": null,
+      "cumulative_vs_field": null
     }
   ],
   "free_hit_audit": {
@@ -155,6 +169,11 @@
       "is_captain": false
     },
     {
+      "name": "Dominic Calvert-Lewin",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
       "name": "Elliot Anderson",
       "in_xi": true,
       "is_captain": false
@@ -181,17 +200,12 @@
     },
     {
       "name": "Marcos Senesi Bar\u00f3n",
-      "in_xi": true,
+      "in_xi": false,
       "is_captain": false
     },
     {
       "name": "Morgan Rogers",
       "in_xi": true,
-      "is_captain": false
-    },
-    {
-      "name": "Ollie Watkins",
-      "in_xi": false,
       "is_captain": false
     },
     {
@@ -201,10 +215,10 @@
     }
   ],
   "next_decision": {
-    "gameweek": 7,
-    "action": "bench_boost",
-    "detail": "bench boost (all 15 score)"
+    "gameweek": 8,
+    "action": "transfer",
+    "detail": "player_ollie_watkins -> player_dominic_calvert_lewin (net +24.79)"
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-10-23T11:21:11.194305+00:00"
+  "generated_at": "2026-10-23T20:56:49.996130+00:00"
 }
