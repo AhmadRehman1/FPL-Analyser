@@ -4,7 +4,7 @@
   "gameweek": 8,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 2,
+  "live_total": 28,
   "players": [
     {
       "player_id": 109,
@@ -16,9 +16,9 @@
     {
       "player_id": 31,
       "web_name": "Konsa",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 13,
+      "provisional_bonus": 3,
+      "contribution": 13
     },
     {
       "player_id": 8,
@@ -44,9 +44,9 @@
     {
       "player_id": 268,
       "web_name": "King",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 154,
@@ -65,29 +65,29 @@
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 10,
+      "provisional_bonus": 2,
+      "contribution": 10
     },
     {
       "player_id": 569,
       "web_name": "Gonzalo",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 249,
       "web_name": "Barry",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 80.5,
-    "estimated_rank": 2175841
+    "percentile": 85.0,
+    "estimated_rank": 1674432
   },
   "fixtures": [
     {
@@ -106,9 +106,92 @@
         "name": "Nott'm Forest",
         "score": 1
       }
+    },
+    {
+      "id": 72,
+      "kickoff": "2026-10-24T11:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "AVL",
+        "name": "Aston Villa",
+        "score": 2
+      },
+      "away": {
+        "short_name": "MCI",
+        "name": "Man City",
+        "score": 1
+      }
+    },
+    {
+      "id": 71,
+      "kickoff": "2026-10-24T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "ARS",
+        "name": "Arsenal",
+        "score": 1
+      },
+      "away": {
+        "short_name": "EVE",
+        "name": "Everton",
+        "score": 0
+      }
+    },
+    {
+      "id": 74,
+      "kickoff": "2026-10-24T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "COV",
+        "name": "Coventry City",
+        "score": 0
+      },
+      "away": {
+        "short_name": "FUL",
+        "name": "Fulham",
+        "score": 0
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 25,
+      "web_name": "Gy\u00f6keres",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 71
+    },
+    {
+      "player_id": 31,
+      "web_name": "Konsa",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 71
+    },
+    {
+      "player_id": 45,
+      "web_name": "McGinn",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 72
+    },
+    {
+      "player_id": 166,
+      "web_name": "N.Jackson",
+      "team": 2,
+      "event": "goal",
+      "count": 2,
+      "fixture_id": 72
+    },
     {
       "player_id": 201,
       "web_name": "Mu\u00f1oz",
@@ -116,6 +199,22 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 77
+    },
+    {
+      "player_id": 237,
+      "web_name": "Ndiaye",
+      "team": 15,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 72
+    },
+    {
+      "player_id": 411,
+      "web_name": "Haaland",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 72
     },
     {
       "player_id": 469,
@@ -132,7 +231,15 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 77
+    },
+    {
+      "player_id": 631,
+      "web_name": "Mbaye",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 72
     }
   ],
-  "generated_at": "2026-10-23T23:34:38.345160+00:00"
+  "generated_at": "2026-10-24T14:25:20.930082+00:00"
 }
