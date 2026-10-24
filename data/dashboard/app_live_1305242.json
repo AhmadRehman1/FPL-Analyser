@@ -4,7 +4,7 @@
   "gameweek": 8,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 28,
+  "live_total": 43,
   "players": [
     {
       "player_id": 109,
@@ -16,16 +16,16 @@
     {
       "player_id": 31,
       "web_name": "Konsa",
-      "live_points": 13,
+      "live_points": 18,
       "provisional_bonus": 3,
-      "contribution": 13
+      "contribution": 18
     },
     {
       "player_id": 8,
       "web_name": "Calafiori",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 305,
@@ -44,23 +44,23 @@
     {
       "player_id": 268,
       "web_name": "King",
+      "live_points": 6,
+      "provisional_bonus": 0,
+      "contribution": 6
+    },
+    {
+      "player_id": 154,
+      "web_name": "Palmer",
       "live_points": 1,
       "provisional_bonus": 0,
       "contribution": 1
     },
     {
-      "player_id": 154,
-      "web_name": "Palmer",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
-    },
-    {
       "player_id": 40,
       "web_name": "Rogers",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 411,
@@ -72,22 +72,22 @@
     {
       "player_id": 569,
       "web_name": "Gonzalo",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     },
     {
       "player_id": 249,
       "web_name": "Barry",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 85.0,
-    "estimated_rank": 1674432
+    "percentile": 82.5,
+    "estimated_rank": 1953951
   },
   "fixtures": [
     {
@@ -133,7 +133,7 @@
       "home": {
         "short_name": "ARS",
         "name": "Arsenal",
-        "score": 1
+        "score": 2
       },
       "away": {
         "short_name": "EVE",
@@ -155,11 +155,44 @@
       "away": {
         "short_name": "FUL",
         "name": "Fulham",
+        "score": 1
+      }
+    },
+    {
+      "id": 73,
+      "kickoff": "2026-10-24T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "CHE",
+        "name": "Chelsea",
+        "score": 0
+      },
+      "away": {
+        "short_name": "TOT",
+        "name": "Spurs",
         "score": 0
       }
     }
   ],
   "events": [
+    {
+      "player_id": 4,
+      "web_name": "Gabriel",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 71
+    },
+    {
+      "player_id": 10,
+      "web_name": "White",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 71
+    },
     {
       "player_id": 25,
       "web_name": "Gy\u00f6keres",
@@ -209,6 +242,22 @@
       "fixture_id": 72
     },
     {
+      "player_id": 264,
+      "web_name": "Bobb",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 74
+    },
+    {
+      "player_id": 268,
+      "web_name": "King",
+      "team": 10,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 74
+    },
+    {
       "player_id": 411,
       "web_name": "Haaland",
       "team": 15,
@@ -241,5 +290,5 @@
       "fixture_id": 72
     }
   ],
-  "generated_at": "2026-10-24T14:25:20.930082+00:00"
+  "generated_at": "2026-10-24T17:33:11.532283+00:00"
 }

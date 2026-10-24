@@ -4,21 +4,21 @@
   "gameweek": 8,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 12,
+  "live_total": 41,
   "players": [
     {
       "player_id": 496,
       "web_name": "Kinsky",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 8,
+      "provisional_bonus": 3,
+      "contribution": 8
     },
     {
       "player_id": 4,
       "web_name": "Gabriel",
-      "live_points": 1,
-      "provisional_bonus": 0,
-      "contribution": 1
+      "live_points": 18,
+      "provisional_bonus": 2,
+      "contribution": 18
     },
     {
       "player_id": 449,
@@ -44,16 +44,16 @@
     {
       "player_id": 154,
       "web_name": "Palmer",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 15,
       "web_name": "\u00d8degaard",
-      "live_points": 1,
+      "live_points": 3,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 3
     },
     {
       "player_id": 124,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 18.0,
-    "estimated_rank": 9153563
+    "percentile": 77.0,
+    "estimated_rank": 2568049
   },
   "fixtures": [
     {
@@ -133,7 +133,7 @@
       "home": {
         "short_name": "ARS",
         "name": "Arsenal",
-        "score": 1
+        "score": 2
       },
       "away": {
         "short_name": "EVE",
@@ -155,11 +155,44 @@
       "away": {
         "short_name": "FUL",
         "name": "Fulham",
+        "score": 1
+      }
+    },
+    {
+      "id": 73,
+      "kickoff": "2026-10-24T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "CHE",
+        "name": "Chelsea",
+        "score": 0
+      },
+      "away": {
+        "short_name": "TOT",
+        "name": "Spurs",
         "score": 0
       }
     }
   ],
   "events": [
+    {
+      "player_id": 4,
+      "web_name": "Gabriel",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 71
+    },
+    {
+      "player_id": 10,
+      "web_name": "White",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 71
+    },
     {
       "player_id": 25,
       "web_name": "Gy\u00f6keres",
@@ -209,6 +242,22 @@
       "fixture_id": 72
     },
     {
+      "player_id": 264,
+      "web_name": "Bobb",
+      "team": 10,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 74
+    },
+    {
+      "player_id": 268,
+      "web_name": "King",
+      "team": 10,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 74
+    },
+    {
       "player_id": 411,
       "web_name": "Haaland",
       "team": 15,
@@ -241,5 +290,5 @@
       "fixture_id": 72
     }
   ],
-  "generated_at": "2026-10-24T14:24:57.112903+00:00"
+  "generated_at": "2026-10-24T17:32:49.665361+00:00"
 }
