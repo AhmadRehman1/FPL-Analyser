@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
   "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
-  "data_asof": "2026-10-23",
+  "data_asof": "2026-10-24",
   "downside_ci": [
-    8.150197958020529,
-    120.69390044769143
+    8.17114274724695,
+    120.79213880961845
   ],
   "entry_id": 1305242,
-  "ep_lift": 28.629221150334523,
+  "ep_lift": 28.65584152333341,
   "gw": 9,
   "price_hint": {
     "confidence": 0.0,
@@ -18,13 +18,13 @@
     "player_uid": "player_bruno_borges_fernandes"
   },
   "provenance": {
-    "data_asof": "2026-10-23",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-10-24",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
   "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": 0.21163452644078973,
+      "delta_ep": 0.2118177954931184,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -33,7 +33,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 28.629221150334523,
+      "delta_ep": 28.65584152333341,
       "in_name": "Bruno Borges Fernandes",
       "in_player_uid": "player_bruno_borges_fernandes",
       "out_name": "Bukayo Saka",

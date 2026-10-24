@@ -626,7 +626,7 @@
       }
     ]
   },
-  "generated_at": "2026-10-24T07:18:56.766388",
+  "generated_at": "2026-10-24T10:35:28.212445",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 75,
@@ -842,7 +842,7 @@
       {
         "season": "2026-2027",
         "gameweek": 3,
-        "total_projected_ep": 64.73378092241553,
+        "total_projected_ep": 64.78713116319527,
         "captain_name": "Erling Haaland",
         "squad_size": 15,
         "in_xi_count": 11
@@ -864,15 +864,58 @@
         "in_xi_count": 11
       }
     ],
-    "latest_diff": null,
+    "latest_diff": {
+      "has_previous": true,
+      "previous_gameweek": 2,
+      "current_gameweek": 3,
+      "squad_changes": {
+        "in": [
+          "Igor Thiago Nascimento Rodrigues",
+          "Marcus Tavernier",
+          "Riccardo Calafiori",
+          "Marc Gu\u00e9hi",
+          "Will Hughes",
+          "Alex Palmer",
+          "Erling Haaland",
+          "James McAtee",
+          "Bruno Borges Fernandes",
+          "Maxim De Cuyper",
+          "Gianluigi Donnarumma",
+          "Gonzalo Garc\u00eda",
+          "Brooke Norton-Cuffy",
+          "C\u00e9dric Kipr\u00e9"
+        ],
+        "out": [
+          "Nathan Collins",
+          "Yankuba Minteh",
+          "Ollie Watkins",
+          "Will Dennis",
+          "Mois\u00e9s Caicedo Corozo",
+          "Maxence Lacroix",
+          "Bernd Leno",
+          "William Osula",
+          "Elliot Anderson",
+          "Marcos Senesi Bar\u00f3n",
+          "Adrien Truffert",
+          "Ethan Ampadu",
+          "Igor Jesus Maciel da Cruz",
+          "Omar Alderete"
+        ]
+      },
+      "captain_changed": true,
+      "previous_captain": "Igor Jesus Maciel da Cruz",
+      "current_captain": "Erling Haaland",
+      "total_projected_ep_delta": 22.074557509527708,
+      "newly_doubtful_flags": []
+    },
     "provenance": {
-      "data_asof": "2026-10-23",
+      "data_asof": "2026-10-24",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "e6087fc7e5f14fb7dae9e4baad1a7577c183a509",
-      "fpl_core_insights_commit_sha": "37c0fe4bd10642509c962052e506f6126928cfab",
+      "fpl_analyser_commit_sha": "9e6bb98812fdf9ae4e22c57314ccb609c6d26d76",
+      "fpl_core_insights_commit_sha": "03dfae66eb65644c33b04a5f9c38c582f459692a",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -884,7 +927,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-10-23T20:43:09.146875+00:00",
+      "recorded_at": "2026-10-24T10:18:31.912455+00:00",
       "research_pull_workbook": {
         "sha256": "fe2582b0f3ab9a2fcae1197c72b028db137117879b77c3949248991e8bb950a2",
         "size_bytes": 26584
