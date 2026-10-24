@@ -4,7 +4,7 @@
   "gameweek": 8,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 43,
+  "live_total": 41,
   "players": [
     {
       "player_id": 109,
@@ -51,9 +51,9 @@
     {
       "player_id": 154,
       "web_name": "Palmer",
-      "live_points": 1,
+      "live_points": -1,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": -1
     },
     {
       "player_id": 40,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 82.5,
-    "estimated_rank": 1953951
+    "percentile": 68.5,
+    "estimated_rank": 3517666
   },
   "fixtures": [
     {
@@ -172,7 +172,7 @@
       "away": {
         "short_name": "TOT",
         "name": "Spurs",
-        "score": 0
+        "score": 2
       }
     }
   ],
@@ -274,6 +274,30 @@
       "fixture_id": 77
     },
     {
+      "player_id": 514,
+      "web_name": "Tel",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 73
+    },
+    {
+      "player_id": 525,
+      "web_name": "Fernandes",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 73
+    },
+    {
+      "player_id": 560,
+      "web_name": "Penders",
+      "team": 6,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 73
+    },
+    {
       "player_id": 591,
       "web_name": "Enciso",
       "team": 12,
@@ -290,5 +314,5 @@
       "fixture_id": 72
     }
   ],
-  "generated_at": "2026-10-24T17:33:11.532283+00:00"
+  "generated_at": "2026-10-24T19:49:08.301809+00:00"
 }
