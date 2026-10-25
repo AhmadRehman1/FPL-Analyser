@@ -4,14 +4,14 @@
   "gameweek": 8,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 39,
+  "live_total": 41,
   "players": [
     {
       "player_id": 109,
       "web_name": "Verbruggen",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 31,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 68.5,
-    "estimated_rank": 3518166
+    "percentile": 48.0,
+    "estimated_rank": 5810390
   },
   "fixtures": [
     {
@@ -174,6 +174,74 @@
         "name": "Spurs",
         "score": 2
       }
+    },
+    {
+      "id": 75,
+      "kickoff": "2026-10-25T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "CRY",
+        "name": "Crystal Palace",
+        "score": 0
+      },
+      "away": {
+        "short_name": "NEW",
+        "name": "Newcastle",
+        "score": 2
+      }
+    },
+    {
+      "id": 76,
+      "kickoff": "2026-10-25T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "HUL",
+        "name": "Hull City",
+        "score": 1
+      },
+      "away": {
+        "short_name": "BRE",
+        "name": "Brentford",
+        "score": 1
+      }
+    },
+    {
+      "id": 78,
+      "kickoff": "2026-10-25T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LIV",
+        "name": "Liverpool",
+        "score": 2
+      },
+      "away": {
+        "short_name": "BHA",
+        "name": "Brighton",
+        "score": 0
+      }
+    },
+    {
+      "id": 79,
+      "kickoff": "2026-10-25T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 0
+      },
+      "away": {
+        "short_name": "BOU",
+        "name": "Bournemouth",
+        "score": 3
+      }
     }
   ],
   "events": [
@@ -218,6 +286,78 @@
       "fixture_id": 72
     },
     {
+      "player_id": 61,
+      "web_name": "Truffert",
+      "team": 3,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 79
+    },
+    {
+      "player_id": 67,
+      "web_name": "Rayan",
+      "team": 3,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 79
+    },
+    {
+      "player_id": 68,
+      "web_name": "Tavernier",
+      "team": 3,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 79
+    },
+    {
+      "player_id": 70,
+      "web_name": "Kluivert",
+      "team": 3,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 79
+    },
+    {
+      "player_id": 71,
+      "web_name": "Cook",
+      "team": 3,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 79
+    },
+    {
+      "player_id": 79,
+      "web_name": "Evanilson",
+      "team": 3,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 79
+    },
+    {
+      "player_id": 95,
+      "web_name": "O.Dango",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 76
+    },
+    {
+      "player_id": 106,
+      "web_name": "Thiago",
+      "team": 4,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 76
+    },
+    {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 78
+    },
+    {
       "player_id": 166,
       "web_name": "N.Jackson",
       "team": 2,
@@ -242,6 +382,14 @@
       "fixture_id": 72
     },
     {
+      "player_id": 240,
+      "web_name": "Iroegbunam",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 76
+    },
+    {
       "player_id": 264,
       "web_name": "Bobb",
       "team": 10,
@@ -258,12 +406,60 @@
       "fixture_id": 74
     },
     {
+      "player_id": 295,
+      "web_name": "McBurnie",
+      "team": 11,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 76
+    },
+    {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 78
+    },
+    {
+      "player_id": 379,
+      "web_name": "Isak",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 78
+    },
+    {
       "player_id": 411,
       "web_name": "Haaland",
       "team": 15,
       "event": "goal",
       "count": 1,
       "fixture_id": 72
+    },
+    {
+      "player_id": 453,
+      "web_name": "Barnes",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 75
+    },
+    {
+      "player_id": 457,
+      "web_name": "J.Murphy",
+      "team": 17,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 75
+    },
+    {
+      "player_id": 465,
+      "web_name": "Osula",
+      "team": 17,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 75
     },
     {
       "player_id": 469,
@@ -306,6 +502,22 @@
       "fixture_id": 77
     },
     {
+      "player_id": 593,
+      "web_name": "Dedi\u0107",
+      "team": 17,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 75
+    },
+    {
+      "player_id": 627,
+      "web_name": "Barcola",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 78
+    },
+    {
       "player_id": 631,
       "web_name": "Mbaye",
       "team": 2,
@@ -314,5 +526,5 @@
       "fixture_id": 72
     }
   ],
-  "generated_at": "2026-10-25T00:20:22.738156+00:00"
+  "generated_at": "2026-10-25T15:38:51.039621+00:00"
 }
