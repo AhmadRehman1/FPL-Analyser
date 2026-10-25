@@ -4,7 +4,7 @@
   "gameweek": 8,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 48,
+  "live_total": 58,
   "players": [
     {
       "player_id": 496,
@@ -30,9 +30,9 @@
     {
       "player_id": 334,
       "web_name": "Muharemovi\u0107",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 10,
+      "provisional_bonus": 1,
+      "contribution": 10
     },
     {
       "player_id": 12,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 70.0,
-    "estimated_rank": 3352148
+    "percentile": 90.0,
+    "estimated_rank": 1117628
   },
   "fixtures": [
     {
@@ -241,6 +241,23 @@
         "short_name": "BOU",
         "name": "Bournemouth",
         "score": 3
+      }
+    },
+    {
+      "id": 80,
+      "kickoff": "2026-10-25T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "SUN",
+        "name": "Sunderland",
+        "score": 0
+      },
+      "away": {
+        "short_name": "LEE",
+        "name": "Leeds",
+        "score": 0
       }
     }
   ],
@@ -526,5 +543,5 @@
       "fixture_id": 72
     }
   ],
-  "generated_at": "2026-10-25T15:38:29.430584+00:00"
+  "generated_at": "2026-10-25T18:33:21.856010+00:00"
 }
