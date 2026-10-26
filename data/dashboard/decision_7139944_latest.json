@@ -1,25 +1,78 @@
 {
-  "action": "bench_boost",
-  "action_display": "bench_boost",
-  "data_asof": "2026-10-25",
+  "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
+  "action_display": "Bukayo Saka -> Bryan Mbeumo",
+  "data_asof": "2026-10-26",
   "downside_ci": [
-    4.733243365526988,
-    108.70369209294323
+    6.190715257149975,
+    128.70588159775582
   ],
   "entry_id": 7139944,
-  "ep_lift": 12.328351532720356,
+  "ep_lift": 24.213598341507367,
   "gw": 9,
-  "price_hint": null,
-  "provenance": {
-    "data_asof": "2026-10-25",
-    "model_version": "ep_v2/un_v2/plan_run3"
+  "price_hint": {
+    "confidence": 0.0,
+    "delta_pence": 0,
+    "direction": "stable",
+    "estimated_date": null,
+    "player_name": "Bryan Mbeumo",
+    "player_uid": "player_bryan_mbeumo"
   },
-  "runner_up": null,
-  "sensitivity": [],
-  "swaps": [],
+  "provenance": {
+    "data_asof": "2026-10-26",
+    "model_version": "ep_v2/un_v2/plan_run5"
+  },
+  "runner_up": {
+    "action": "transfer_in:player_bukayo_saka->player_marcus_tavernier",
+    "action_display": "Bukayo Saka -> Marcus Tavernier",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 24.203885080286785,
+    "provenance": {
+      "data_asof": "2026-10-26",
+      "model_version": "ep_v2/un_v2/plan_run5"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 24.203885080286785,
+        "in_name": "Marcus Tavernier",
+        "in_player_uid": "player_marcus_tavernier",
+        "out_name": "Bukayo Saka",
+        "out_player_uid": "player_bukayo_saka",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
+  "sensitivity": [
+    {
+      "delta_ep": 0.211054177320122,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
+    }
+  ],
+  "swaps": [
+    {
+      "delta_ep": 24.213598341507367,
+      "in_name": "Bryan Mbeumo",
+      "in_player_uid": "player_bryan_mbeumo",
+      "out_name": "Bukayo Saka",
+      "out_player_uid": "player_bukayo_saka",
+      "reason": "model-ranked transfer"
+    }
+  ],
   "track_record": {
     "optimal_in_n_of_71": null,
-    "pattern": "action_kind:bench_boost",
+    "pattern": "action_kind:transfer_in",
     "sample_size": 0
   }
 }

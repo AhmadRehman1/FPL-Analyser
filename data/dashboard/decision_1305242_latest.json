@@ -1,30 +1,59 @@
 {
   "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
   "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
-  "data_asof": "2026-10-25",
+  "data_asof": "2026-10-26",
   "downside_ci": [
-    6.5747770899525015,
-    119.92061182927046
+    5.350835826588245,
+    126.73490533048655
   ],
   "entry_id": 1305242,
-  "ep_lift": 28.428595885183817,
+  "ep_lift": 24.378830687703086,
   "gw": 9,
   "price_hint": {
     "confidence": 1.0,
     "delta_pence": -10,
     "direction": "fall",
-    "estimated_date": "2026-10-26",
+    "estimated_date": "2026-10-27",
     "player_name": "Bruno Borges Fernandes",
     "player_uid": "player_bruno_borges_fernandes"
   },
   "provenance": {
-    "data_asof": "2026-10-25",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-10-26",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
-  "runner_up": null,
+  "runner_up": {
+    "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
+    "action_display": "Bukayo Saka -> Bryan Mbeumo",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 24.213598341507367,
+    "provenance": {
+      "data_asof": "2026-10-26",
+      "model_version": "ep_v2/un_v2/plan_run7"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 24.213598341507367,
+        "in_name": "Bryan Mbeumo",
+        "in_player_uid": "player_bryan_mbeumo",
+        "out_name": "Bukayo Saka",
+        "out_player_uid": "player_bukayo_saka",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
   "sensitivity": [
     {
-      "delta_ep": 0.2154660326621709,
+      "delta_ep": 0.20651370931493318,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -33,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 28.428595885183817,
+      "delta_ep": 24.378830687703086,
       "in_name": "Bruno Borges Fernandes",
       "in_player_uid": "player_bruno_borges_fernandes",
       "out_name": "Bukayo Saka",
