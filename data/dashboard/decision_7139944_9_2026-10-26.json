@@ -3,11 +3,11 @@
   "action_display": "Bukayo Saka -> Bryan Mbeumo",
   "data_asof": "2026-10-26",
   "downside_ci": [
-    6.190715257149975,
-    128.70588159775582
+    6.232171061739587,
+    128.82559825930235
   ],
   "entry_id": 7139944,
-  "ep_lift": 24.213598341507367,
+  "ep_lift": 24.213435133618866,
   "gw": 9,
   "price_hint": {
     "confidence": 0.0,
@@ -19,7 +19,7 @@
   },
   "provenance": {
     "data_asof": "2026-10-26",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": {
     "action": "transfer_in:player_bukayo_saka->player_marcus_tavernier",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 24.203885080286785,
+    "ep_lift": 24.20710636814816,
     "provenance": {
       "data_asof": "2026-10-26",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "model_version": "ep_v2/un_v2/plan_run3"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 24.203885080286785,
+        "delta_ep": 24.20710636814816,
         "in_name": "Marcus Tavernier",
         "in_player_uid": "player_marcus_tavernier",
         "out_name": "Bukayo Saka",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 0.211054177320122,
+      "delta_ep": 0.2110515587701407,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 24.213598341507367,
+      "delta_ep": 24.213435133618866,
       "in_name": "Bryan Mbeumo",
       "in_player_uid": "player_bryan_mbeumo",
       "out_name": "Bukayo Saka",
