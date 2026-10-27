@@ -1,0 +1,78 @@
+{
+  "action": "transfer_in:player_bukayo_saka->player_marcus_tavernier",
+  "action_display": "Bukayo Saka -> Marcus Tavernier",
+  "data_asof": "2026-10-27",
+  "downside_ci": [
+    6.384595585295902,
+    128.0126640916747
+  ],
+  "entry_id": 7139944,
+  "ep_lift": 24.21531398982177,
+  "gw": 9,
+  "price_hint": {
+    "confidence": 1.0,
+    "delta_pence": 10,
+    "direction": "rise",
+    "estimated_date": "2026-10-28",
+    "player_name": "Marcus Tavernier",
+    "player_uid": "player_marcus_tavernier"
+  },
+  "provenance": {
+    "data_asof": "2026-10-27",
+    "model_version": "ep_v2/un_v2/plan_run5"
+  },
+  "runner_up": {
+    "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
+    "action_display": "Bukayo Saka -> Bryan Mbeumo",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 24.213402104926725,
+    "provenance": {
+      "data_asof": "2026-10-27",
+      "model_version": "ep_v2/un_v2/plan_run5"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 24.213402104926725,
+        "in_name": "Bryan Mbeumo",
+        "in_player_uid": "player_bryan_mbeumo",
+        "out_name": "Bukayo Saka",
+        "out_player_uid": "player_bukayo_saka",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
+  "sensitivity": [
+    {
+      "delta_ep": 0.2091365125252196,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
+    }
+  ],
+  "swaps": [
+    {
+      "delta_ep": 24.21531398982177,
+      "in_name": "Marcus Tavernier",
+      "in_player_uid": "player_marcus_tavernier",
+      "out_name": "Bukayo Saka",
+      "out_player_uid": "player_bukayo_saka",
+      "reason": "model-ranked transfer"
+    }
+  ],
+  "track_record": {
+    "optimal_in_n_of_71": null,
+    "pattern": "action_kind:transfer_in",
+    "sample_size": 0
+  }
+}
