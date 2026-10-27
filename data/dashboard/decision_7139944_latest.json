@@ -1,45 +1,45 @@
 {
-  "action": "transfer_in:player_bukayo_saka->player_marcus_tavernier",
-  "action_display": "Bukayo Saka -> Marcus Tavernier",
+  "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
+  "action_display": "Bukayo Saka -> Bryan Mbeumo",
   "data_asof": "2026-10-27",
   "downside_ci": [
-    6.384595585295902,
-    128.0126640916747
+    6.242594424759718,
+    128.8471802007508
   ],
   "entry_id": 7139944,
-  "ep_lift": 24.21531398982177,
+  "ep_lift": 24.228821299100627,
   "gw": 9,
   "price_hint": {
-    "confidence": 1.0,
-    "delta_pence": 10,
-    "direction": "rise",
-    "estimated_date": "2026-10-28",
-    "player_name": "Marcus Tavernier",
-    "player_uid": "player_marcus_tavernier"
+    "confidence": 0.0,
+    "delta_pence": 0,
+    "direction": "stable",
+    "estimated_date": null,
+    "player_name": "Bryan Mbeumo",
+    "player_uid": "player_bryan_mbeumo"
   },
   "provenance": {
     "data_asof": "2026-10-27",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
   "runner_up": {
-    "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
-    "action_display": "Bukayo Saka -> Bryan Mbeumo",
+    "action": "transfer_in:player_bukayo_saka->player_marcus_tavernier",
+    "action_display": "Bukayo Saka -> Marcus Tavernier",
     "downside_ci": [
       0.0,
       0.0
     ],
-    "ep_lift": 24.213402104926725,
+    "ep_lift": 24.20922037578935,
     "provenance": {
       "data_asof": "2026-10-27",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "model_version": "ep_v2/un_v2/plan_run3"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 24.213402104926725,
-        "in_name": "Bryan Mbeumo",
-        "in_player_uid": "player_bryan_mbeumo",
+        "delta_ep": 24.20922037578935,
+        "in_name": "Marcus Tavernier",
+        "in_player_uid": "player_marcus_tavernier",
         "out_name": "Bukayo Saka",
         "out_player_uid": "player_bukayo_saka",
         "reason": "model-ranked transfer"
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 0.2091365125252196,
+      "delta_ep": 0.2127608764663691,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
@@ -62,9 +62,9 @@
   ],
   "swaps": [
     {
-      "delta_ep": 24.21531398982177,
-      "in_name": "Marcus Tavernier",
-      "in_player_uid": "player_marcus_tavernier",
+      "delta_ep": 24.228821299100627,
+      "in_name": "Bryan Mbeumo",
+      "in_player_uid": "player_bryan_mbeumo",
       "out_name": "Bukayo Saka",
       "out_player_uid": "player_bukayo_saka",
       "reason": "model-ranked transfer"
