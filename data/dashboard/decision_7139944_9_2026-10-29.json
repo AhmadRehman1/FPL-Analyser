@@ -1,0 +1,78 @@
+{
+  "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
+  "action_display": "Bukayo Saka -> Bryan Mbeumo",
+  "data_asof": "2026-10-29",
+  "downside_ci": [
+    6.244988080369016,
+    128.85156332560226
+  ],
+  "entry_id": 7139944,
+  "ep_lift": 24.22517019189078,
+  "gw": 9,
+  "price_hint": {
+    "confidence": 0.0,
+    "delta_pence": 0,
+    "direction": "stable",
+    "estimated_date": null,
+    "player_name": "Bryan Mbeumo",
+    "player_uid": "player_bryan_mbeumo"
+  },
+  "provenance": {
+    "data_asof": "2026-10-29",
+    "model_version": "ep_v2/un_v2/plan_run3"
+  },
+  "runner_up": {
+    "action": "transfer_in:player_bukayo_saka->player_marcus_tavernier",
+    "action_display": "Bukayo Saka -> Marcus Tavernier",
+    "downside_ci": [
+      0.0,
+      0.0
+    ],
+    "ep_lift": 24.203980876184872,
+    "provenance": {
+      "data_asof": "2026-10-29",
+      "model_version": "ep_v2/un_v2/plan_run3"
+    },
+    "runner_up": null,
+    "sensitivity": [],
+    "swaps": [
+      {
+        "delta_ep": 24.203980876184872,
+        "in_name": "Marcus Tavernier",
+        "in_player_uid": "player_marcus_tavernier",
+        "out_name": "Bukayo Saka",
+        "out_player_uid": "player_bukayo_saka",
+        "reason": "model-ranked transfer"
+      }
+    ],
+    "track_record": {
+      "optimal_in_n_of_71": null,
+      "pattern": "action_kind:transfer_in",
+      "sample_size": 0
+    }
+  },
+  "sensitivity": [
+    {
+      "delta_ep": 0.21365011875319695,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
+    }
+  ],
+  "swaps": [
+    {
+      "delta_ep": 24.22517019189078,
+      "in_name": "Bryan Mbeumo",
+      "in_player_uid": "player_bryan_mbeumo",
+      "out_name": "Bukayo Saka",
+      "out_player_uid": "player_bukayo_saka",
+      "reason": "model-ranked transfer"
+    }
+  ],
+  "track_record": {
+    "optimal_in_n_of_71": null,
+    "pattern": "action_kind:transfer_in",
+    "sample_size": 0
+  }
+}
