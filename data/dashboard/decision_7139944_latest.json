@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
   "action_display": "Bukayo Saka -> Bryan Mbeumo",
-  "data_asof": "2026-10-29",
+  "data_asof": "2026-10-30",
   "downside_ci": [
-    5.463864767621575,
-    127.44794762948322
+    5.482052254704826,
+    127.4895908510731
   ],
   "entry_id": 7139944,
-  "ep_lift": 24.21528685613766,
+  "ep_lift": 24.226720804267238,
   "gw": 9,
   "price_hint": {
     "confidence": 0.0,
@@ -18,13 +18,13 @@
     "player_uid": "player_bryan_mbeumo"
   },
   "provenance": {
-    "data_asof": "2026-10-29",
-    "model_version": "ep_v2/un_v2/plan_run3"
+    "data_asof": "2026-10-30",
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
   "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": 0.21322395185030274,
+      "delta_ep": 0.21523840577823705,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
@@ -33,7 +33,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 24.21528685613766,
+      "delta_ep": 24.226720804267238,
       "in_name": "Bryan Mbeumo",
       "in_player_uid": "player_bryan_mbeumo",
       "out_name": "Bukayo Saka",
