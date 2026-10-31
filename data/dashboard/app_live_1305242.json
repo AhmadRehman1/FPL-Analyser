@@ -4,7 +4,7 @@
   "gameweek": 9,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 35,
+  "live_total": 39,
   "players": [
     {
       "player_id": 109,
@@ -44,9 +44,9 @@
     {
       "player_id": 268,
       "web_name": "King",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 154,
@@ -72,9 +72,9 @@
     {
       "player_id": 569,
       "web_name": "Gonzalo",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 249,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 82.0,
-    "estimated_rank": 2018369
+    "percentile": 90.0,
+    "estimated_rank": 1121451
   },
   "fixtures": [
     {
@@ -208,6 +208,23 @@
         "name": "Crystal Palace",
         "score": 0
       }
+    },
+    {
+      "id": 81,
+      "kickoff": "2026-10-31T20:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "AVL",
+        "name": "Aston Villa",
+        "score": 1
+      },
+      "away": {
+        "short_name": "FUL",
+        "name": "Fulham",
+        "score": 1
+      }
     }
   ],
   "events": [
@@ -218,6 +235,22 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 84
+    },
+    {
+      "player_id": 45,
+      "web_name": "McGinn",
+      "team": 2,
+      "event": "pen_missed",
+      "count": 1,
+      "fixture_id": 81
+    },
+    {
+      "player_id": 53,
+      "web_name": "Manzambi",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 81
     },
     {
       "player_id": 70,
@@ -324,6 +357,14 @@
       "fixture_id": 84
     },
     {
+      "player_id": 166,
+      "web_name": "N.Jackson",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 81
+    },
+    {
       "player_id": 183,
       "web_name": "Rudoni",
       "team": 7,
@@ -354,6 +395,14 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 86
+    },
+    {
+      "player_id": 261,
+      "web_name": "Iwobi",
+      "team": 10,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 81
     },
     {
       "player_id": 286,
@@ -458,7 +507,15 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 86
+    },
+    {
+      "player_id": 597,
+      "web_name": "Suzuki",
+      "team": 2,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 81
     }
   ],
-  "generated_at": "2026-10-31T19:55:10.886857+00:00"
+  "generated_at": "2026-10-31T23:17:21.827307+00:00"
 }

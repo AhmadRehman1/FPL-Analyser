@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 76.0,
-    "estimated_rank": 2691159
+    "percentile": 67.5,
+    "estimated_rank": 3644715
   },
   "fixtures": [
     {
@@ -208,6 +208,23 @@
         "name": "Crystal Palace",
         "score": 0
       }
+    },
+    {
+      "id": 81,
+      "kickoff": "2026-10-31T20:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "AVL",
+        "name": "Aston Villa",
+        "score": 1
+      },
+      "away": {
+        "short_name": "FUL",
+        "name": "Fulham",
+        "score": 1
+      }
     }
   ],
   "events": [
@@ -218,6 +235,22 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 84
+    },
+    {
+      "player_id": 45,
+      "web_name": "McGinn",
+      "team": 2,
+      "event": "pen_missed",
+      "count": 1,
+      "fixture_id": 81
+    },
+    {
+      "player_id": 53,
+      "web_name": "Manzambi",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 81
     },
     {
       "player_id": 70,
@@ -324,6 +357,14 @@
       "fixture_id": 84
     },
     {
+      "player_id": 166,
+      "web_name": "N.Jackson",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 81
+    },
+    {
       "player_id": 183,
       "web_name": "Rudoni",
       "team": 7,
@@ -354,6 +395,14 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 86
+    },
+    {
+      "player_id": 261,
+      "web_name": "Iwobi",
+      "team": 10,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 81
     },
     {
       "player_id": 286,
@@ -458,7 +507,15 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 86
+    },
+    {
+      "player_id": 597,
+      "web_name": "Suzuki",
+      "team": 2,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 81
     }
   ],
-  "generated_at": "2026-10-31T19:54:58.108924+00:00"
+  "generated_at": "2026-10-31T23:16:56.332890+00:00"
 }
