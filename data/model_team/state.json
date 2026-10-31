@@ -1,6 +1,6 @@
 {
   "season": "2026-2027",
-  "current_gameweek": 8,
+  "current_gameweek": 9,
   "ledger": [
     {
       "gameweek": 1,
@@ -717,6 +717,120 @@
       "simulated": false,
       "realized_final": true,
       "scoring_version": 2
+    },
+    {
+      "gameweek": 9,
+      "projected_points": 51.03,
+      "band_low": 36.66,
+      "band_high": 65.4,
+      "action": "transfer",
+      "action_detail": "player_pascal_struijk -> player_gabriel_dos_santos_magalhaes (net +21.57)",
+      "wildcard_gain": -16.1,
+      "wildcard_recommended": false,
+      "squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers"
+      ],
+      "xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_morgan_rogers"
+      ],
+      "formation_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_morgan_rogers"
+      ],
+      "captain_uid": "player_bruno_borges_fernandes",
+      "vice_captain_uid": "player_igor_thiago_nascimento_rodrigues",
+      "realized_points": null,
+      "current_squad_horizon_value": 269.86,
+      "chips_used": [
+        "bench_boost",
+        "free_hit",
+        "triple_captain"
+      ],
+      "free_hit_gain": 7.98,
+      "free_hit_recommended": true,
+      "free_hit_threshold": null,
+      "free_hit_fresh_run_id": null,
+      "carryforward_squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_marcos_senesi_baron",
+        "player_morgan_rogers"
+      ],
+      "carryforward_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_dara_o_shea",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_igor_thiago_nascimento_rodrigues",
+        "player_james_tarkowski",
+        "player_marc_guehi",
+        "player_morgan_rogers"
+      ],
+      "carryforward_captain_uid": "player_bruno_borges_fernandes",
+      "carryforward_vice_captain_uid": "player_igor_thiago_nascimento_rodrigues",
+      "transfers": [
+        {
+          "out_uid": "player_pascal_struijk",
+          "in_uid": "player_gabriel_dos_santos_magalhaes",
+          "net": 21.57
+        }
+      ],
+      "bench_order": {
+        "player_bernd_leno": 1,
+        "player_declan_rice": 2,
+        "player_cody_gakpo": 3,
+        "player_marcos_senesi_baron": 4
+      },
+      "hit_cost": 0.0,
+      "entry_label": "FPL Quant Model Team",
+      "simulated": false
     }
   ],
   "chips_used_set1": [
