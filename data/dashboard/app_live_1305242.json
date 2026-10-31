@@ -4,14 +4,14 @@
   "gameweek": 9,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 19,
+  "live_total": 35,
   "players": [
     {
       "player_id": 109,
       "web_name": "Verbruggen",
-      "live_points": 1,
-      "provisional_bonus": 0,
-      "contribution": 1
+      "live_points": 14,
+      "provisional_bonus": 3,
+      "contribution": 14
     },
     {
       "player_id": 31,
@@ -58,16 +58,16 @@
     {
       "player_id": 40,
       "web_name": "Rogers",
-      "live_points": 8,
-      "provisional_bonus": 0,
-      "contribution": 8
+      "live_points": 10,
+      "provisional_bonus": 1,
+      "contribution": 10
     },
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 1,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 1
+      "contribution": 2
     },
     {
       "player_id": 569,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 82.5,
-    "estimated_rank": 1961911
+    "percentile": 82.0,
+    "estimated_rank": 2018369
   },
   "fixtures": [
     {
@@ -116,7 +116,7 @@
       "home": {
         "short_name": "BOU",
         "name": "Bournemouth",
-        "score": 1
+        "score": 2
       },
       "away": {
         "short_name": "LEE",
@@ -133,7 +133,7 @@
       "home": {
         "short_name": "BRE",
         "name": "Brentford",
-        "score": 1
+        "score": 2
       },
       "away": {
         "short_name": "NFO",
@@ -150,12 +150,12 @@
       "home": {
         "short_name": "COV",
         "name": "Coventry City",
-        "score": 2
+        "score": 3
       },
       "away": {
         "short_name": "SUN",
         "name": "Sunderland",
-        "score": 0
+        "score": 1
       }
     },
     {
@@ -167,12 +167,12 @@
       "home": {
         "short_name": "HUL",
         "name": "Hull City",
-        "score": 0
+        "score": 2
       },
       "away": {
         "short_name": "IPS",
         "name": "Ipswich Town",
-        "score": 1
+        "score": 2
       }
     },
     {
@@ -190,6 +190,23 @@
         "short_name": "BHA",
         "name": "Brighton",
         "score": 1
+      }
+    },
+    {
+      "id": 90,
+      "kickoff": "2026-10-31T17:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "TOT",
+        "name": "Spurs",
+        "score": 2
+      },
+      "away": {
+        "short_name": "CRY",
+        "name": "Crystal Palace",
+        "score": 0
       }
     }
   ],
@@ -211,6 +228,22 @@
       "fixture_id": 82
     },
     {
+      "player_id": 77,
+      "web_name": "Adli",
+      "team": 3,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 82
+    },
+    {
+      "player_id": 78,
+      "web_name": "Kroupi.Jr",
+      "team": 3,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 82
+    },
+    {
       "player_id": 79,
       "web_name": "Evanilson",
       "team": 3,
@@ -225,6 +258,30 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 83
+    },
+    {
+      "player_id": 105,
+      "web_name": "Anthony",
+      "team": 4,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 83
+    },
+    {
+      "player_id": 106,
+      "web_name": "Thiago",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 83
+    },
+    {
+      "player_id": 112,
+      "web_name": "Van Hecke",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 90
     },
     {
       "player_id": 115,
@@ -267,12 +324,68 @@
       "fixture_id": 84
     },
     {
+      "player_id": 183,
+      "web_name": "Rudoni",
+      "team": 7,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 85
+    },
+    {
       "player_id": 185,
       "web_name": "Sakamoto",
       "team": 7,
       "event": "goal",
       "count": 1,
       "fixture_id": 85
+    },
+    {
+      "player_id": 188,
+      "web_name": "Torp",
+      "team": 7,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 85
+    },
+    {
+      "player_id": 240,
+      "web_name": "Iroegbunam",
+      "team": 11,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 86
+    },
+    {
+      "player_id": 286,
+      "web_name": "Belloumi",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 86
+    },
+    {
+      "player_id": 295,
+      "web_name": "McBurnie",
+      "team": 11,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 86
+    },
+    {
+      "player_id": 295,
+      "web_name": "McBurnie",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 86
+    },
+    {
+      "player_id": 310,
+      "web_name": "Matusiwa",
+      "team": 12,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 86
     },
     {
       "player_id": 471,
@@ -291,8 +404,48 @@
       "fixture_id": 85
     },
     {
+      "player_id": 512,
+      "web_name": "Kudus",
+      "team": 19,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 90
+    },
+    {
+      "player_id": 522,
+      "web_name": "Gray",
+      "team": 19,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 90
+    },
+    {
+      "player_id": 539,
+      "web_name": "O'Nien",
+      "team": 20,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 85
+    },
+    {
+      "player_id": 542,
+      "web_name": "E.Le F\u00e9e",
+      "team": 20,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 85
+    },
+    {
       "player_id": 571,
       "web_name": "Florentino",
+      "team": 12,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 86
+    },
+    {
+      "player_id": 591,
+      "web_name": "Enciso",
       "team": 12,
       "event": "goal",
       "count": 1,
@@ -307,5 +460,5 @@
       "fixture_id": 86
     }
   ],
-  "generated_at": "2026-10-31T16:01:07.180088+00:00"
+  "generated_at": "2026-10-31T19:55:10.886857+00:00"
 }
