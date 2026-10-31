@@ -1,7 +1,7 @@
 {
   "ready": true,
   "season": "2026-2027",
-  "current_gameweek": 8,
+  "current_gameweek": 9,
   "n_gameweeks_scored": 8,
   "n_gameweeks_simulated": 1,
   "total_realized_points": 425.0,
@@ -123,6 +123,20 @@
       "delta_vs_field": -17.0,
       "cumulative_points": 425.0,
       "cumulative_vs_field": -36.0
+    },
+    {
+      "gameweek": 9,
+      "simulated": false,
+      "action": "transfer",
+      "action_detail": "player_pascal_struijk -> player_gabriel_dos_santos_magalhaes (net +21.57)",
+      "projected_points": 51.03,
+      "realized_points": null,
+      "hit_cost": 0.0,
+      "provisional": false,
+      "field_average": null,
+      "delta_vs_field": null,
+      "cumulative_points": null,
+      "cumulative_vs_field": null
     }
   ],
   "free_hit_audit": {
@@ -165,7 +179,7 @@
     },
     {
       "name": "Declan Rice",
-      "in_xi": true,
+      "in_xi": false,
       "is_captain": false
     },
     {
@@ -180,6 +194,11 @@
     },
     {
       "name": "Ethan Ampadu",
+      "in_xi": true,
+      "is_captain": false
+    },
+    {
+      "name": "Gabriel dos Santos Magalh\u00e3es",
       "in_xi": true,
       "is_captain": false
     },
@@ -207,18 +226,13 @@
       "name": "Morgan Rogers",
       "in_xi": true,
       "is_captain": false
-    },
-    {
-      "name": "Pascal Struijk",
-      "in_xi": false,
-      "is_captain": false
     }
   ],
   "next_decision": {
-    "gameweek": 8,
+    "gameweek": 9,
     "action": "transfer",
-    "detail": "player_ollie_watkins -> player_dominic_calvert_lewin (net +24.79)"
+    "detail": "player_pascal_struijk -> player_gabriel_dos_santos_magalhaes (net +21.57)"
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-10-31T10:11:41.413081+00:00"
+  "generated_at": "2026-10-31T11:57:40.806031+00:00"
 }
