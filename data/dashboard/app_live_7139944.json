@@ -4,7 +4,7 @@
   "gameweek": 9,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 29,
+  "live_total": 31,
   "players": [
     {
       "player_id": 496,
@@ -16,9 +16,9 @@
     {
       "player_id": 4,
       "web_name": "Gabriel",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 449,
@@ -51,9 +51,9 @@
     {
       "player_id": 15,
       "web_name": "\u00d8degaard",
-      "live_points": 0,
+      "live_points": 1,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 1
     },
     {
       "player_id": 124,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 67.5,
-    "estimated_rank": 3644715
+    "percentile": 61.5,
+    "estimated_rank": 4319513
   },
   "fixtures": [
     {
@@ -225,9 +225,42 @@
         "name": "Fulham",
         "score": 1
       }
+    },
+    {
+      "id": 87,
+      "kickoff": "2026-11-01T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LIV",
+        "name": "Liverpool",
+        "score": 0
+      },
+      "away": {
+        "short_name": "ARS",
+        "name": "Arsenal",
+        "score": 1
+      }
     }
   ],
   "events": [
+    {
+      "player_id": 13,
+      "web_name": "Rice",
+      "team": 1,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 87
+    },
+    {
+      "player_id": 26,
+      "web_name": "Havertz",
+      "team": 1,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 87
+    },
     {
       "player_id": 40,
       "web_name": "Rogers",
@@ -517,5 +550,5 @@
       "fixture_id": 81
     }
   ],
-  "generated_at": "2026-10-31T23:16:56.332890+00:00"
+  "generated_at": "2026-11-01T17:41:56.132932+00:00"
 }
