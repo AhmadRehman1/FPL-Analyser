@@ -1,45 +1,45 @@
 {
-  "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
-  "action_display": "Bukayo Saka -> Bryan Mbeumo",
-  "data_asof": "2026-10-31",
+  "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
+  "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
+  "data_asof": "2026-11-01",
   "downside_ci": [
-    5.502936733057869,
-    125.02870892344605
+    3.938707152906932,
+    125.87158198014714
   ],
   "entry_id": 1305242,
-  "ep_lift": 25.236798547518738,
+  "ep_lift": 25.625250680649273,
   "gw": 10,
   "price_hint": {
     "confidence": 0.0,
     "delta_pence": 0,
     "direction": "stable",
     "estimated_date": null,
-    "player_name": "Bryan Mbeumo",
-    "player_uid": "player_bryan_mbeumo"
+    "player_name": "Bruno Borges Fernandes",
+    "player_uid": "player_bruno_borges_fernandes"
   },
   "provenance": {
-    "data_asof": "2026-10-31",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-11-01",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
   "runner_up": {
-    "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-    "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
+    "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
+    "action_display": "Bukayo Saka -> Bryan Mbeumo",
     "downside_ci": [
       0.0,
       0.0
     ],
-    "ep_lift": 25.09393568618819,
+    "ep_lift": 25.283938208785877,
     "provenance": {
-      "data_asof": "2026-10-31",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "data_asof": "2026-11-01",
+      "model_version": "ep_v2/un_v2/plan_run7"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 25.09393568618819,
-        "in_name": "Bruno Borges Fernandes",
-        "in_player_uid": "player_bruno_borges_fernandes",
+        "delta_ep": 25.283938208785877,
+        "in_name": "Bryan Mbeumo",
+        "in_player_uid": "player_bryan_mbeumo",
         "out_name": "Bukayo Saka",
         "out_player_uid": "player_bukayo_saka",
         "reason": "model-ranked transfer"
@@ -53,18 +53,18 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 0.17221522553550983,
+      "delta_ep": 0.17184991091659896,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
-      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
-      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
+      "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
+      "then_action_display": "Cole Palmer -> Bruno Borges Fernandes"
     }
   ],
   "swaps": [
     {
-      "delta_ep": 25.236798547518738,
-      "in_name": "Bryan Mbeumo",
-      "in_player_uid": "player_bryan_mbeumo",
+      "delta_ep": 25.625250680649273,
+      "in_name": "Bruno Borges Fernandes",
+      "in_player_uid": "player_bruno_borges_fernandes",
       "out_name": "Bukayo Saka",
       "out_player_uid": "player_bukayo_saka",
       "reason": "model-ranked transfer"
