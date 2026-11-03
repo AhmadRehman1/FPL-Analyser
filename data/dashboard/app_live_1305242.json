@@ -4,7 +4,7 @@
   "gameweek": 9,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 57,
+  "live_total": 69,
   "players": [
     {
       "player_id": 109,
@@ -79,15 +79,15 @@
     {
       "player_id": 249,
       "web_name": "Barry",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 12,
+      "provisional_bonus": 3,
+      "contribution": 12
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 96.0,
-    "estimated_rank": 448894
+    "percentile": 100.0,
+    "estimated_rank": 1
   },
   "fixtures": [
     {
@@ -240,6 +240,23 @@
       "away": {
         "short_name": "ARS",
         "name": "Arsenal",
+        "score": 1
+      }
+    },
+    {
+      "id": 89,
+      "kickoff": "2026-11-02T20:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NEW",
+        "name": "Newcastle",
+        "score": 0
+      },
+      "away": {
+        "short_name": "EVE",
+        "name": "Everton",
         "score": 1
       }
     }
@@ -430,6 +447,22 @@
       "fixture_id": 86
     },
     {
+      "player_id": 242,
+      "web_name": "George",
+      "team": 9,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 89
+    },
+    {
+      "player_id": 249,
+      "web_name": "Barry",
+      "team": 9,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 89
+    },
+    {
       "player_id": 261,
       "web_name": "Iwobi",
       "team": 10,
@@ -550,5 +583,5 @@
       "fixture_id": 81
     }
   ],
-  "generated_at": "2026-11-02T00:58:39.477271+00:00"
+  "generated_at": "2026-11-03T00:37:03.820157+00:00"
 }
