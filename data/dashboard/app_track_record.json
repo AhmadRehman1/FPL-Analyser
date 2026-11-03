@@ -535,14 +535,14 @@
   "parameters_still_invented": 53,
   "planner_decision_accuracy": {
     "ready": true,
-    "n_realized": 12,
+    "n_realized": 14,
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2,
-    "mean_point_delta_if_followed": 1.42,
-    "total_point_delta_if_followed": 17,
+    "mean_point_delta_if_followed": 1.14,
+    "total_point_delta_if_followed": 16,
     "n_recommendation_would_have_scored_more": 7,
-    "n_actual_scored_more": 4,
-    "n_tied": 1,
+    "n_actual_scored_more": 5,
+    "n_tied": 2,
     "by_gameweek": [
       {
         "gameweek": 3,
@@ -639,10 +639,26 @@
         "actual": 53,
         "if_followed": 52,
         "delta": -1
+      },
+      {
+        "gameweek": 9,
+        "entry_id": 1305242,
+        "recommended_action": "transfer_now",
+        "actual": 70,
+        "if_followed": 70,
+        "delta": 0
+      },
+      {
+        "gameweek": 9,
+        "entry_id": 7139944,
+        "recommended_action": "transfer_now",
+        "actual": 44,
+        "if_followed": 43,
+        "delta": -1
       }
     ]
   },
-  "generated_at": "2026-11-03T13:58:04.495604",
+  "generated_at": "2026-11-03T22:49:28.578256",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 75,
@@ -874,55 +890,20 @@
       {
         "season": "2026-2027",
         "gameweek": 1,
-        "total_projected_ep": 58.853759594919325,
+        "total_projected_ep": 58.854328310308,
         "captain_name": "Erling Haaland",
         "squad_size": 15,
         "in_xi_count": 11
       }
     ],
     "latest_diff": {
-      "has_previous": true,
-      "previous_gameweek": 2,
-      "current_gameweek": 3,
-      "squad_changes": {
-        "in": [
-          "Bryan Mbeumo",
-          "Igor Thiago Nascimento Rodrigues",
-          "Martin \u00d8degaard",
-          "Will Hughes",
-          "Alex Palmer",
-          "Erling Haaland",
-          "Alexander Isak",
-          "Ben Davies",
-          "Maxim De Cuyper",
-          "Florian Wirtz",
-          "R\u00faben dos Santos Gato Alves Dias",
-          "Gianluigi Donnarumma",
-          "Luka Vu\u0161kovi\u0107",
-          "Aur\u00e8le Amenda"
-        ],
-        "out": [
-          "Nathan Collins",
-          "Yankuba Minteh",
-          "Ollie Watkins",
-          "Will Dennis",
-          "Mois\u00e9s Caicedo Corozo",
-          "Maxence Lacroix",
-          "Bernd Leno",
-          "William Osula",
-          "Elliot Anderson",
-          "Marcos Senesi Bar\u00f3n",
-          "Adrien Truffert",
-          "Ethan Ampadu",
-          "Igor Jesus Maciel da Cruz",
-          "Omar Alderete"
-        ]
-      },
-      "captain_changed": true,
-      "previous_captain": "Igor Jesus Maciel da Cruz",
-      "current_captain": "Erling Haaland",
-      "total_projected_ep_delta": 20.585282931414262,
-      "newly_doubtful_flags": []
+      "has_previous": false,
+      "previous_gameweek": null,
+      "current_gameweek": 1,
+      "squad_changes": null,
+      "captain_changed": null,
+      "total_projected_ep_delta": null,
+      "newly_doubtful_flags": null
     },
     "provenance": {
       "data_asof": "2026-11-03",
@@ -930,8 +911,8 @@
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "f647cb9796dd5f6c43155755fbf6fc07ea648dac",
-      "fpl_core_insights_commit_sha": "9b0cb02c8f9b7d8ac6fb63145c161c50d790a877",
+      "fpl_analyser_commit_sha": "aff94617de72169b7d39490863ca9afdeee6fc32",
+      "fpl_core_insights_commit_sha": "2c53e7fe9699f91b54fec0e2c2890e4b96c79c6c",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -943,7 +924,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-11-03T13:39:19.057943+00:00",
+      "recorded_at": "2026-11-03T22:38:13.575918+00:00",
       "research_pull_workbook": {
         "sha256": "fe2582b0f3ab9a2fcae1197c72b028db137117879b77c3949248991e8bb950a2",
         "size_bytes": 26584
