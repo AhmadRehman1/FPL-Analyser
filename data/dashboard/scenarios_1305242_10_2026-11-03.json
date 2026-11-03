@@ -2,39 +2,31 @@
   "armband_what_ifs": [
     {
       "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-      "delta_ep": 0.17212185589254858,
-      "flipped": false,
-      "perturbed_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-      "player_name": "Bukayo Saka",
-      "player_uid": "player_bukayo_saka",
-      "role": "captain"
-    },
-    {
-      "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-      "delta_ep": 0.17212185589254858,
+      "delta_ep": 0.17212411762590207,
       "flipped": true,
       "perturbed_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
       "player_name": "Cole Palmer",
       "player_uid": "player_cole_palmer",
       "role": "vice_captain"
+    },
+    {
+      "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
+      "delta_ep": 0.17212411762590207,
+      "flipped": false,
+      "perturbed_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
+      "player_name": "Bukayo Saka",
+      "player_uid": "player_bukayo_saka",
+      "role": "captain"
     }
   ],
   "bench_what_ifs": [
     {
       "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-      "delta_ep": 7.40535220700167e-07,
+      "delta_ep": 7.406093267547931e-07,
       "flipped": false,
       "perturbed_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
       "player_name": "Anton\u00edn Kinsky",
       "player_uid": "player_antonin_kinsky"
-    },
-    {
-      "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-      "delta_ep": 0.0,
-      "flipped": false,
-      "perturbed_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-      "player_name": "Pascal Gro\u00df",
-      "player_uid": "player_pascal_gross"
     },
     {
       "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
@@ -46,11 +38,19 @@
     },
     {
       "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
-      "delta_ep": -0.007518473129223935,
+      "delta_ep": -0.007518889043865329,
       "flipped": false,
       "perturbed_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
       "player_name": "Bobby Thomas",
       "player_uid": "player_bobby_thomas"
+    },
+    {
+      "baseline_action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
+      "delta_ep": -10.05801268311152,
+      "flipped": true,
+      "perturbed_action": "bench_boost",
+      "player_name": "Bukayo Saka",
+      "player_uid": "player_bukayo_saka"
     }
   ],
   "data_asof": "2026-11-03",
