@@ -1,64 +1,43 @@
 {
-  "action": "transfer_in:player_joao_pedro_junqueira_de_jesus->player_dominic_calvert_lewin",
-  "action_display": "Jo\u00e3o Pedro Junqueira de Jesus -> Dominic Calvert-Lewin",
+  "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
+  "action_display": "Bukayo Saka -> Bryan Mbeumo",
   "data_asof": "2026-11-05",
   "downside_ci": [
-    7.841249500380172,
-    127.91795918872867
+    7.8590853601648165,
+    128.41231946432336
   ],
   "entry_id": 7139944,
-  "ep_lift": 25.543578052311286,
+  "ep_lift": 25.2835965302371,
   "gw": 10,
   "price_hint": {
     "confidence": 1.0,
     "delta_pence": -10,
     "direction": "fall",
     "estimated_date": "2026-11-06",
-    "player_name": "Dominic Calvert-Lewin",
-    "player_uid": "player_dominic_calvert_lewin"
+    "player_name": "Bryan Mbeumo",
+    "player_uid": "player_bryan_mbeumo"
   },
   "provenance": {
     "data_asof": "2026-11-05",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "model_version": "ep_v2/un_v2/plan_run3"
   },
-  "runner_up": {
-    "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
-    "action_display": "Bukayo Saka -> Bryan Mbeumo",
-    "downside_ci": [
-      0.0,
-      0.0
-    ],
-    "ep_lift": 25.268594334341213,
-    "provenance": {
-      "data_asof": "2026-11-05",
-      "model_version": "ep_v2/un_v2/plan_run5"
-    },
-    "runner_up": null,
-    "sensitivity": [],
-    "swaps": [
-      {
-        "delta_ep": 25.268594334341213,
-        "in_name": "Bryan Mbeumo",
-        "in_player_uid": "player_bryan_mbeumo",
-        "out_name": "Bukayo Saka",
-        "out_player_uid": "player_bukayo_saka",
-        "reason": "model-ranked transfer"
-      }
-    ],
-    "track_record": {
-      "optimal_in_n_of_71": null,
-      "pattern": "action_kind:transfer_in",
-      "sample_size": 0
+  "runner_up": null,
+  "sensitivity": [
+    {
+      "delta_ep": 0.1720768642330448,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "transfer_in:player_cole_palmer->player_bryan_mbeumo",
+      "then_action_display": "Cole Palmer -> Bryan Mbeumo"
     }
-  },
-  "sensitivity": [],
+  ],
   "swaps": [
     {
-      "delta_ep": 25.543578052311286,
-      "in_name": "Dominic Calvert-Lewin",
-      "in_player_uid": "player_dominic_calvert_lewin",
-      "out_name": "Jo\u00e3o Pedro Junqueira de Jesus",
-      "out_player_uid": "player_joao_pedro_junqueira_de_jesus",
+      "delta_ep": 25.2835965302371,
+      "in_name": "Bryan Mbeumo",
+      "in_player_uid": "player_bryan_mbeumo",
+      "out_name": "Bukayo Saka",
+      "out_player_uid": "player_bukayo_saka",
       "reason": "model-ranked transfer"
     }
   ],
