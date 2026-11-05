@@ -1,25 +1,25 @@
 {
   "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
   "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
-  "data_asof": "2026-11-04",
+  "data_asof": "2026-11-05",
   "downside_ci": [
-    6.770527116725179,
-    136.76738923745768
+    6.770644300651558,
+    136.76826710144766
   ],
   "entry_id": 1305242,
-  "ep_lift": 25.56208992206339,
+  "ep_lift": 25.563055566016015,
   "gw": 10,
   "price_hint": {
     "confidence": 1.0,
     "delta_pence": -10,
     "direction": "fall",
-    "estimated_date": "2026-11-05",
+    "estimated_date": "2026-11-06",
     "player_name": "Bruno Borges Fernandes",
     "player_uid": "player_bruno_borges_fernandes"
   },
   "provenance": {
-    "data_asof": "2026-11-04",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-11-05",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
   "runner_up": {
     "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 25.268086275682965,
+    "ep_lift": 25.268594334341213,
     "provenance": {
-      "data_asof": "2026-11-04",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "data_asof": "2026-11-05",
+      "model_version": "ep_v2/un_v2/plan_run7"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 25.268086275682965,
+        "delta_ep": 25.268594334341213,
         "in_name": "Bryan Mbeumo",
         "in_player_uid": "player_bryan_mbeumo",
         "out_name": "Bukayo Saka",
@@ -53,7 +53,7 @@
   },
   "sensitivity": [
     {
-      "delta_ep": 0.1720171737809011,
+      "delta_ep": 0.1720194577457086,
       "if_condition": "player_cole_palmer ruled out",
       "if_condition_display": "Cole Palmer ruled out",
       "then_action": "transfer_in:player_cole_palmer->player_bruno_borges_fernandes",
@@ -62,7 +62,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 25.56208992206339,
+      "delta_ep": 25.563055566016015,
       "in_name": "Bruno Borges Fernandes",
       "in_player_uid": "player_bruno_borges_fernandes",
       "out_name": "Bukayo Saka",
