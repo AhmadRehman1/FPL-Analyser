@@ -1,7 +1,7 @@
 {
   "ready": true,
   "season": "2026-2027",
-  "current_gameweek": 9,
+  "current_gameweek": 10,
   "n_gameweeks_scored": 9,
   "n_gameweeks_simulated": 1,
   "total_realized_points": 488.0,
@@ -137,6 +137,20 @@
       "delta_vs_field": 16.0,
       "cumulative_points": 488.0,
       "cumulative_vs_field": -20.0
+    },
+    {
+      "gameweek": 10,
+      "simulated": false,
+      "action": "transfer",
+      "action_detail": "player_marcos_senesi_baron -> player_maxim_de_cuyper (net +12.06)",
+      "projected_points": 53.09,
+      "realized_points": 1.0,
+      "hit_cost": 0.0,
+      "provisional": true,
+      "field_average": null,
+      "delta_vs_field": null,
+      "cumulative_points": null,
+      "cumulative_vs_field": null
     }
   ],
   "free_hit_audit": {
@@ -174,12 +188,12 @@
     },
     {
       "name": "Dara O'Shea",
-      "in_xi": true,
+      "in_xi": false,
       "is_captain": false
     },
     {
       "name": "Declan Rice",
-      "in_xi": false,
+      "in_xi": true,
       "is_captain": false
     },
     {
@@ -214,12 +228,12 @@
     },
     {
       "name": "Marc Gu\u00e9hi",
-      "in_xi": true,
+      "in_xi": false,
       "is_captain": false
     },
     {
-      "name": "Marcos Senesi Bar\u00f3n",
-      "in_xi": false,
+      "name": "Maxim De Cuyper",
+      "in_xi": true,
       "is_captain": false
     },
     {
@@ -229,10 +243,10 @@
     }
   ],
   "next_decision": {
-    "gameweek": 9,
+    "gameweek": 10,
     "action": "transfer",
-    "detail": "player_pascal_struijk -> player_gabriel_dos_santos_magalhaes (net +21.57)"
+    "detail": "player_marcos_senesi_baron -> player_maxim_de_cuyper (net +12.06)"
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-11-06T13:57:39.489737+00:00"
+  "generated_at": "2026-11-06T22:41:42.190778+00:00"
 }
