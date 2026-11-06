@@ -4,7 +4,7 @@
   "target_season": "2026-2027",
   "current_gameweek": 9,
   "plan_for_gameweek": 10,
-  "generated_at": "2026-11-05T14:06:19.824179+00:00",
+  "generated_at": "2026-11-06T13:51:51.168207+00:00",
   "risk_posture": {
     "posture": "attack",
     "label": "Attack rank",
@@ -34,65 +34,65 @@
   "transfer_recommendations": [
     {
       "rank": 1,
-      "player_out": "Jo\u00e3o Pedro Junqueira de Jesus",
-      "player_in": "Dominic Calvert-Lewin",
-      "player_out_club": "Chelsea",
-      "player_in_club": "Leeds",
-      "gain": 25.54,
-      "cost": 0.0,
-      "net": 25.54
-    },
-    {
-      "rank": 2,
       "player_out": "Bukayo Saka",
       "player_in": "Bryan Mbeumo",
       "player_out_club": "Arsenal",
       "player_in_club": "Man Utd",
-      "gain": 25.27,
+      "gain": 25.28,
       "cost": 0.0,
-      "net": 25.27
+      "net": 25.28
     },
     {
-      "rank": 3,
+      "rank": 2,
       "player_out": "Bukayo Saka",
       "player_in": "Marcus Tavernier",
       "player_out_club": "Arsenal",
       "player_in_club": "Bournemouth",
-      "gain": 22.61,
+      "gain": 22.62,
       "cost": 0.0,
-      "net": 22.61
+      "net": 22.62
     },
     {
-      "rank": 4,
+      "rank": 3,
       "player_out": "Jo\u00e3o Pedro Junqueira de Jesus",
       "player_in": "Thierno Barry",
       "player_out_club": "Chelsea",
       "player_in_club": "Everton",
-      "gain": 22.01,
+      "gain": 22.04,
       "cost": 0.0,
-      "net": 22.01
+      "net": 22.04
     },
     {
-      "rank": 5,
+      "rank": 4,
       "player_out": "Bukayo Saka",
       "player_in": "Declan Rice",
       "player_out_club": "Arsenal",
       "player_in_club": "Arsenal",
-      "gain": 21.86,
+      "gain": 21.88,
       "cost": 0.0,
-      "net": 21.86
+      "net": 21.88
+    },
+    {
+      "rank": 5,
+      "player_out": "Jo\u00e3o Pedro Junqueira de Jesus",
+      "player_in": "Francisco Evanilson de Lima Barbosa",
+      "player_out_club": "Chelsea",
+      "player_in_club": "Bournemouth",
+      "gain": 21.5,
+      "cost": 0.0,
+      "net": 21.5
     }
   ],
   "hold_vs_transfer_now": {
     "recommended_action": "transfer_now",
-    "transfer_now_value": 50.81,
-    "hold_value": 36.8
+    "transfer_now_value": 47.9,
+    "hold_value": 34.62
   },
   "chip_evaluations": [
     {
       "chip_type": "wildcard",
       "recommended": false,
-      "score": 4.815,
+      "score": 11.225,
       "preview_squad": [
         {
           "player_name": "Bryan Mbeumo",
@@ -123,15 +123,36 @@
           "is_vice": false
         },
         {
-          "player_name": "Dominic Calvert-Lewin",
-          "club": "Leeds",
+          "player_name": "Diego G\u00f3mez Amarilla",
+          "club": "Brighton",
           "in_xi": true,
+          "is_captain": false,
+          "is_vice": false
+        },
+        {
+          "player_name": "Ellery Balcombe",
+          "club": "Brentford",
+          "in_xi": false,
           "is_captain": false,
           "is_vice": false
         },
         {
           "player_name": "Erling Haaland",
           "club": "Man City",
+          "in_xi": true,
+          "is_captain": false,
+          "is_vice": false
+        },
+        {
+          "player_name": "Igor Thiago Nascimento Rodrigues",
+          "club": "Brentford",
+          "in_xi": true,
+          "is_captain": false,
+          "is_vice": false
+        },
+        {
+          "player_name": "James Hill",
+          "club": "Bournemouth",
           "in_xi": true,
           "is_captain": false,
           "is_vice": false
@@ -144,22 +165,15 @@
           "is_vice": false
         },
         {
-          "player_name": "Marcus Tavernier",
-          "club": "Bournemouth",
-          "in_xi": true,
-          "is_captain": false,
-          "is_vice": false
-        },
-        {
-          "player_name": "Maxim De Cuyper",
-          "club": "Brighton",
-          "in_xi": true,
-          "is_captain": false,
-          "is_vice": false
-        },
-        {
-          "player_name": "Paddy McNair",
+          "player_name": "Matt Targett",
           "club": "Hull City",
+          "in_xi": false,
+          "is_captain": false,
+          "is_vice": false
+        },
+        {
+          "player_name": "Milan van Ewijk",
+          "club": "Coventry City",
           "in_xi": false,
           "is_captain": false,
           "is_vice": false
@@ -169,26 +183,12 @@
           "club": "Everton",
           "in_xi": true,
           "is_captain": false,
-          "is_vice": false
+          "is_vice": true
         },
         {
           "player_name": "Virgil van Dijk",
           "club": "Liverpool",
           "in_xi": true,
-          "is_captain": false,
-          "is_vice": true
-        },
-        {
-          "player_name": "Wellity Lucky",
-          "club": "Liverpool",
-          "in_xi": false,
-          "is_captain": false,
-          "is_vice": false
-        },
-        {
-          "player_name": "Will Dennis",
-          "club": "Bournemouth",
-          "in_xi": false,
           "is_captain": false,
           "is_vice": false
         },
@@ -208,38 +208,17 @@
         "delta_vs_now": null,
         "stable_across_bundles": true
       },
-      "played_gameweek": 4,
-      "detail_timing": "Already played in GW4 -- back from GW20."
+      "detail_timing": "Already played in GW4 -- back from GW20.",
+      "played_gameweek": 4
     },
     {
       "chip_type": "free_hit",
       "recommended": false,
-      "score": 10.561,
+      "score": 10.335,
       "preview_squad": [
         {
-          "player_name": "Alex Murphy",
-          "club": "Newcastle",
-          "in_xi": false,
-          "is_captain": false,
-          "is_vice": false
-        },
-        {
-          "player_name": "Alfie McNally",
-          "club": "Fulham",
-          "in_xi": false,
-          "is_captain": false,
-          "is_vice": false
-        },
-        {
-          "player_name": "Andr\u00e9s Garc\u00eda",
-          "club": "Aston Villa",
-          "in_xi": false,
-          "is_captain": false,
-          "is_vice": false
-        },
-        {
-          "player_name": "Bendito Mantato",
-          "club": "Man Utd",
+          "player_name": "Anthony Patterson",
+          "club": "Sunderland",
           "in_xi": false,
           "is_captain": false,
           "is_vice": false
@@ -273,13 +252,6 @@
           "is_vice": false
         },
         {
-          "player_name": "Dominic Calvert-Lewin",
-          "club": "Leeds",
-          "in_xi": true,
-          "is_captain": false,
-          "is_vice": false
-        },
-        {
           "player_name": "Erling Haaland",
           "club": "Man City",
           "in_xi": true,
@@ -290,6 +262,20 @@
           "player_name": "Gabriel dos Santos Magalh\u00e3es",
           "club": "Arsenal",
           "in_xi": true,
+          "is_captain": false,
+          "is_vice": false
+        },
+        {
+          "player_name": "Gonzalo Garc\u00eda",
+          "club": "Fulham",
+          "in_xi": true,
+          "is_captain": false,
+          "is_vice": false
+        },
+        {
+          "player_name": "Jacob Greaves",
+          "club": "Ipswich",
+          "in_xi": false,
           "is_captain": false,
           "is_vice": false
         },
@@ -308,16 +294,30 @@
           "is_vice": false
         },
         {
+          "player_name": "Milan van Ewijk",
+          "club": "Coventry City",
+          "in_xi": false,
+          "is_captain": false,
+          "is_vice": false
+        },
+        {
           "player_name": "Thierno Barry",
           "club": "Everton",
           "in_xi": true,
           "is_captain": false,
-          "is_vice": true
+          "is_vice": false
         },
         {
           "player_name": "Virgil van Dijk",
           "club": "Liverpool",
           "in_xi": true,
+          "is_captain": false,
+          "is_vice": true
+        },
+        {
+          "player_name": "Will Hughes",
+          "club": "Crystal Palace",
+          "in_xi": false,
           "is_captain": false,
           "is_vice": false
         }
@@ -334,7 +334,7 @@
     {
       "chip_type": "bench_boost",
       "recommended": false,
-      "score": 4.148,
+      "score": 4.149,
       "timing": {
         "available": true,
         "recommended_gameweeks": [],
@@ -346,7 +346,7 @@
     {
       "chip_type": "triple_captain",
       "recommended": false,
-      "score": 4.048,
+      "score": 4.011,
       "timing": {
         "available": false,
         "reason": "per-week call, not swept"
@@ -358,10 +358,10 @@
   "captain_recommendation": {
     "recommended_uid": "player_cole_palmer",
     "recommended_name": "Cole Palmer",
-    "recommended_expected_points": 5.96,
+    "recommended_expected_points": 5.97,
     "current_uid": "player_cole_palmer",
     "current_name": "Cole Palmer",
-    "current_expected_points": 5.96,
+    "current_expected_points": 5.97,
     "matches_current": true,
     "potential_gain": 0.0
   },
@@ -372,43 +372,43 @@
     "top_transfers": [
       {
         "rank": 1,
-        "player_out": "player_joao_pedro_junqueira_de_jesus",
-        "player_in": "player_dominic_calvert_lewin",
-        "horizon_value_gain": 25.543578052311286,
+        "player_out": "player_bukayo_saka",
+        "player_in": "player_bryan_mbeumo",
+        "horizon_value_gain": 25.283497974109615,
         "transfer_cost": 0.0,
-        "net_value": 25.543578052311286
+        "net_value": 25.283497974109615
       },
       {
         "rank": 2,
         "player_out": "player_bukayo_saka",
-        "player_in": "player_bryan_mbeumo",
-        "horizon_value_gain": 25.268594334341213,
+        "player_in": "player_marcus_tavernier",
+        "horizon_value_gain": 22.61873380852129,
         "transfer_cost": 0.0,
-        "net_value": 25.268594334341213
+        "net_value": 22.61873380852129
       },
       {
         "rank": 3,
-        "player_out": "player_bukayo_saka",
-        "player_in": "player_marcus_tavernier",
-        "horizon_value_gain": 22.612864188956923,
+        "player_out": "player_joao_pedro_junqueira_de_jesus",
+        "player_in": "player_thierno_barry",
+        "horizon_value_gain": 22.036922783395564,
         "transfer_cost": 0.0,
-        "net_value": 22.612864188956923
+        "net_value": 22.036922783395564
       },
       {
         "rank": 4,
-        "player_out": "player_joao_pedro_junqueira_de_jesus",
-        "player_in": "player_thierno_barry",
-        "horizon_value_gain": 22.011724622255212,
+        "player_out": "player_bukayo_saka",
+        "player_in": "player_declan_rice",
+        "horizon_value_gain": 21.875321099671016,
         "transfer_cost": 0.0,
-        "net_value": 22.011724622255212
+        "net_value": 21.875321099671016
       },
       {
         "rank": 5,
-        "player_out": "player_bukayo_saka",
-        "player_in": "player_declan_rice",
-        "horizon_value_gain": 21.856032759488464,
+        "player_out": "player_joao_pedro_junqueira_de_jesus",
+        "player_in": "player_francisco_evanilson_de_lima_barbosa",
+        "horizon_value_gain": 21.498737819551977,
         "transfer_cost": 0.0,
-        "net_value": 21.856032759488464
+        "net_value": 21.498737819551977
       }
     ],
     "top_multi_transfers": [
@@ -420,48 +420,16 @@
         ],
         "players_in": [
           "player_bryan_mbeumo",
-          "player_dominic_calvert_lewin"
-        ],
-        "combined_price_out": 17.2,
-        "combined_price_in": 14.0,
-        "horizon_value_gain": 50.8121723866525,
-        "transfer_cost": 0.0,
-        "net_value": 50.8121723866525
-      },
-      {
-        "rank": 2,
-        "players_out": [
-          "player_bukayo_saka",
-          "player_joao_pedro_junqueira_de_jesus"
-        ],
-        "players_in": [
-          "player_dominic_calvert_lewin",
-          "player_marcus_tavernier"
-        ],
-        "combined_price_out": 17.2,
-        "combined_price_in": 12.7,
-        "horizon_value_gain": 48.156442241268216,
-        "transfer_cost": 0.0,
-        "net_value": 48.156442241268216
-      },
-      {
-        "rank": 3,
-        "players_out": [
-          "player_bukayo_saka",
-          "player_joao_pedro_junqueira_de_jesus"
-        ],
-        "players_in": [
-          "player_bryan_mbeumo",
           "player_igor_thiago_nascimento_rodrigues"
         ],
         "combined_price_out": 17.2,
         "combined_price_in": 15.7,
-        "horizon_value_gain": 47.87625622563426,
+        "horizon_value_gain": 47.897122312708014,
         "transfer_cost": 0.0,
-        "net_value": 47.87625622563426
+        "net_value": 47.897122312708014
       },
       {
-        "rank": 4,
+        "rank": 2,
         "players_out": [
           "player_bukayo_saka",
           "player_joao_pedro_junqueira_de_jesus"
@@ -472,9 +440,41 @@
         ],
         "combined_price_out": 17.2,
         "combined_price_in": 17.1,
-        "horizon_value_gain": 47.615249914028134,
+        "horizon_value_gain": 47.62821793849833,
         "transfer_cost": 0.0,
-        "net_value": 47.615249914028134
+        "net_value": 47.62821793849833
+      },
+      {
+        "rank": 3,
+        "players_out": [
+          "player_bukayo_saka",
+          "player_joao_pedro_junqueira_de_jesus"
+        ],
+        "players_in": [
+          "player_bryan_mbeumo",
+          "player_thierno_barry"
+        ],
+        "combined_price_out": 17.2,
+        "combined_price_in": 13.5,
+        "horizon_value_gain": 47.32042075750518,
+        "transfer_cost": 0.0,
+        "net_value": 47.32042075750518
+      },
+      {
+        "rank": 4,
+        "players_out": [
+          "player_bukayo_saka",
+          "player_joao_pedro_junqueira_de_jesus"
+        ],
+        "players_in": [
+          "player_bryan_mbeumo",
+          "player_francisco_evanilson_de_lima_barbosa"
+        ],
+        "combined_price_out": 17.2,
+        "combined_price_in": 14.3,
+        "horizon_value_gain": 46.78223579366159,
+        "transfer_cost": 0.0,
+        "net_value": 46.78223579366159
       },
       {
         "rank": 5,
@@ -483,32 +483,32 @@
           "player_joao_pedro_junqueira_de_jesus"
         ],
         "players_in": [
-          "player_declan_rice",
-          "player_dominic_calvert_lewin"
+          "player_bryan_mbeumo",
+          "player_gonzalo_garcia"
         ],
         "combined_price_out": 17.2,
-        "combined_price_in": 13.5,
-        "horizon_value_gain": 47.399610811799754,
+        "combined_price_in": 13.8,
+        "horizon_value_gain": 46.200354903959436,
         "transfer_cost": 0.0,
-        "net_value": 47.399610811799754
+        "net_value": 46.200354903959436
       }
     ],
     "hold_recommendation": {
       "recommended_action": "transfer_now",
-      "transfer_now_value": 50.8121723866525,
-      "hold_value": 36.80235696068363,
+      "transfer_now_value": 47.897122312708014,
+      "hold_value": 34.623708422460034,
       "detail": {
         "recommended_action": "transfer_now",
-        "transfer_now_value": 50.8121723866525,
-        "hold_value": 36.80235696068363,
+        "transfer_now_value": 47.897122312708014,
+        "hold_value": 34.623708422460034,
         "best_transfer_now": {
-          "player_out": "player_joao_pedro_junqueira_de_jesus",
-          "player_in": "player_dominic_calvert_lewin",
-          "price_out": 7.7,
-          "price_in": 6.1,
-          "horizon_value_gain": 25.543578052311286,
+          "player_out": "player_bukayo_saka",
+          "player_in": "player_bryan_mbeumo",
+          "price_out": 9.5,
+          "price_in": 7.9,
+          "horizon_value_gain": 25.283497974109615,
           "transfer_cost": 0.0,
-          "net_value": 25.543578052311286,
+          "net_value": 25.283497974109615,
           "rank": 1
         },
         "best_multi_transfer_now": {
@@ -518,23 +518,23 @@
           ],
           "players_in": [
             "player_bryan_mbeumo",
-            "player_dominic_calvert_lewin"
+            "player_igor_thiago_nascimento_rodrigues"
           ],
           "combined_price_out": 17.2,
-          "combined_price_in": 14.0,
-          "horizon_value_gain": 50.8121723866525,
+          "combined_price_in": 15.7,
+          "horizon_value_gain": 47.897122312708014,
           "transfer_cost": 0.0,
-          "net_value": 50.8121723866525,
+          "net_value": 47.897122312708014,
           "rank": 1
         },
         "best_hold_single_next_week": {
-          "player_out": "player_joao_pedro_junqueira_de_jesus",
-          "player_in": "player_dominic_calvert_lewin",
-          "price_out": 7.7,
-          "price_in": 6.1,
-          "horizon_value_gain": 20.542947383926816,
+          "player_out": "player_bukayo_saka",
+          "player_in": "player_bryan_mbeumo",
+          "price_out": 9.5,
+          "price_in": 7.9,
+          "horizon_value_gain": 20.27429664202309,
           "transfer_cost": 0.0,
-          "net_value": 20.542947383926816,
+          "net_value": 20.27429664202309,
           "rank": 1
         },
         "best_hold_multi_next_week": {
@@ -544,13 +544,13 @@
           ],
           "players_in": [
             "player_bryan_mbeumo",
-            "player_dominic_calvert_lewin"
+            "player_igor_thiago_nascimento_rodrigues"
           ],
           "combined_price_out": 17.2,
-          "combined_price_in": 14.0,
-          "horizon_value_gain": 40.80235696068363,
+          "combined_price_in": 15.7,
+          "horizon_value_gain": 38.623708422460034,
           "transfer_cost": 0.0,
-          "net_value": 40.80235696068363,
+          "net_value": 38.623708422460034,
           "rank": 1
         },
         "wasted_free_transfer_cost": 4.0
@@ -558,244 +558,244 @@
     },
     "chips": {
       "wildcard": {
-        "recommended": false,
-        "score_or_gain": 4.8149153928097235,
+        "recommended": true,
+        "score_or_gain": 11.224570284622246,
         "gw19_urgent": false,
         "detail": {
-          "recommended": false,
+          "recommended": true,
           "fresh_run_id": 11,
-          "fresh_squad_horizon_value": 269.30433552210945,
-          "baseline_value": 264.48942012929973,
-          "gain": 4.8149153928097235,
+          "fresh_squad_horizon_value": 275.71623032652553,
+          "baseline_value": 264.4916600419033,
+          "gain": 11.224570284622246,
           "current_squad_value_per_gw": {
-            "10": 48.513026797941286,
-            "11": 47.16404471782067,
-            "12": 45.6868465686822,
-            "13": 49.57320035955325,
-            "14": 48.008723632991064
+            "10": 48.569586404908,
+            "11": 47.231944075582064,
+            "12": 45.730555210902715,
+            "13": 49.606141664424236,
+            "14": 48.069934711976664
           }
         }
       },
       "free_hit": {
         "recommended": true,
-        "score_or_gain": 10.561408704231567,
+        "score_or_gain": 10.33485522916746,
         "gw19_urgent": false,
         "detail": {
           "recommended": true,
           "fresh_run_id": 12,
-          "fresh_gw_value": 55.25934359515084,
-          "current_gw_value": 44.69793489091927,
-          "gain": 10.561408704231567,
+          "fresh_gw_value": 55.08111023334545,
+          "current_gw_value": 44.74625500417799,
+          "gain": 10.33485522916746,
           "threshold": 1.5,
           "current_xi_value_per_gw": {
-            "10": 44.69793489091927,
-            "11": 43.08354826191211,
-            "12": 41.826812902073314,
-            "13": 45.42503713683096,
-            "14": 44.373508950519316
+            "10": 44.74625500417799,
+            "11": 43.15205109533717,
+            "12": 41.86424988051919,
+            "13": 45.457363977593616,
+            "14": 44.43301634743615
           }
         }
       },
       "triple_captain": {
         "recommended": true,
-        "score_or_gain": 4.048106398437187,
+        "score_or_gain": 4.011011801796011,
         "gw19_urgent": false,
         "detail": {
           "recommended": true,
           "captain_candidate": "player_cole_palmer",
-          "tc_score": 4.048106398437187,
+          "tc_score": 4.011011801796011,
           "all_candidates": [
             {
               "player_uid": "player_cole_palmer",
-              "tc_score": 4.048106398437187,
-              "mean_total": 6.0314,
-              "var_total": 15.733814039999974
+              "tc_score": 4.011011801796011,
+              "mean_total": 5.9874,
+              "var_total": 15.624441240000047
             },
             {
               "player_uid": "player_gabriel_dos_santos_magalhaes",
-              "tc_score": 3.474173449771116,
-              "mean_total": 5.1455,
-              "var_total": 11.173329749999937
-            },
-            {
-              "player_uid": "player_martin_degaard",
-              "tc_score": 3.3329635133291466,
-              "mean_total": 4.8534,
-              "var_total": 9.24690844000003
+              "tc_score": 3.4321279217410794,
+              "mean_total": 5.1183,
+              "var_total": 11.372705110000025
             },
             {
               "player_uid": "player_erling_haaland",
-              "tc_score": 3.2326064940246035,
-              "mean_total": 4.9026,
-              "var_total": 11.155513239999982
+              "tc_score": 3.276291144706044,
+              "mean_total": 4.951,
+              "var_total": 11.218598999999967
+            },
+            {
+              "player_uid": "player_martin_degaard",
+              "tc_score": 3.2609316755119764,
+              "mean_total": 4.7779,
+              "var_total": 9.204771590000004
             },
             {
               "player_uid": "player_pascal_gross",
-              "tc_score": 2.6795789107341403,
-              "mean_total": 3.8965,
-              "var_total": 5.923587750000026
+              "tc_score": 2.655765109538506,
+              "mean_total": 3.8938,
+              "var_total": 6.130921560000015
             },
             {
               "player_uid": "player_tarik_muharemovic",
-              "tc_score": 2.5594599316603324,
-              "mean_total": 3.9964,
-              "var_total": 8.259187040000036
+              "tc_score": 2.6319610810998086,
+              "mean_total": 4.1062,
+              "var_total": 8.693521560000024
             },
             {
               "player_uid": "player_regan_slater",
-              "tc_score": 2.1146258492111523,
-              "mean_total": 2.9334,
-              "var_total": 2.681564439999993
+              "tc_score": 2.120379442771651,
+              "mean_total": 2.924,
+              "var_total": 2.5832240000000075
             },
             {
               "player_uid": "player_antonin_kinsky",
-              "tc_score": 2.0915545254502588,
-              "mean_total": 3.2442,
-              "var_total": 5.314366359999997
+              "tc_score": 2.1003327646456693,
+              "mean_total": 3.2482,
+              "var_total": 5.270396759999981
             },
             {
               "player_uid": "player_lewis_hall",
-              "tc_score": 1.8826426479485259,
-              "mean_total": 3.1527,
-              "var_total": 6.452182710000006
+              "tc_score": 1.901369424460279,
+              "mean_total": 3.1846,
+              "var_total": 6.586722840000015
             },
             {
               "player_uid": "player_yoane_wissa",
-              "tc_score": 1.6623312029752912,
-              "mean_total": 2.888,
-              "var_total": 6.009055999999986
+              "tc_score": 1.6578901844336646,
+              "mean_total": 2.8998,
+              "var_total": 6.169359960000036
             },
             {
               "player_uid": "player_leif_davis",
-              "tc_score": 1.3378226956766262,
-              "mean_total": 2.6244,
-              "var_total": 6.621124639999998
+              "tc_score": 1.2954598598478344,
+              "mean_total": 2.5598,
+              "var_total": 6.394223959999991
             }
           ],
           "captain_value_per_gw": {
-            "10": 5.962746468925117,
-            "11": 5.776392306424459,
-            "12": 5.370630586746531,
-            "13": 7.123952171740784,
-            "14": 5.516347303931625
+            "10": 5.967511882927609,
+            "11": 5.803375898507163,
+            "12": 5.3696474908139145,
+            "13": 7.109356392922264,
+            "14": 5.516314817881155
           },
           "best_captain_value_per_gw": {
-            "10": 5.962746468925117,
-            "11": 5.891996043463858,
-            "12": 5.370630586746531,
-            "13": 7.123952171740784,
-            "14": 5.516347303931625
+            "10": 5.967511882927609,
+            "11": 5.891963346456782,
+            "12": 5.3696474908139145,
+            "13": 7.109356392922264,
+            "14": 5.516314817881155
           },
           "vice_captain_uid": "player_erling_haaland",
           "vice_fallback_adjusted_candidates": [
             {
               "player_uid": "player_cole_palmer",
-              "tc_score": 4.048106398437187,
-              "mean_total": 6.0314,
-              "var_total": 15.733814039999974,
-              "vice_fallback_correction": 0.024516644299728062,
-              "tc_score_vice_adjusted": 4.0726230427369154
+              "tc_score": 4.011011801796011,
+              "mean_total": 5.9874,
+              "var_total": 15.624441240000047,
+              "vice_fallback_correction": 0.02475868027739437,
+              "tc_score_vice_adjusted": 4.0357704820734055
             },
             {
               "player_uid": "player_gabriel_dos_santos_magalhaes",
-              "tc_score": 3.474173449771116,
-              "mean_total": 5.1455,
-              "var_total": 11.173329749999937,
-              "vice_fallback_correction": 0.024517020634830883,
-              "tc_score_vice_adjusted": 3.498690470405947
-            },
-            {
-              "player_uid": "player_martin_degaard",
-              "tc_score": 3.3329635133291466,
-              "mean_total": 4.8534,
-              "var_total": 9.24690844000003,
-              "vice_fallback_correction": 0.024516049933263243,
-              "tc_score_vice_adjusted": 3.3574795632624097
+              "tc_score": 3.4321279217410794,
+              "mean_total": 5.1183,
+              "var_total": 11.372705110000025,
+              "vice_fallback_correction": 0.024759060327794985,
+              "tc_score_vice_adjusted": 3.4568869820688746
             },
             {
               "player_uid": "player_erling_haaland",
-              "tc_score": 3.2326064940246035,
-              "mean_total": 4.9026,
-              "var_total": 11.155513239999982,
-              "vice_fallback_correction": 0.024516750915867164,
-              "tc_score_vice_adjusted": 3.2571232449404706
+              "tc_score": 3.276291144706044,
+              "mean_total": 4.951,
+              "var_total": 11.218598999999967,
+              "vice_fallback_correction": 0.024758788370395014,
+              "tc_score_vice_adjusted": 3.301049933076439
+            },
+            {
+              "player_uid": "player_martin_degaard",
+              "tc_score": 3.2609316755119764,
+              "mean_total": 4.7779,
+              "var_total": 9.204771590000004,
+              "vice_fallback_correction": 0.02475808004315798,
+              "tc_score_vice_adjusted": 3.2856897555551345
             },
             {
               "player_uid": "player_pascal_gross",
-              "tc_score": 2.6795789107341403,
-              "mean_total": 3.8965,
-              "var_total": 5.923587750000026,
-              "vice_fallback_correction": 0.024517349714404547,
-              "tc_score_vice_adjusted": 2.704096260448545
+              "tc_score": 2.655765109538506,
+              "mean_total": 3.8938,
+              "var_total": 6.130921560000015,
+              "vice_fallback_correction": 0.024759392656145088,
+              "tc_score_vice_adjusted": 2.680524502194651
             },
             {
               "player_uid": "player_tarik_muharemovic",
-              "tc_score": 2.5594599316603324,
-              "mean_total": 3.9964,
-              "var_total": 8.259187040000036,
-              "vice_fallback_correction": 0.024517099327846268,
-              "tc_score_vice_adjusted": 2.5839770309881787
+              "tc_score": 2.6319610810998086,
+              "mean_total": 4.1062,
+              "var_total": 8.693521560000024,
+              "vice_fallback_correction": 0.024759139797692425,
+              "tc_score_vice_adjusted": 2.656720220897501
             },
             {
               "player_uid": "player_regan_slater",
-              "tc_score": 2.1146258492111523,
-              "mean_total": 2.9334,
-              "var_total": 2.681564439999993,
-              "vice_fallback_correction": 0.024516391021213363,
-              "tc_score_vice_adjusted": 2.1391422402323657
+              "tc_score": 2.120379442771651,
+              "mean_total": 2.924,
+              "var_total": 2.5832240000000075,
+              "vice_fallback_correction": 0.02475842449843499,
+              "tc_score_vice_adjusted": 2.145137867270086
             },
             {
               "player_uid": "player_antonin_kinsky",
-              "tc_score": 2.0915545254502588,
-              "mean_total": 3.2442,
-              "var_total": 5.314366359999997,
-              "vice_fallback_correction": 0.024517829061000137,
-              "tc_score_vice_adjusted": 2.116072354511259
+              "tc_score": 2.1003327646456693,
+              "mean_total": 3.2482,
+              "var_total": 5.270396759999981,
+              "vice_fallback_correction": 0.024759876735000137,
+              "tc_score_vice_adjusted": 2.1250926413806694
             },
             {
               "player_uid": "player_yoane_wissa",
-              "tc_score": 1.6623312029752912,
-              "mean_total": 2.888,
-              "var_total": 6.009055999999986,
-              "vice_fallback_correction": 0.399014053373391,
-              "tc_score_vice_adjusted": 2.061345256348682
+              "tc_score": 1.6578901844336646,
+              "mean_total": 2.8998,
+              "var_total": 6.169359960000036,
+              "vice_fallback_correction": 0.4029532448602082,
+              "tc_score_vice_adjusted": 2.0608434292938727
             },
             {
               "player_uid": "player_lewis_hall",
-              "tc_score": 1.8826426479485259,
-              "mean_total": 3.1527,
-              "var_total": 6.452182710000006,
-              "vice_fallback_correction": 0.02451597612961547,
-              "tc_score_vice_adjusted": 1.9071586240781413
+              "tc_score": 1.901369424460279,
+              "mean_total": 3.1846,
+              "var_total": 6.586722840000015,
+              "vice_fallback_correction": 0.024758005510897522,
+              "tc_score_vice_adjusted": 1.9261274299711766
             },
             {
               "player_uid": "player_leif_davis",
-              "tc_score": 1.3378226956766262,
-              "mean_total": 2.6244,
-              "var_total": 6.621124639999998,
-              "vice_fallback_correction": 0.024516971985953956,
-              "tc_score_vice_adjusted": 1.36233966766258
+              "tc_score": 1.2954598598478344,
+              "mean_total": 2.5598,
+              "var_total": 6.394223959999991,
+              "vice_fallback_correction": 0.02475901119864114,
+              "tc_score_vice_adjusted": 1.3202188710464755
             }
           ]
         }
       },
       "bench_boost": {
         "recommended": true,
-        "score_or_gain": 4.1481632227222915,
+        "score_or_gain": 4.148777686830618,
         "gw19_urgent": false,
         "detail": {
           "recommended": true,
           "target_gameweek": 13,
-          "bench_ep_sum": 4.1481632227222915,
+          "bench_ep_sum": 4.148777686830618,
           "all_gameweeks": {
-            "10": 3.815091907022014,
-            "11": 4.08049645590856,
-            "12": 3.860033666608893,
-            "13": 4.1481632227222915,
-            "14": 3.6352146824717497
+            "10": 3.823331400730012,
+            "11": 4.0798929802448916,
+            "12": 3.866305330383537,
+            "13": 4.148777686830618,
+            "14": 3.636918364540515
           },
           "crowded_chip_week": {
-            "crowded_score": 0.049491764325668264,
+            "crowded_score": 0.049752456148971155,
             "caveat": "an ownership+fixture-swing-based PROXY for field-wide chip timing, not measured rival-manager chip usage -- no such data is ingested anywhere in this project"
           }
         }
@@ -816,80 +816,6 @@
         "rank": 1,
         "gameweek": 10,
         "player_in": {
-          "player_uid": "player_dominic_calvert_lewin",
-          "name": "Dominic Calvert-Lewin",
-          "ep": {
-            "player_uid": "player_dominic_calvert_lewin",
-            "fixture_match_id": "26-27-prem-leeds-united-vs-tottenham-hotspur",
-            "categories": {
-              "appearance": 1.9849985562553303,
-              "goals": 2.2649026280511704,
-              "assists": 0.12662260159664718,
-              "clean_sheet": 0.0,
-              "goals_conceded": 0.0,
-              "defcon": 0.00040307581658875747,
-              "bonus": 0.6530522119156856,
-              "saves": 0.0,
-              "penalty_save": 0.0,
-              "cards": 0.0,
-              "own_goal": 0.0
-            },
-            "total": 5.029979073635422,
-            "expected_bps": 21.039700436356835
-          },
-          "risk": {
-            "player_uid": "player_dominic_calvert_lewin",
-            "fixture_match_id": "26-27-prem-leeds-united-vs-tottenham-hotspur",
-            "floor": 0.8504285688113322,
-            "q25": 2.4880533159687546,
-            "q75": 6.910388723902364,
-            "ceiling": 11.279461444410972,
-            "var_total": 10.684497136759639,
-            "skew": 1.11387760595669,
-            "excess_kurtosis": 1.3016956688100638,
-            "caveat": "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending per-gameweek panel reconciliation' caveat attached at the display layer, not buried only in internal docs."
-          }
-        },
-        "player_out": {
-          "player_uid": "player_joao_pedro_junqueira_de_jesus",
-          "name": "Jo\u00e3o Pedro Junqueira de Jesus",
-          "ep": {
-            "player_uid": "player_joao_pedro_junqueira_de_jesus",
-            "fixture_match_id": "26-27-prem-sunderland-vs-chelsea",
-            "categories": {
-              "appearance": 0.015,
-              "goals": 0.01158310560460907,
-              "assists": 0.0016975748960385752,
-              "clean_sheet": 0.0,
-              "goals_conceded": 0.0,
-              "defcon": 2.3051695642761773e-07,
-              "bonus": 0.0010674942333440923,
-              "saves": 0.0,
-              "penalty_save": 0.0,
-              "cards": 0.0,
-              "own_goal": 0.0
-            },
-            "total": 0.029348405250948163,
-            "expected_bps": 0.1278489008306822
-          },
-          "risk": {
-            "player_uid": "player_joao_pedro_junqueira_de_jesus",
-            "fixture_match_id": "26-27-prem-sunderland-vs-chelsea",
-            "floor": 0.5816348497329918,
-            "q25": 0.16977670657508517,
-            "q75": -0.46565931780148373,
-            "ceiling": 0.5865666815701195,
-            "var_total": 0.12849648939064484,
-            "skew": 5.444299255467419,
-            "excess_kurtosis": 53.578165933422966,
-            "caveat": "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending per-gameweek panel reconciliation' caveat attached at the display layer, not buried only in internal docs."
-          }
-        }
-      },
-      {
-        "rank": 2,
-        "gameweek": 10,
-        "player_in": {
           "player_uid": "player_bryan_mbeumo",
           "name": "Bryan Mbeumo",
           "ep": {
@@ -897,30 +823,30 @@
             "fixture_match_id": "26-27-prem-manchester-united-vs-aston-villa",
             "categories": {
               "appearance": 1.9849983980841537,
-              "goals": 1.744586708750793,
-              "assists": 0.5943631116636718,
-              "clean_sheet": 0.26675400465005655,
+              "goals": 1.7446238597628598,
+              "assists": 0.5943750812263725,
+              "clean_sheet": 0.26675376055279143,
               "goals_conceded": 0.0,
-              "defcon": 0.03916528869183993,
-              "bonus": 0.4178598885836776,
+              "defcon": 0.039164578435328196,
+              "bonus": 0.4178362431535927,
               "saves": 0.0,
               "penalty_save": 0.0,
               "cards": 0.0,
               "own_goal": 0.0
             },
-            "total": 5.0477274004241925,
-            "expected_bps": 16.002499689450595
+            "total": 5.047751921215098,
+            "expected_bps": 16.00266400597823
           },
           "risk": {
             "player_uid": "player_bryan_mbeumo",
             "fixture_match_id": "26-27-prem-manchester-united-vs-aston-villa",
-            "floor": 0.8591394672226889,
-            "q25": 2.3492075511347847,
-            "q75": 6.962667101602104,
-            "ceiling": 11.688194433710667,
-            "var_total": 11.7364196623142,
-            "skew": 1.2588955615733275,
-            "excess_kurtosis": 1.7141495804618094,
+            "floor": 0.859125413477539,
+            "q25": 2.3492113422892524,
+            "q75": 6.962708978690234,
+            "ceiling": 11.688268084460628,
+            "var_total": 11.736601799976512,
+            "skew": 1.258891212824232,
+            "excess_kurtosis": 1.714133181136475,
             "caveat": "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending per-gameweek panel reconciliation' caveat attached at the display layer, not buried only in internal docs."
           }
         },
@@ -932,30 +858,104 @@
             "fixture_match_id": "26-27-prem-arsenal-vs-hull-city",
             "categories": {
               "appearance": 0.015,
-              "goals": 0.013305364914428857,
-              "assists": 0.006537961536667187,
-              "clean_sheet": 0.0028023641826605554,
+              "goals": 0.013305107267614472,
+              "assists": 0.006537826658395305,
+              "clean_sheet": 0.0028023210437541977,
               "goals_conceded": 0.0,
-              "defcon": 4.957926872206642e-06,
-              "bonus": 0.0008919942791649506,
+              "defcon": 4.958266034886804e-06,
+              "bonus": 0.000900375892778029,
               "saves": 0.0,
               "penalty_save": 0.0,
               "cards": 0.0,
               "own_goal": 0.0
             },
-            "total": 0.03854264283979375,
-            "expected_bps": 0.12397989785365722
+            "total": 0.03855058912857689,
+            "expected_bps": 0.12397865383996923
           },
           "risk": {
             "player_uid": "player_bukayo_saka",
             "fixture_match_id": "26-27-prem-arsenal-vs-hull-city",
-            "floor": 0.45978322409027106,
-            "q25": 0.23005805665560045,
-            "q75": -0.5339431878404864,
-            "ceiling": 0.8093861197573488,
-            "var_total": 0.21147049684741653,
-            "skew": 4.559743922431131,
-            "excess_kurtosis": 43.319394090073885,
+            "floor": 0.4597292838478449,
+            "q25": 0.22996055711842592,
+            "q75": -0.5338330263119215,
+            "ceiling": 0.8094660613157325,
+            "var_total": 0.21148821242088933,
+            "skew": 4.5595916066125435,
+            "excess_kurtosis": 43.31426287870918,
+            "caveat": "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending per-gameweek panel reconciliation' caveat attached at the display layer, not buried only in internal docs."
+          }
+        }
+      },
+      {
+        "rank": 2,
+        "gameweek": 10,
+        "player_in": {
+          "player_uid": "player_marcus_tavernier",
+          "name": "Marcus Tavernier",
+          "ep": {
+            "player_uid": "player_marcus_tavernier",
+            "fixture_match_id": "26-27-prem-ipswich-town-vs-afc-bournemouth",
+            "categories": {
+              "appearance": 1.886498825934404,
+              "goals": 1.8004999327159834,
+              "assists": 0.6865180559088286,
+              "clean_sheet": 0.2352900753759427,
+              "goals_conceded": 0.0,
+              "defcon": 0.15153782283006959,
+              "bonus": 0.3897671060422807,
+              "saves": 0.0,
+              "penalty_save": 0.0,
+              "cards": 0.0,
+              "own_goal": 0.0
+            },
+            "total": 5.150111818807509,
+            "expected_bps": 16.67060657802286
+          },
+          "risk": {
+            "player_uid": "player_marcus_tavernier",
+            "fixture_match_id": "26-27-prem-ipswich-town-vs-afc-bournemouth",
+            "floor": 0.5305714358788709,
+            "q25": 2.3636894300860996,
+            "q75": 7.201734591140692,
+            "ceiling": 12.068893481029496,
+            "var_total": 13.122374306696077,
+            "skew": 1.1164436373109625,
+            "excess_kurtosis": 1.429230406862087,
+            "caveat": "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending per-gameweek panel reconciliation' caveat attached at the display layer, not buried only in internal docs."
+          }
+        },
+        "player_out": {
+          "player_uid": "player_bukayo_saka",
+          "name": "Bukayo Saka",
+          "ep": {
+            "player_uid": "player_bukayo_saka",
+            "fixture_match_id": "26-27-prem-arsenal-vs-hull-city",
+            "categories": {
+              "appearance": 0.015,
+              "goals": 0.013305107267614472,
+              "assists": 0.006537826658395305,
+              "clean_sheet": 0.0028023210437541977,
+              "goals_conceded": 0.0,
+              "defcon": 4.958266034886804e-06,
+              "bonus": 0.000900375892778029,
+              "saves": 0.0,
+              "penalty_save": 0.0,
+              "cards": 0.0,
+              "own_goal": 0.0
+            },
+            "total": 0.03855058912857689,
+            "expected_bps": 0.12397865383996923
+          },
+          "risk": {
+            "player_uid": "player_bukayo_saka",
+            "fixture_match_id": "26-27-prem-arsenal-vs-hull-city",
+            "floor": 0.4597292838478449,
+            "q25": 0.22996055711842592,
+            "q75": -0.5338330263119215,
+            "ceiling": 0.8094660613157325,
+            "var_total": 0.21148821242088933,
+            "skew": 4.5595916066125435,
+            "excess_kurtosis": 43.31426287870918,
             "caveat": "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending per-gameweek panel reconciliation' caveat attached at the display layer, not buried only in internal docs."
           }
         }
@@ -971,30 +971,30 @@
           "fixture_match_id": "26-27-prem-sunderland-vs-chelsea",
           "categories": {
             "appearance": 1.9849982731571711,
-            "goals": 2.337730767314383,
-            "assists": 0.7284600927369248,
-            "clean_sheet": 0.29531491316824576,
+            "goals": 2.337737174493764,
+            "assists": 0.728460958680888,
+            "clean_sheet": 0.2953206156790201,
             "goals_conceded": 0.0,
-            "defcon": 0.014011914192990724,
-            "bonus": 0.6022305083554016,
+            "defcon": 0.014010461044913415,
+            "bonus": 0.6069843998718535,
             "saves": 0.0,
             "penalty_save": 0.0,
             "cards": 0.0,
             "own_goal": 0.0
           },
-          "total": 5.962746468925117,
-          "expected_bps": 18.272145358319428
+          "total": 5.967511882927609,
+          "expected_bps": 18.27214700978108
         },
         "risk": {
           "player_uid": "player_cole_palmer",
           "fixture_match_id": "26-27-prem-sunderland-vs-chelsea",
-          "floor": 0.9467846755267058,
-          "q25": 2.928244560001592,
-          "q75": 8.208399940598493,
-          "ceiling": 13.447072221121928,
-          "var_total": 15.35454522317996,
-          "skew": 1.1080240409098605,
-          "excess_kurtosis": 1.325716323717547,
+          "floor": 0.9496186341798918,
+          "q25": 2.932759111094912,
+          "q75": 8.21373496808204,
+          "ceiling": 13.452771696822015,
+          "var_total": 15.360589666531883,
+          "skew": 1.107358381882278,
+          "excess_kurtosis": 1.3245264546698572,
           "caveat": "Cornish-Fisher floor/ceiling quantiles, carried through with their 'unvalidated pending per-gameweek panel reconciliation' caveat attached at the display layer, not buried only in internal docs."
         }
       },
