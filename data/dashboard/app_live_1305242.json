@@ -4,7 +4,7 @@
   "gameweek": 10,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 36,
+  "live_total": 40,
   "players": [
     {
       "player_id": 109,
@@ -16,9 +16,9 @@
     {
       "player_id": 31,
       "web_name": "Konsa",
-      "live_points": 6,
+      "live_points": 8,
       "provisional_bonus": 0,
-      "contribution": 6
+      "contribution": 8
     },
     {
       "player_id": 8,
@@ -65,9 +65,9 @@
     {
       "player_id": 411,
       "web_name": "Haaland",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     },
     {
       "player_id": 569,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 93.5,
-    "estimated_rank": 731614
+    "percentile": 88.0,
+    "estimated_rank": 1350957
   },
   "fixtures": [
     {
@@ -157,6 +157,23 @@
         "name": "Newcastle",
         "score": 1
       }
+    },
+    {
+      "id": 99,
+      "kickoff": "2026-11-07T17:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "NFO",
+        "name": "Nott'm Forest",
+        "score": 3
+      },
+      "away": {
+        "short_name": "MCI",
+        "name": "Man City",
+        "score": 1
+      }
     }
   ],
   "events": [
@@ -175,6 +192,14 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 91
+    },
+    {
+      "player_id": 167,
+      "web_name": "Delap",
+      "team": 18,
+      "event": "goal",
+      "count": 2,
+      "fixture_id": 99
     },
     {
       "player_id": 233,
@@ -225,12 +250,44 @@
       "fixture_id": 97
     },
     {
+      "player_id": 399,
+      "web_name": "Cherki",
+      "team": 15,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 99
+    },
+    {
       "player_id": 457,
       "web_name": "J.Murphy",
       "team": 17,
       "event": "goal",
       "count": 1,
       "fixture_id": 95
+    },
+    {
+      "player_id": 474,
+      "web_name": "Jair Cunha",
+      "team": 18,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 99
+    },
+    {
+      "player_id": 480,
+      "web_name": "Gibbs-White",
+      "team": 18,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 99
+    },
+    {
+      "player_id": 558,
+      "web_name": "Schlager",
+      "team": 18,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 99
     },
     {
       "player_id": 570,
@@ -249,5 +306,5 @@
       "fixture_id": 94
     }
   ],
-  "generated_at": "2026-11-07T16:48:16.568437+00:00"
+  "generated_at": "2026-11-07T20:35:36.022677+00:00"
 }
