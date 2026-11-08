@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
   "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
-  "data_asof": "2026-11-07",
+  "data_asof": "2026-11-08",
   "downside_ci": [
-    5.617813074546403,
-    116.77128488357741
+    4.172395768763928,
+    116.20911301149374
   ],
   "entry_id": 1305242,
-  "ep_lift": 26.00279896095094,
+  "ep_lift": 25.935434321295446,
   "gw": 11,
   "price_hint": {
     "confidence": 0.0,
@@ -18,8 +18,8 @@
     "player_uid": "player_bruno_borges_fernandes"
   },
   "provenance": {
-    "data_asof": "2026-11-07",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-11-08",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
   "runner_up": {
     "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
@@ -28,16 +28,16 @@
       0.0,
       0.0
     ],
-    "ep_lift": 25.731187746098346,
+    "ep_lift": 25.669041492647715,
     "provenance": {
-      "data_asof": "2026-11-07",
-      "model_version": "ep_v2/un_v2/plan_run5"
+      "data_asof": "2026-11-08",
+      "model_version": "ep_v2/un_v2/plan_run7"
     },
     "runner_up": null,
     "sensitivity": [],
     "swaps": [
       {
-        "delta_ep": 25.731187746098346,
+        "delta_ep": 25.669041492647715,
         "in_name": "Bryan Mbeumo",
         "in_player_uid": "player_bryan_mbeumo",
         "out_name": "Bukayo Saka",
@@ -51,10 +51,18 @@
       "sample_size": 0
     }
   },
-  "sensitivity": [],
+  "sensitivity": [
+    {
+      "delta_ep": -9.236980773695393,
+      "if_condition": "player_erling_haaland ruled out",
+      "if_condition_display": "Erling Haaland ruled out",
+      "then_action": "free_hit",
+      "then_action_display": "free_hit"
+    }
+  ],
   "swaps": [
     {
-      "delta_ep": 26.00279896095094,
+      "delta_ep": 25.935434321295446,
       "in_name": "Bruno Borges Fernandes",
       "in_player_uid": "player_bruno_borges_fernandes",
       "out_name": "Bukayo Saka",
