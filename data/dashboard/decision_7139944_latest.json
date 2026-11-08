@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_bukayo_saka->player_bryan_mbeumo",
   "action_display": "Bukayo Saka -> Bryan Mbeumo",
-  "data_asof": "2026-11-07",
+  "data_asof": "2026-11-08",
   "downside_ci": [
-    6.819399859222997,
-    109.1628571250329
+    7.014995470750581,
+    109.43613661605409
   ],
   "entry_id": 7139944,
-  "ep_lift": 25.731187746098346,
+  "ep_lift": 25.669041492647715,
   "gw": 11,
   "price_hint": {
     "confidence": 0.0,
@@ -18,13 +18,13 @@
     "player_uid": "player_bryan_mbeumo"
   },
   "provenance": {
-    "data_asof": "2026-11-07",
-    "model_version": "ep_v2/un_v2/plan_run3"
+    "data_asof": "2026-11-08",
+    "model_version": "ep_v2/un_v2/plan_run5"
   },
   "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": -5.156167237484905,
+      "delta_ep": -5.567310950086622,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
       "then_action": "free_hit",
@@ -33,7 +33,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 25.731187746098346,
+      "delta_ep": 25.669041492647715,
       "in_name": "Bryan Mbeumo",
       "in_player_uid": "player_bryan_mbeumo",
       "out_name": "Bukayo Saka",
