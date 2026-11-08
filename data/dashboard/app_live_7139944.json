@@ -4,7 +4,7 @@
   "gameweek": 10,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 44,
+  "live_total": 60,
   "players": [
     {
       "player_id": 496,
@@ -44,9 +44,9 @@
     {
       "player_id": 154,
       "web_name": "Palmer",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 4
     },
     {
       "player_id": 15,
@@ -58,9 +58,9 @@
     {
       "player_id": 124,
       "web_name": "Gro\u00df",
-      "live_points": 0,
-      "provisional_bonus": 0,
-      "contribution": 0
+      "live_points": 12,
+      "provisional_bonus": 2,
+      "contribution": 12
     },
     {
       "player_id": 464,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 96.0,
-    "estimated_rank": 450359
+    "percentile": 93.0,
+    "estimated_rank": 788519
   },
   "fixtures": [
     {
@@ -174,6 +174,91 @@
         "name": "Man City",
         "score": 1
       }
+    },
+    {
+      "id": 92,
+      "kickoff": "2026-11-08T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "BHA",
+        "name": "Brighton",
+        "score": 2
+      },
+      "away": {
+        "short_name": "BRE",
+        "name": "Brentford",
+        "score": 0
+      }
+    },
+    {
+      "id": 93,
+      "kickoff": "2026-11-08T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "CRY",
+        "name": "Crystal Palace",
+        "score": 1
+      },
+      "away": {
+        "short_name": "LIV",
+        "name": "Liverpool",
+        "score": 3
+      }
+    },
+    {
+      "id": 96,
+      "kickoff": "2026-11-08T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "IPS",
+        "name": "Ipswich Town",
+        "score": 1
+      },
+      "away": {
+        "short_name": "BOU",
+        "name": "Bournemouth",
+        "score": 2
+      }
+    },
+    {
+      "id": 100,
+      "kickoff": "2026-11-08T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "SUN",
+        "name": "Sunderland",
+        "score": 1
+      },
+      "away": {
+        "short_name": "CHE",
+        "name": "Chelsea",
+        "score": 0
+      }
+    },
+    {
+      "id": 98,
+      "kickoff": "2026-11-08T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 2
+      },
+      "away": {
+        "short_name": "AVL",
+        "name": "Aston Villa",
+        "score": 2
+      }
     }
   ],
   "events": [
@@ -194,12 +279,92 @@
       "fixture_id": 91
     },
     {
+      "player_id": 43,
+      "web_name": "Tielemans",
+      "team": 16,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 98
+    },
+    {
+      "player_id": 45,
+      "web_name": "McGinn",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 98
+    },
+    {
+      "player_id": 52,
+      "web_name": "Alysson",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 98
+    },
+    {
+      "player_id": 52,
+      "web_name": "Alysson",
+      "team": 2,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 98
+    },
+    {
+      "player_id": 75,
+      "web_name": "Christie",
+      "team": 3,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 96
+    },
+    {
+      "player_id": 79,
+      "web_name": "Evanilson",
+      "team": 3,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 96
+    },
+    {
+      "player_id": 124,
+      "web_name": "Gro\u00df",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 92
+    },
+    {
+      "player_id": 127,
+      "web_name": "Gomez",
+      "team": 5,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 92
+    },
+    {
+      "player_id": 166,
+      "web_name": "N.Jackson",
+      "team": 2,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 98
+    },
+    {
       "player_id": 167,
       "web_name": "Delap",
       "team": 18,
       "event": "goal",
       "count": 2,
       "fixture_id": 99
+    },
+    {
+      "player_id": 224,
+      "web_name": "Nketiah",
+      "team": 8,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 93
     },
     {
       "player_id": 233,
@@ -242,6 +407,22 @@
       "fixture_id": 95
     },
     {
+      "player_id": 305,
+      "web_name": "Davis",
+      "team": 12,
+      "event": "own_goal",
+      "count": 1,
+      "fixture_id": 96
+    },
+    {
+      "player_id": 313,
+      "web_name": "Clarke",
+      "team": 12,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 96
+    },
+    {
       "player_id": 336,
       "web_name": "Okafor",
       "team": 13,
@@ -250,12 +431,76 @@
       "fixture_id": 97
     },
     {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 93
+    },
+    {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 93
+    },
+    {
+      "player_id": 368,
+      "web_name": "Szoboszlai",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 93
+    },
+    {
+      "player_id": 372,
+      "web_name": "Mac Allister",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 93
+    },
+    {
+      "player_id": 379,
+      "web_name": "Isak",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 93
+    },
+    {
       "player_id": 399,
       "web_name": "Cherki",
       "team": 15,
       "event": "goal",
       "count": 1,
       "fixture_id": 99
+    },
+    {
+      "player_id": 422,
+      "web_name": "Mazraoui",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 98
+    },
+    {
+      "player_id": 426,
+      "web_name": "B.Fernandes",
+      "team": 16,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 98
+    },
+    {
+      "player_id": 428,
+      "web_name": "Cunha",
+      "team": 16,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 98
     },
     {
       "player_id": 457,
@@ -282,6 +527,30 @@
       "fixture_id": 99
     },
     {
+      "player_id": 504,
+      "web_name": "Vuskovic",
+      "team": 5,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 92
+    },
+    {
+      "player_id": 542,
+      "web_name": "E.Le F\u00e9e",
+      "team": 20,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 100
+    },
+    {
+      "player_id": 552,
+      "web_name": "Brobbey",
+      "team": 20,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 100
+    },
+    {
       "player_id": 558,
       "web_name": "Schlager",
       "team": 18,
@@ -298,6 +567,30 @@
       "fixture_id": 95
     },
     {
+      "player_id": 592,
+      "web_name": "Ouattara",
+      "team": 12,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 96
+    },
+    {
+      "player_id": 627,
+      "web_name": "Barcola",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 93
+    },
+    {
+      "player_id": 647,
+      "web_name": "Osorio",
+      "team": 8,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 93
+    },
+    {
       "player_id": 655,
       "web_name": "Gboho",
       "team": 7,
@@ -306,5 +599,5 @@
       "fixture_id": 94
     }
   ],
-  "generated_at": "2026-11-07T23:57:51.195940+00:00"
+  "generated_at": "2026-11-08T17:40:18.840063+00:00"
 }
