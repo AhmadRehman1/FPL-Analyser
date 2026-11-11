@@ -1,13 +1,13 @@
 {
   "action": "transfer_in:player_bukayo_saka->player_bruno_borges_fernandes",
   "action_display": "Bukayo Saka -> Bruno Borges Fernandes",
-  "data_asof": "2026-11-10",
+  "data_asof": "2026-11-11",
   "downside_ci": [
-    7.240348231700349,
-    126.74629347931901
+    7.240941918093398,
+    126.75196335910084
   ],
   "entry_id": 1305242,
-  "ep_lift": 26.531207129653385,
+  "ep_lift": 26.547066399983436,
   "gw": 11,
   "price_hint": {
     "confidence": 0.0,
@@ -18,13 +18,13 @@
     "player_uid": "player_bruno_borges_fernandes"
   },
   "provenance": {
-    "data_asof": "2026-11-10",
-    "model_version": "ep_v2/un_v2/plan_run5"
+    "data_asof": "2026-11-11",
+    "model_version": "ep_v2/un_v2/plan_run7"
   },
   "runner_up": null,
   "sensitivity": [
     {
-      "delta_ep": -14.920463165525465,
+      "delta_ep": -14.931120118069778,
       "if_condition": "player_erling_haaland ruled out",
       "if_condition_display": "Erling Haaland ruled out",
       "then_action": "free_hit",
@@ -33,7 +33,7 @@
   ],
   "swaps": [
     {
-      "delta_ep": 26.531207129653385,
+      "delta_ep": 26.547066399983436,
       "in_name": "Bruno Borges Fernandes",
       "in_player_uid": "player_bruno_borges_fernandes",
       "out_name": "Bukayo Saka",
