@@ -91,6 +91,11 @@ Phase 3's cause measurements (docs/plans/2026-10_beat_the_template.md; arms, not
     --live-eo-anchor           the walk-forward solve with the live from-scratch solve's EO
                                template anchor (ownership_params v1, risk_posture_params v2)
 
+The template-anchor sweep (docs/plans/2026-10_live_decision_layer.md, batch K):
+    --eo-anchor-kappa 0.06     --live-eo-anchor at another weight: ownership_params v1 and a
+                               risk_posture_params version with posture 'protect' and this
+                               eo_weight_kappa (0.12 resolves to the live v2)
+
 Lever L1, the crowd prior (docs/plans/2026-10_beat_the_template.md, Phase 5):
     --crowd-prior 20261012     add each player's crowd adjustment (a ridge fit of the model's
                                residuals on ownership percentile, log ownership and net-transfer
@@ -136,6 +141,13 @@ from run_backtest import _param_versions, RECALIBRATION_SEED_DIR  # noqa: E402
 
 
 EXPERIMENT_EFFECTIVE_DATE = "2026-09-30"
+
+
+def _positive_float(text: str) -> float:
+    value = float(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"must be > 0 (no anchor is the control), got {text}")
+    return value
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -213,8 +225,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="comma-separated seasons to walk (default: both)")
     parser.add_argument("--availability-lag", type=int, default=1, choices=(1, 2),
                         help="the minutes model's availability flag reads rows up to gameweek G minus this")
-    parser.add_argument("--live-eo-anchor", action="store_true",
+    anchor = parser.add_mutually_exclusive_group()
+    anchor.add_argument("--live-eo-anchor", action="store_true",
                         help="solve with the live from-scratch solve's EO anchor (ownership v1, risk posture v2)")
+    anchor.add_argument("--eo-anchor-kappa", type=_positive_float, default=None, metavar="KAPPA",
+                        help="solve with the EO anchor at this weight (posture 'protect'); the live v2 is 0.12")
     parser.add_argument("--no-template", action="store_true",
                         help="don't build the availability-gated ownership template at each step")
     parser.add_argument("--template-lag", type=int, default=1, choices=(1, 2),
@@ -333,6 +348,12 @@ def _experiment_versions(con, args: argparse.Namespace) -> dict:
         squad_optimizer.seed_template_anchor_params(con)  # run_ingestion.py seeds it; a cached DB may predate it
         out["solve_ownership_params_version"] = 1
         out["solve_risk_posture_params_version"] = 2
+    if getattr(args, "eo_anchor_kappa", None) is not None:
+        squad_optimizer.seed_template_anchor_params(con)
+        out["solve_ownership_params_version"] = 1
+        out["solve_risk_posture_params_version"] = squad_optimizer.template_anchor_version(
+            con, args.eo_anchor_kappa, EXPERIMENT_EFFECTIVE_DATE,
+        )
     if getattr(args, "crowd_prior", None) is not None:
         out["crowd_prior_params_version"] = residual_levers.crowd_prior_version(
             con, args.crowd_prior, EXPERIMENT_EFFECTIVE_DATE,

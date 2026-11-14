@@ -973,3 +973,191 @@ G2's frozen margins:
   fitted to the average player-gameweek, or to a player's own recent returns, give that edge
   back.
 - The one lever that helped (Z-goal) changed the goal model itself, not a residual on top of it.
+
+## Live decision layer (owner review outcome, 2026-10-21)
+
+The owner's review chose the live decision layer next: the template anchor, then the planner and
+chips. Plan: `docs/plans/2026-10_live_decision_layer.md`. G2–G4, R6 and Phase 11 carry over.
+
+### Batch K: the template-anchor weight (declared 2026-10-21, before dispatch)
+
+- **Why:** the live from-scratch solve anchors on ownership at κ = 0.12. Phase 3 measured that
+  at −2.96 ± 1.49 pts/GW, against a control from before Z-goal. The owner asked for κ = 0 and
+  κ = 0.06 to be judged against the live 0.12.
+- **Where the anchor reaches:** only `scripts/run_ingestion.py`'s from-scratch solve. That is
+  the model team's GW1 seed and the weekly report's optimal squad. The planner's Wildcard and
+  Free Hit rebuilds and the season sim pass no anchor.
+- **Runs** (`branch_walkforward.yml`, this branch's head, both seasons, dispatched back to back):
+
+  | label | args |
+  |---|---|
+  | control (κ = 0) | `--template-lag 2` |
+  | k012 (live) | `--template-lag 2 --live-eo-anchor` |
+  | k006 | `--template-lag 2 --eo-anchor-kappa 0.06` |
+
+- **Rule, fixed now:**
+  - Each of control (κ = 0) and k006 is judged against k012 with
+    `compare_arms.py --rule r6 <k012> <arm>`.
+  - R6(i): m − SE ≥ 0 on paired squad points.
+  - R6(ii): the anchor never changes EP, so EP MAE must equal k012's in both seasons. Any
+    difference means the run is broken, and it is not judged.
+  - Every run must show 75/75 steps.
+  - R6's season-sim check does not apply, because the season sim never passes the anchor.
+  - If both arms pass, the higher m goes live. If neither does, κ = 0.12 stays.
+- **Live switch on a pass:** `run_ingestion.py` passes the winning versions. For κ = 0 that is no
+  ownership or posture version at all. The off-switch is reverting that commit.
+- **Arms:** this plan's own count, 2 decision arms. The earlier plan's lever cap is closed.
+
+Batch K was dispatched 2026-10-21 from commit `8e21bf5` (run ids are recorded
+with the results).
+
+### Batch K results (cached DB duckdb-39590028248, commit 8e21bf5, 75/75 steps each)
+
+| run | args | vs k012 (pts/GW, 74 GWs) | m − SE | EP MAE 2024-25 / 2025-26 | XI overlap with the gated template | R6 |
+|---|---|---|---|---|---|---|
+| 39595792959 (k012, live) | `--template-lag 2 --live-eo-anchor` | — | — | 1.0453 / 1.0513 | 7.43 | — |
+| 39595787814 (control, κ = 0) | `--template-lag 2` | **+3.662 ± 1.603** (42 better, 29 worse, 71 changed) | **+2.059** | 1.0453 / 1.0513 (equal) | 3.24 | **PASS** |
+| 39595797119 (k006) | `--template-lag 2 --eo-anchor-kappa 0.06` | +0.919 ± 0.658 (25 better, 19 worse, 44 changed) | +0.261 | 1.0453 / 1.0513 (equal) | 6.79 | PASS |
+
+- **The runs are valid:** all three are complete, on one cached DB, and EP MAE matches k012's
+  exactly in both seasons, as it must for a solve-only change.
+- **The control reproduces Phase 9's:** the gap to the gated template is +9.92 ± 1.96, the same
+  as run 39410155197.
+- **Verdict:** both arms pass. κ = 0 has the higher m, so **no anchor goes live**.
+- **Against the gated template:**
+  - k012: +5.88 ± 1.48;
+  - k006: +7.10;
+  - no anchor: +9.92.
+  
+  The anchor buys template overlap (7.43 of 11 at κ = 0.12) and gives up the points the model
+  scores away from the template: −22.17 ± 1.54 a GW at κ = 0.12.
+- **Live switch, then rolled back the same day:**
+  - e4b94b8 switched `run_ingestion.py` off the anchor. It never reached master.
+  - The 2026-27 walk-forward (below) reversed the result, and the kill-switch rule (roll back
+    if m + SE < 0) applied to its numbers, so the v2 anchor stays live.
+  - `tests/test_live_switch_wiring.py` pins the live v2.
+  - The decision is re-judged at GW13 on the 2026-27 walk-forward.
+
+### Batch P1: planner and chips (declared 2026-10-21, before dispatch)
+
+- **Why:** the evolving loss is E = +2.30 ± 2.12 pts/GW. The live team plays one transfer a week
+  at most, never takes a hit, and plays chips at the first local maximum: its GW7 Bench Boost
+  scored 35 against a field of 59. The 2026-10-04 arms were inconclusive. Each half restarted
+  from a fresh squad, which worked as a free Wildcard, and the arms ran on different runners.
+- **Run:** `season_sim_arms.yml`, season 2025-2026, chunks `2-38`, `same_runner: true`, this
+  branch's head:
+  `control: ; control_b: ; multi: --multi-transfers; chipov: --chip-option-value; both: --multi-transfers --chip-option-value`.
+- **Rule, fixed now:**
+  - control and control_b must match on every gameweek. Otherwise the batch is not judged.
+  - Each arm is judged against control on paired net pts/GW over GW2–38: promote on m − SE ≥ 0.
+  - If several arms pass, the highest m wins. `both` winning puts both flags live.
+- **Live switch on a pass:** the flag's version is set in the model team's planner versions from
+  the next deadline. The off-switch is reverting that commit.
+- **Planner arms:** 3 of 6.
+
+### Plan Phase 5: the 2026-27 out-of-sample walk-forward (declared 2026-10-21, before dispatch)
+
+- **Built:** `backtest.season_gameweeks_in_scope()`. `--seasons 2026-2027` walks every 2026-27
+  gameweek whose Premier League fixtures are all finished. The default two-season scope is
+  unchanged, so the nightly track record doesn't move.
+- **Runs** (`branch_walkforward.yml`):
+  - control: `--seasons 2026-2027 --template-lag 2`;
+  - Phase 11's off-switch for batch K: `--seasons 2026-2027 --template-lag 2 --live-eo-anchor`.
+- **What it answers:** the model's gap to the gated template, and to FPL's average where the
+  real benchmark exists, over 2026-27's settled GWs. It is set against the backtest's 2025-26
+  figures (+8.39 ± 2.40 vs the gated template, +10.35 vs FPL's average). The live step was
+  −9.60 ± 5.38 vs FPL's average, with no cause found (Phase 3).
+- **Reading, fixed now:**
+  - The edge holds if the 2026-27 gap to the gated template has m − SE > 0.
+  - The edge collapses if m + SE < 0.
+  - Anything between is inconclusive and is re-run at GW13.
+  - A collapse opens the projection track ahead of P2 (plan, Out of Scope).
+
+### Batch P1 results (run 39595856739, commit a55a66f, 2025-26, one GW2–38 chunk, one runner)
+
+| arm | net pts/GW | vs control (paired, 37 GWs) | hits | transfers | chips |
+|---|---|---|---|---|---|
+| control | 61.00 | — | 0 | 29 | GW4 TC, GW5 WC, GW8 FH, GW12 BB, GW20 FH, GW21 BB, GW22 TC |
+| control_b | 61.00 | +0.00 ± 0.00 | 0 | 29 | as control |
+| multi (`--multi-transfers`) | 60.86 | −0.14 ± 1.79 | 40 | 46 | GW5 FH, GW6 BB, GW7 TC, GW20 FH, GW21 BB, GW22 TC (no Wildcard) |
+| chipov (`--chip-option-value`) | 60.43 | −0.57 ± 1.20 | 0 | 29 | GW3 BB, GW5 WC, GW6 TC, GW8 FH, GW21 BB, GW23 TC, GW31 FH |
+| both | 59.14 | −1.86 ± 1.77 | 44 | 47 | GW3 BB, GW5 WC, GW6 TC, GW8 FH, GW23 TC, GW26 BB, GW34 FH |
+
+- **The batch is valid:** control and control_b match on every gameweek.
+- **Verdict:** no arm has m ≥ 0, so none passes and **nothing goes live**. Planner arms used:
+  3 of 6.
+- **Reading:** on one continuous season with no free restart, the live planner (one transfer a
+  week, no hits, chips at the first local maximum) is level with or better than every
+  alternative tried.
+  - Hits buy nothing net: 40 hits, −0.14.
+  - Holding chips for later weeks costs a little.
+  - The evolving loss is not in these planner switches.
+  - The control's 61.00 is +11.24 a GW on FPL's 2025-26 average, and its first-half Wildcard is
+    played at GW5.
+
+### Plan Phase 5 results: 2026-27, GW2–7 (cached DB duckdb-39608092213, commit 17e071e, 7/7 steps each)
+
+| run | args | squad pts/GW | vs FPL's average (6 GWs) | vs gated template (GW3–7) | XI overlap with the template |
+|---|---|---|---|---|---|
+| 39626660473 | `--seasons 2026-2027 --template-lag 2` (no anchor) | 59.83 | −1.17 ± 4.92 | **−12.4 ± 12.0** | 2.0 |
+| 39626666167 | the same + `--live-eo-anchor` (κ = 0.12) | 74.33 | **+13.33 ± 6.02** | +1.0 ± 3.8 | 7.8 |
+
+- **Paired, no anchor − anchor:** −14.5 ± 8.5 a GW over GW2–7. In order: −20, −8, −46, +3, −27,
+  +11.
+- **Phase 5's declared reading:** the model's edge over the gated template has m + SE = −0.4 < 0,
+  so the **edge collapses** out of sample. GW2 has no template, because the gate needs a G−2
+  row.
+  - It was +8.39 ± 2.40 over the 2025-26 backtest.
+  - This is the backtest → 2026-27 step Phase 3 couldn't explain: the picks away from the
+    template, which carry the backtest edge, are losing this season.
+  - Non-template points per GW: 43, 50, 49, 29, 29 for no anchor; 22, 10, 30, 11, 3 for the
+    anchor.
+- **EP error is far worse this season:** MAE 1.363 against 1.045 and 1.051 over the backtest
+  seasons, and bias −0.23 per player against −0.07. Early-season thin data may be part of it;
+  this is the first thing the projection track checks.
+- **Batch K is reversed out of sample:** the anchor is +14.5 ± 8.5 in 2026-27 against −3.66 ±
+  1.60 in the backtest. By the kill-switch rule (roll back if m + SE < 0; here −6.0), the
+  no-anchor switch is rolled back before it reached master.
+  - With 6 GWs this is 1.7 SE, not conclusive. It is re-judged at GW13.
+- **By the plan, the projection track now opens ahead of P2.** The anchor and the planner
+  aren't where the live loss comes from: the projections are wrong in 2026-27 in ways the
+  backtest seasons didn't show.
+
+## Projection track, batch R1 (declared 2026-10-21, before dispatch)
+
+Plan: `docs/plans/2026-10_projection_track.md`, which holds the rule and the arms.
+- **Runs** (`branch_walkforward.yml`, this branch's head; the backtest runs both seasons):
+  - control: `--template-lag 2`, and `--seasons 2026-2027 --template-lag 2`;
+  - k450: the same pair, each with `--k-minutes 450`;
+  - csw2: the same pair, each with `--rate-current-season-weight 2`.
+- **Why:** in 2026-27, £9.0m+ is under-projected by +1.38 per player-GW, +1.00 of it from goals.
+  The backtest has +0.55.
+
+### Batch R1 results (cached DB duckdb-39608092213, commit ae52142, all steps complete)
+
+The job logs don't print the arm args, so each run's arm is taken from dispatch order. The two
+controls' numbers match the earlier control runs, which confirms the mapping.
+
+**Backtest, 2024-25 + 2025-26, R6 against control 39637864536:**
+
+| arm | run | paired squad pts/GW | m − SE | EP MAE 2024-25 / 2025-26 | R6 |
+|---|---|---|---|---|---|
+| k450 | 39637871277 | −0.392 ± 0.541 | −0.933 | 1.0442 / 1.0517 | FAIL |
+| csw2 | 39637876675 | −0.203 ± 0.710 | −0.913 | 1.0442 / 1.0504 | FAIL |
+
+csw2's non-template picks lose −1.56 ± 0.71 a GW against the control.
+
+**2026-27 GW2–7, against control 39637883226:**
+
+| arm | run | paired squad pts/GW | EP MAE (control 1.3633) | £9.0m+ residual (control 1.38) |
+|---|---|---|---|---|
+| k450 | 39637888243 | +2.67 ± 2.12 | 1.3656 (worse) | 1.30 |
+| csw2 | 39637893151 | +3.67 ± 1.89 | 1.3625 | 1.35 |
+
+- **Verdict: no arm passes; nothing goes live.** Both fail rule 1 (R6 on the backtest). k450
+  also fails rule 2 on EP MAE.
+- Both arms help in 2026-27 by about 3 pts/GW, but neither moves the premium goal miss much
+  (£9.0m+ residual 1.30 and 1.35 against 1.38). Shrinkage strength isn't the cause of the
+  2026-27 projection error.
+- **Next (projection plan):** the keeper over-projection split (Phase 2) and the 2026-27
+  data-feed check (Phase 3).
