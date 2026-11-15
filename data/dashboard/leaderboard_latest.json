@@ -1,15 +1,15 @@
 {
-  "data_asof": "2026-11-08",
+  "data_asof": "2026-11-15",
   "season": "2026-2027",
   "status": "ok",
   "start_gameweek": 2,
-  "end_gameweek": 9,
-  "walked_gameweeks": 8,
+  "end_gameweek": 10,
+  "walked_gameweeks": 9,
   "rows": [
     {
       "name": "FPL-Analyser (model)",
-      "total_points": 429.0,
-      "n_gameweeks": 8,
+      "total_points": 481.0,
+      "n_gameweeks": 9,
       "is_baseline": false,
       "weekly_points": {
         "2": 93.0,
@@ -19,7 +19,8 @@
         "6": 56.0,
         "7": 41.0,
         "8": 35.0,
-        "9": 48.0
+        "9": 48.0,
+        "10": 52.0
       },
       "weekly_hits": {
         "2": 0.0,
@@ -29,17 +30,18 @@
         "6": 0.0,
         "7": 0.0,
         "8": 0.0,
-        "9": 0.0
+        "9": 0.0,
+        "10": 0.0
       }
     },
     {
       "name": "recent-points baseline",
       "kind": "recent_points",
-      "total_points": 362.0,
-      "n_gameweeks": 8,
+      "total_points": 429.0,
+      "n_gameweeks": 9,
       "n_gameweeks_skipped": 0,
-      "model_total_points_same_gameweeks": 429.0,
-      "model_beats_baseline_by": 67.0,
+      "model_total_points_same_gameweeks": 481.0,
+      "model_beats_baseline_by": 52.0,
       "is_baseline": true,
       "weekly_points": {
         "2": 47.0,
@@ -49,18 +51,19 @@
         "6": 40.0,
         "7": 31.0,
         "8": 30.0,
-        "9": 68.0
+        "9": 68.0,
+        "10": 67.0
       },
-      "oracle_model_beats_baseline_by": 116.0
+      "oracle_model_beats_baseline_by": 117.0
     },
     {
       "name": "price/ownership baseline",
       "kind": "ownership_popularity",
-      "total_points": 490.0,
-      "n_gameweeks": 8,
+      "total_points": 547.0,
+      "n_gameweeks": 9,
       "n_gameweeks_skipped": 0,
-      "model_total_points_same_gameweeks": 429.0,
-      "model_beats_baseline_by": -61.0,
+      "model_total_points_same_gameweeks": 481.0,
+      "model_beats_baseline_by": -66.0,
       "is_baseline": true,
       "weekly_points": {
         "2": 102.0,
@@ -70,18 +73,19 @@
         "6": 75.0,
         "7": 67.0,
         "8": 40.0,
-        "9": 42.0
+        "9": 42.0,
+        "10": 57.0
       },
-      "oracle_model_beats_baseline_by": -12.0
+      "oracle_model_beats_baseline_by": -1.0
     },
     {
       "name": "synthetic EO crowd (not FPL's average)",
       "kind": "crowd",
-      "total_points": 614.4,
-      "n_gameweeks": 8,
+      "total_points": 690.9,
+      "n_gameweeks": 9,
       "n_gameweeks_skipped": 0,
-      "model_total_points_same_gameweeks": 429.0,
-      "model_beats_baseline_by": -185.4,
+      "model_total_points_same_gameweeks": 481.0,
+      "model_beats_baseline_by": -209.9,
       "is_baseline": true,
       "weekly_points": {
         "2": 94.0,
@@ -90,19 +94,20 @@
         "5": 67.4,
         "6": 80.5,
         "7": 74.3,
-        "8": 62.2,
-        "9": 71.6
+        "8": 62.1,
+        "9": 71.6,
+        "10": 76.5
       },
-      "oracle_model_beats_baseline_by": -136.4
+      "oracle_model_beats_baseline_by": -144.9
     },
     {
       "name": "model (oracle)",
       "kind": "model_oracle",
-      "total_points": 478.0,
-      "n_gameweeks": 8,
+      "total_points": 546.0,
+      "n_gameweeks": 9,
       "n_gameweeks_skipped": 0,
-      "model_total_points_same_gameweeks": 429.0,
-      "model_beats_baseline_by": -49.0,
+      "model_total_points_same_gameweeks": 481.0,
+      "model_beats_baseline_by": -65.0,
       "is_baseline": true,
       "weekly_points": {
         "2": 93.0,
@@ -112,17 +117,18 @@
         "6": 43.0,
         "7": 70.0,
         "8": 38.0,
-        "9": 81.0
+        "9": 81.0,
+        "10": 68.0
       }
     },
     {
       "name": "ownership template (available)",
       "kind": "template_gated",
-      "total_points": 507.0,
-      "n_gameweeks": 8,
+      "total_points": 574.0,
+      "n_gameweeks": 9,
       "n_gameweeks_skipped": 0,
-      "model_total_points_same_gameweeks": 429.0,
-      "model_beats_baseline_by": -78.0,
+      "model_total_points_same_gameweeks": 481.0,
+      "model_beats_baseline_by": -93.0,
       "is_baseline": true,
       "weekly_points": {
         "2": 102.0,
@@ -132,9 +138,10 @@
         "6": 75.0,
         "7": 67.0,
         "8": 40.0,
-        "9": 59.0
+        "9": 59.0,
+        "10": 67.0
       },
-      "oracle_model_beats_baseline_by": -29.0
+      "oracle_model_beats_baseline_by": -28.0
     }
   ],
   "honest_losses": [
