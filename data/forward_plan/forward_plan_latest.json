@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T12:13:41.520167+00:00",
+  "generated_at": "2026-11-22T12:25:00.311266+00:00",
   "target_season": "2026-2027",
   "entities": {
     "model_team": {
@@ -7,13 +7,13 @@
       "entry_id": null,
       "label": "FPL Quant Model Team",
       "target_season": "2026-2027",
-      "base_gameweek": 10,
-      "start_gameweek": 11,
+      "base_gameweek": 11,
+      "start_gameweek": 12,
       "end_gameweek": 18,
-      "total_projected_points": 460.3,
+      "total_projected_points": 410.4,
       "band": [
-        334.1,
-        586.4
+        297.7,
+        523.2
       ],
       "chips_planned": [],
       "wildcard": null,
@@ -21,24 +21,24 @@
       "free_hit": null,
       "weeks": [
         {
-          "gameweek": 11,
+          "gameweek": 12,
           "action": "transfer",
-          "summary": "Igor Thiago Nascimento Rodrigues \u2192 Nicolas Jackson",
+          "summary": "Morgan Rogers \u2192 Cole Palmer",
           "transfers": [
             {
-              "out": "Igor Thiago Nascimento Rodrigues",
-              "in": "Nicolas Jackson",
-              "net": 21.02
+              "out": "Morgan Rogers",
+              "in": "Cole Palmer",
+              "net": 8.79
             }
           ],
           "chip": null,
-          "captain": "Maxim De Cuyper",
-          "projected_points": 52.4,
+          "captain": "Dominic Calvert-Lewin",
+          "projected_points": 58.1,
           "band": [
-            38.6,
-            66.1
+            42.7,
+            73.5
           ],
-          "wildcard_gain": -12.2,
+          "wildcard_gain": -33.2,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -70,6 +70,13 @@
               "is_vice": false
             },
             {
+              "player_name": "Cole Palmer",
+              "club": "Chelsea",
+              "in_xi": true,
+              "is_captain": false,
+              "is_vice": false
+            },
+            {
               "player_name": "Dara O'Shea",
               "club": "Ipswich",
               "in_xi": false,
@@ -87,7 +94,7 @@
               "player_name": "Dominic Calvert-Lewin",
               "club": "Leeds",
               "in_xi": true,
-              "is_captain": false,
+              "is_captain": true,
               "is_vice": false
             },
             {
@@ -129,141 +136,6 @@
               "player_name": "Maxim De Cuyper",
               "club": "Brighton",
               "in_xi": true,
-              "is_captain": true,
-              "is_vice": false
-            },
-            {
-              "player_name": "Morgan Rogers",
-              "club": "Chelsea",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Nicolas Jackson",
-              "club": "Aston Villa",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            }
-          ]
-        },
-        {
-          "gameweek": 12,
-          "action": "transfer",
-          "summary": "Marc Gu\u00e9hi \u2192 Luka Vu\u0161kovi\u0107",
-          "transfers": [
-            {
-              "out": "Marc Gu\u00e9hi",
-              "in": "Luka Vu\u0161kovi\u0107",
-              "net": 10.35
-            }
-          ],
-          "chip": null,
-          "captain": "Dominic Calvert-Lewin",
-          "projected_points": 56.8,
-          "band": [
-            41.8,
-            71.9
-          ],
-          "wildcard_gain": -33.1,
-          "wildcard_recommended": false,
-          "squad": [
-            {
-              "player_name": "Bart Verbruggen",
-              "club": "Brighton",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": true
-            },
-            {
-              "player_name": "Bernd Leno",
-              "club": "Fulham",
-              "in_xi": false,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Bruno Borges Fernandes",
-              "club": "Man Utd",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Cody Gakpo",
-              "club": "Liverpool",
-              "in_xi": false,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Dara O'Shea",
-              "club": "Ipswich",
-              "in_xi": false,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Declan Rice",
-              "club": "Arsenal",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Dominic Calvert-Lewin",
-              "club": "Leeds",
-              "in_xi": true,
-              "is_captain": true,
-              "is_vice": false
-            },
-            {
-              "player_name": "Elliot Anderson",
-              "club": "Man City",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Ethan Ampadu",
-              "club": "Leeds",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Gabriel dos Santos Magalh\u00e3es",
-              "club": "Arsenal",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "James Tarkowski",
-              "club": "Everton",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Luka Vu\u0161kovi\u0107",
-              "club": "Brighton",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Maxim De Cuyper",
-              "club": "Brighton",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Morgan Rogers",
-              "club": "Chelsea",
-              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -279,22 +151,22 @@
         {
           "gameweek": 13,
           "action": "transfer",
-          "summary": "Morgan Rogers \u2192 Cole Palmer",
+          "summary": "Cody Gakpo \u2192 Francisco Evanilson de Lima Barbosa",
           "transfers": [
             {
-              "out": "Morgan Rogers",
-              "in": "Cole Palmer",
-              "net": 9.64
+              "out": "Cody Gakpo",
+              "in": "Francisco Evanilson de Lima Barbosa",
+              "net": 5.93
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
-          "projected_points": 56.1,
+          "projected_points": 56.2,
           "band": [
-            40.1,
-            72.1
+            40.4,
+            72.0
           ],
-          "wildcard_gain": -34.9,
+          "wildcard_gain": -38.6,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -315,13 +187,6 @@
               "player_name": "Bruno Borges Fernandes",
               "club": "Man Utd",
               "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Cody Gakpo",
-              "club": "Liverpool",
-              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -356,13 +221,20 @@
             {
               "player_name": "Elliot Anderson",
               "club": "Man City",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
             {
               "player_name": "Ethan Ampadu",
               "club": "Leeds",
+              "in_xi": true,
+              "is_captain": false,
+              "is_vice": false
+            },
+            {
+              "player_name": "Francisco Evanilson de Lima Barbosa",
+              "club": "Bournemouth",
               "in_xi": true,
               "is_captain": false,
               "is_vice": false
@@ -382,9 +254,9 @@
               "is_vice": false
             },
             {
-              "player_name": "Luka Vu\u0161kovi\u0107",
-              "club": "Brighton",
-              "in_xi": true,
+              "player_name": "Marc Gu\u00e9hi",
+              "club": "Man City",
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -398,7 +270,7 @@
             {
               "player_name": "Nicolas Jackson",
               "club": "Aston Villa",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             }
@@ -407,22 +279,22 @@
         {
           "gameweek": 14,
           "action": "transfer",
-          "summary": "Cody Gakpo \u2192 Francisco Evanilson de Lima Barbosa",
+          "summary": "Marc Gu\u00e9hi \u2192 Luka Vu\u0161kovi\u0107",
           "transfers": [
             {
-              "out": "Cody Gakpo",
-              "in": "Francisco Evanilson de Lima Barbosa",
-              "net": 6.62
+              "out": "Marc Gu\u00e9hi",
+              "in": "Luka Vu\u0161kovi\u0107",
+              "net": 6.04
             }
           ],
           "chip": null,
           "captain": "Bruno Borges Fernandes",
-          "projected_points": 60.0,
+          "projected_points": 60.6,
           "band": [
-            43.2,
-            76.8
+            43.7,
+            77.5
           ],
-          "wildcard_gain": -47.7,
+          "wildcard_gain": -47.1,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -540,17 +412,17 @@
             {
               "out": "Dara O'Shea",
               "in": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-              "net": 5.82
+              "net": 6.44
             }
           ],
           "chip": null,
           "captain": "Bruno Borges Fernandes",
-          "projected_points": 55.2,
+          "projected_points": 55.5,
           "band": [
-            40.0,
-            70.3
+            40.3,
+            70.8
           ],
-          "wildcard_gain": -52.2,
+          "wildcard_gain": -47.7,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -668,17 +540,17 @@
             {
               "out": "Nicolas Jackson",
               "in": "Thierno Barry",
-              "net": 4.03
+              "net": 3.53
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
-          "projected_points": 60.0,
+          "projected_points": 60.2,
           "band": [
-            43.7,
-            76.2
+            44.0,
+            76.4
           ],
-          "wildcard_gain": -57.8,
+          "wildcard_gain": -52.9,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -796,7 +668,7 @@
             {
               "out": "Elliot Anderson",
               "in": "Bryan Mbeumo",
-              "net": 5.25
+              "net": 4.86
             }
           ],
           "chip": null,
@@ -804,9 +676,9 @@
           "projected_points": 60.0,
           "band": [
             43.6,
-            76.4
+            76.5
           ],
-          "wildcard_gain": -65.5,
+          "wildcard_gain": -56.8,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -924,17 +796,17 @@
             {
               "out": "Ethan Ampadu",
               "in": "James McAtee",
-              "net": 1.91
+              "net": 2.07
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
-          "projected_points": 59.9,
+          "projected_points": 59.8,
           "band": [
             43.1,
-            76.6
+            76.5
           ],
-          "wildcard_gain": -71.3,
+          "wildcard_gain": -66.3,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -1045,9 +917,9 @@
           ]
         }
       ],
-      "generated_at": "2026-11-21T12:13:21.820840+00:00",
+      "generated_at": "2026-11-22T12:24:09.242567+00:00",
       "current_event": 11,
-      "elapsed_seconds": 443.0
+      "elapsed_seconds": 358.0
     },
     "7139944": {
       "entity_key": "7139944",
@@ -1057,10 +929,10 @@
       "base_gameweek": 11,
       "start_gameweek": 12,
       "end_gameweek": 18,
-      "total_projected_points": 401.2,
+      "total_projected_points": 399.5,
       "band": [
-        288.2,
-        514.2
+        286.1,
+        513.0
       ],
       "chips_planned": [
         {
@@ -1074,13 +946,20 @@
       ],
       "wildcard": null,
       "wildcard_held_until": {
-        "gameweek": 13,
-        "projected_gain": 16.51
+        "gameweek": 12,
+        "projected_gain": 20.96
       },
       "free_hit": {
         "gameweek": 12,
-        "projected_gain": 17.6,
+        "projected_gain": 18.6,
         "squad": [
+          {
+            "player_name": "Abdoul Ouattara",
+            "club": "Ipswich",
+            "in_xi": false,
+            "is_captain": false,
+            "is_vice": false
+          },
           {
             "player_name": "Alex Palmer",
             "club": "Ipswich",
@@ -1124,13 +1003,6 @@
             "is_vice": false
           },
           {
-            "player_name": "Declan Rice",
-            "club": "Arsenal",
-            "in_xi": true,
-            "is_captain": false,
-            "is_vice": false
-          },
-          {
             "player_name": "Dominic Calvert-Lewin",
             "club": "Leeds",
             "in_xi": true,
@@ -1159,14 +1031,21 @@
             "is_vice": false
           },
           {
-            "player_name": "Luka Vu\u0161kovi\u0107",
+            "player_name": "Maxim De Cuyper",
             "club": "Brighton",
             "in_xi": true,
             "is_captain": false,
             "is_vice": false
           },
           {
-            "player_name": "Maxim De Cuyper",
+            "player_name": "Nicolas Jackson",
+            "club": "Aston Villa",
+            "in_xi": true,
+            "is_captain": false,
+            "is_vice": false
+          },
+          {
+            "player_name": "Pascal Gro\u00df",
             "club": "Brighton",
             "in_xi": true,
             "is_captain": false,
@@ -1175,13 +1054,6 @@
           {
             "player_name": "Zach Abbott",
             "club": "Nott'm Forest",
-            "in_xi": false,
-            "is_captain": false,
-            "is_vice": false
-          },
-          {
-            "player_name": "Zian Flemming",
-            "club": "Ipswich",
             "in_xi": false,
             "is_captain": false,
             "is_vice": false
@@ -1196,14 +1068,21 @@
           "transfers": [],
           "chip": "free_hit",
           "captain": "Dominic Calvert-Lewin",
-          "projected_points": 59.8,
+          "projected_points": 60.3,
           "band": [
-            43.9,
-            75.7
+            44.0,
+            76.7
           ],
-          "wildcard_gain": 12.7,
+          "wildcard_gain": 21.0,
           "wildcard_recommended": true,
           "squad": [
+            {
+              "player_name": "Abdoul Ouattara",
+              "club": "Ipswich",
+              "in_xi": false,
+              "is_captain": false,
+              "is_vice": false
+            },
             {
               "player_name": "Alex Palmer",
               "club": "Ipswich",
@@ -1247,13 +1126,6 @@
               "is_vice": false
             },
             {
-              "player_name": "Declan Rice",
-              "club": "Arsenal",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
               "player_name": "Dominic Calvert-Lewin",
               "club": "Leeds",
               "in_xi": true,
@@ -1282,14 +1154,21 @@
               "is_vice": false
             },
             {
-              "player_name": "Luka Vu\u0161kovi\u0107",
+              "player_name": "Maxim De Cuyper",
               "club": "Brighton",
               "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
             {
-              "player_name": "Maxim De Cuyper",
+              "player_name": "Nicolas Jackson",
+              "club": "Aston Villa",
+              "in_xi": true,
+              "is_captain": false,
+              "is_vice": false
+            },
+            {
+              "player_name": "Pascal Gro\u00df",
               "club": "Brighton",
               "in_xi": true,
               "is_captain": false,
@@ -1298,13 +1177,6 @@
             {
               "player_name": "Zach Abbott",
               "club": "Nott'm Forest",
-              "in_xi": false,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Zian Flemming",
-              "club": "Ipswich",
               "in_xi": false,
               "is_captain": false,
               "is_vice": false
@@ -1318,12 +1190,12 @@
           "transfers": [],
           "chip": "bench_boost",
           "captain": "Cole Palmer",
-          "projected_points": 57.8,
+          "projected_points": 56.8,
           "band": [
-            41.1,
-            74.5
+            40.1,
+            73.6
           ],
-          "wildcard_gain": 16.5,
+          "wildcard_gain": 18.8,
           "wildcard_recommended": true,
           "squad": [
             {
@@ -1336,7 +1208,7 @@
             {
               "player_name": "Bobby Thomas",
               "club": "Coventry City",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
@@ -1378,7 +1250,7 @@
             {
               "player_name": "Leif Davis",
               "club": "Ipswich",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -1441,17 +1313,17 @@
             {
               "out": "Bukayo Saka",
               "in": "Bryan Mbeumo",
-              "net": 25.88
+              "net": 25.95
             }
           ],
           "chip": null,
           "captain": "Bryan Mbeumo",
-          "projected_points": 54.6,
+          "projected_points": 53.6,
           "band": [
-            38.9,
-            70.3
+            37.8,
+            69.3
           ],
-          "wildcard_gain": 11.3,
+          "wildcard_gain": 17.7,
           "wildcard_recommended": true,
           "squad": [
             {
@@ -1569,17 +1441,17 @@
             {
               "out": "Jo\u00e3o Pedro Junqueira de Jesus",
               "in": "Dominic Calvert-Lewin",
-              "net": 22.03
+              "net": 22.3
             }
           ],
           "chip": null,
           "captain": "Erling Haaland",
           "projected_points": 55.2,
           "band": [
-            39.4,
-            71.0
+            39.2,
+            71.3
           ],
-          "wildcard_gain": -12.2,
+          "wildcard_gain": -2.5,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -1592,7 +1464,7 @@
             {
               "player_name": "Bobby Thomas",
               "club": "Coventry City",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
@@ -1641,7 +1513,7 @@
             {
               "player_name": "Lewis Hall",
               "club": "Newcastle",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -1692,12 +1564,12 @@
         {
           "gameweek": 16,
           "action": "transfer",
-          "summary": "Bobby Thomas \u2192 Maxim De Cuyper",
+          "summary": "Leif Davis \u2192 Maxim De Cuyper",
           "transfers": [
             {
-              "out": "Bobby Thomas",
+              "out": "Leif Davis",
               "in": "Maxim De Cuyper",
-              "net": 14.39
+              "net": 13.92
             }
           ],
           "chip": null,
@@ -1705,9 +1577,9 @@
           "projected_points": 58.1,
           "band": [
             41.8,
-            74.4
+            74.3
           ],
-          "wildcard_gain": -26.5,
+          "wildcard_gain": -16.3,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -1716,6 +1588,13 @@
               "in_xi": true,
               "is_captain": false,
               "is_vice": true
+            },
+            {
+              "player_name": "Bobby Thomas",
+              "club": "Coventry City",
+              "in_xi": false,
+              "is_captain": false,
+              "is_vice": false
             },
             {
               "player_name": "Bryan Mbeumo",
@@ -1749,13 +1628,6 @@
               "player_name": "Gabriel dos Santos Magalh\u00e3es",
               "club": "Arsenal",
               "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Leif Davis",
-              "club": "Ipswich",
-              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -1825,17 +1697,17 @@
             {
               "out": "Martin D\u00fabravka",
               "in": "Bart Verbruggen",
-              "net": 11.03
+              "net": 11.29
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
           "projected_points": 57.3,
           "band": [
-            41.1,
-            73.5
+            41.3,
+            73.3
           ],
-          "wildcard_gain": -40.3,
+          "wildcard_gain": -26.6,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -1851,6 +1723,13 @@
               "in_xi": true,
               "is_captain": false,
               "is_vice": true
+            },
+            {
+              "player_name": "Bobby Thomas",
+              "club": "Coventry City",
+              "in_xi": false,
+              "is_captain": false,
+              "is_vice": false
             },
             {
               "player_name": "Bryan Mbeumo",
@@ -1884,13 +1763,6 @@
               "player_name": "Gabriel dos Santos Magalh\u00e3es",
               "club": "Arsenal",
               "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Leif Davis",
-              "club": "Ipswich",
-              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -1925,7 +1797,7 @@
             {
               "player_name": "Regan Slater",
               "club": "Hull City",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
@@ -1939,7 +1811,7 @@
             {
               "player_name": "Yoane Wissa",
               "club": "Newcastle",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             }
@@ -1953,17 +1825,17 @@
             {
               "out": "Lewis Hall",
               "in": "Riccardo Calafiori",
-              "net": 6.85
+              "net": 10.41
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
-          "projected_points": 58.4,
+          "projected_points": 58.1,
           "band": [
-            42.0,
-            74.8
+            41.8,
+            74.5
           ],
-          "wildcard_gain": -52.1,
+          "wildcard_gain": -44.6,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -1979,6 +1851,13 @@
               "in_xi": true,
               "is_captain": false,
               "is_vice": true
+            },
+            {
+              "player_name": "Bobby Thomas",
+              "club": "Coventry City",
+              "in_xi": false,
+              "is_captain": false,
+              "is_vice": false
             },
             {
               "player_name": "Bryan Mbeumo",
@@ -2012,13 +1891,6 @@
               "player_name": "Gabriel dos Santos Magalh\u00e3es",
               "club": "Arsenal",
               "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Leif Davis",
-              "club": "Ipswich",
-              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -2074,9 +1946,9 @@
           ]
         }
       ],
-      "generated_at": "2026-11-21T12:12:09.442891+00:00",
+      "generated_at": "2026-11-22T12:23:23.863438+00:00",
       "current_event": 11,
-      "elapsed_seconds": 366.1
+      "elapsed_seconds": 301.7
     },
     "1305242": {
       "entity_key": "1305242",
@@ -2086,10 +1958,10 @@
       "base_gameweek": 11,
       "start_gameweek": 12,
       "end_gameweek": 18,
-      "total_projected_points": 421.5,
+      "total_projected_points": 422.0,
       "band": [
-        306.6,
-        536.3
+        306.5,
+        537.5
       ],
       "chips_planned": [
         {
@@ -2105,8 +1977,15 @@
       "wildcard_held_until": null,
       "free_hit": {
         "gameweek": 12,
-        "projected_gain": 14.0,
+        "projected_gain": 15.4,
         "squad": [
+          {
+            "player_name": "Abdoul Ouattara",
+            "club": "Ipswich",
+            "in_xi": false,
+            "is_captain": false,
+            "is_vice": false
+          },
           {
             "player_name": "Alex Palmer",
             "club": "Ipswich",
@@ -2150,13 +2029,6 @@
             "is_vice": false
           },
           {
-            "player_name": "Declan Rice",
-            "club": "Arsenal",
-            "in_xi": true,
-            "is_captain": false,
-            "is_vice": false
-          },
-          {
             "player_name": "Dominic Calvert-Lewin",
             "club": "Leeds",
             "in_xi": true,
@@ -2185,14 +2057,21 @@
             "is_vice": false
           },
           {
-            "player_name": "Luka Vu\u0161kovi\u0107",
+            "player_name": "Maxim De Cuyper",
             "club": "Brighton",
             "in_xi": true,
             "is_captain": false,
             "is_vice": false
           },
           {
-            "player_name": "Maxim De Cuyper",
+            "player_name": "Nicolas Jackson",
+            "club": "Aston Villa",
+            "in_xi": true,
+            "is_captain": false,
+            "is_vice": false
+          },
+          {
+            "player_name": "Pascal Gro\u00df",
             "club": "Brighton",
             "in_xi": true,
             "is_captain": false,
@@ -2201,13 +2080,6 @@
           {
             "player_name": "Zach Abbott",
             "club": "Nott'm Forest",
-            "in_xi": false,
-            "is_captain": false,
-            "is_vice": false
-          },
-          {
-            "player_name": "Zian Flemming",
-            "club": "Ipswich",
             "in_xi": false,
             "is_captain": false,
             "is_vice": false
@@ -2222,14 +2094,21 @@
           "transfers": [],
           "chip": "free_hit",
           "captain": "Dominic Calvert-Lewin",
-          "projected_points": 59.8,
+          "projected_points": 60.3,
           "band": [
-            43.9,
-            75.7
+            44.0,
+            76.7
           ],
-          "wildcard_gain": -21.6,
+          "wildcard_gain": -16.6,
           "wildcard_recommended": false,
           "squad": [
+            {
+              "player_name": "Abdoul Ouattara",
+              "club": "Ipswich",
+              "in_xi": false,
+              "is_captain": false,
+              "is_vice": false
+            },
             {
               "player_name": "Alex Palmer",
               "club": "Ipswich",
@@ -2273,13 +2152,6 @@
               "is_vice": false
             },
             {
-              "player_name": "Declan Rice",
-              "club": "Arsenal",
-              "in_xi": true,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
               "player_name": "Dominic Calvert-Lewin",
               "club": "Leeds",
               "in_xi": true,
@@ -2308,14 +2180,21 @@
               "is_vice": false
             },
             {
-              "player_name": "Luka Vu\u0161kovi\u0107",
+              "player_name": "Maxim De Cuyper",
               "club": "Brighton",
               "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
             {
-              "player_name": "Maxim De Cuyper",
+              "player_name": "Nicolas Jackson",
+              "club": "Aston Villa",
+              "in_xi": true,
+              "is_captain": false,
+              "is_vice": false
+            },
+            {
+              "player_name": "Pascal Gro\u00df",
               "club": "Brighton",
               "in_xi": true,
               "is_captain": false,
@@ -2324,13 +2203,6 @@
             {
               "player_name": "Zach Abbott",
               "club": "Nott'm Forest",
-              "in_xi": false,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Zian Flemming",
-              "club": "Ipswich",
               "in_xi": false,
               "is_captain": false,
               "is_vice": false
@@ -2345,17 +2217,17 @@
             {
               "out": "Bukayo Saka",
               "in": "Bryan Mbeumo",
-              "net": 25.19
+              "net": 25.39
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
-          "projected_points": 56.3,
+          "projected_points": 55.8,
           "band": [
-            39.9,
-            72.7
+            39.4,
+            72.2
           ],
-          "wildcard_gain": -18.0,
+          "wildcard_gain": -23.4,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -2375,7 +2247,7 @@
             {
               "player_name": "Bobby Thomas",
               "club": "Coventry City",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
@@ -2410,7 +2282,7 @@
             {
               "player_name": "Gonzalo Garc\u00eda",
               "club": "Fulham",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -2424,14 +2296,14 @@
             {
               "player_name": "Josh King",
               "club": "Fulham",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
             {
               "player_name": "Leif Davis",
               "club": "Ipswich",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -2468,12 +2340,12 @@
         {
           "gameweek": 14,
           "action": "transfer",
-          "summary": "Bobby Thomas \u2192 Maxim De Cuyper",
+          "summary": "Leif Davis \u2192 Maxim De Cuyper",
           "transfers": [
             {
-              "out": "Bobby Thomas",
+              "out": "Leif Davis",
               "in": "Maxim De Cuyper",
-              "net": 14.55
+              "net": 14.05
             }
           ],
           "chip": null,
@@ -2481,9 +2353,9 @@
           "projected_points": 57.0,
           "band": [
             41.0,
-            73.0
+            72.9
           ],
-          "wildcard_gain": -37.8,
+          "wildcard_gain": -30.5,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -2499,6 +2371,13 @@
               "in_xi": true,
               "is_captain": false,
               "is_vice": true
+            },
+            {
+              "player_name": "Bobby Thomas",
+              "club": "Coventry City",
+              "in_xi": false,
+              "is_captain": false,
+              "is_vice": false
             },
             {
               "player_name": "Bryan Mbeumo",
@@ -2531,7 +2410,7 @@
             {
               "player_name": "Gonzalo Garc\u00eda",
               "club": "Fulham",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -2545,14 +2424,7 @@
             {
               "player_name": "Josh King",
               "club": "Fulham",
-              "in_xi": false,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
-              "player_name": "Leif Davis",
-              "club": "Ipswich",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
@@ -2600,12 +2472,12 @@
           "transfers": [],
           "chip": "bench_boost",
           "captain": "Erling Haaland",
-          "projected_points": 70.7,
+          "projected_points": 70.8,
           "band": [
-            53.6,
-            87.7
+            53.5,
+            88.0
           ],
-          "wildcard_gain": -48.0,
+          "wildcard_gain": -40.9,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -2621,6 +2493,13 @@
               "in_xi": true,
               "is_captain": false,
               "is_vice": true
+            },
+            {
+              "player_name": "Bobby Thomas",
+              "club": "Coventry City",
+              "in_xi": false,
+              "is_captain": false,
+              "is_vice": false
             },
             {
               "player_name": "Bryan Mbeumo",
@@ -2672,13 +2551,6 @@
               "is_vice": false
             },
             {
-              "player_name": "Leif Davis",
-              "club": "Ipswich",
-              "in_xi": false,
-              "is_captain": false,
-              "is_vice": false
-            },
-            {
               "player_name": "Maxim De Cuyper",
               "club": "Brighton",
               "in_xi": true,
@@ -2718,22 +2590,22 @@
         {
           "gameweek": 16,
           "action": "transfer",
-          "summary": "Leif Davis \u2192 Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
+          "summary": "Bobby Thomas \u2192 Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
           "transfers": [
             {
-              "out": "Leif Davis",
+              "out": "Bobby Thomas",
               "in": "Ant\u00f3nio Jo\u00e3o Pereira de Albuquerque Tavares da Silva",
-              "net": 7.42
+              "net": 7.83
             }
           ],
           "chip": null,
           "captain": "Erling Haaland",
-          "projected_points": 59.7,
+          "projected_points": 59.9,
           "band": [
-            43.4,
-            76.1
+            43.6,
+            76.3
           ],
-          "wildcard_gain": -50.0,
+          "wildcard_gain": -40.5,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -2851,17 +2723,17 @@
             {
               "out": "Josh King",
               "in": "James McAtee",
-              "net": 2.76
+              "net": 3.09
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
-          "projected_points": 59.0,
+          "projected_points": 59.1,
           "band": [
             42.6,
-            75.4
+            75.5
           ],
-          "wildcard_gain": -56.3,
+          "wildcard_gain": -56.2,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -2979,17 +2851,17 @@
             {
               "out": "Morgan Rogers",
               "in": "Marcus Tavernier",
-              "net": 2.48
+              "net": 2.99
             }
           ],
           "chip": null,
           "captain": "Cole Palmer",
-          "projected_points": 59.0,
+          "projected_points": 59.1,
           "band": [
-            42.3,
-            75.6
+            42.5,
+            75.7
           ],
-          "wildcard_gain": -62.4,
+          "wildcard_gain": -55.6,
           "wildcard_recommended": false,
           "squad": [
             {
@@ -3051,7 +2923,7 @@
             {
               "player_name": "James Justin",
               "club": "Leeds",
-              "in_xi": false,
+              "in_xi": true,
               "is_captain": false,
               "is_vice": false
             },
@@ -3079,7 +2951,7 @@
             {
               "player_name": "Pascal Gro\u00df",
               "club": "Brighton",
-              "in_xi": true,
+              "in_xi": false,
               "is_captain": false,
               "is_vice": false
             },
@@ -3100,9 +2972,9 @@
           ]
         }
       ],
-      "generated_at": "2026-11-21T12:12:31.814799+00:00",
+      "generated_at": "2026-11-22T12:24:32.579532+00:00",
       "current_event": 11,
-      "elapsed_seconds": 390.5
+      "elapsed_seconds": 374.5
     }
   }
 }
