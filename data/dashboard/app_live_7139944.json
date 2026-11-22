@@ -4,7 +4,7 @@
   "gameweek": 11,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 23,
+  "live_total": 27,
   "players": [
     {
       "player_id": 496,
@@ -58,9 +58,9 @@
     {
       "player_id": 124,
       "web_name": "Gro\u00df",
-      "live_points": 0,
+      "live_points": 4,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 4
     },
     {
       "player_id": 464,
@@ -86,8 +86,8 @@
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 73.0,
-    "estimated_rank": 3055216
+    "percentile": 28.0,
+    "estimated_rank": 8150230
   },
   "fixtures": [
     {
@@ -207,6 +207,40 @@
         "short_name": "ARS",
         "name": "Arsenal",
         "score": 2
+      }
+    },
+    {
+      "id": 106,
+      "kickoff": "2026-11-22T14:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "HUL",
+        "name": "Hull City",
+        "score": 2
+      },
+      "away": {
+        "short_name": "BHA",
+        "name": "Brighton",
+        "score": 0
+      }
+    },
+    {
+      "id": 107,
+      "kickoff": "2026-11-22T16:30:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "LIV",
+        "name": "Liverpool",
+        "score": 4
+      },
+      "away": {
+        "short_name": "MUN",
+        "name": "Man Utd",
+        "score": 0
       }
     }
   ],
@@ -380,6 +414,22 @@
       "fixture_id": 108
     },
     {
+      "player_id": 286,
+      "web_name": "Belloumi",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 106
+    },
+    {
+      "player_id": 295,
+      "web_name": "McBurnie",
+      "team": 11,
+      "event": "goal",
+      "count": 2,
+      "fixture_id": 106
+    },
+    {
       "player_id": 330,
       "web_name": "Bogle",
       "team": 13,
@@ -426,6 +476,62 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 104
+    },
+    {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 107
+    },
+    {
+      "player_id": 366,
+      "web_name": "Wirtz",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 107
+    },
+    {
+      "player_id": 368,
+      "web_name": "Szoboszlai",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 107
+    },
+    {
+      "player_id": 369,
+      "web_name": "Ngumoha",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 107
+    },
+    {
+      "player_id": 369,
+      "web_name": "Ngumoha",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 107
+    },
+    {
+      "player_id": 377,
+      "web_name": "Munoz",
+      "team": 14,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 107
+    },
+    {
+      "player_id": 379,
+      "web_name": "Isak",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 107
     },
     {
       "player_id": 445,
@@ -492,6 +598,14 @@
       "fixture_id": 110
     },
     {
+      "player_id": 589,
+      "web_name": "Gourna-Douath",
+      "team": 11,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 106
+    },
+    {
       "player_id": 601,
       "web_name": "Williams-Barnett",
       "team": 19,
@@ -506,7 +620,15 @@
       "event": "assist",
       "count": 1,
       "fixture_id": 110
+    },
+    {
+      "player_id": 627,
+      "web_name": "Barcola",
+      "team": 14,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 107
     }
   ],
-  "generated_at": "2026-11-21T23:01:35.850193+00:00"
+  "generated_at": "2026-11-22T19:07:03.153617+00:00"
 }
