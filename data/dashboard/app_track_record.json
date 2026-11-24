@@ -535,14 +535,14 @@
   "parameters_still_invented": 53,
   "planner_decision_accuracy": {
     "ready": true,
-    "n_realized": 16,
+    "n_realized": 18,
     "min_gameweeks": 8,
     "n_uncounterfactualable_weeks": 2,
-    "mean_point_delta_if_followed": 1.0,
-    "total_point_delta_if_followed": 16,
+    "mean_point_delta_if_followed": 0.78,
+    "total_point_delta_if_followed": 14,
     "n_recommendation_would_have_scored_more": 7,
-    "n_actual_scored_more": 5,
-    "n_tied": 4,
+    "n_actual_scored_more": 6,
+    "n_tied": 5,
     "by_gameweek": [
       {
         "gameweek": 3,
@@ -671,10 +671,26 @@
         "actual": 54,
         "if_followed": 54,
         "delta": 0
+      },
+      {
+        "gameweek": 11,
+        "entry_id": 1305242,
+        "recommended_action": "transfer_now",
+        "actual": 25,
+        "if_followed": 25,
+        "delta": 0
+      },
+      {
+        "gameweek": 11,
+        "entry_id": 7139944,
+        "recommended_action": "transfer_now",
+        "actual": 33,
+        "if_followed": 31,
+        "delta": -2
       }
     ]
   },
-  "generated_at": "2026-11-24T12:27:23.215391",
+  "generated_at": "2026-11-24T17:12:32.412153",
   "transparency_log": {
     "backtest": {
       "n_gameweek_steps": 75,
@@ -890,7 +906,7 @@
       {
         "season": "2026-2027",
         "gameweek": 3,
-        "total_projected_ep": 64.40340758280252,
+        "total_projected_ep": 64.5786945813793,
         "captain_name": "Erling Haaland",
         "squad_size": 15,
         "in_xi_count": 11
@@ -912,15 +928,58 @@
         "in_xi_count": 11
       }
     ],
-    "latest_diff": null,
+    "latest_diff": {
+      "has_previous": true,
+      "previous_gameweek": 2,
+      "current_gameweek": 3,
+      "squad_changes": {
+        "in": [
+          "Gabriel dos Santos Magalh\u00e3es",
+          "Martin \u00d8degaard",
+          "Alex Palmer",
+          "Jacob Greaves",
+          "Caoimhin Kelleher",
+          "Virgil van Dijk",
+          "Oscar Bobb",
+          "Erling Haaland",
+          "Harry Amass",
+          "Alexander Isak",
+          "Maxim De Cuyper",
+          "Jo\u00e9l Drakes-Thomas",
+          "Thierno Barry",
+          "Florian Wirtz"
+        ],
+        "out": [
+          "Nathan Collins",
+          "Yankuba Minteh",
+          "Ollie Watkins",
+          "Will Dennis",
+          "Mois\u00e9s Caicedo Corozo",
+          "Maxence Lacroix",
+          "Bernd Leno",
+          "William Osula",
+          "Elliot Anderson",
+          "Marcos Senesi Bar\u00f3n",
+          "Adrien Truffert",
+          "Ethan Ampadu",
+          "Igor Jesus Maciel da Cruz",
+          "Omar Alderete"
+        ]
+      },
+      "captain_changed": true,
+      "previous_captain": "Igor Jesus Maciel da Cruz",
+      "current_captain": "Erling Haaland",
+      "total_projected_ep_delta": 21.866120927711734,
+      "newly_doubtful_flags": []
+    },
     "provenance": {
       "data_asof": "2026-11-24",
       "evidence_workbook": {
         "sha256": "acecb7a71e0d4758fdce72e2b76ea7eea27edec08fcbb78dd832b704a47da927",
         "size_bytes": 695705
       },
-      "fpl_analyser_commit_sha": "8d8543ab9babe491a15dafb1fd52204689d38125",
-      "fpl_core_insights_commit_sha": "9ed02e67bb592f0d7bdf393abcf21326dbb5c76e",
+      "fpl_analyser_commit_sha": "687d4f0b4b72dfe83cffc4076194c796ea4b8463",
+      "fpl_core_insights_commit_sha": "dad371a5532d9f771ece6e324c56dbc26136677d",
       "installed_packages": {
         "duckdb": "1.5.5",
         "numpy": "2.4.6",
@@ -932,7 +991,7 @@
         "requests": "2.34.2",
         "scipy": "1.17.1"
       },
-      "recorded_at": "2026-11-24T03:31:59.056048+00:00",
+      "recorded_at": "2026-11-24T16:58:56.293773+00:00",
       "research_pull_workbook": {
         "sha256": "fe2582b0f3ab9a2fcae1197c72b028db137117879b77c3949248991e8bb950a2",
         "size_bytes": 26584
