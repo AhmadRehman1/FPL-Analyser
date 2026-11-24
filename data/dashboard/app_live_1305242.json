@@ -4,7 +4,7 @@
   "gameweek": 11,
   "schema_version": 2,
   "is_live": true,
-  "live_total": 17,
+  "live_total": 19,
   "players": [
     {
       "player_id": 109,
@@ -79,15 +79,15 @@
     {
       "player_id": 249,
       "web_name": "Barry",
-      "live_points": 0,
+      "live_points": 2,
       "provisional_bonus": 0,
-      "contribution": 0
+      "contribution": 2
     }
   ],
   "rank_estimate": {
     "sample_size": 100,
-    "percentile": 1.5,
-    "estimated_rank": 11151028
+    "percentile": 2.0,
+    "estimated_rank": 11098280
   },
   "fixtures": [
     {
@@ -242,6 +242,23 @@
         "name": "Man Utd",
         "score": 0
       }
+    },
+    {
+      "id": 103,
+      "kickoff": "2026-11-23T20:00:00Z",
+      "minute": null,
+      "started": true,
+      "finished": false,
+      "home": {
+        "short_name": "BRE",
+        "name": "Brentford",
+        "score": 4
+      },
+      "away": {
+        "short_name": "EVE",
+        "name": "Everton",
+        "score": 0
+      }
     }
   ],
   "events": [
@@ -316,6 +333,46 @@
       "event": "goal",
       "count": 1,
       "fixture_id": 102
+    },
+    {
+      "player_id": 86,
+      "web_name": "Lewis-Potter",
+      "team": 4,
+      "event": "goal",
+      "count": 2,
+      "fixture_id": 103
+    },
+    {
+      "player_id": 97,
+      "web_name": "Jensen",
+      "team": 4,
+      "event": "assist",
+      "count": 1,
+      "fixture_id": 103
+    },
+    {
+      "player_id": 98,
+      "web_name": "Janelt",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 103
+    },
+    {
+      "player_id": 100,
+      "web_name": "Carvalho",
+      "team": 4,
+      "event": "goal",
+      "count": 1,
+      "fixture_id": 103
+    },
+    {
+      "player_id": 105,
+      "web_name": "Anthony",
+      "team": 4,
+      "event": "assist",
+      "count": 2,
+      "fixture_id": 103
     },
     {
       "player_id": 170,
@@ -630,5 +687,5 @@
       "fixture_id": 107
     }
   ],
-  "generated_at": "2026-11-23T00:15:38.578708+00:00"
+  "generated_at": "2026-11-24T03:52:23.300404+00:00"
 }
