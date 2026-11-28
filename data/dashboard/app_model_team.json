@@ -1,7 +1,7 @@
 {
   "ready": true,
   "season": "2026-2027",
-  "current_gameweek": 11,
+  "current_gameweek": 12,
   "n_gameweeks_scored": 11,
   "n_gameweeks_simulated": 1,
   "total_realized_points": 579.0,
@@ -165,6 +165,20 @@
       "delta_vs_field": 4.0,
       "cumulative_points": 579.0,
       "cumulative_vs_field": -19.0
+    },
+    {
+      "gameweek": 12,
+      "simulated": false,
+      "action": "transfer",
+      "action_detail": "player_james_tarkowski -> player_virgil_van_dijk (net +22.29)",
+      "projected_points": 53.8,
+      "realized_points": 2.0,
+      "hit_cost": 0.0,
+      "provisional": true,
+      "field_average": null,
+      "delta_vs_field": null,
+      "cumulative_points": null,
+      "cumulative_vs_field": null
     }
   ],
   "free_hit_audit": {
@@ -213,7 +227,7 @@
     {
       "name": "Dominic Calvert-Lewin",
       "in_xi": true,
-      "is_captain": false
+      "is_captain": true
     },
     {
       "name": "Elliot Anderson",
@@ -231,11 +245,6 @@
       "is_captain": false
     },
     {
-      "name": "James Tarkowski",
-      "in_xi": true,
-      "is_captain": false
-    },
-    {
       "name": "Marc Gu\u00e9hi",
       "in_xi": false,
       "is_captain": false
@@ -243,7 +252,7 @@
     {
       "name": "Maxim De Cuyper",
       "in_xi": true,
-      "is_captain": true
+      "is_captain": false
     },
     {
       "name": "Morgan Rogers",
@@ -254,13 +263,18 @@
       "name": "Nicolas Jackson",
       "in_xi": true,
       "is_captain": false
+    },
+    {
+      "name": "Virgil van Dijk",
+      "in_xi": true,
+      "is_captain": false
     }
   ],
   "next_decision": {
-    "gameweek": 11,
+    "gameweek": 12,
     "action": "transfer",
-    "detail": "player_igor_thiago_nascimento_rodrigues -> player_nicolas_jackson (net +21.02)"
+    "detail": "player_james_tarkowski -> player_virgil_van_dijk (net +22.29)"
   },
   "disclaimer": "GW1-2 backfilled by simulation with a per-gameweek data cutoff (nothing looks ahead); every gameweek since is a live, pre-deadline decision committed to the repo before kickoff. Realised FPL points; the FPL overall average is the field benchmark. A gameweek still in progress is shown as provisional and kept out of the cumulative totals until it is final.",
-  "generated_at": "2026-11-27T16:21:58.403594+00:00"
+  "generated_at": "2026-11-28T00:58:47.582551+00:00"
 }

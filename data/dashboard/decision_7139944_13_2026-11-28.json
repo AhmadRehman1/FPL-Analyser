@@ -1,0 +1,33 @@
+{
+  "action": "bench_boost",
+  "action_display": "bench_boost",
+  "data_asof": "2026-11-28",
+  "downside_ci": [
+    6.245445955455889,
+    105.4888117908772
+  ],
+  "entry_id": 7139944,
+  "ep_lift": 11.976588637169844,
+  "gw": 13,
+  "price_hint": null,
+  "provenance": {
+    "data_asof": "2026-11-28",
+    "model_version": "ep_v2/un_v2/plan_run3"
+  },
+  "runner_up": null,
+  "sensitivity": [
+    {
+      "delta_ep": 8.413700596700597,
+      "if_condition": "player_cole_palmer ruled out",
+      "if_condition_display": "Cole Palmer ruled out",
+      "then_action": "free_hit",
+      "then_action_display": "free_hit"
+    }
+  ],
+  "swaps": [],
+  "track_record": {
+    "optimal_in_n_of_71": null,
+    "pattern": "action_kind:bench_boost",
+    "sample_size": 0
+  }
+}
