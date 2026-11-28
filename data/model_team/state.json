@@ -1,6 +1,6 @@
 {
   "season": "2026-2027",
-  "current_gameweek": 11,
+  "current_gameweek": 12,
   "ledger": [
     {
       "gameweek": 1,
@@ -1064,6 +1064,122 @@
       "entry_label": "FPL Quant Model Team",
       "simulated": false,
       "realized_final": true,
+      "scoring_version": 2
+    },
+    {
+      "gameweek": 12,
+      "projected_points": 53.8,
+      "band_low": 39.16,
+      "band_high": 68.45,
+      "action": "transfer",
+      "action_detail": "player_james_tarkowski -> player_virgil_van_dijk (net +22.29)",
+      "wildcard_gain": -22.28,
+      "wildcard_recommended": false,
+      "squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_marc_guehi",
+        "player_maxim_de_cuyper",
+        "player_morgan_rogers",
+        "player_nicolas_jackson",
+        "player_virgil_van_dijk"
+      ],
+      "xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_maxim_de_cuyper",
+        "player_morgan_rogers",
+        "player_nicolas_jackson",
+        "player_virgil_van_dijk"
+      ],
+      "formation_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_maxim_de_cuyper",
+        "player_morgan_rogers",
+        "player_nicolas_jackson",
+        "player_virgil_van_dijk"
+      ],
+      "captain_uid": "player_dominic_calvert_lewin",
+      "vice_captain_uid": "player_maxim_de_cuyper",
+      "realized_points": 2.0,
+      "current_squad_horizon_value": 264.45,
+      "chips_used": [
+        "bench_boost",
+        "free_hit",
+        "triple_captain"
+      ],
+      "free_hit_gain": 8.42,
+      "free_hit_recommended": true,
+      "free_hit_threshold": null,
+      "free_hit_fresh_run_id": null,
+      "carryforward_squad_uids": [
+        "player_bart_verbruggen",
+        "player_bernd_leno",
+        "player_bruno_borges_fernandes",
+        "player_cody_gakpo",
+        "player_dara_o_shea",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_marc_guehi",
+        "player_maxim_de_cuyper",
+        "player_morgan_rogers",
+        "player_nicolas_jackson",
+        "player_virgil_van_dijk"
+      ],
+      "carryforward_xi_uids": [
+        "player_bart_verbruggen",
+        "player_bruno_borges_fernandes",
+        "player_declan_rice",
+        "player_dominic_calvert_lewin",
+        "player_elliot_anderson",
+        "player_ethan_ampadu",
+        "player_gabriel_dos_santos_magalhaes",
+        "player_maxim_de_cuyper",
+        "player_morgan_rogers",
+        "player_nicolas_jackson",
+        "player_virgil_van_dijk"
+      ],
+      "carryforward_captain_uid": "player_dominic_calvert_lewin",
+      "carryforward_vice_captain_uid": "player_maxim_de_cuyper",
+      "transfers": [
+        {
+          "out_uid": "player_james_tarkowski",
+          "in_uid": "player_virgil_van_dijk",
+          "net": 22.29
+        }
+      ],
+      "bench_order": {
+        "player_bernd_leno": 1,
+        "player_dara_o_shea": 2,
+        "player_marc_guehi": 3,
+        "player_cody_gakpo": 4
+      },
+      "hit_cost": 0.0,
+      "entry_label": "FPL Quant Model Team",
+      "simulated": false,
+      "realized_final": false,
       "scoring_version": 2
     }
   ],
